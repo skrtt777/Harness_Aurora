@@ -116,3 +116,11 @@ Este arquivo registra decisões, alterações e testes para manter o contexto de
 - O instalador verifica Node.js, npm e Codex CLI, copia o projeto para `%LOCALAPPDATA%\AI-Harness`, instala dependências, executa o build e cria atalho na área de trabalho.
 - Criado desinstalador em `installer/Uninstall-AIHarness.ps1`, sem remover histórico do navegador.
 - O repositório Git local será inicializado nesta etapa; o push depende da URL do repositório GitHub e da autenticação do usuário.
+
+## 2026-09-16 — Fluxo visual de pensamento
+
+- A rede de relações passou a ficar visível em toda a cena, com curvas espaciais entre memórias relacionadas.
+- Adicionados pulsos animados em uma amostra de conexões e em todas as relações diretas da memória selecionada.
+- Neurônios acessados agora exibem emissividade quente, halo pulsante e alteração de escala; a seleção reduz a intensidade dos demais.
+- No modo demonstrativo, uma sequência local percorre os registros para ilustrar atividade; eventos reais podem alimentar `memoryAccess` pela API.
+- Build frontend validado novamente com 618 módulos transformados. A captura visual foi conferida no navegador local em 16/09/2026.
