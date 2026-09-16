@@ -24,8 +24,7 @@ Entregar uma aplicação instalável localmente que permita:
 - **API:** Fastify ou Express.
 - **Banco:** SQLite.
 - **Integrações:** adaptadores com interface comum.
-- **Instalação e atualização inicial:** Pinokio.
-- **Empacotamento desktop posterior:** Tauri.
+- **Instalação, atualização e empacotamento desktop:** Electron + electron-builder + electron-updater (decisão de 2026-09-16, substitui o plano original de Pinokio/Tauri — um único empacotador cobre instalador, app desktop e auto-update de uma vez, sem depender de um app externo pra rodar o launcher).
 
 ## 4. Fases de execução
 
@@ -95,39 +94,27 @@ Entregar uma aplicação instalável localmente que permita:
 
 **Concluída quando:** o usuário pode usar somente Codex ou montar um fluxo com vários agentes pela mesma interface.
 
-### Fase 5 — Launcher instalável
+### Fase 5 + 6 — Launcher instalável e aplicativo desktop (unificadas, concluídas em 2026-09-16)
 
-**Objetivo:** facilitar instalação e manutenção local.
+**Objetivo original:** facilitar instalação/manutenção local (Fase 5, via Pinokio) e depois distribuir como app desktop tradicional (Fase 6, via Tauri), em dois passos separados.
 
-- Criar launcher Pinokio.
-- Implementar `install.js`.
-- Implementar `start.js`.
-- Implementar `update.js`.
-- Implementar `reset.js`.
-- Criar `pinokio.js` com menus dinâmicos.
-- Criar `pinokio.json` e `README.md`.
-- Testar instalação a partir de um ambiente limpo.
+**O que foi feito de fato:** as duas fases foram resolvidas de uma vez com Electron + `electron-builder` + `electron-updater`, sem Pinokio nem Tauri — ver `PROJECT_LOG.md` (2026-09-16, "App Electron: instalador único, sem terminal"). Também trocado `better-sqlite3` por `node:sqlite` (embutido no Node) nessa mesma rodada, eliminando a exigência de Python/Visual Studio Build Tools para instalar.
 
-**Concluída quando:** uma pessoa consegue instalar, iniciar, atualizar e resetar o app sem executar passos técnicos manualmente.
+- [x] App inicia sem terminal visível (janela Electron aponta pro backend local).
+- [x] Instalador Windows (NSIS via `electron-builder`, sem exigir admin).
+- [x] Ícone/atalho de menu iniciar e desktop (gerado pelo instalador).
+- [x] Atualização automática via `electron-updater` contra GitHub Releases.
+- [ ] Ícone customizado do app (hoje usa o ícone padrão do electron-builder).
+- [ ] Publicar a primeira release no GitHub para o auto-update ter o que buscar.
 
-### Fase 6 — Aplicativo desktop
-
-**Objetivo:** distribuir o projeto como aplicativo tradicional.
-
-- Integrar a interface local ao Tauri.
-- Criar instalador para Windows.
-- Criar ícone, atalhos e armazenamento adequado de configurações.
-- Adicionar verificação de novas versões.
-- Oferecer atualização automática ou botão de atualização.
-
-**Concluída quando:** o usuário consegue instalar o app como um programa comum no computador.
+**Concluída quando:** o usuário consegue instalar o app como um programa comum no computador, sem passos técnicos manuais — feito, pendente apenas a primeira publicação de release para o auto-update funcionar de ponta a ponta.
 
 ## 5. Ordem recomendada do primeiro ciclo
 
 1. Criar a estrutura do projeto.
 2. Fazer o chat individual funcionar com Codex.
 3. Adicionar histórico local.
-4. Criar o launcher Pinokio.
+4. Empacotar com Electron (instalador + atualização automática).
 5. Testar instalação e atualização.
 6. Adicionar um segundo provedor.
 7. Implementar comparação entre agentes.
@@ -167,6 +154,6 @@ Construir a **Fase 0 e a Fase 1**, entregando um protótipo local com:
 - [x] Interface de chat individual.
 - [x] Configuração segura por variável de ambiente.
 - [x] Testes de configuração e endpoint de saúde.
-- [ ] Persistência do histórico.
-- [ ] Launcher Pinokio.
-- [ ] Validação com chamada real à API.
+- [x] Persistência do histórico (SQLite via `node:sqlite`).
+- [x] Empacotamento desktop via Electron (substitui o launcher Pinokio planejado).
+- [x] Validação com chamada real ao Codex CLI e extração automática de memória (2026-09-16).

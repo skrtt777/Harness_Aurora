@@ -1,21 +1,61 @@
 {
   "name": "ai-harness",
+  "productName": "Harness Aurora",
   "version": "0.1.0",
   "private": true,
   "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node app/server.js",
     "test": "node --test test/*.test.js",
     "check": "node --check app/server.js",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "test:memory": "npm --prefix frontend test"
+    "test:memory": "npm --prefix frontend test",
+    "electron:start": "electron .",
+    "electron:dev": "concurrently -k -n backend,frontend,electron \"npm:start\" \"npm:frontend:dev\" \"npm:electron:wait\"",
+    "electron:wait": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
+    "dist": "npm run frontend:build && electron-builder"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5.0"
   },
-  "dependencies": {
-    "better-sqlite3": "^11.8.1"
+  "build": {
+    "appId": "com.harnessaurora.app",
+    "productName": "Harness Aurora",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app/**/*",
+      "!app/data/**",
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "skrtt777",
+        "repo": "Harness_Aurora"
+      }
+    ]
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
+    "wait-on": "^9.1.0"
   }
 }

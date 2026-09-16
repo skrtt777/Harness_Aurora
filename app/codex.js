@@ -44,12 +44,16 @@ export function parseCodexOutput(stdout) {
 export async function runCodex(prompt, env = process.env) {
   try {
     const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", prompt];
-    const result = await execFileAsync(env.CODEX_BIN || "codex", args, {
+    const pending = execFileAsync(env.CODEX_BIN || "codex", args, {
       cwd: env.CODEX_CWD || process.cwd(),
       windowsHide: true,
       maxBuffer: 8 * 1024 * 1024,
       timeout: Number(env.CODEX_TIMEOUT_MS || 120_000),
     });
+    // execFile never sends EOF on the child's stdin; without this, `codex exec`
+    // waits forever for stdin input that will never arrive and the request hangs.
+    pending.child.stdin.end();
+    const result = await pending;
     return { ok: true, status: 200, ...parseCodexOutput(result.stdout) };
   } catch (error) {
     const detail = error.code === "ENOENT"

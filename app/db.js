@@ -1,4 +1,4 @@
-import DatabaseConstructor from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { mkdir, readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -70,19 +70,25 @@ function migrateLegacyMemory(db) {
     const now = new Date().toISOString();
     const insert = db.prepare(`
       INSERT INTO memories (id, scope, project_id, conversation_id, title, content, tags, kind, source, created_at, updated_at)
-      VALUES (@id, 'global', NULL, NULL, @title, @content, '[]', 'imported', 'Migrado de memory.json', @created_at, @created_at)
+      VALUES (?, 'global', NULL, NULL, ?, ?, '[]', 'imported', 'Migrado de memory.json', ?, ?)
     `);
-    const insertMany = db.transaction((items) => {
-      for (const node of items) {
-        insert.run({
-          id: `legacy-${node.id || Math.random().toString(36).slice(2)}`,
-          title: String(node.label || node.title || "Memória importada"),
-          content: String(node.content || ""),
-          created_at: node.createdAt || now,
-        });
+    db.exec("BEGIN");
+    try {
+      for (const node of nodes) {
+        const createdAt = node.createdAt || now;
+        insert.run(
+          `legacy-${node.id || Math.random().toString(36).slice(2)}`,
+          String(node.label || node.title || "Memória importada"),
+          String(node.content || ""),
+          createdAt,
+          createdAt
+        );
       }
-    });
-    insertMany(nodes);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   } catch {
     // A legacy file that cannot be parsed is skipped; nothing is destroyed.
   }
@@ -91,17 +97,17 @@ function migrateLegacyMemory(db) {
 export async function getDb() {
   if (instance) return instance;
   await mkdir(dataDir, { recursive: true });
-  instance = new DatabaseConstructor(dbFile);
-  instance.pragma("journal_mode = WAL");
-  instance.pragma("foreign_keys = ON");
+  instance = new DatabaseSync(dbFile);
+  instance.exec("PRAGMA journal_mode = WAL");
+  instance.exec("PRAGMA foreign_keys = ON");
   instance.exec(SCHEMA);
   migrateLegacyMemory(instance);
   return instance;
 }
 
 export function resetDbForTests(file) {
-  instance = new DatabaseConstructor(file || ":memory:");
-  instance.pragma("foreign_keys = ON");
+  instance = new DatabaseSync(file || ":memory:");
+  instance.exec("PRAGMA foreign_keys = ON");
   instance.exec(SCHEMA);
   return instance;
 }

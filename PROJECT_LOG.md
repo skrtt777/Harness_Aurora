@@ -225,3 +225,46 @@ O usuário autorizou trocar a extração de memória de síncrona (o chat espera
 - Validação: 5 testes de servidor, 6 testes de memória/grafo/geometria, sintaxe do servidor e build TypeScript/Vite passaram.
 - Limitação desta execução: política do navegador remoto bloqueou localhost e arquivo de prévia; visual, interações WebGL e FPS ainda precisam de validação no computador de destino.
 - A coleção importada no atlas é local ao navegador; a memória do backend usada pelo chat não foi alterada.
+
+## 2026-09-16 — Commit do trabalho pendente + correção de autoria git
+
+Sessão rodando diretamente na máquina do usuário (`C:\Users\abraao.souza\Harness`), não mais num sandbox de nuvem — primeira vez que isso acontece neste projeto.
+
+- Todo o trabalho da rodada anterior (reconstrução SQLite + chat + memória real + Atlas 3D conectado) estava commitado apenas no `PROJECT_LOG.md` mas nunca chegou a virar commit git de verdade nem foi enviado ao GitHub. Revisado arquivo por arquivo, removidas duas sobras órfãs que ninguém tinha apagado (`app/public/index.html` e `frontend/src/App.tsx`, ambos sem nenhuma referência no código atual) e commitado tudo (`dd95fd1`) + push pra `origin/main`.
+- E-mail do autor dos commits corrigido para `lucaspedral2010@gmail.com` (era um e-mail de trabalho autodetectado da máquina).
+
+## 2026-09-16 — App Electron: instalador único, sem terminal
+
+Pedido do usuário: a experiência de instalar/atualizar estava "complicando demais" pra um usuário comum (exigia Python + Visual Studio Build Tools só pra compilar o `better-sqlite3`, além de dois terminais/duas portas). Pediu algo do tipo "app em Chromium", fácil de instalar/atualizar/modificar. Confirmado explicitamente: partir direto para empacotamento Electron nesta mesma rodada, não só remover a dependência nativa.
+
+**Passo 1 — trocado `better-sqlite3` por `node:sqlite`** (módulo embutido no Node, sem compilação):
+- `app/db.js`: `DatabaseSync` no lugar do construtor do `better-sqlite3`; `.pragma()` virou `.exec("PRAGMA ...")`; o único uso de `.transaction()` (migração best-effort do `memory.json` legado) virou `BEGIN`/`COMMIT` manual com parâmetros posicionais em vez de nomeados.
+- `app/store.js` não precisou de nenhuma mudança — já usava só `prepare().get()/.all()/.run()` com `?` posicional.
+- `better-sqlite3` removido do `package.json`; `npm install` na raiz agora é instantâneo (zero pacotes de produção, zero compilação nativa).
+- Confirmado que o Node embutido no Electron 44 (v24.21.0) também expõe `node:sqlite` sem flag nenhuma, antes de seguir pro passo 2.
+
+**Passo 2 — empacotado como app Electron:**
+- Novo `electron/main.js`: sobe o backend existente (`createServer()` de `app/server.js`, reaproveitado sem alterações) internamente, aponta `HARNESS_DB_FILE`/`CODEX_CWD` pra `app.getPath("userData")` antes de qualquer chamada ao banco/Codex, abre uma `BrowserWindow` só depois do servidor confirmar que subiu, mostra um aviso nativo (não bloqueante) se o `codex` CLI não for encontrado, e integra `electron-updater` checando releases do GitHub quando empacotado.
+- Como o frontend já fazia só fetch relativo (`/api/...`) e o backend já servia `frontend/dist` estaticamente, **não precisou mudar nada no frontend nem usar IPC/preload** — a janela do Electron simplesmente carrega `http://127.0.0.1:8787/`.
+- Novos scripts: `electron:start` (produção, aponta pro backend embutido), `electron:dev` (backend + Vite + Electron com hot-reload via `concurrently`/`wait-on`/`cross-env`), `dist` (gera o instalador com `electron-builder`, alvo NSIS, sem exigir admin, publicando em GitHub Releases do próprio repositório).
+- Removida a ferramentaria antiga, substituída pelo instalador único: `installer/` (PowerShell), `start-test.cmd`, `update.cmd`, `scripts/update.ps1`.
+- `ROADMAP.md` atualizado: as antigas Fase 5 (launcher Pinokio) e Fase 6 (Tauri) foram unificadas e marcadas como concluídas via Electron — desvio consciente do plano original, registrado no próprio roadmap.
+
+**Dois bugs reais encontrados e corrigidos durante a validação** (não introduzidos nesta rodada, só nunca tinham sido expostos porque ninguém tinha testado uma chamada real ao Codex CLI até hoje):
+1. `app/codex.js` chamava `execFile` sem nunca fechar o `stdin` do processo filho; o `codex exec` fica esperando input extra por `stdin` indefinidamente quando não é um terminal interativo, então **toda mensagem de chat travava até o timeout de 120s**. Corrigido fechando `pending.child.stdin.end()` logo após disparar a chamada (confirmado que `execFile` promisificado expõe `.child`, mas ignora silenciosamente uma opção `stdio` passada nas options — só fechar o stream manualmente resolve).
+2. `frontend/vite.config.ts` não fixava `server.host`, e o Vite nesta máquina só escuta em `::1` (IPv6) por padrão — `wait-on`/Electron apontando pra `127.0.0.1:5173` nunca conectavam. Corrigido com `server.host: '127.0.0.1'`, consistente com o resto do app.
+
+**Validação de ponta a ponta (primeira vez no histórico deste projeto, com Codex CLI real autenticado na máquina do usuário):**
+- `npm install`/`npm run check`/`npm test` (15/15) — sem nenhuma etapa de compilação nativa.
+- `npm run frontend:build` — 625 módulos, inalterado.
+- `npm run electron:start`: janela real aberta ("Aurora · Memória 3D"), backend embutido respondendo em `127.0.0.1:8787`.
+- Mensagem real enviada ao Codex CLI autenticado: resposta em ~15s. Mensagem com fatos ("minha cor favorita é verde, meu cachorro se chama Thor") gerou duas memórias extraídas automaticamente e corretas. Pergunta de acompanhamento ("qual o nome do meu cachorro?") leu a memória certa (`memoryAccess`) e respondeu "Thor" — confirma leitura **e** escrita de memória funcionando de ponta a ponta pela primeira vez.
+- `npm run electron:dev`: backend + Vite + janela Electron com hot-reload, todos coordenados, janela real carregando o dev server.
+- Dados de teste (conversas/memórias criadas durante a validação, pastas `%APPDATA%\ai-harness` e `%APPDATA%\Harness Aurora`) removidos ao final para o primeiro uso real do usuário começar limpo.
+
+Pendências conhecidas desta rodada:
+
+- Ícone customizado do app ainda não existe — `electron-builder` usa o ícone padrão dele.
+- Nenhuma release foi publicada no GitHub ainda; o auto-update do `electron-updater` não tem o que buscar até a primeira `npm run dist` + publicação.
+- Bundle do Atlas 3D (`three`/`@react-three/fiber`/`@react-three/drei`) continua grande (874 kB no chunk `MemoryScene`) — candidato a `React.lazy()` numa fase futura, não afeta o fluxo principal de chat.
+- A "outra ideia" do usuário para o diferencial do harness (mencionada em 2026-09-16, ainda não compartilhada) continua em aberto.
