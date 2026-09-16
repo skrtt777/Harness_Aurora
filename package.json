@@ -1,0 +1,17 @@
+{
+  "name": "ai-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
+  "type": "module",
+  "scripts": {
+    "start": "node app/server.js",
+    "test": "node --test --test-isolation=none",
+    "check": "node --check app/server.js",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

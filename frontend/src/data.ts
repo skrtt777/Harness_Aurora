@@ -1,0 +1,15 @@
+export type MemoryScope = 'general' | 'project' | 'conversation';
+export type MemoryKind = 'context' | 'demo';
+export type RelationType = 'belonging' | 'thematic' | 'derivation' | 'correction';
+export type Memory = { id:string; title:string; content:string; scope:MemoryScope; kind:MemoryKind; project?:string; folder?:string; conversation?:string; source?:string; date?:string; tags:string[]; position:[number,number,number]; relations:string[]; relationTypes?:Record<string,RelationType> };
+
+const projects = ['Atlas', 'Orion', 'Nexus', 'Aurora', 'Helix'];
+const scopes: MemoryScope[] = ['general', 'project', 'conversation'];
+const topics = ['arquitetura', 'interface', 'agentes', 'memória', 'automação', 'qualidade', 'pesquisa', 'produto'];
+const hash = (value:string) => { let h=2166136261; for(const c of value) h=Math.imul(h^c.charCodeAt(0),16777619); return (h>>>0)/4294967295; };
+
+export function createDemoMemories(count=1000): Memory[] { return Array.from({length:count},(_,i)=>{ const id=`demo-${String(i+1).padStart(4,'0')}`, project=projects[i%projects.length], scope=scopes[i%scopes.length], topic=topics[i%topics.length]; const angle=hash(id)*Math.PI*2, radius=5+hash(id+'r')*19, y=(hash(id+'y')-.5)*15; return { id, title:`Registro demonstrativo ${String(i+1).padStart(4,'0')}`, content:`Exemplo sintético de ${topic} para validar a navegação da rede neural 3D.`, scope, kind:'demo', project:scope==='general'?undefined:project, folder:scope==='project'?`/workspace/${project.toLowerCase()}`:undefined, conversation:scope==='conversation'?`conversa-${(i%24)+1}`:undefined, source:'Demonstração sintética — não representa memória real', tags:[topic,project.toLowerCase()], position:[Math.cos(angle)*radius,y,Math.sin(angle)*radius], relations:[] }; }); }
+
+export function linkMemories(memories:Memory[]):Memory[] { const byProject=new Map<string,Memory[]>(); memories.forEach(m=>{ if(m.project){ const list=byProject.get(m.project)||[]; list.push(m); byProject.set(m.project,list); }}); return memories.map((m,i)=>{ const group=m.project?byProject.get(m.project)||[]:[]; const relations=group.filter(n=>n.id!==m.id).slice(0,2).map(n=>n.id); if(i>0 && i%7===0) relations.push(memories[i-1].id); return {...m,relations,relationTypes:Object.fromEntries(relations.map((id,j)=>[id,j%2?'thematic':'belonging']))}; }); }
+
+export function importMemories(raw:unknown):Memory[] { if(!Array.isArray(raw)) throw new Error('O JSON deve conter uma lista de memórias.'); return raw.map((value:any,index)=>({ id:String(value.id||`import-${index+1}`), title:String(value.title||value.label||`Memória importada ${index+1}`), content:String(value.content||''), scope:value.scope||'general', kind:value.kind||'context', project:value.project, folder:value.folder, conversation:value.conversation, source:value.source||'Importado pelo usuário', date:value.date, tags:Array.isArray(value.tags)?value.tags.map(String):[], position:Array.isArray(value.position)?value.position.map(Number).slice(0,3) as [number,number,number]:[0,0,0], relations:Array.isArray(value.relations)?value.relations.map(String):[], relationTypes:value.relationTypes||{} })); }
