@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node app/server.js",
-    "test": "node --test --test-isolation=none",
+    "test": "node --test --test-isolation=none test/*.test.js",
     "check": "node --check app/server.js",
     "frontend:dev": "npm --prefix frontend run dev",
-    "frontend:build": "npm --prefix frontend run build"
+    "frontend:build": "npm --prefix frontend run build",
+    "test:memory": "npm --prefix frontend test"
   },
   "engines": {
     "node": ">=20"

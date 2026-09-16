@@ -131,3 +131,18 @@ Este arquivo registra decisões, alterações e testes para manter o contexto de
 - Adicionadas espinhas sinápticas na inspeção, materiais CAD wireframe reutilizados e eixos técnicos locais no neurônio selecionado.
 - Mantida a otimização por nível de detalhe: visão geral simplificada e geometria completa apenas no neurônio selecionado/inspecionado.
 - Build Vite validado com 618 módulos e cena conferida no navegador local após recarregamento, sem erros/avisos novos no console.
+
+
+## 2026-09-16 — Atlas neural CAD no Harness Aurora
+
+- Cena reformulada com núcleo visual Aurora, grupos coloridos por projeto e 1.000 memórias demonstrativas. Nenhum dado pessoal da referência visual foi incluído no código.
+- Geometria volumétrica determinística com soma, núcleo, dendritos em três níveis, axônio e terminações; seis variantes instanciadas na visão geral e geometrias detalhadas combinadas na inspeção.
+- Conexões agrupadas e pulsos instanciados, explicitamente identificados como ilustrativos. Sem rotação automática da coleção.
+- Foco da câmera por comando, com alvo do OrbitControls atualizado e interrupção por interação; enquadramento geral e vistas CAD; coordenadas e cotas reais da geometria em unidades da cena.
+- Busca, filtros, projetos, assuntos, lista paginada, relações de entrada/saída, rede de origem e atalhos conectados à interface.
+- Importador preserva relações/posições, valida IDs e referências, distribui registros sem posição e salva a coleção visual no navegador. Exportação completa em JSON.
+- Movimento reduzido, pausa com renderização sob demanda, qualidade gráfica e fallback para lista em falha WebGL.
+- Build 3D separado da interface; aviso de chunk 3D acima de 500 kB permanece.
+- Validação: 5 testes de servidor, 6 testes de memória/grafo/geometria, sintaxe do servidor e build TypeScript/Vite passaram.
+- Limitação desta execução: política do navegador remoto bloqueou localhost e arquivo de prévia; visual, interações WebGL e FPS ainda precisam de validação no computador de destino.
+- A coleção importada no atlas é local ao navegador; a memória do backend usada pelo chat não foi alterada.

@@ -1,27 +1,131 @@
-import { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
-import { Line, Sphere, Tube } from '@react-three/drei';
-import * as THREE from 'three';
-import type { Memory } from './data';
+import { useEffect, useMemo } from "react";
+import { Html } from "@react-three/drei";
+import * as THREE from "three";
+import { createMorphology, disposeMorphology } from "./morphology";
 
-const materialByKind = { demo: '#638aff', context: '#52d6c1' };
-type Strand={curve:THREE.CatmullRomCurve3;radius:number;role:'dendrite'|'axon'};
-function seed(id:string,n:number){let h=0;for(const c of id)h=(h*31+c.charCodeAt(0))%100000;return((h+n*97)%1000)/1000;}
-function direction(id:string,index:number,variant:number){return new THREE.Vector3(seed(id,index+variant)-.5,seed(id,index+variant+3)-.42,seed(id,index+variant+6)-.5).normalize();}
-function strand(start:THREE.Vector3,dir:THREE.Vector3,length:number,bend:number){const points=[start.clone()];const side=new THREE.Vector3(dir.z,-dir.x,dir.y).normalize();for(let i=1;i<=6;i++){const t=i/6;points.push(start.clone().add(dir.clone().multiplyScalar(length*t)).add(side.clone().multiplyScalar(Math.sin(t*Math.PI)*bend)).add(new THREE.Vector3(0,Math.sin(t*Math.PI*1.5)*bend*.25,0)));}return new THREE.CatmullRomCurve3(points);}
-function morphology(id:string,detail:boolean):Strand[]{const result:Strand[]=[];const count=detail?5:3;for(let i=0;i<count;i++){const dir=direction(id,i*11,0);const primary=strand(dir.clone().multiplyScalar(.23),dir,detail?1.65:1.25,.18+seed(id,i)*.16);result.push({curve:primary,radius:detail?.055:.035,role:'dendrite'});if(detail){for(let branchIndex=0;branchIndex<2;branchIndex++){const t=.4+branchIndex*.25;const anchor=primary.getPointAt(t);const childDir=direction(id,i*19+branchIndex,8).add(dir.clone().multiplyScalar(.5)).normalize();const secondary=strand(anchor,childDir,.72+seed(id,i+branchIndex)*.4,.12);result.push({curve:secondary,radius:.031,role:'dendrite'});const tip=secondary.getPointAt(.62);const tertiaryDir=direction(id,i*23+branchIndex,16).add(childDir).normalize();result.push({curve:strand(tip,tertiaryDir,.38,.07),radius:.017,role:'dendrite'});}}}const axonDir=new THREE.Vector3(seed(id,41)-.5,-.7,seed(id,43)-.5).normalize();result.push({curve:strand(axonDir.clone().multiplyScalar(.2),axonDir,detail?2.6:1.7,.16),radius:detail?.07:.04,role:'axon'});if(detail){for(let i=0;i<2;i++){const attach=.48+i*.2;const axon=result[result.length-1].curve;result.push({curve:strand(axon.getPointAt(attach),direction(id,51+i,2).add(axonDir).normalize(),.7,.1),radius:.022,role:'axon'});}}return result;}
-function somaGeometry(id:string,detail:boolean){const geometry=new THREE.IcosahedronGeometry(detail?.34:.25,detail?2:1);const position=geometry.attributes.position;for(let i=0;i<position.count;i++){const x=position.getX(i),y=position.getY(i),z=position.getZ(i);const n=1+(seed(id,i)*.16-.08)+Math.sin((x+y+z)*13+seed(id,90)*5)*.025;position.setXYZ(i,x*n*1.12,y*n*.94,z*n*.98);}position.needsUpdate=true;geometry.computeVertexNormals();return geometry;}
-
-export default function Neuron({memory,selected,dimmed,onSelect,onFocus,inspect,cad,wireframe,accessed}:{memory:Memory;selected:boolean;dimmed:boolean;onSelect:()=>void;onFocus:()=>void;inspect:boolean;cad:boolean;wireframe:boolean;accessed:boolean}){
-  const detail=selected||inspect;const color=materialByKind[memory.kind];const activity=useRef<THREE.Group>(null);const halo=useRef<THREE.Mesh>(null);const geometry=useMemo(()=>somaGeometry(memory.id,detail),[memory.id,detail]);const strands=useMemo(()=>morphology(memory.id,detail),[memory.id,detail]);const cadMaterial=useMemo(()=>new THREE.MeshBasicMaterial({color,wireframe:true,transparent:true,opacity:cad?.3:.08}),[color,cad]);const spines=useMemo(()=>detail?strands.filter(s=>s.role==='dendrite').flatMap((s,i)=>[.3,.56,.78].map((t,j)=>({key:`${i}-${j}`,point:s.curve.getPointAt(t),dir:s.curve.getTangentAt(t).normalize()}))):[],[strands,detail]);
-  useFrame(({clock})=>{if(!accessed)return;const wave=(Math.sin(clock.getElapsedTime()*4.5+seed(memory.id,8)*6.28)+1)/2;if(activity.current)activity.current.scale.setScalar(.97+wave*.06);if(halo.current){halo.current.rotation.z+=.012;const mat=halo.current.material as THREE.MeshBasicMaterial;mat.opacity=.14+wave*.3;}});
-  const opacity=dimmed?.16:1;
-  return <group position={memory.position} scale={selected?1.25:1} onClick={e=>{e.stopPropagation();onSelect();}} onDoubleClick={e=>{e.stopPropagation();onFocus();}}>
-    <group ref={activity}><mesh geometry={geometry}><meshStandardMaterial color={color} emissive={accessed?'#ff9f5b':color} emissiveIntensity={accessed?1.05:selected?.3:.07} metalness={.55} roughness={.32} transparent opacity={opacity} wireframe={wireframe}/></mesh>{detail&&<><Sphere args={[.13,16,10]} scale={[1.1,.82,.9]}><meshStandardMaterial color="#ffd18a" emissive="#ff9e45" emissiveIntensity={.95} transparent opacity={opacity}/></Sphere><mesh geometry={geometry} material={cadMaterial} scale={[1.03,1.02,1.05]}/></>}
-      {strands.map((item,i)=><Tube key={`${item.role}-${i}`} args={[item.curve,detail?20:10,item.radius,detail?7:5,false]}><meshStandardMaterial color={item.role==='axon'?'#9fb9ff':color} emissive={accessed?'#ff9f5b':item.role==='axon'?'#789cff':color} emissiveIntensity={accessed?.62:.1} transparent opacity={dimmed?.13:detail?1:.62} wireframe={wireframe}/></Tube>)}
-      {detail&&spines.map(spine=><group key={spine.key} position={spine.point}><Sphere args={[.035,6,4]}><meshStandardMaterial color="#f3c58c" emissive="#d98952" emissiveIntensity={accessed?.8:.18}/></Sphere><Line points={[[0,0,0],spine.dir.clone().multiplyScalar(.11)]} color="#e9bb86" lineWidth={.8} transparent opacity={.7}/></group>)}
+type Props = {
+  id: string;
+  position: [number, number, number];
+  color: string;
+  scale?: number;
+  cad: boolean;
+  wireframe: boolean;
+  onSelect?: () => void;
+  label?: string;
+};
+/** A handful of detailed cells; the overview uses instanced geometry. */
+export default function Neuron({
+  id,
+  position,
+  color,
+  scale = 1,
+  cad,
+  wireframe,
+  onSelect,
+  label,
+}: Props) {
+  const morphology = useMemo(() => createMorphology(id, true), [id]);
+  const box = useMemo(() => {
+    const size = morphology.bounds.getSize(new THREE.Vector3());
+    const center = morphology.bounds.getCenter(new THREE.Vector3());
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+    geometry.translate(center.x, center.y, center.z);
+    const edges = new THREE.EdgesGeometry(geometry);
+    geometry.dispose();
+    return edges;
+  }, [morphology]);
+  useEffect(
+    () => () => {
+      disposeMorphology(morphology);
+      box.dispose();
+    },
+    [morphology, box],
+  );
+  const dimensions = morphology.bounds
+    .getSize(new THREE.Vector3())
+    .multiplyScalar(scale);
+  return (
+    <group
+      position={position}
+      scale={scale}
+      onClick={
+        onSelect
+          ? (e) => {
+              e.stopPropagation();
+              onSelect();
+            }
+          : undefined
+      }
+    >
+      <mesh geometry={morphology.body}>
+        <meshPhysicalMaterial
+          color={color}
+          roughness={0.3}
+          metalness={0.35}
+          emissive={color}
+          emissiveIntensity={0.18}
+          transparent
+          opacity={wireframe ? 0.55 : 0.48}
+          depthWrite={false}
+          wireframe={wireframe}
+        />
+      </mesh>
+      <mesh>
+        <icosahedronGeometry args={[0.21, 2]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.4}
+          roughness={0.28}
+        />
+      </mesh>
+      <mesh geometry={morphology.body} scale={1.035}>
+        <meshBasicMaterial
+          color={color}
+          wireframe
+          transparent
+          opacity={cad ? 0.42 : 0.12}
+        />
+      </mesh>
+      <mesh geometry={morphology.branches}>
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={0.35}
+          metalness={0.45}
+          roughness={0.3}
+          wireframe={wireframe}
+        />
+      </mesh>
+      <mesh geometry={morphology.axon}>
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={0.2}
+          metalness={0.6}
+          roughness={0.28}
+          wireframe={wireframe}
+        />
+      </mesh>
+      <mesh geometry={morphology.tips}>
+        <meshBasicMaterial color={color} />
+      </mesh>
+      {cad && (
+        <>
+          <lineSegments geometry={box}>
+            <lineBasicMaterial color={color} transparent opacity={0.25} />
+          </lineSegments>
+          {label && (
+            <Html position={[0, 3.4, 0]} center className="cell-annotation">
+              <span>{label}</span>
+              <small>
+                {dimensions.x.toFixed(1)} × {dimensions.y.toFixed(1)} ×{" "}
+                {dimensions.z.toFixed(1)} u.c.
+              </small>
+            </Html>
+          )}
+        </>
+      )}
     </group>
-    {cad&&detail&&<><Line points={[[-.65,0,0],[.65,0,0]]} color="#ef7d7d" lineWidth={.7} transparent opacity={.7}/><Line points={[[0,-.65,0],[0,.65,0]]} color="#70d59e" lineWidth={.7} transparent opacity={.7}/><Line points={[[0,0,-.65],[0,0,.65]]} color="#7ca9ff" lineWidth={.7} transparent opacity={.7}/></>}
-    {accessed&&<mesh ref={halo} rotation={[Math.PI/2,0,0]}><ringGeometry args={[.52,.57,32]}/><meshBasicMaterial color="#ffb46f" transparent opacity={.3} toneMapped={false}/></mesh>}{selected&&<><pointLight color={accessed?'#ffad68':color} intensity={accessed?2.5:1.5} distance={4}/><mesh rotation={[Math.PI/2,0,0]}><ringGeometry args={[.7,.72,32]}/><meshBasicMaterial color="#ffd7a1" transparent opacity={.65}/></mesh></>}
-  </group>;
+  );
 }
