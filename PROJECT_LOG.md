@@ -133,6 +133,85 @@ Este arquivo registra decisões, alterações e testes para manter o contexto de
 - Build Vite validado com 618 módulos e cena conferida no navegador local após recarregamento, sem erros/avisos novos no console.
 
 
+## 2026-09-16 — Reconstrução: chat estilo ChatGPT/Claude + memória funcional
+
+Pedido do usuário: deixar a experiência de chat "premium" (organização de conversas/projetos, igual ChatGPT/Claude), e tornar a memória **funcional de verdade** — cada conversa com sua própria memória, lida de fato pela IA, mais uma aba "Memória" unificando tudo. Combinado explicitamente com o usuário: o diferencial visual (Atlas 3D) fica para uma fase seguinte; hoje o foco foi organização de chat + memória real.
+
+Diagnóstico antes de mexer: o chat só existia como aba secundária do Atlas 3D, com histórico em `localStorage` (sem projetos). A memória tinha dois sistemas desconectados — uma real no backend (`app/data/memory.json`, injetada no prompt do Codex) e um atlas 3D 100% sintético/demo, explicitamente não sincronizado com a memória real (confirmado em `docs/MEMORY_CAD.md`).
+
+Decisões tomadas com o usuário antes de codar:
+
+- **Persistência: SQLite** (`better-sqlite3`), não mais JSON solto/localStorage.
+- **Extração de memória: por IA**, com uma chamada extra ao Codex após cada resposta (mais lento, mais "real"), em vez de heurística ou só manual.
+
+O que foi construído:
+
+- `app/db.js` + `app/store.js`: schema SQLite (`projects`, `conversations`, `messages`, `memories`) com migração automática (best-effort) do `memory.json` legado para memória de escopo `global`. Ranking de memória relevante prioriza conversa → projeto → geral.
+- `app/codex.js`: chamada ao Codex CLI extraída para módulo compartilhado (chat e extração de memória usam a mesma função).
+- `app/memoryExtractor.js`: após cada resposta, pede ao Codex um JSON com fatos/decisões relevantes da troca e salva como memória da conversa (`kind: "extracted"`).
+- `app/server.js`: API REST nova — `projects`, `conversations`, `conversations/:id/messages`, `memories` (CRUD completo) — mantendo um endpoint legado `/api/chat` para a página estática antiga (`app/public/index.html`) não quebrar.
+- Frontend: `AppShell.tsx` (casca nova), `Sidebar.tsx` (projetos + conversas, busca, renomear/excluir), `ChatView.tsx` (chat com chips de memória usada/criada), `MemoryView.tsx` (aba Memória unificada, com filtros e CRUD manual), `api.ts` (cliente tipado). O antigo `App.tsx` virou `NeuralAtlas.tsx`, preservado como aba **Atlas 3D (beta)** — visualmente idêntico a antes, só sem a parte de chat que foi para o AppShell.
+- `test/server.test.js` reescrito: 15 testes cobrindo prompt builder, parser do Codex, extrator de memória, e a API nova via HTTP real (incluindo que memória de uma conversa não vaza para outra, e que a mensagem do usuário sobrevive mesmo se o Codex falhar).
+
+Resultados dos testes (sandbox de desenvolvimento, sem Codex CLI instalado — por isso os testes tratam a chamada ao Codex como indisponível, o que é o comportamento esperado e testado):
+
+- `npm run check`: **passou**.
+- `npm test` (backend): **passou — 15/15**.
+- `npm run test:memory` (frontend/dados 3D): **passou — 6/6**, sem alteração de comportamento.
+- `npm run frontend:build`: **passou**, 625 módulos. Mesmo aviso de chunk do Three.js (>500 kB) de antes.
+- Validação visual com Playwright + Chromium local: sidebar com projetos/conversas, chat com estado de erro tratado (Codex CLI ausente no sandbox → mensagem de sistema exibida e persistida corretamente), aba Memória (contagens reais, filtros, formulário manual), e Atlas 3D abrindo normalmente como aba separada com o disclaimer visível. Sem erros de console além do 404 esperado.
+- **Não foi possível validar uma chamada real ao Codex** nem a extração automática de memória fim a fim, porque este ambiente de desenvolvimento não tem o Codex CLI autenticado — isso só pode ser confirmado na máquina do usuário.
+
+Limitações conhecidas desta rodada:
+
+- A página estática legada (`app/public/index.html`) teve seu endpoint de memória (`GET /api/memories`) trocado de formato (`{nodes, edges}` → `{memories: [...]}`); o gráfico decorativo dela vai ficar vazio. Ela não é o app principal (o fluxo real é `frontend/`), então isso não foi corrigido nesta rodada.
+- Atlas 3D continua desconectado da memória real — combinado que fica para a fase seguinte.
+- Sem streaming de resposta; o chat espera a resposta completa do Codex (igual antes).
+- Extração automática de memória adiciona uma chamada extra ao Codex por mensagem — não medimos a latência real porque o Codex não está disponível neste sandbox.
+- Não foi feito commit/push: este ambiente clonou o repositório por HTTPS sem credenciais de escrita no GitHub do usuário.
+
+### Perguntas para o usuário responder
+
+1. **Confirma as duas decisões tomadas hoje** (SQLite + extração de memória por IA) ou prefere mudar alguma agora que viu funcionando?
+2. Quer que eu **valide de fato uma chamada ao Codex** e a extração automática de memória na sua máquina (onde o Codex CLI está autenticado), ou prefere testar você mesmo primeiro?
+3. A extração automática adiciona uma chamada extra ao Codex a cada mensagem (mais lenta). Se sentir o chat lento no uso real, quer que eu troque para: extração heurística (sem custo extra) ou extração assíncrona em segundo plano (resposta chega rápido, memória aparece um pouco depois)?
+4. Para a **próxima fase (o "diferencial" do harness)**: a ideia é o Atlas 3D passar a visualizar a memória real (a mesma da aba Memória), ou o diferencial é outra coisa que você tinha em mente?
+5. Quer que eu **suba essas mudanças para o GitHub**? Este ambiente não tem permissão de push no seu repositório — preciso que você rode `git pull`/aplique o patch localmente, ou me dê acesso (ex.: um token/branch) para eu abrir um PR diretamente.
+6. A página estática antiga (`app/public/index.html`) ainda importa? Se não usa mais, posso removê-la; se usa, digo o que precisa para deixá-la 100% funcional de novo (hoje ela ainda manda mensagem e recebe resposta, só o gráfico decorativo de memória dela que ficou desatualizado).
+
+## 2026-09-16 — Atlas 3D conectado à memória real + remoção da página legada
+
+Respostas do usuário às perguntas da rodada anterior: confirmou SQLite + extração por IA; pediu validação da chamada real ao Codex mas "fácil e médio para não gastar muito token"; autorizou extração assíncrona; disse que tem outra ideia para o diferencial do harness mas pediu para eu seguir implementando a ideia da memória por enquanto; autorizou descartar a página estática legada. Caminho do projeto na máquina do usuário: `C:\Users\abraao.souza\Harness`.
+
+O que foi feito nesta rodada:
+
+- **Página legada removida**: `app/public/` (HTML estático antigo) excluída. Removidos do `app/server.js`: `getOrCreateLegacyConversation`, endpoint `POST /api/chat` legado, `GET /api/health-legacy`, e o fallback de arquivos estáticos para `app/public` (agora serve só `frontend/dist`).
+- **Atlas 3D conectado à memória real**: `NeuralAtlas.tsx` agora carrega, ao abrir, as mesmas memórias reais da aba Memória (`loadRealMemoriesAsAtlas`, via `listMemories`/`listProjects`/`listConversations` do `api.ts`) — convertendo escopo (`global`→`general`), sempre marcando `kind: "context"` (nunca demo quando é real), resolvendo nome do projeto/conversa por id, e posicionando os neurônios deterministicamente (sem posição real persistida). Memórias de conversa herdam o projeto da conversa para fins de agrupamento visual. **Relações não são inventadas** — ficam vazias, porque o backend ainda não rastreia relações entre memórias; só a posição é fabricada, e isso já era assim antes para dados importados. Se não houver memória real ainda, cai de volta para a demonstração sintética de sempre. Botão "↻ Sincronizar memória real" na barra lateral para recarregar sob demanda. Disclaimer muda de aviso (laranja) para confirmação (verde) quando conectado.
+- Validado com Playwright: 3 memórias de teste criadas via API (`global`, `project`, `conversation`) apareceram corretamente agrupadas no Atlas 3D (2 no grupo "Aurora" — a de projeto e a de conversa, que herdou o projeto — e 1 em "Contexto geral"), tanto no mapa 3D quanto na lista, com os escopos certos.
+- `npm run check`, `npm test` (15/15), `npm run test:memory` (6/6) e `npm run frontend:build` continuam passando.
+
+### Sobre a validação da chamada real ao Codex (pedido do usuário, barato em tokens)
+
+Este ambiente de nuvem não tem o Codex CLI instalado/autenticado e não está vinculado ao computador do usuário (sem acesso a `C:\Users\abraao.souza\Harness`), então a validação fim-a-fim só pode ser feita na máquina do usuário. Para manter isso barato, a validação recomendada é manual, feita pelo próprio usuário, sem precisar de uma sessão do Claude rodando comandos:
+
+1. Aplicar o patch/bundle/zip entregue no `C:\Users\abraao.souza\Harness`.
+2. `npm install` (raiz) e `npm --prefix frontend ci`.
+3. `npm start` em um terminal, `npm run frontend:dev` em outro (ou `start-test.cmd`).
+4. Mandar uma mensagem no chat. Esperado: resposta real do Codex (não mais o erro "Codex CLI não encontrado" que apareceu neste sandbox).
+5. Poucos segundos depois, abrir a aba Memória: deve aparecer pelo menos 1 memória nova com origem "Extraída pela IA", vinculada àquela conversa.
+6. Se algo divergir disso, me colar aqui a mensagem de erro (ou um print) — aí eu já vou direto ao ponto em vez de reexplorar tudo de novo.
+
+Isso evita gastar tokens numa sessão só para descobrir se o Codex CLI está instalado/autenticado na máquina do usuário.
+
+### Extração assíncrona (autorizada, ainda não implementada)
+
+O usuário autorizou trocar a extração de memória de síncrona (o chat espera a segunda chamada ao Codex terminar antes de responder) para assíncrona (resposta do chat chega rápido; a memória aparece um pouco depois). **Isso ainda não foi implementado nesta rodada** — ficou registrado aqui como próximo passo, porque primeiro fazia sentido confirmar que a extração síncrona funciona de verdade na máquina do usuário (item acima) antes de mudar o timing dela.
+
+### Em aberto
+
+- Usuário mencionou ter "outra ideia" para o diferencial do harness, diferente de plugar o Atlas 3D na memória real — ele pediu para eu implementar a ideia da memória por enquanto (feito acima) e vai compartilhar a outra ideia depois.
+- Extração assíncrona de memória: implementar quando o usuário confirmar que a versão síncrona funciona na máquina dele.
+
 ## 2026-09-16 — Atlas neural CAD no Harness Aurora
 
 - Cena reformulada com núcleo visual Aurora, grupos coloridos por projeto e 1.000 memórias demonstrativas. Nenhum dado pessoal da referência visual foi incluído no código.
