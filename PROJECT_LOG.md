@@ -124,3 +124,10 @@ Este arquivo registra decisões, alterações e testes para manter o contexto de
 - Neurônios acessados agora exibem emissividade quente, halo pulsante e alteração de escala; a seleção reduz a intensidade dos demais.
 - No modo demonstrativo, uma sequência local percorre os registros para ilustrar atividade; eventos reais podem alimentar `memoryAccess` pela API.
 - Build frontend validado novamente com 618 módulos transformados. A captura visual foi conferida no navegador local em 16/09/2026.
+
+## 2026-09-16 — Refatoração completa da morfologia 3D
+
+- Substituído o modelo radial por uma morfologia neural hierárquica: soma irregular, núcleo, dendritos primários/secundários/terciários e axônio com colaterais.
+- Adicionadas espinhas sinápticas na inspeção, materiais CAD wireframe reutilizados e eixos técnicos locais no neurônio selecionado.
+- Mantida a otimização por nível de detalhe: visão geral simplificada e geometria completa apenas no neurônio selecionado/inspecionado.
+- Build Vite validado com 618 módulos e cena conferida no navegador local após recarregamento, sem erros/avisos novos no console.
