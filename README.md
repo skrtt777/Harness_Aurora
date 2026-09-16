@@ -1,4 +1,4 @@
-# AI Harness — Memory Atlas
+# Harness Aurora — Memória neural 3D
 
 Experiência local para testar um harness de IA com histórico de conversas e um atlas de memórias em WebGL 3D. O histórico é salvo automaticamente no navegador, no mesmo padrão de continuidade esperado em uma conversa do ChatGPT.
 
@@ -10,6 +10,7 @@ Em um terminal, inicie a API:
 
 ```powershell
 npm install
+npm --prefix frontend ci
 npm start
 ```
 
@@ -50,6 +51,7 @@ O atualizador faz `git pull`, instala dependências do frontend e executa o buil
 ```powershell
 npm test
 npm run check
+npm run test:memory
 npm run frontend:build
 ```
 
@@ -58,3 +60,7 @@ Na interface, valide: criação e reabertura de conversas, pesquisa/filtros, rot
 ## Dados
 
 Na ausência de dados reais, a aplicação carrega 1.000 registros sintéticos claramente marcados como demonstração. Use “Importar JSON” para carregar dados reais; o formato aceito está em `frontend/src/data.ts`.
+
+## Memória neural CAD
+
+A nova cena inclui grupos por projeto, neurônios volumétricos, inspeção técnica, relações de origem, vistas CAD, importação validada e exportação da coleção. Consulte [o guia da memória 3D](docs/MEMORY_CAD.md) para controles, formato JSON, limites e validações.
