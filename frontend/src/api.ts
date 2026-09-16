@@ -87,7 +87,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ---------- Health ----------
-export const getHealth = () => request<{ ok: boolean; provider: { id: string; name: string; configured: boolean } }>("/health");
+export const getHealth = () =>
+  request<{ ok: boolean; version?: string; provider: { id: string; name: string; configured: boolean } }>("/health");
 
 // ---------- Projects ----------
 export const listProjects = () => request<{ projects: Project[] }>("/projects").then((r) => r.projects);

@@ -1,5 +1,6 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +31,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "127.0.0.1";
+const appVersion = JSON.parse(readFileSync(join(root, "..", "package.json"), "utf8")).version;
 
 /**
  * Builds the prompt actually sent to Codex: project instructions (if any),
@@ -164,7 +166,7 @@ export function createServer() {
     try {
       // ---------- Health ----------
       if (method === "GET" && pathname === "/api/health") {
-        return sendJson(response, 200, { ok: true, provider: buildProviderConfig() });
+        return sendJson(response, 200, { ok: true, version: appVersion, provider: buildProviderConfig() });
       }
 
       // ---------- Projects ----------

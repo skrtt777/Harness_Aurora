@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { Conversation, Project } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { getHealth, type Conversation, type Project } from "./api";
 
 type View = "chat" | "memory" | "atlas";
 
@@ -109,6 +109,13 @@ export default function Sidebar({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [creatingProject, setCreatingProject] = useState(false);
   const [projectDraft, setProjectDraft] = useState("");
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    getHealth()
+      .then((health) => setAppVersion(health.version ?? null))
+      .catch(() => setAppVersion(null));
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -258,6 +265,7 @@ export default function Sidebar({
           ◈ <span>Atlas 3D</span>
           <b className="beta-tag">beta</b>
         </button>
+        {appVersion && <div className="sidebar-version">v{appVersion}</div>}
       </div>
     </aside>
   );
