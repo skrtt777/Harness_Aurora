@@ -29,14 +29,6 @@ const relationLabels = {
 };
 const storageKey = "aurora-memory-collection-v1";
 
-function hasSavedCollection() {
-  try {
-    return !!localStorage.getItem(storageKey);
-  } catch {
-    return false;
-  }
-}
-
 function initialMemories() {
   try {
     const saved = localStorage.getItem(storageKey);
@@ -92,18 +84,27 @@ function downloadJSON(memories: Memory[]) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+type Props = {
+  /**
+   * "real" loads and only ever shows the harness's actual memory (see
+   * MemoryView.tsx) — never falls back to synthetic data. "test" is an
+   * offline sandbox seeded with synthetic demo records (or a manually
+   * imported/saved JSON collection); it never touches the real backend
+   * memory. The two variants share every bit of visualization/filtering
+   * logic below — only data loading and a handful of labels/actions differ.
+   */
+  variant: "real" | "test";
+};
+
 /**
- * The visual "memory atlas": a WebGL exploration of the harness's memory.
- * On mount (unless the user has a manually-imported collection saved) it
- * loads the same real memory the chat reads and writes — see
- * MemoryView.tsx — via loadRealMemoriesAsAtlas(). It falls back to a
- * synthetic 1,000-record demo only when there is no real memory yet
- * (fresh install, no conversations). It never writes back to the backend:
- * this remains read-only exploration, and relations are left empty rather
- * than invented, since the backend does not (yet) track them.
+ * The visual "memory atlas": a WebGL exploration of memory. In "real" mode
+ * it loads the same real memory the chat reads and writes — see
+ * MemoryView.tsx — via loadRealMemoriesAsAtlas() and never invents data. In
+ * "test" mode it's a synthetic 1,000-record sandbox (or a saved/imported
+ * JSON collection) that never writes back to the backend.
  */
-export default function NeuralAtlas() {
-  const [memories, setMemories] = useState<Memory[]>(initialMemories);
+export default function NeuralAtlas({ variant }: Props) {
+  const [memories, setMemories] = useState<Memory[]>(() => (variant === "test" ? initialMemories() : []));
   const [connected, setConnected] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null),
@@ -238,9 +239,9 @@ export default function NeuralAtlas() {
   }, []);
 
   useEffect(() => {
-    if (!hasSavedCollection()) syncRealMemory();
+    if (variant === "real") syncRealMemory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [variant]);
 
   return (
     <div className={`shell ${focus ? "focus-mode" : ""}`}>
@@ -250,14 +251,20 @@ export default function NeuralAtlas() {
             <span>◈</span>
             <div>
               <strong>ATLAS</strong>
-              <small>MEMÓRIA VISUAL · BETA</small>
+              <small>{variant === "test" ? "AMBIENTE DE TESTE" : "MEMÓRIA VISUAL · BETA"}</small>
             </div>
           </div>
-          <div className={`atlas-disclaimer ${connected ? "connected" : ""}`}>
-            {connected
-              ? "Conectado à memória real do harness (mesmos dados da aba Memória). Relações vêm da extração automática; só a posição no espaço é visual."
-              : "Mostrando demonstração sintética — nenhuma memória real encontrada ainda. Converse no chat para gerar memória."}
-          </div>
+          {variant === "real" ? (
+            <div className={`atlas-disclaimer ${connected ? "connected" : ""}`}>
+              {connected
+                ? "Conectado à memória real do harness (mesmos dados da aba Memória). Relações vêm da extração automática; só a posição no espaço é visual."
+                : "Ainda não há memória real gerada. Converse no chat para começar a criá-la, ou visite a aba Teste para experimentar com dados sintéticos."}
+            </div>
+          ) : (
+            <div className="atlas-disclaimer">
+              Ambiente de teste — dados sintéticos, não afeta sua memória real.
+            </div>
+          )}
           <div className="rail-section">
             <label>EXPLORAR MEMÓRIA</label>
             <button
@@ -309,16 +316,21 @@ export default function NeuralAtlas() {
                 {contexts} contexto · {demos} demonstração
               </small>
             </div>
-            <button className="export-button" onClick={syncRealMemory} disabled={syncing}>
-              {syncing ? "…" : "↻"} Sincronizar memória real
-            </button>
-            <label className="import-button">
-              ↑ Importar JSON
-              <input type="file" accept="application/json,.json" onChange={importFile} />
-            </label>
-            <button className="export-button" onClick={() => downloadJSON(memories)}>
-              ↓ Exportar coleção
-            </button>
+            {variant === "real" ? (
+              <button className="export-button" onClick={syncRealMemory} disabled={syncing}>
+                {syncing ? "…" : "↻"} Sincronizar memória real
+              </button>
+            ) : (
+              <>
+                <label className="import-button">
+                  ↑ Importar JSON
+                  <input type="file" accept="application/json,.json" onChange={importFile} />
+                </label>
+                <button className="export-button" onClick={() => downloadJSON(memories)}>
+                  ↓ Exportar coleção
+                </button>
+              </>
+            )}
           </div>
         </aside>
       )}
@@ -358,9 +370,21 @@ export default function NeuralAtlas() {
               EXPLORADOR NEURAL <span>/</span> {cad ? "ESTÚDIO CAD" : "VISÃO ESPACIAL"}
             </div>
             <h1>
-              Atlas visual<span>3D</span>
+              {variant === "test" ? (
+                <>
+                  Atlas de <span>Teste</span>
+                </>
+              ) : (
+                <>
+                  Atlas visual<span>3D</span>
+                </>
+              )}
             </h1>
-            <p>Protótipo de exploração. Cada memória, uma nova ramificação.</p>
+            <p>
+              {variant === "test"
+                ? "Ambiente de testes com dados sintéticos — não afeta sua memória real."
+                : "Sua memória real, explorada em 3D e 2D."}
+            </p>
           </div>
           <div className="view-toggle">
             <button className={view === "map" ? "selected" : ""} onClick={() => setView("map")}>
@@ -558,7 +582,7 @@ export default function NeuralAtlas() {
                   ✳
                 </span>
                 <strong>{selected.title}</strong>
-                <small>{selected.kind === "demo" ? "DEMONSTRAÇÃO SINTÉTICA" : "CONTEXTO IMPORTADO"}</small>
+                <small>{variant === "real" ? "MEMÓRIA REAL" : selected.kind === "demo" ? "DEMONSTRAÇÃO SINTÉTICA" : "CONTEXTO IMPORTADO"}</small>
               </div>
               <div className="detail-body">
                 <p>{selected.content}</p>

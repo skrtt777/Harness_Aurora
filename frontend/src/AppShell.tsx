@@ -20,7 +20,7 @@ import {
   type Project,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas";
+type View = "chat" | "memory" | "atlas" | "test";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -166,7 +166,18 @@ export default function AppShell() {
         <button className="atlas-back" onClick={() => setView("chat")}>
           ← Voltar para o chat
         </button>
-        <NeuralAtlas />
+        <NeuralAtlas variant="real" />
+      </div>
+    );
+  }
+
+  if (view === "test") {
+    return (
+      <div className="app-shell atlas-takeover">
+        <button className="atlas-back" onClick={() => setView("chat")}>
+          ← Voltar para o chat
+        </button>
+        <NeuralAtlas variant="test" />
       </div>
     );
   }

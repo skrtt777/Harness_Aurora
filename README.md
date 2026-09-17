@@ -5,7 +5,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 ## Arquitetura atual (2026-09-16)
 
 - **Backend** (`app/`): servidor HTTP nativo do Node + **SQLite** via `node:sqlite` (embutido no próprio Node, sem dependência nativa pra compilar) em `app/data/harness.db` (ou em `%APPDATA%\Harness Aurora\` quando rodando pelo app instalado). Persiste projetos, conversas, mensagens e memórias.
-- **Frontend** (`frontend/`): React + Vite. `AppShell.tsx` é a casca principal: `Sidebar.tsx` (projetos/conversas, estilo ChatGPT), `ChatView.tsx` (conversa), `MemoryView.tsx` (aba **Memória**, unificada). `NeuralAtlas.tsx` é o protótipo visual 3D, preservado como aba **Atlas 3D (beta)**, hoje já lendo a memória real (ver seção própria abaixo).
+- **Frontend** (`frontend/`): React + Vite. `AppShell.tsx` é a casca principal: `Sidebar.tsx` (projetos/conversas, estilo ChatGPT), `ChatView.tsx` (conversa), `MemoryView.tsx` (aba **Memória**, unificada). `NeuralAtlas.tsx` é o visualizador de grafo de memória, compartilhado entre duas abas via uma prop `variant`: **Atlas 3D (beta)** (`variant="real"`, só memória real, nunca dado sintético) e **Teste** (`variant="test"`, sandbox sintético, nunca toca a memória real) — ver seções próprias abaixo.
 - **Desktop** (`electron/main.js`): sobe o backend acima internamente e abre uma janela apontando pra ele — é o app que o usuário final instala e abre.
 
 ## Para usuário final
@@ -83,8 +83,12 @@ npm run frontend:build
 
 Na interface, valide: criação e reabertura de conversas, pesquisa/filtros, envio de mensagem real (com Codex autenticado) e memória extraída aparecendo na aba Memória.
 
-## Atlas 3D (beta) — protótipo visual, agora lendo memória real
+## Atlas 3D (beta) — só memória real, sem dados sintéticos
 
-O Atlas 3D é uma aba separada (não é mais a tela inicial). Ao abrir, ele carrega as memórias reais do backend (mesmas da aba Memória) — se ainda não houver memória nenhuma, cai de volta para 1.000 registros sintéticos claramente marcados como demonstração. Use "↻ Sincronizar memória real" na barra lateral pra recarregar sob demanda, ou "Importar JSON" pra carregar uma coleção própria (formato em `frontend/src/data.ts`). As relações entre memórias reais vêm da extração automática do backend (`app/memoryExtractor.js`, tabela `memory_relations`) — só a posição no espaço continua sendo fabricada, já que não existe posição 3D persistida. Um terceiro modo, "⌗ Fluxograma", mostra o mesmo grafo em 2D (layout hierárquico via `dagre`) como alternativa mais simples à cena 3D.
+O Atlas 3D é uma aba separada (não é mais a tela inicial). Ele mostra **só a memória real do backend** (mesmos dados da aba Memória) — se ainda não houver memória nenhuma, mostra um aviso pra você conversar no chat primeiro, sem cair pra dados fabricados. Use "↻ Sincronizar memória real" na barra lateral pra recarregar sob demanda. As relações entre memórias reais vêm da extração automática do backend (`app/memoryExtractor.js`, tabela `memory_relations`) — só a posição no espaço continua sendo fabricada, já que não existe posição 3D persistida. Um terceiro modo, "⌗ Fluxograma", mostra o mesmo grafo em 2D (layout hierárquico via `dagre`) como alternativa mais simples à cena 3D.
 
-A cena inclui grupos por projeto, neurônios volumétricos, inspeção técnica, relações de origem, vistas CAD, importação validada e exportação da coleção. Consulte [o guia da memória 3D](docs/MEMORY_CAD.md) para controles, formato JSON, limites e validações.
+A cena inclui grupos por projeto, neurônios volumétricos, inspeção técnica, relações de origem e vistas CAD. Consulte [o guia da memória 3D](docs/MEMORY_CAD.md) para controles e formato de dados.
+
+## Teste — sandbox com dados sintéticos
+
+Aba separada do Atlas 3D real, pensada pra experimentar a visualização sem depender de memória de verdade: abre com 1.000 registros sintéticos de demonstração (`createDemoMemories`), e deixa importar/exportar uma coleção JSON própria (formato em `frontend/src/data.ts`) pra brincar com dados personalizados. Nunca lê nem escreve na memória real do backend — é puramente local ao navegador (`localStorage`).

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getHealth, type Conversation, type Project } from "./api";
 
-type View = "chat" | "memory" | "atlas";
+type View = "chat" | "memory" | "atlas" | "test";
 
 type Props = {
   projects: Project[];
@@ -264,6 +264,9 @@ export default function Sidebar({
         <button className={`rail-link ${activeView === "atlas" ? "active" : ""}`} onClick={() => onSelectView("atlas")}>
           ◈ <span>Atlas 3D</span>
           <b className="beta-tag">beta</b>
+        </button>
+        <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
+          ⚗ <span>Teste</span>
         </button>
         {appVersion && <div className="sidebar-version">v{appVersion}</div>}
       </div>

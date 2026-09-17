@@ -333,3 +333,24 @@ Botões "Exportar"/"Importar" na aba Memória, pra levar a memória real (com re
 Pendência: confirmar visualmente na sua máquina (clicar Exportar, conferir o arquivo, clicar Importar com ele).
 
 Com isso, a Fase 2 pausa aqui (2 de 6 itens feitos: bandeja+atalho, exportar/importar) — próximo passo combinado é testar o auto-update de verdade pelo app instalado antes de continuar com o resto da lista (acesso a arquivos, comparação entre provedores, memória com decaimento, auto-log).
+
+## 2026-09-17 — v0.1.4 publicada, auto-update confirmado, bug crítico de `package.json` evitado
+
+Publicada e testada a v0.1.4 (empacota tudo desta sessão: relações, Fluxograma, bandeja/atalho, exportar/importar), com o ícone customizado aplicado pela primeira vez no instalador. **Auto-update confirmado funcionando de verdade**: o usuário já tinha a v0.1.3 instalada, abriu o app, e o `electron-updater` buscou/aplicou a v0.1.4 sozinho — quando checamos, o processo do usuário já respondia `version: "0.1.4"` no health check.
+
+**Incidente evitado**: um comando `npx asar extract-file` (rodado pra checar a versão do app instalado) sobrescreveu o `package.json` do repositório com uma versão antiga/truncada (faltando `scripts`, `build`, `devDependencies`) — mesmo bug de resolução de caminho que já tinha corrompido um `db.js` perdido numa rodada anterior. Percebido imediatamente pelo aviso do próprio Claude Code de que o arquivo mudou no disco fora de uma edição normal; restaurado na hora via `git checkout -- package.json` (só esse arquivo, sem perder nada). **Lição registrada**: nunca mais usar `asar extract-file` neste ambiente — o comando não respeita o caminho de destino de forma confiável no Windows/git-bash daqui. Pra inspecionar um app.asar instalado, preferir `asar extract <archive> <pasta-nova>` (extrai tudo pra uma pasta, que já funcionou antes) ou simplesmente não inspecionar e confiar em outros sinais (ex.: `/api/health` já diz a versão rodando).
+
+**Primeira verificação visual de verdade da sessão inteira**: como o backend serve o frontend como uma página HTML normal, usei a skill `claude-in-chrome` pra abrir `http://127.0.0.1:<porta>` num Chrome de verdade (numa porta isolada, sem mexer no app real do usuário que estava rodando em 8787) e navegar pela interface — coisa que nunca tinha sido possível com o Electron diretamente neste ambiente. Confirmado visualmente que o app renderiza corretamente.
+
+## 2026-09-17 — Separar aba "Teste" do Atlas 3D real
+
+Primeiro dos três ciclos pedidos nesta rodada (depois vêm Claude como provedor e polimento visual do Atlas 3D). Até agora o Atlas 3D caía sozinho pra 1.000 registros sintéticos quando não havia memória real — o usuário pediu pra isso parar, e separar o sandbox sintético numa aba própria.
+
+- `frontend/src/NeuralAtlas.tsx` ganhou uma prop `variant: "real" | "test"` em vez de virar dois componentes duplicados — ~570 linhas de lógica compartilhada (grafo, cena 3D, fluxograma, filtros, inspetor) continuam uma cópia só; só ~5 pontos mudam por variante (dado inicial, efeito de montagem, aviso da barra lateral, botões do rodapé, textos de cabeçalho).
+- `variant="real"`: nunca mais cai pra dado sintético — memória vazia mostra aviso pra conversar no chat ou visitar a aba Teste. Botões de Importar/Exportar JSON removidos daqui (ficaram redundantes com o exportar/importar de memória real feito na rodada anterior); só resta "Sincronizar memória real".
+- `variant="test"`: sandbox sintético de sempre (1.000 registros, importar/exportar JSON, `localStorage`), agora deixado explícito que "não afeta sua memória real" — nunca chama a API de sincronização.
+- `AppShell.tsx`/`Sidebar.tsx`: nova entrada de navegação "Teste" (ícone ⚗), ao lado do "Atlas 3D".
+- **Validado visualmente de verdade** (primeira vez usando `claude-in-chrome` nesta sessão): Atlas 3D real mostrando "Nenhuma memória encontrada"/"0/0" com o aviso certo; aba Teste mostrando os 1.000 registros sintéticos, 6 grupos, 994 conexões, renderizando a cena 3D normalmente, com os botões certos em cada aba.
+- `npm run frontend:build`, `npm run test:memory` (6/6), `npm run check` e `npm test` (19/19) passando.
+
+Próximos ciclos combinados: Claude Code CLI como segundo provedor (mesma autenticação via CLI local que já usamos com o Codex), depois um passe de polimento visual no Atlas 3D.
