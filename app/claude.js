@@ -48,7 +48,9 @@ export async function runClaude(prompt, env = process.env) {
   } catch (error) {
     const detail = error.code === "ENOENT"
       ? "Claude Code CLI não encontrado. Instale o Claude Code e confirme que o comando claude está no PATH."
-      : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
+      : error.killed
+        ? "O Claude Code CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
+        : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }
 }

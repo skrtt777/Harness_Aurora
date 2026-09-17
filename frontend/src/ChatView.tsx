@@ -11,7 +11,7 @@ type Props = {
   onRenameTitle: (title: string) => void;
 };
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, providerLabel }: { message: ChatMessage; providerLabel: string }) {
   const isUser = message.role === "user";
   const isSystem = message.provider === "Sistema";
   return (
@@ -19,7 +19,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div className="chat-avatar">{isUser ? "EU" : "✦"}</div>
       <div className="chat-bubble-wrap">
         <div className="chat-meta">
-          {isUser ? "VOCÊ" : message.provider || "CODEX"} · {new Date(message.createdAt).toLocaleString("pt-BR")}
+          {isUser ? "VOCÊ" : message.provider || providerLabel} · {new Date(message.createdAt).toLocaleString("pt-BR")}
         </div>
         <div className="chat-content">{message.content}</div>
         {!isUser && (message.memoryAccess.length > 0 || message.memoryCreated.length > 0) && (
@@ -76,6 +76,8 @@ export default function ChatView({ conversation, project, loading, sending, onSe
     setDraft("");
   };
 
+  const providerLabel = conversation.provider === "claude" ? "Claude" : "Codex";
+
   return (
     <section className="chat-page">
       <div className="chat-page-head">
@@ -111,10 +113,10 @@ export default function ChatView({ conversation, project, loading, sending, onSe
 
       <div className="chat-messages" ref={scrollRef}>
         {conversation.messages.length ? (
-          conversation.messages.map((m) => <MessageBubble key={m.id} message={m} />)
+          conversation.messages.map((m) => <MessageBubble key={m.id} message={m} providerLabel={providerLabel} />)
         ) : (
           <div className="chat-empty">
-            Comece uma nova conversa com o Codex.
+            Comece uma nova conversa com o {providerLabel}.
             <br />
             <small>O histórico e a memória desta conversa serão salvos automaticamente.</small>
           </div>
@@ -123,7 +125,7 @@ export default function ChatView({ conversation, project, loading, sending, onSe
           <div className="chat-message assistant pending">
             <div className="chat-avatar">✦</div>
             <div className="chat-bubble-wrap">
-              <div className="chat-meta">CODEX · pensando…</div>
+              <div className="chat-meta">{providerLabel.toUpperCase()} · pensando…</div>
               <div className="chat-content typing-dots">
                 <span />
                 <span />

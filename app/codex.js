@@ -58,7 +58,9 @@ export async function runCodex(prompt, env = process.env) {
   } catch (error) {
     const detail = error.code === "ENOENT"
       ? "Codex CLI não encontrado. Instale o Codex e confirme que o comando codex está no PATH."
-      : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.";
+      : error.killed
+        ? "O Codex CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
+        : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }
 }

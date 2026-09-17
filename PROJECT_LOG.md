@@ -388,4 +388,14 @@ Correção:
 
 Validado localmente: build com a correção, abri a mesma instalação **duas vezes seguidas** — segunda tentativa não travou, não duplicou processos (voltou a 4 processos, uma janela normal, contra os 13 zumbis de antes), backend continuou respondendo normalmente o tempo todo.
 
-Processos zumbis do usuário foram encerrados (dados no SQLite não foram afetados — só processos, nenhum dado apagado). Publicando como **v0.1.5**.
+Processos zumbis do usuário foram encerrados (dados no SQLite não foram afetados — só processos, nenhum dado apagado). Publicado como **v0.1.5**.
+
+## 2026-09-17 — Dois bugs reportados testando o Claude: rótulo errado + erro de timeout confuso
+
+Usuário testou autenticação com Claude e reportou dois problemas na mesma mensagem:
+
+1. **Rótulo mostrando "Codex" e depois trocando pra "Claude"** após enviar mensagem numa conversa configurada pra Claude. Causa encontrada em `frontend/src/ChatView.tsx`: o indicativo "pensando…" mostrado enquanto a resposta não chega tinha o texto **fixo** `"CODEX · pensando…"` (linha 126), e o rótulo de fallback de cada mensagem também tinha `"CODEX"` fixo como padrão — nenhum dos dois olhava pra `conversation.provider` de verdade. Corrigido: `ChatView.tsx` agora deriva `providerLabel` do provider real da conversa (`conversation.provider === "claude" ? "Claude" : "Codex"`) e usa isso tanto no indicador de "pensando…" quanto no fallback por mensagem e no texto de conversa vazia.
+
+2. **"Reading additional input from stdin..." aparecendo como mensagem de erro, com a IA demorando ~5 minutos pra responder.** Esse texto é uma mensagem informativa que o Codex/Claude CLI imprime no stderr quando não está anexado a um terminal interativo — não é um erro em si. Ela só vira uma mensagem de erro visível pro usuário quando a chamada ao CLI **estoura o timeout** (`CODEX_TIMEOUT_MS`/`CLAUDE_TIMEOUT_MS`, 120s por padrão) — nesse caso o `execFile` mata o processo e o texto capturado no stderr até aquele momento (que pode ser só essa linha informativa) vira o texto de erro exibido, o que é confuso porque não parece um erro de verdade. Hipótese mais provável pro atraso de ~5 minutos na primeira execução: o Windows Defender/SmartScreen verificando o executável (`codex.exe`/`claude.exe`) na primeira vez que ele roda nesta máquina — comportamento comum e fora do nosso controle, que ultrapassa os 120s de timeout. Corrigido tornando o erro **honesto e acionável** em vez de mostrar o texto de stderr cru: `app/codex.js` e `app/claude.js` agora detectam `error.killed` (como o Node sinaliza quando mata o processo por timeout, confirmado com um teste direto) e retornam "O Codex/Claude CLI demorou demais para responder e foi interrompido... tente enviar a mensagem de novo" em vez do texto de stderr confuso.
+
+`npm run check`, `npm test` (23/23) e `npm run frontend:build` passando. Não foi possível confirmar visualmente a correção do rótulo (extensão do Chrome ainda desconectada) — mudança pequena e direta, validada por revisão de código. Publicando como **v0.1.6**.
