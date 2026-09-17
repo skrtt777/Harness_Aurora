@@ -374,3 +374,18 @@ Descoberta que simplificou o trabalho: **o schema já previa múltiplos provedor
 `npm run check`, `npm test` (23/23), `npm run test:memory` (6/6) e `npm run frontend:build` passando. Verificação visual do seletor de provedor via `claude-in-chrome` não foi possível nesta rodada (extensão do Chrome desconectada no momento) — vale conferir na próxima sessão ou pedir confirmação ao usuário.
 
 Próximo ciclo combinado: polimento visual do Atlas 3D (materiais/iluminação/geometria da cena 3D em si).
+
+## 2026-09-17 — Bug real: abrir o app uma segunda vez travava (falta de single-instance lock)
+
+Usuário reportou "está dando erro ao abrir Aurora". Diagnóstico: `tasklist` mostrou **13 processos "Harness Aurora.exe"** rodando ao mesmo tempo, mas `/api/health` respondia normal na porta 8787 — ou seja, a instância original estava saudável, rodando em segundo plano na bandeja (comportamento introduzido na Fase 2, item 1). O usuário provavelmente clicou no atalho de novo sem perceber que o app já estava aberto (minimizado, não fechado).
+
+Causa raiz confirmada no código: `electron/main.js` nunca chamava `app.requestSingleInstanceLock()`, e o `server.listen(PORT, HOST, resolve)` não tinha handler de `"error"`. Quando uma segunda instância tentava subir o próprio servidor na mesma porta 8787 já ocupada pela primeira, o `EADDRINUSE` virava um evento `"error"` sem listener no `http.Server` — que em Node.js **lança uma exceção não tratada**, derrubando o processo principal do Electron com uma tela de erro. É exatamente o "erro ao abrir" reportado.
+
+Correção:
+- `app.requestSingleInstanceLock()` logo no início do arquivo; se não conseguir o lock (já tem outra instância rodando), a segunda instância só chama `app.quit()` — todo o resto do arquivo (incluindo `app.whenReady()`) fica dentro de um `if (hasSingleInstanceLock)` pra garantir que nada mais tenta inicializar.
+- `app.on("second-instance", ...)` na instância original mostra/foca a janela existente quando alguém tenta abrir de novo — em vez de travar, agora só traz a janela pra frente.
+- `server.on("error", ...)` como defesa adicional (ex.: outro programa qualquer ocupando a porta 8787, não só uma segunda instância nossa): mostra uma caixa de erro nativa explicando o problema em vez de deixar a exceção derrubar o processo silenciosamente.
+
+Validado localmente: build com a correção, abri a mesma instalação **duas vezes seguidas** — segunda tentativa não travou, não duplicou processos (voltou a 4 processos, uma janela normal, contra os 13 zumbis de antes), backend continuou respondendo normalmente o tempo todo.
+
+Processos zumbis do usuário foram encerrados (dados no SQLite não foram afetados — só processos, nenhum dado apagado). Publicando como **v0.1.5**.

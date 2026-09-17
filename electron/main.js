@@ -18,12 +18,26 @@ const QUICK_CAPTURE_SHORTCUT_CANDIDATES = [
   "Alt+Shift+M",
 ];
 const ICON_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "icon.png");
+const devUrl = process.env.ELECTRON_START_URL;
+const startUrl = devUrl || `http://${HOST}:${PORT}/`;
 
 let server;
 let mainWindow;
 let quickCaptureWindow;
 let tray;
 let isQuitting = false;
+
+// The tray keeps the app running in the background after the window is
+// closed, so a user who forgets that and reopens it from the Start
+// Menu/desktop would otherwise launch a second instance that crashes trying
+// to bind the same port. Without this lock, that second instance's
+// server.listen() would fail (EADDRINUSE) and — since node's http.Server
+// throws on an unhandled "error" event — take down the whole process with
+// an uncaught exception, which is exactly the crash a user reported.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
 
 function checkCodexCli() {
   return new Promise((resolve) => {
@@ -141,51 +155,63 @@ ipcMain.on("quick-capture:close", () => {
   quickCaptureWindow?.close();
 });
 
-app.whenReady().then(async () => {
-  process.env.HARNESS_DB_FILE = process.env.HARNESS_DB_FILE || path.join(app.getPath("userData"), "harness.db");
-  process.env.CODEX_CWD = process.env.CODEX_CWD || app.getPath("userData");
-  process.env.CLAUDE_CWD = process.env.CLAUDE_CWD || app.getPath("userData");
+if (hasSingleInstanceLock) {
+  // A second launch attempt (e.g. the user double-clicking the shortcut
+  // while the app is already running in the tray) shows/focuses the
+  // existing window instead of trying to start a second instance.
+  app.on("second-instance", () => showMainWindow(startUrl));
 
-  const devUrl = process.env.ELECTRON_START_URL;
-  if (!devUrl) {
-    server = createServer();
-    await new Promise((resolve) => server.listen(PORT, HOST, resolve));
-  }
+  app.whenReady().then(async () => {
+    process.env.HARNESS_DB_FILE = process.env.HARNESS_DB_FILE || path.join(app.getPath("userData"), "harness.db");
+    process.env.CODEX_CWD = process.env.CODEX_CWD || app.getPath("userData");
+    process.env.CLAUDE_CWD = process.env.CLAUDE_CWD || app.getPath("userData");
 
-  const codexAvailable = await checkCodexCli();
-  if (!codexAvailable) {
-    dialog.showMessageBox({
-      type: "warning",
-      title: "Codex CLI não encontrado",
-      message: "O Harness Aurora precisa do Codex CLI instalado e autenticado para conversar com a IA.",
-      detail:
-        "Instale o Codex CLI, autentique com \"codex login\" e reabra o app. Você ainda pode navegar pela interface, mas o chat não vai responder até isso ser resolvido.",
-    });
-  }
+    if (!devUrl) {
+      server = createServer();
+      server.on("error", (error) => {
+        dialog.showErrorBox(
+          "Harness Aurora",
+          `Não foi possível iniciar o servidor local (${error.message}). Feche outras instâncias do app e tente novamente.`,
+        );
+        app.quit();
+      });
+      await new Promise((resolve) => server.listen(PORT, HOST, resolve));
+    }
 
-  const startUrl = devUrl || `http://${HOST}:${PORT}/`;
-  await createWindow(startUrl);
+    const codexAvailable = await checkCodexCli();
+    if (!codexAvailable) {
+      dialog.showMessageBox({
+        type: "warning",
+        title: "Codex CLI não encontrado",
+        message: "O Harness Aurora precisa do Codex CLI instalado e autenticado para conversar com a IA.",
+        detail:
+          "Instale o Codex CLI, autentique com \"codex login\" e reabra o app. Você ainda pode navegar pela interface, mas o chat não vai responder até isso ser resolvido.",
+      });
+    }
 
-  const registeredShortcut = QUICK_CAPTURE_SHORTCUT_CANDIDATES.find((combo) => globalShortcut.register(combo, openQuickCapture));
-  if (registeredShortcut) {
-    console.log(`Atalho de captura rápida registrado: ${registeredShortcut}`);
-  } else {
-    console.warn("Nenhum atalho global de captura rápida pôde ser registrado (todos já em uso por outros programas).");
-  }
+    await createWindow(startUrl);
 
-  createTray(startUrl, registeredShortcut);
+    const registeredShortcut = QUICK_CAPTURE_SHORTCUT_CANDIDATES.find((combo) => globalShortcut.register(combo, openQuickCapture));
+    if (registeredShortcut) {
+      console.log(`Atalho de captura rápida registrado: ${registeredShortcut}`);
+    } else {
+      console.warn("Nenhum atalho global de captura rápida pôde ser registrado (todos já em uso por outros programas).");
+    }
 
-  app.on("activate", () => showMainWindow(startUrl));
+    createTray(startUrl, registeredShortcut);
 
-  if (app.isPackaged) {
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {
-      // Sem internet ou sem release publicada ainda: não impede o uso do app.
-    });
-  }
-});
+    app.on("activate", () => showMainWindow(startUrl));
 
-app.on("before-quit", () => {
-  isQuitting = true;
-  globalShortcut.unregisterAll();
-  if (server) server.close();
-});
+    if (app.isPackaged) {
+      autoUpdater.checkForUpdatesAndNotify().catch(() => {
+        // Sem internet ou sem release publicada ainda: não impede o uso do app.
+      });
+    }
+  });
+
+  app.on("before-quit", () => {
+    isQuitting = true;
+    globalShortcut.unregisterAll();
+    if (server) server.close();
+  });
+}
