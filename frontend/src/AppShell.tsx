@@ -155,7 +155,7 @@ export default function AppShell() {
       <div className="boot-error">
         <h1>Não foi possível iniciar o Harness Aurora</h1>
         <p>{bootError}</p>
-        <p>Confirme que a API local (`npm start`) está rodando em 127.0.0.1:8787.</p>
+        <p>Feche e abra o app de novo. Se persistir, reinstale a versão mais recente.</p>
       </div>
     );
   }
