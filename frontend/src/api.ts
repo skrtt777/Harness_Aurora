@@ -132,8 +132,12 @@ export const createMemory = (data: {
   title: string;
   content: string;
   tags?: string[];
+  kind?: MemoryKind;
+  source?: string;
 }) => request<MemoryEntry>("/memories", { method: "POST", body: JSON.stringify(data) });
 export const updateMemory = (id: string, patch: Partial<Pick<MemoryEntry, "title" | "content" | "tags">>) =>
   request<MemoryEntry>(`/memories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteMemory = (id: string) => request<{ ok: true }>(`/memories/${id}`, { method: "DELETE" });
 export const getMemoryStats = () => request<{ stats: MemoryStat[] }>("/memories/stats").then((r) => r.stats);
+export const createMemoryRelation = (fromId: string, toId: string, type: MemoryRelationType) =>
+  request<{ ok: true }>(`/memories/${fromId}/relations`, { method: "POST", body: JSON.stringify({ toId, type }) });

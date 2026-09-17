@@ -68,7 +68,9 @@ A memória tem três escopos: **geral** (`global`), **por projeto** (`project`) 
 - **Leitura real:** a cada mensagem, o backend seleciona as memórias mais relevantes (conversa → projeto → geral, nessa ordem de prioridade) e injeta no prompt enviado ao Codex. É por isso que a IA "lembra" do assunto — ela lê essas memórias antes de responder.
 - **Escrita automática:** depois de cada resposta, uma segunda chamada ao Codex (`app/memoryExtractor.js`) extrai fatos/decisões/preferências relevantes da troca e salva como memória da conversa (`kind: "extracted"`). Isso adiciona uma chamada extra por mensagem — validado de ponta a ponta em 2026-09-16 (chamada real ao Codex CLI autenticado, incluindo leitura e escrita de memória funcionando corretamente).
 - **Escrita manual:** também dá para criar/editar/excluir memória à mão pela aba **Memória**.
+- **Relações reais:** a extração automática também propõe relações entre a memória nova e memórias já existentes (`belonging`/`thematic`/`derivation`/`correction`) — é o que alimenta as conexões do Atlas 3D e do Fluxograma.
 - **Aba Memória unificada:** reúne todas as memórias (de todas as conversas e projetos, mais a geral) em um único lugar, com filtro por escopo/origem e busca.
+- **Exportar/Importar:** os botões "↓ Exportar"/"↑ Importar" na aba Memória levam a memória (com relações) pra um arquivo JSON e de volta — útil pra backup ou pra levar o conhecimento acumulado de uma instalação pra outra. Ao importar, memórias de projeto/conversa cujo projeto/conversa não existe na instalação de destino caem automaticamente pra escopo geral em vez de falhar.
 
 ## Validação rápida
 

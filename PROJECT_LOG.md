@@ -319,3 +319,17 @@ Validação (sem suíte automatizada pra Tray/IPC/globalShortcut — fora do esc
 - `npm run check`, `npm test` (18/18) e `npm run frontend:build` continuam passando (mudanças ficaram isoladas em `electron/`).
 
 Pendência conhecida: não foi possível validar visualmente o clique no ícone da bandeja nem o disparo real do atalho global por teclado físico neste ambiente — o usuário deve confirmar isso na própria máquina.
+
+## 2026-09-17 — Exportar/importar memória (Fase 2, item 2 de 6)
+
+Botões "Exportar"/"Importar" na aba Memória, pra levar a memória real (com relações) de uma instalação pra outra ou fazer backup.
+
+- **Backend:** uma rota nova só, `POST /api/memories/:id/relations` (`{toId, type}` → chama `store.js#createRelation`, que já existia mas não tinha rota HTTP nenhuma até agora — só era usada internamente pelo extrator). `GET /api/memories` já devolvia relações completas, então exportar não precisou de nenhuma mudança no backend.
+- **Frontend (`MemoryView.tsx`):** exportar empacota as memórias filtradas em tela num envelope JSON versionado (`{format: "harness-aurora-memories", version: 1, ...}`) via Blob + `<a download>` (mesmo mecanismo que o Atlas 3D já usava pra dados sintéticos). Importar lê o arquivo, valida o formato, e faz em duas passadas: 1) cria cada memória (`createMemory` sempre gera id novo — guarda um mapa id-antigo→id-novo), rebaixando pra `scope: "global"` quando o projeto/conversa referenciado não existe localmente (evita falhar o import inteiro por causa de uma constraint de chave estrangeira); 2) recria as relações usando os ids novos via a rota nova, ignorando relações que apontam pra fora do lote importado.
+- 19 testes de backend (18→19, cobrindo a rota nova, incluindo um caso de tipo de relação inválido retornando 400).
+- Validação de ponta a ponta via API direta (sem clicar na UI, mesma limitação de sempre neste ambiente): criei duas memórias com uma relação, "exportei" (`GET /api/memories`), simulei a reimportação com um script batendo na API exatamente como o `MemoryView.tsx` faria — as duas memórias novas foram criadas com ids diferentes e a relação foi recriada corretamente traduzida pros ids novos.
+- `npm run check`, `npm test` (19/19), `npm run test:memory` (6/6) e `npm run frontend:build` passando.
+
+Pendência: confirmar visualmente na sua máquina (clicar Exportar, conferir o arquivo, clicar Importar com ele).
+
+Com isso, a Fase 2 pausa aqui (2 de 6 itens feitos: bandeja+atalho, exportar/importar) — próximo passo combinado é testar o auto-update de verdade pelo app instalado antes de continuar com o resto da lista (acesso a arquivos, comparação entre provedores, memória com decaimento, auto-log).

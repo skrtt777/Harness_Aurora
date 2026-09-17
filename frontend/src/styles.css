@@ -1630,6 +1630,11 @@ button[aria-pressed="true"] {
   font-size: 11px;
   margin: 0;
 }
+.memory-import-status {
+  color: #65e2d4;
+  font-size: 11px;
+  margin: -6px 0 12px;
+}
 .memory-form-actions {
   display: flex;
   justify-content: flex-end;

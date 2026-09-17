@@ -225,6 +225,35 @@ test("a relation shows up on the declaring memory's side in GET /api/memories", 
   });
 });
 
+test("POST /api/memories/:id/relations creates a relation via HTTP", async () => {
+  await withServer(async (api) => {
+    const first = await api("/api/memories", {
+      method: "POST",
+      body: JSON.stringify({ scope: "global", title: "A", content: "Memória A." }),
+    });
+    const second = await api("/api/memories", {
+      method: "POST",
+      body: JSON.stringify({ scope: "global", title: "B", content: "Memória B." }),
+    });
+
+    const created = await api(`/api/memories/${second.body.id}/relations`, {
+      method: "POST",
+      body: JSON.stringify({ toId: first.body.id, type: "thematic" }),
+    });
+    assert.equal(created.status, 201);
+
+    const list = await api("/api/memories?scope=global");
+    const secondFromList = list.body.memories.find((m) => m.id === second.body.id);
+    assert.deepEqual(secondFromList.relations, [first.body.id]);
+
+    const invalid = await api(`/api/memories/${second.body.id}/relations`, {
+      method: "POST",
+      body: JSON.stringify({ toId: first.body.id, type: "tipo-invalido" }),
+    });
+    assert.equal(invalid.status, 400);
+  });
+});
+
 test("each conversation keeps its own memory, separate from other conversations", async () => {
   await withServer(async (api) => {
     const a = await api("/api/conversations", { method: "POST", body: JSON.stringify({}) });

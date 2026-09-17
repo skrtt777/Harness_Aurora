@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   createMemory,
+  createMemoryRelation,
   deleteMemory,
   getMemoryStats,
   listMemories,
@@ -12,6 +13,30 @@ import {
   type MemoryStat,
   type Project,
 } from "./api";
+
+const EXPORT_FORMAT = "harness-aurora-memories";
+
+type MemoryExportEnvelope = {
+  format: typeof EXPORT_FORMAT;
+  version: 1;
+  exportedAt: string;
+  memories: MemoryEntry[];
+};
+
+function downloadMemories(memories: MemoryEntry[]) {
+  const envelope: MemoryExportEnvelope = {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    memories,
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `harness-aurora-memorias-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 type Props = {
   projects: Project[];
@@ -223,6 +248,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
   const [kind, setKind] = useState<"all" | MemoryKind>("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [importStatus, setImportStatus] = useState("");
 
   const refresh = async () => {
     setLoading(true);
@@ -267,6 +293,84 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
   const afterChange = () => {
     refresh();
     onMemoriesChanged?.();
+  };
+
+  const importFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportStatus("Importando…");
+    try {
+      if (file.size > 10 * 1024 * 1024) throw new Error("O arquivo deve ter no máximo 10 MB.");
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || parsed.format !== EXPORT_FORMAT || !Array.isArray(parsed.memories)) {
+        throw new Error("Arquivo não reconhecido — exporte pela aba Memória do Harness Aurora.");
+      }
+      const entries: MemoryEntry[] = parsed.memories;
+      const projectIds = new Set(projects.map((p) => p.id));
+      const conversationIds = new Set(conversations.map((c) => c.id));
+      const idMap = new Map<string, string>();
+      let downgraded = 0;
+      let failed = 0;
+
+      for (const entry of entries) {
+        let scope: MemoryScope = entry.scope;
+        let projectId = entry.projectId ?? undefined;
+        let conversationId = entry.conversationId ?? undefined;
+        if (scope === "project" && !(projectId && projectIds.has(projectId))) {
+          scope = "global";
+          projectId = undefined;
+          downgraded += 1;
+        }
+        if (scope === "conversation" && !(conversationId && conversationIds.has(conversationId))) {
+          scope = "global";
+          conversationId = undefined;
+          downgraded += 1;
+        }
+        try {
+          const created = await createMemory({
+            scope,
+            projectId: scope === "project" ? projectId : undefined,
+            conversationId: scope === "conversation" ? conversationId : undefined,
+            title: entry.title,
+            content: entry.content,
+            tags: entry.tags,
+            kind: "imported",
+            source: entry.source ? `Importado (${entry.source})` : "Importado de arquivo",
+          });
+          idMap.set(entry.id, created.id);
+        } catch {
+          failed += 1;
+        }
+      }
+
+      let relationsCreated = 0;
+      for (const entry of entries) {
+        const newFromId = idMap.get(entry.id);
+        if (!newFromId || !entry.relations) continue;
+        for (const targetId of entry.relations) {
+          const newToId = idMap.get(targetId);
+          const type = entry.relationTypes?.[targetId];
+          if (!newToId || !type) continue;
+          try {
+            await createMemoryRelation(newFromId, newToId, type);
+            relationsCreated += 1;
+          } catch {
+            // A relation that fails validation is skipped instead of aborting the import.
+          }
+        }
+      }
+
+      setImportStatus(
+        `${idMap.size} memórias importadas, ${relationsCreated} relações recriadas` +
+          (downgraded ? `, ${downgraded} rebaixadas pra escopo geral (projeto/conversa não encontrado aqui)` : "") +
+          (failed ? `, ${failed} falharam` : "") +
+          ".",
+      );
+      afterChange();
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "Falha ao importar.");
+    }
   };
 
   return (
@@ -328,7 +432,15 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           <input placeholder="Pesquisar memórias…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <span className="result-count">{memories.length.toLocaleString("pt-BR")}</span>
+        <button className="export-button" onClick={() => downloadMemories(memories)} disabled={!memories.length}>
+          ↓ Exportar
+        </button>
+        <label className="import-button">
+          ↑ Importar
+          <input type="file" accept="application/json,.json" onChange={importFile} />
+        </label>
       </div>
+      {importStatus && <p className="memory-import-status">{importStatus}</p>}
 
       <NewMemoryForm projects={projects} conversations={conversations} onCreated={afterChange} />
 

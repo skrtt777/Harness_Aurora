@@ -9,6 +9,7 @@ import {
   createConversation,
   createMemory,
   createProject,
+  createRelation,
   deleteConversation,
   deleteMemory,
   deleteProject,
@@ -281,6 +282,17 @@ export function createServer() {
         if (method === "DELETE") {
           const removed = await deleteMemory(id);
           return removed ? sendJson(response, 200, { ok: true }) : sendJson(response, 404, { error: "Memória não encontrada." });
+        }
+      }
+      match = pathname.match(/^\/api\/memories\/([^/]+)\/relations$/);
+      if (match && method === "POST") {
+        const [, id] = match;
+        const body = await readJson(request);
+        try {
+          await createRelation({ fromId: id, toId: body.toId, type: body.type });
+          return sendJson(response, 201, { ok: true });
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
         }
       }
 
