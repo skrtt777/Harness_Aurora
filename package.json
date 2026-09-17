@@ -34,6 +34,7 @@
       "frontend/dist/**/*",
       "package.json"
     ],
+    "icon": "electron/icon.png",
     "win": {
       "target": "nsis"
     },

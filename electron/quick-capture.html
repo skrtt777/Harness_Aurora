@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Captura rápida — Harness Aurora</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: #0b1118;
+        border: 1px solid #2a414e;
+        border-radius: 10px;
+        overflow: hidden;
+        font-family: -apple-system, "Segoe UI", sans-serif;
+        color: #c2d7e2;
+        -webkit-app-region: drag;
+      }
+      header {
+        padding: 10px 14px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: #7e99ab;
+        border-bottom: 1px solid #1c2d3a;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      header span.dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #65e2d4;
+        display: inline-block;
+        margin-right: 6px;
+      }
+      textarea {
+        -webkit-app-region: no-drag;
+        flex: 1;
+        margin: 12px 14px;
+        padding: 10px;
+        resize: none;
+        border-radius: 7px;
+        border: 1px solid #2a414e;
+        background: #0e1822;
+        color: #c2d7e2;
+        font-size: 13px;
+        font-family: inherit;
+        outline: none;
+      }
+      textarea:focus {
+        border-color: #65e2d4;
+      }
+      footer {
+        -webkit-app-region: no-drag;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 14px 12px;
+        font-size: 10px;
+        color: #7e99ab;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        background: #14202c;
+        border: 1px solid #2a414e;
+        color: #c2d7e2;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #162d33;
+      }
+      #status {
+        opacity: 0;
+        transition: opacity 0.15s;
+        color: #65e2d4;
+      }
+      #status.visible {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <header><span><span class="dot"></span>Captura rápida</span><span id="status">Salvo!</span></header>
+    <textarea id="content" placeholder="O que você quer lembrar depois? (Ctrl+Enter para salvar, Esc para cancelar)"></textarea>
+    <footer>
+      <span>Ctrl+Enter salva · Esc cancela</span>
+      <button id="save">Salvar</button>
+    </footer>
+    <script>
+      const textarea = document.getElementById("content");
+      const status = document.getElementById("status");
+      textarea.focus();
+
+      async function save() {
+        const value = textarea.value.trim();
+        if (!value) return window.harness.close();
+        const memory = await window.harness.save(value);
+        if (!memory) return;
+        status.classList.add("visible");
+        setTimeout(() => window.harness.close(), 500);
+      }
+
+      document.getElementById("save").addEventListener("click", save);
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") window.harness.close();
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) save();
+      });
+    </script>
+  </body>
+</html>

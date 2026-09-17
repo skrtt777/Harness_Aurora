@@ -301,3 +301,21 @@ Descoberta que simplificou tudo: o tipo `Memory` do frontend (`frontend/src/data
 **Validação de ponta a ponta com Codex real:** mandei "Guarde este fato: o projeto Aurora usa SQLite" (criou 1 memória) e depois "na verdade decidimos trocar pra PostgreSQL" na mesma conversa — a segunda memória extraída declarou sozinha uma relação `correction` apontando pra primeira, confirmada via `GET /api/memories` (`relations: ["<id-sqlite>"], relationTypes: {"<id-sqlite>": "correction"}`). Backend (18/18), frontend (`test:memory`, 6/6) e build (`frontend:build`) passando.
 
 Fases seguintes (ainda não implementadas): bandeja do sistema/atalho global, acesso a arquivos locais pro Codex, comparação lado a lado entre provedores, memória com confiança/decaimento, exportação/importação de "pacotes de memória", auto-geração de `PROJECT_LOG.md` pra outros projetos do usuário.
+
+## 2026-09-17 — Bandeja do sistema + atalho global de captura rápida
+
+Fase 2, primeiro item (dos seis combinados): ícone na bandeja do Windows + atalho de teclado global pra capturar uma memória de qualquer lugar do Windows sem abrir o app inteiro. Descoberta: **não existia nenhum ícone no projeto** (nem favicon, nem ícone de app) — gerado um PNG simples (256×256, tema teal/escuro) via script Node usando só `zlib` (sem dependência nova), servindo tanto pro `Tray` quanto pro `build.icon` do `electron-builder` (que converte PNG→ICO automaticamente no Windows, confirmado funcionando).
+
+`electron/main.js`:
+- **Mudança de comportamento avisada ao usuário:** fechar a janela principal (X) agora minimiza pra bandeja em vez de encerrar o app (igual Discord/Slack/Spotify) — só "Sair" no menu da bandeja encerra de verdade. Implementado interceptando o evento `close` da janela (`event.preventDefault()` + `hide()`) com uma flag `isQuitting` setada só em `before-quit`.
+- Atalho global via `globalShortcut.register`, tentando uma lista de combinações em ordem até uma registrar com sucesso (`Ctrl+Shift+H` → `Ctrl+Alt+M` → `Ctrl+Shift+K` → `Alt+Shift+M`) em vez de uma única combinação fixa — necessário na prática: `Ctrl+Shift+H` já estava em uso por outro programa nesta máquina, confirmado nos testes, e o fallback pegou `Ctrl+Alt+M` sozinho sem travar nada. O atalho realmente ativo aparece no menu da bandeja.
+- Janela de captura rápida (420×220, sem moldura, sempre no topo, sem ícone na barra de tarefas) carrega um HTML estático novo (`electron/quick-capture.html`) — sem build/React, é só um formulário. Comunicação com o processo principal via **IPC** (`electron/preload-quick-capture.cjs`, `contextBridge`), não HTTP — evita problema de CORS entre a janela `file://` e o backend, e é mais rápido. `ipcMain.handle("quick-capture:save", ...)` chama `createMemory` direto de `app/store.js` (mesmo processo), salvando como `scope: "global", kind: "manual", source: "Captura rápida (atalho global)"`.
+
+Validação (sem suíte automatizada pra Tray/IPC/globalShortcut — fora do escopo dos testes HTTP/unit existentes):
+- Simular o atalho global via `SendKeys` do PowerShell não funcionou de forma confiável neste ambiente de automação (input sintético não chega no `RegisterHotKey` do Windows do jeito esperado) — contornado testando a janela de captura via um gatilho de debug temporário (`HARNESS_DEBUG_QUICK_CAPTURE`, removido antes do commit) que chama `openQuickCapture()` direto na inicialização.
+- Janela de captura abriu de verdade com o título certo, confirmando toda a sequência de inicialização (janela principal → atalho → bandeja → captura) sem erros.
+- `POST /api/memories` com o mesmo formato usado pelo handler de IPC criou o registro certo (`scope: global`, `kind: manual`, `source` certo) — memória de teste apagada depois.
+- Fechar a janela principal via `WM_CLOSE` (enviado por P/Invoke do PowerShell, equivalente a clicar no X) confirmou o comportamento de bandeja: a janela sumiu da lista de janelas visíveis, mas o processo e o backend continuaram respondendo.
+- `npm run check`, `npm test` (18/18) e `npm run frontend:build` continuam passando (mudanças ficaram isoladas em `electron/`).
+
+Pendência conhecida: não foi possível validar visualmente o clique no ícone da bandeja nem o disparo real do atalho global por teclado físico neste ambiente — o usuário deve confirmar isso na própria máquina.

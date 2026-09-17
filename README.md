@@ -18,6 +18,12 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente — o histórico e a memória ficam em `%APPDATA%\Harness Aurora\` e não são apagados pelo desinstalador (apague essa pasta manualmente se quiser começar do zero).
 
+## Bandeja do sistema e captura rápida
+
+O Harness Aurora roda em segundo plano com um ícone na bandeja do Windows — **fechar a janela pelo X minimiza pro sistema em vez de encerrar o app** (mesmo comportamento de Discord/Slack/Spotify). Pra encerrar de verdade, use "Sair" no menu da bandeja.
+
+Um atalho de teclado global (funciona com o foco em qualquer outro programa) abre uma janelinha de captura rápida pra guardar uma memória sem precisar abrir o app inteiro. O app tenta `Ctrl+Shift+H` primeiro e cai pra outras combinações automaticamente se já estiver em uso por outro programa — o atalho realmente ativo aparece no menu da bandeja ("Capturar memória rápida (...)").
+
 ## Para desenvolvedor
 
 Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI autenticado no terminal.
