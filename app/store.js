@@ -56,7 +56,35 @@ function mapMemory(row) {
     source: row.source || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    relations: [],
+    relationTypes: {},
   };
+}
+
+const RELATION_TYPES = ["belonging", "thematic", "derivation", "correction"];
+
+/**
+ * Fills `relations`/`relationTypes` on already-mapped memories in one query,
+ * instead of one query per memory. Only the declaring (`from`) side lists the
+ * relation — matching the frontend's graph model (frontend/src/graph.ts),
+ * which builds one edge per declared relation and exposes the reverse
+ * direction separately via its own `incoming` map. Attaching both directions
+ * here would make the atlas draw two overlapping edges per relation.
+ */
+function attachRelations(db, memories) {
+  if (!memories.length) return memories;
+  const ids = memories.map((m) => m.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db.prepare(`SELECT * FROM memory_relations WHERE from_id IN (${placeholders})`).all(...ids);
+  const byId = new Map(memories.map((m) => [m.id, m]));
+  for (const row of rows) {
+    const from = byId.get(row.from_id);
+    if (from && !from.relations.includes(row.to_id)) {
+      from.relations.push(row.to_id);
+      from.relationTypes[row.to_id] = row.type;
+    }
+  }
+  return memories;
 }
 
 // ---------- Projects ----------
@@ -230,7 +258,16 @@ export async function createMemory({
     ts,
     ts,
   );
-  return mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id));
+  return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
+}
+
+export async function createRelation({ fromId, toId, type }) {
+  if (!RELATION_TYPES.includes(type)) throw new Error("Tipo de relação inválido.");
+  if (!fromId || !toId || fromId === toId) throw new Error("Relação precisa de duas memórias diferentes.");
+  const db = await getDb();
+  db.prepare(
+    "INSERT OR IGNORE INTO memory_relations (id, from_id, to_id, type, created_at) VALUES (?, ?, ?, ?, ?)",
+  ).run(randomUUID(), fromId, toId, type, now());
 }
 
 export async function updateMemory(id, patch) {
@@ -247,7 +284,7 @@ export async function updateMemory(id, patch) {
     now(),
     id,
   );
-  return mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id));
+  return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 
 export async function deleteMemory(id) {
@@ -283,7 +320,7 @@ export async function listMemories({ scope, projectId, conversationId, kind, que
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const rows = db.prepare(`SELECT * FROM memories ${where} ORDER BY created_at DESC`).all(...params);
-  return rows.map(mapMemory);
+  return attachRelations(db, rows.map(mapMemory));
 }
 
 function tokenize(text) {
@@ -322,6 +359,32 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit).map((s) => s.memory);
+}
+
+/**
+ * Small pool of pre-existing memories "nearby" a conversation (its own
+ * memory, then its project's, then global), offered to the extractor as
+ * candidates it may link a newly extracted memory to. Kept separate from
+ * selectRelevantMemories() because this has no query to score against — it's
+ * just "what's already there to potentially relate to", most recent first.
+ */
+export async function listNearbyMemories({ conversationId, projectId } = {}, limit = 8) {
+  const db = await getDb();
+  const pools = [
+    conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ? ORDER BY created_at DESC").all(conversationId) : [],
+    projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ? ORDER BY created_at DESC").all(projectId) : [],
+    db.prepare("SELECT * FROM memories WHERE scope = 'global' ORDER BY created_at DESC").all(),
+  ];
+  const seen = new Set();
+  const result = [];
+  for (const pool of pools) {
+    for (const row of pool) {
+      if (seen.has(row.id) || result.length >= limit) continue;
+      seen.add(row.id);
+      result.push(mapMemory(row));
+    }
+  }
+  return result.slice(0, limit);
 }
 
 export async function countMemories() {

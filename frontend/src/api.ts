@@ -30,6 +30,7 @@ export type ConversationWithMessages = Conversation & { messages: ChatMessage[] 
 
 export type MemoryScope = "global" | "project" | "conversation";
 export type MemoryKind = "manual" | "extracted" | "imported";
+export type MemoryRelationType = "belonging" | "thematic" | "derivation" | "correction";
 
 export type MemoryEntry = {
   id: string;
@@ -43,6 +44,8 @@ export type MemoryEntry = {
   source?: string;
   createdAt: string;
   updatedAt: string;
+  relations?: string[];
+  relationTypes?: Record<string, MemoryRelationType>;
 };
 
 export type MemoryStat = { scope: MemoryScope; kind: MemoryKind; count: number };

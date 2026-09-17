@@ -60,9 +60,20 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS memory_relations (
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  to_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('belonging','thematic','derivation','correction')),
+  created_at TEXT NOT NULL,
+  UNIQUE(from_id, to_id, type)
+);
+
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope, project_id, conversation_id);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON memory_relations(from_id);
+CREATE INDEX IF NOT EXISTS idx_relations_to ON memory_relations(to_id);
 `;
 
 let instance = null;

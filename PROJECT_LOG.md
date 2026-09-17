@@ -268,3 +268,36 @@ Pendências conhecidas desta rodada:
 - Nenhuma release foi publicada no GitHub ainda; o auto-update do `electron-updater` não tem o que buscar até a primeira `npm run dist` + publicação.
 - Bundle do Atlas 3D (`three`/`@react-three/fiber`/`@react-three/drei`) continua grande (874 kB no chunk `MemoryScene`) — candidato a `React.lazy()` numa fase futura, não afeta o fluxo principal de chat.
 - A "outra ideia" do usuário para o diferencial do harness (mencionada em 2026-09-16, ainda não compartilhada) continua em aberto.
+
+## 2026-09-16/17 — Dois bugs reais encontrados na instalação de verdade + v0.1.1 a v0.1.3
+
+Usuário instalou o app de verdade e reportou dois erros em sequência, ambos corrigidos e republicados no mesmo ciclo:
+
+1. **`Cannot find package 'electron-updater'`** ao abrir o app instalado — `electron-updater` estava em `devDependencies`; `electron-builder` só empacota dependências de produção dentro do `.exe` final. Corrigido movendo pra `dependencies` (`package.json`). Publicado como **v0.1.2**.
+2. **`ENOTDIR, not a directory`** ao mandar a primeira mensagem — `app/db.js` calculava o caminho do banco (`dbFile`) como `const` no topo do módulo, mas o `electron/main.js` só define `HARNESS_DB_FILE` dentro de `app.whenReady()`; como o `import` de `app/server.js` é estático, ele já roda antes disso, então o valor padrão (dentro do `app.asar`, somente leitura) ficava travado pra sempre. Corrigido resolvendo `HARNESS_DB_FILE` dentro de `getDb()` (por chamada, não por import). Publicado como **v0.1.3**, testado localmente (health check + criação de conversa real gravando em `%APPDATA%\Harness Aurora\harness.db`) antes de publicar.
+3. Ajuste menor: a mensagem de erro de boot do frontend ainda mandava "confirme que `npm start` está rodando" — texto de antes do empacotamento Electron, sem sentido pro usuário final (não tem terminal nenhum). Trocado por uma mensagem genérica de "feche e abra de novo".
+
+**Processo de publicação (registrado porque se repete a cada release):** `electron-builder --publish always` tem uma condição de corrida conhecida na primeira publicação de uma tag nova — cria **duas** releases-rascunho duplicadas no GitHub (uma só com o `.blockmap`, outra com `.exe`+`latest.yml`). Correção manual necessária toda vez: apagar a release incompleta via API do GitHub, rodar `electron-builder --publish always` de novo (dessa vez ele completa a release existente em vez de criar outra), depois `PATCH` pra tirar do modo draft. Assim que a v0.1.3 ficou publicada e corrigida, o `electron-updater` do app 0.1.2 (rodando localmente) checou e confirmou a versão nova disponível.
+
+Aprendizado de segurança: o classificador automático do Claude Code bloqueou um comando por reutilizar o token do GitHub em texto puro repetidas vezes na mesma sessão — sinal de que não se deve colar token em linha de comando repetidamente; usar variável de ambiente definida uma única vez por chamada de ferramenta (`$env:GH_TOKEN` no PowerShell) é mais seguro. Token revogado pelo usuário depois de usado.
+
+## 2026-09-17 — Relações reais entre memórias + Atlas 3D com modo Fluxograma 2D
+
+Depois de estabilizar o Electron, o usuário pediu pra começar os "diferenciais" discutidos (relações de memória, bandeja do sistema, acesso a arquivos, comparação entre provedores, memória com decaimento, exportação, auto-log) mais um novo layout do Atlas 3D. Combinado: ir por fases. **Fase 1** (esta rodada): relações reais entre memórias + um modo "Fluxograma 2D" dentro da própria tela do Atlas 3D (alternando com a cena 3D via botão).
+
+Descoberta que simplificou tudo: o tipo `Memory` do frontend (`frontend/src/data.ts`) **já tinha** `relations`/`relationTypes` e `graph.ts`/`MemoryScene.tsx` já sabiam desenhar conexões — só que `NeuralAtlas.tsx` forçava esses campos vazios porque o backend nunca tinha rastreado relações de verdade. Bastou o backend passar a fornecer dados reais.
+
+**Backend:**
+- Nova tabela `memory_relations` (`app/db.js`): `from_id`, `to_id`, `type` (`belonging`/`thematic`/`derivation`/`correction`), `UNIQUE(from_id, to_id, type)`.
+- `app/store.js`: `createRelation()` (idempotente via `INSERT OR IGNORE`), `attachRelations()` (preenche `relations`/`relationTypes` só do lado que declara a relação — unidirecional, pra casar com o jeito que `graph.ts` já constrói o grafo no frontend usando um mapa `incoming` separado pro sentido inverso; populei bidirecional na primeira tentativa e geraria arestas duplicadas, corrigido antes de testar), `listNearbyMemories()` (pool de memórias já existentes da mesma conversa/projeto/geral, oferecidas como candidatas de relação).
+- `app/memoryExtractor.js`: a extração de memória existente (uma chamada ao Codex por turno, não uma nova) passou a também pedir um campo opcional `relatesTo` por item extraído, com uma lista curta de memórias existentes (id + título) oferecida no prompt — o modelo nunca pode inventar um id fora dessa lista (validado em `parseMemoryCandidates`). Relações neste v1 só apontam pra memórias já existentes antes da extração (não liga itens novos do mesmo lote entre si).
+- 18 testes de backend (15→18): 2 unitários pra validação de `relatesTo` e 1 HTTP confirmando que a relação aparece em `GET /api/memories` do lado certo.
+
+**Frontend:**
+- `frontend/src/api.ts`: `MemoryEntry` ganhou `relations?`/`relationTypes?`.
+- `frontend/src/NeuralAtlas.tsx`: `loadRealMemoriesAsAtlas` para de zerar `relations`/`relationTypes` e passa a usar os dados reais da API — nenhuma mudança em `MemoryScene.tsx`/`graph.ts` foi necessária, eles já sabiam desenhar isso.
+- Novo `frontend/src/MemoryFlow.tsx`: modo "⌗ Fluxograma" (terceiro botão ao lado de "Mapa 3D"/"Lista"), usa `@xyflow/react` + `dagre` (2 dependências novas, nenhuma nativa) pra layout hierárquico 2D do mesmo grafo (`buildGraph`) que já alimenta a cena 3D — carregado via `React.lazy`, mesmo padrão do `MemoryScene`, fica num chunk separado (277 kB) sem inflar o bundle principal.
+
+**Validação de ponta a ponta com Codex real:** mandei "Guarde este fato: o projeto Aurora usa SQLite" (criou 1 memória) e depois "na verdade decidimos trocar pra PostgreSQL" na mesma conversa — a segunda memória extraída declarou sozinha uma relação `correction` apontando pra primeira, confirmada via `GET /api/memories` (`relations: ["<id-sqlite>"], relationTypes: {"<id-sqlite>": "correction"}`). Backend (18/18), frontend (`test:memory`, 6/6) e build (`frontend:build`) passando.
+
+Fases seguintes (ainda não implementadas): bandeja do sistema/atalho global, acesso a arquivos locais pro Codex, comparação lado a lado entre provedores, memória com confiança/decaimento, exportação/importação de "pacotes de memória", auto-geração de `PROJECT_LOG.md` pra outros projetos do usuário.

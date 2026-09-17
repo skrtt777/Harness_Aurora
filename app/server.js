@@ -99,6 +99,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
 
   const memoryCreated = await extractAndStoreMemories({
     conversationId,
+    projectId: conversation.projectId,
     userMessage: trimmed,
     assistantMessage: result.text,
     env,

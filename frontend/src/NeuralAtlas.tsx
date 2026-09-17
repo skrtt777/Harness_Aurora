@@ -15,6 +15,7 @@ import { buildGraph, traceOrigin } from "./graph";
 import { listConversations, listMemories, listProjects } from "./api";
 
 const MemoryScene = lazy(() => import("./MemoryScene"));
+const MemoryFlow = lazy(() => import("./MemoryFlow"));
 const scopeLabels: Record<MemoryScope, string> = {
   general: "Geral",
   project: "Projeto / pasta",
@@ -49,10 +50,11 @@ function initialMemories() {
 /**
  * Pulls the harness's real memory (the same store the chat reads and writes
  * to — see MemoryView.tsx) and reshapes it into the atlas's visual Memory
- * type. Real memories have no persisted 3D position or fabricated
- * relations, so positions are laid out deterministically by id and
- * relations are left empty rather than invented. Returns [] when there is
- * nothing real yet, so the caller can fall back to the demo collection.
+ * type. Real memories have no persisted 3D position, so positions are laid
+ * out deterministically by id; relations, however, are the real ones
+ * extracted by the backend (see app/memoryExtractor.js), not fabricated.
+ * Returns [] when there is nothing real yet, so the caller can fall back to
+ * the demo collection.
  */
 async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
   const [entries, projects, conversations] = await Promise.all([listMemories(), listProjects(), listConversations()]);
@@ -74,8 +76,8 @@ async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
       date: new Date(entry.createdAt).toLocaleDateString("pt-BR"),
       tags: entry.tags,
       position: [0, 0, 0],
-      relations: [],
-      relationTypes: {},
+      relations: entry.relations ?? [],
+      relationTypes: entry.relationTypes ?? {},
     };
   });
   return layoutMemories(mapped, new Set(mapped.map((m) => m.id)));
@@ -113,7 +115,7 @@ export default function NeuralAtlas() {
     [wireframe, setWireframe] = useState(false),
     [orthographic, setOrthographic] = useState(false),
     [focus, setFocus] = useState(false),
-    [view, setView] = useState<"map" | "list">("map");
+    [view, setView] = useState<"map" | "flow" | "list">("map");
   const [motion, setMotion] = useState(() => !window.matchMedia("(prefers-reduced-motion: reduce)").matches),
     [quality, setQuality] = useState<"low" | "high">("high"),
     [stats, setStats] = useState(""),
@@ -253,7 +255,7 @@ export default function NeuralAtlas() {
           </div>
           <div className={`atlas-disclaimer ${connected ? "connected" : ""}`}>
             {connected
-              ? "Conectado à memória real do harness (mesmos dados da aba Memória). Posições e relações são só visuais."
+              ? "Conectado à memória real do harness (mesmos dados da aba Memória). Relações vêm da extração automática; só a posição no espaço é visual."
               : "Mostrando demonstração sintética — nenhuma memória real encontrada ainda. Converse no chat para gerar memória."}
           </div>
           <div className="rail-section">
@@ -363,6 +365,9 @@ export default function NeuralAtlas() {
           <div className="view-toggle">
             <button className={view === "map" ? "selected" : ""} onClick={() => setView("map")}>
               ◉ Mapa 3D
+            </button>
+            <button className={view === "flow" ? "selected" : ""} onClick={() => setView("flow")}>
+              ⌗ Fluxograma
             </button>
             <button className={view === "list" ? "selected" : ""} onClick={() => setView("list")}>
               ☷ Lista
@@ -481,6 +486,10 @@ export default function NeuralAtlas() {
               </button>
             </div>
           </div>
+        ) : view === "flow" ? (
+          <Suspense fallback={<div className="scene-fallback">Preparando o fluxograma…</div>}>
+            <MemoryFlow memories={filtered} allMemories={memories} selectedId={selectedId} onSelect={select} />
+          </Suspense>
         ) : (
           <div className="list-view">
             <div className="list-table-head">
@@ -648,7 +657,15 @@ export default function NeuralAtlas() {
           )}
           <div className="performance">
             <span className="overline">RENDERIZAÇÃO LOCAL</span>
-            <small>{view === "map" ? (motion ? stats || "Medindo a cena…" : "Animação pausada · renderização sob demanda") : "Visualização em lista"}</small>
+            <small>
+              {view === "map"
+                ? motion
+                  ? stats || "Medindo a cena…"
+                  : "Animação pausada · renderização sob demanda"
+                : view === "flow"
+                  ? `${graph.groups.length} grupos · ${graph.edges.length} conexões`
+                  : "Visualização em lista"}
+            </small>
           </div>
         </aside>
       )}

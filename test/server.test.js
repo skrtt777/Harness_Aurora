@@ -15,6 +15,7 @@ process.env.CODEX_BIN = "codex-binary-not-installed-in-tests";
 const { createServer, buildPrompt } = await import("../app/server.js");
 const { buildProviderConfig, parseCodexOutput } = await import("../app/codex.js");
 const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/memoryExtractor.js");
+const { createRelation } = await import("../app/store.js");
 
 async function withServer(run) {
   const server = createServer();
@@ -100,6 +101,23 @@ test("extraction prompt embeds both sides of the exchange", () => {
   assert.match(prompt, /Prazer, Lucas!/);
 });
 
+test("extraction prompt lists candidate memories for relatesTo", () => {
+  const prompt = buildExtractionPrompt("oi", "olá", [{ id: "mem-1", title: "Projeto X" }]);
+  assert.match(prompt, /mem-1: Projeto X/);
+});
+
+test("relatesTo only accepts a known id and a valid relation type", () => {
+  const raw = JSON.stringify([
+    { title: "A", content: "conteúdo A", relatesTo: [{ id: "mem-1", type: "thematic" }] },
+    { title: "B", content: "conteúdo B", relatesTo: [{ id: "id-inventado", type: "thematic" }] },
+    { title: "C", content: "conteúdo C", relatesTo: [{ id: "mem-1", type: "tipo-invalido" }] },
+  ]);
+  const [a, b, c] = parseMemoryCandidates(raw, ["mem-1"]);
+  assert.deepEqual(a.relatesTo, [{ id: "mem-1", type: "thematic" }]);
+  assert.deepEqual(b.relatesTo, []);
+  assert.deepEqual(c.relatesTo, []);
+});
+
 test("local server exposes a health endpoint", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/health");
@@ -179,6 +197,31 @@ test("memories can be created manually, filtered by scope and deleted", async ()
 
     const empty = await api(`/api/memories?scope=global&query=Preferência`);
     assert.ok(!empty.body.memories.some((m) => m.id === created.body.id));
+  });
+});
+
+test("a relation shows up on the declaring memory's side in GET /api/memories", async () => {
+  await withServer(async (api) => {
+    const first = await api("/api/memories", {
+      method: "POST",
+      body: JSON.stringify({ scope: "global", title: "Projeto X", content: "Projeto X usa SQLite." }),
+    });
+    const second = await api("/api/memories", {
+      method: "POST",
+      body: JSON.stringify({ scope: "global", title: "Decisão", content: "Time decidiu não usar ORM." }),
+    });
+
+    await createRelation({ fromId: second.body.id, toId: first.body.id, type: "derivation" });
+
+    const list = await api("/api/memories?scope=global");
+    const firstFromList = list.body.memories.find((m) => m.id === first.body.id);
+    const secondFromList = list.body.memories.find((m) => m.id === second.body.id);
+
+    // Only the declaring ("from") side lists the relation — matches the
+    // frontend's graph model, which derives the reverse direction itself.
+    assert.deepEqual(firstFromList.relations, []);
+    assert.deepEqual(secondFromList.relations, [first.body.id]);
+    assert.equal(secondFromList.relationTypes[first.body.id], "derivation");
   });
 });
 
