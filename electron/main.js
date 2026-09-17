@@ -144,6 +144,7 @@ ipcMain.on("quick-capture:close", () => {
 app.whenReady().then(async () => {
   process.env.HARNESS_DB_FILE = process.env.HARNESS_DB_FILE || path.join(app.getPath("userData"), "harness.db");
   process.env.CODEX_CWD = process.env.CODEX_CWD || app.getPath("userData");
+  process.env.CLAUDE_CWD = process.env.CLAUDE_CWD || app.getPath("userData");
 
   const devUrl = process.env.ELECTRON_START_URL;
   if (!devUrl) {

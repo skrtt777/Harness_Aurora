@@ -11,9 +11,11 @@ import { join } from "node:path";
 // instead of a static one, which Node would hoist above this assignment.
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "harness-test-")), "test.db");
 process.env.CODEX_BIN = "codex-binary-not-installed-in-tests";
+process.env.CLAUDE_BIN = "claude-binary-not-installed-in-tests";
 
 const { createServer, buildPrompt } = await import("../app/server.js");
 const { buildProviderConfig, parseCodexOutput } = await import("../app/codex.js");
+const { parseClaudeOutput } = await import("../app/claude.js");
 const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/memoryExtractor.js");
 const { createRelation } = await import("../app/store.js");
 
@@ -59,6 +61,24 @@ test("parser extracts the final Codex agent message", () => {
     threadId: "thread-1",
     usage: { input_tokens: 10, output_tokens: 4 },
   });
+});
+
+test("parser extracts the result from a Claude Code CLI JSON response", () => {
+  const output = JSON.stringify({
+    result: "Resposta final",
+    session_id: "session-1",
+    usage: { input_tokens: 10, output_tokens: 4 },
+    is_error: false,
+  });
+  assert.deepEqual(parseClaudeOutput(output), {
+    text: "Resposta final",
+    threadId: "session-1",
+    usage: { input_tokens: 10, output_tokens: 4 },
+  });
+});
+
+test("parser tolerates malformed Claude output instead of throwing", () => {
+  assert.deepEqual(parseClaudeOutput("não é json"), { text: "", threadId: null, usage: null });
 });
 
 test("prompt builder includes project instructions and relevant memories, and caps size", () => {
@@ -127,6 +147,14 @@ test("local server exposes a health endpoint", async () => {
   });
 });
 
+test("GET /api/providers lists both Codex and Claude", async () => {
+  await withServer(async (api) => {
+    const { status, body } = await api("/api/providers");
+    assert.equal(status, 200);
+    assert.deepEqual(body.providers.map((p) => p.id).sort(), ["claude", "codex"]);
+  });
+});
+
 test("projects and conversations can be created, listed and scoped", async () => {
   await withServer(async (api) => {
     const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "Projeto X", instructions: "Seja direto." }) });
@@ -175,6 +203,23 @@ test("a chat turn persists the user message even when Codex is unavailable", asy
     assert.equal(fetched.body.messages[0].role, "user");
     assert.equal(fetched.body.messages[0].content, "Olá, tudo bem?");
     assert.equal(fetched.body.messages[1].role, "assistant");
+    assert.equal(fetched.body.messages[1].provider, "Sistema");
+  });
+});
+
+test("a conversation created with provider claude persists the user message even when Claude is unavailable", async () => {
+  await withServer(async (api) => {
+    const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "claude" }) });
+    assert.equal(conversation.body.provider, "claude");
+
+    const turn = await api(`/api/conversations/${conversation.body.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message: "Olá, tudo bem?" }),
+    });
+    assert.equal(turn.status, 503);
+
+    const fetched = await api(`/api/conversations/${conversation.body.id}`);
+    assert.equal(fetched.body.messages[0].content, "Olá, tudo bem?");
     assert.equal(fetched.body.messages[1].provider, "Sistema");
   });
 });

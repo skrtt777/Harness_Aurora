@@ -90,8 +90,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ---------- Health ----------
+export type ProviderInfo = { id: string; name: string; mode: string; model: string; configured: boolean };
 export const getHealth = () =>
-  request<{ ok: boolean; version?: string; provider: { id: string; name: string; configured: boolean } }>("/health");
+  request<{ ok: boolean; version?: string; provider: ProviderInfo }>("/health");
+export const getProviders = () => request<{ providers: ProviderInfo[] }>("/providers").then((r) => r.providers);
 
 // ---------- Projects ----------
 export const listProjects = () => request<{ projects: Project[] }>("/projects").then((r) => r.projects);
@@ -106,7 +108,7 @@ export const listConversations = (projectId?: string) =>
   request<{ conversations: Conversation[] }>(`/conversations${projectId ? `?projectId=${projectId}` : ""}`).then(
     (r) => r.conversations,
   );
-export const createConversation = (data: { projectId?: string | null; title?: string }) =>
+export const createConversation = (data: { projectId?: string | null; title?: string; provider?: string }) =>
   request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(data) });
 export const getConversation = (id: string) => request<ConversationWithMessages>(`/conversations/${id}`);
 export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null }) =>

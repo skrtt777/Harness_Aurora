@@ -1,4 +1,5 @@
 import { runCodex } from "./codex.js";
+import { runClaude } from "./claude.js";
 import { createMemory, createRelation, listNearbyMemories } from "./store.js";
 
 const DEFAULT_EXTRACTION_TIMEOUT_MS = 45_000;
@@ -71,14 +72,16 @@ export function parseMemoryCandidates(text, validIds = []) {
  * result is stored scoped to the conversation it came from, so every chat
  * created in the harness builds its own memory automatically.
  */
-export async function extractAndStoreMemories({ conversationId, projectId, userMessage, assistantMessage, env = process.env }) {
+export async function extractAndStoreMemories({ conversationId, projectId, provider = "codex", userMessage, assistantMessage, env = process.env }) {
   if (!conversationId || !userMessage?.trim() || !assistantMessage?.trim()) return [];
 
   const nearby = await listNearbyMemories({ conversationId, projectId });
   const prompt = buildExtractionPrompt(userMessage, assistantMessage, nearby);
-  const result = await runCodex(prompt, {
+  const runProvider = provider === "claude" ? runClaude : runCodex;
+  const timeoutKey = provider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
+  const result = await runProvider(prompt, {
     ...env,
-    CODEX_TIMEOUT_MS: env.MEMORY_EXTRACTION_TIMEOUT_MS || DEFAULT_EXTRACTION_TIMEOUT_MS,
+    [timeoutKey]: env.MEMORY_EXTRACTION_TIMEOUT_MS || DEFAULT_EXTRACTION_TIMEOUT_MS,
   });
   if (!result.ok) return [];
 

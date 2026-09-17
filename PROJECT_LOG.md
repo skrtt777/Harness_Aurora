@@ -354,3 +354,23 @@ Primeiro dos três ciclos pedidos nesta rodada (depois vêm Claude como provedor
 - `npm run frontend:build`, `npm run test:memory` (6/6), `npm run check` e `npm test` (19/19) passando.
 
 Próximos ciclos combinados: Claude Code CLI como segundo provedor (mesma autenticação via CLI local que já usamos com o Codex), depois um passe de polimento visual no Atlas 3D.
+
+## 2026-09-17 — Claude Code CLI como segundo provedor
+
+Segundo dos três ciclos combinados. Pedido do usuário: reaproveitar a autenticação do Claude Code CLI local, no mesmo padrão já usado com o Codex CLI (sem chave de API).
+
+Descoberta que simplificou o trabalho: **o schema já previa múltiplos provedores desde o início** — a coluna `conversations.provider` já existia (`DEFAULT 'codex'`) e `store.js#createConversation` já aceitava um provider arbitrário, só ninguém tinha ligado os pontos até agora.
+
+- Testado o `claude` CLI direto nesta máquina antes de codar: `claude -p "<prompt>" --output-format json --no-session-persistence` devolve um único objeto JSON (bem mais simples que o JSONL do Codex) com `result`/`session_id`/`usage`/`is_error`. Testado também via `execFile` do Node (mesmo mecanismo do `runCodex`) — **não tem o bug de stdin travado que o Codex tinha** (respondeu em ~7s sem fechar o stdin manualmente); fechei o stdin mesmo assim por segurança/consistência.
+- Novo `app/claude.js` espelha `app/codex.js` (`buildProviderConfig`, `parseClaudeOutput`, `runClaude`) com a mesma interface — o resto do backend não precisa saber qual provedor está respondendo.
+- `app/server.js`: `POST /api/conversations` passa a repassar o `provider` escolhido (antes era ignorado); nova rota `GET /api/providers` lista os dois; `handleChatTurn` escolhe `runCodex`/`runClaude` conforme `conversation.provider`, e o rótulo salvo na mensagem (antes fixo em `"Codex"`) virou dinâmico — como o `ChatView.tsx` já mostrava `message.provider` por mensagem, isso sozinho já fez a UI funcionar certo pros dois provedores, **sem nenhuma mudança de frontend nessa parte**.
+- `app/memoryExtractor.js`: a extração de memória agora usa o mesmo provedor da conversa.
+- `electron/main.js`: `CLAUDE_CWD` aponta pra mesma pasta neutra (`userData`) já usada pelo `CODEX_CWD`, evitando que o `claude` CLI leia um `CLAUDE.md` de projeto aleatório.
+- Frontend: par de botões "Codex"/"Claude" na barra lateral (acima do "+ Nova conversa", busca os nomes via `GET /api/providers`) define o provedor da próxima conversa nova.
+- 23 testes de backend (19→23: 2 unitários pro parser do Claude, 2 de HTTP — `/api/providers` e conversa `provider: "claude"` indisponível no ambiente de teste).
+
+**Validado de ponta a ponta com o Claude CLI real** (porta isolada 8799, sem mexer no app real do usuário que estava rodando em 8787 na v0.1.4): criei uma conversa com `provider: "claude"`, mandei "guarde que meu carro favorito é um Fusca azul" — resposta real do Claude, rótulo "Claude" na mensagem, memória extraída corretamente ("Carro favorito"). Segunda mensagem "qual meu carro favorito?" leu a memória certa e respondeu "Volkswagen Fusca." — confirma leitura e escrita funcionando com Claude também, não só com Codex.
+
+`npm run check`, `npm test` (23/23), `npm run test:memory` (6/6) e `npm run frontend:build` passando. Verificação visual do seletor de provedor via `claude-in-chrome` não foi possível nesta rodada (extensão do Chrome desconectada no momento) — vale conferir na próxima sessão ou pedir confirmação ao usuário.
+
+Próximo ciclo combinado: polimento visual do Atlas 3D (materiais/iluminação/geometria da cena 3D em si).

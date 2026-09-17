@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getHealth, type Conversation, type Project } from "./api";
+import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo } from "./api";
 
 type View = "chat" | "memory" | "atlas" | "test";
 
@@ -9,6 +9,8 @@ type Props = {
   activeConversationId: string | null;
   activeView: View;
   memoryCount: number;
+  newConversationProvider: string;
+  onSelectNewConversationProvider: (id: string) => void;
   onSelectView: (view: View) => void;
   onSelectConversation: (id: string) => void;
   onNewConversation: (projectId?: string | null) => void;
@@ -96,6 +98,8 @@ export default function Sidebar({
   activeConversationId,
   activeView,
   memoryCount,
+  newConversationProvider,
+  onSelectNewConversationProvider,
   onSelectView,
   onSelectConversation,
   onNewConversation,
@@ -110,11 +114,15 @@ export default function Sidebar({
   const [creatingProject, setCreatingProject] = useState(false);
   const [projectDraft, setProjectDraft] = useState("");
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
 
   useEffect(() => {
     getHealth()
       .then((health) => setAppVersion(health.version ?? null))
       .catch(() => setAppVersion(null));
+    getProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]));
   }, []);
 
   const filtered = useMemo(() => {
@@ -145,6 +153,20 @@ export default function Sidebar({
         </div>
       </div>
 
+      {providers.length > 1 && (
+        <div className="provider-picker" role="group" aria-label="Provedor da próxima conversa">
+          {providers.map((p) => (
+            <button
+              key={p.id}
+              className={newConversationProvider === p.id ? "selected" : ""}
+              onClick={() => onSelectNewConversationProvider(p.id)}
+              title={`Novas conversas vão usar ${p.name}`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
       <button className="new-conversation" onClick={() => onNewConversation(null)}>
         ＋ Nova conversa
       </button>

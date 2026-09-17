@@ -5,6 +5,7 @@ import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
+import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
 import {
   createConversation,
   createMemory,
@@ -86,7 +87,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     limit: contextLimit,
   });
 
-  const result = await runCodex(prompt, env);
+  const runProvider = conversation.provider === "claude" ? runClaude : runCodex;
+  const providerLabel = conversation.provider === "claude" ? "Claude" : "Codex";
+  const result = await runProvider(prompt, env);
 
   if (!result.ok) {
     const errorMessage = await addMessage({
@@ -101,6 +104,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
   const memoryCreated = await extractAndStoreMemories({
     conversationId,
     projectId: conversation.projectId,
+    provider: conversation.provider,
     userMessage: trimmed,
     assistantMessage: result.text,
     env,
@@ -110,7 +114,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     conversationId,
     role: "assistant",
     content: result.text,
-    provider: "Codex",
+    provider: providerLabel,
     memoryAccess: relevant.map((m) => m.id),
     memoryCreated: memoryCreated.map((m) => m.id),
   });
@@ -170,6 +174,9 @@ export function createServer() {
       if (method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, { ok: true, version: appVersion, provider: buildProviderConfig() });
       }
+      if (method === "GET" && pathname === "/api/providers") {
+        return sendJson(response, 200, { providers: [buildProviderConfig(), buildClaudeProviderConfig()] });
+      }
 
       // ---------- Projects ----------
       if (method === "GET" && pathname === "/api/projects") {
@@ -209,6 +216,7 @@ export function createServer() {
           const conversation = await createConversation({
             projectId: body.projectId || null,
             title: body.title || "Nova conversa",
+            provider: body.provider === "claude" ? "claude" : "codex",
           });
           return sendJson(response, 201, conversation);
         } catch (error) {

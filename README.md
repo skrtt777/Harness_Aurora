@@ -14,7 +14,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 
-**Pré-requisito que continua existindo:** [Codex CLI](https://github.com/openai/codex) instalado e autenticado (`codex login`) na sua conta do Windows — é uma ferramenta externa da OpenAI, não dá pra embutir a sessão autenticada de outra pessoa dentro do instalador. Se o Codex não estiver disponível, o app avisa ao abrir e o chat não responde até isso ser resolvido; o resto da interface funciona normalmente.
+**Pré-requisito que continua existindo:** pelo menos um dos dois CLIs instalado e autenticado — [Codex CLI](https://github.com/openai/codex) (`codex login`) e/ou [Claude Code CLI](https://claude.com/claude-code) (`claude` já autenticado). São ferramentas externas, não dá pra embutir a sessão autenticada de outra pessoa dentro do instalador. Se o provedor escolhido pra uma conversa não estiver disponível, o app avisa e o chat não responde até isso ser resolvido; o resto da interface funciona normalmente.
 
 Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente — o histórico e a memória ficam em `%APPDATA%\Harness Aurora\` e não são apagados pelo desinstalador (apague essa pasta manualmente se quiser começar do zero).
 
@@ -26,7 +26,7 @@ Um atalho de teclado global (funciona com o foco em qualquer outro programa) abr
 
 ## Para desenvolvedor
 
-Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI autenticado no terminal.
+Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI e/ou Claude Code CLI autenticados no terminal.
 
 ```powershell
 npm install
@@ -59,14 +59,18 @@ O instalador (`.exe`) e os arquivos de auto-update saem em `release/`. O `build.
 
 ## Conversas e projetos
 
-Conversas aparecem na barra lateral, agrupadas por **projeto** (opcional) ou soltas em "Conversas". É possível criar projeto, renomear/excluir projeto e conversa, e cada projeto pode ter instruções próprias (enviadas ao Codex em toda mensagem daquele projeto). Tudo é persistido no backend (SQLite), então sobrevive a reiniciar o app.
+Conversas aparecem na barra lateral, agrupadas por **projeto** (opcional) ou soltas em "Conversas". É possível criar projeto, renomear/excluir projeto e conversa, e cada projeto pode ter instruções próprias (enviadas ao provedor em toda mensagem daquele projeto). Tudo é persistido no backend (SQLite), então sobrevive a reiniciar o app.
+
+## Provedores — Codex e Claude
+
+Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor "Codex"/"Claude" na barra lateral, acima do "+ Nova conversa"). Os dois seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
 
 ## Memória — funcional, não só visual
 
 A memória tem três escopos: **geral** (`global`), **por projeto** (`project`) e **por conversa** (`conversation`). Toda conversa criada tem sua própria memória.
 
-- **Leitura real:** a cada mensagem, o backend seleciona as memórias mais relevantes (conversa → projeto → geral, nessa ordem de prioridade) e injeta no prompt enviado ao Codex. É por isso que a IA "lembra" do assunto — ela lê essas memórias antes de responder.
-- **Escrita automática:** depois de cada resposta, uma segunda chamada ao Codex (`app/memoryExtractor.js`) extrai fatos/decisões/preferências relevantes da troca e salva como memória da conversa (`kind: "extracted"`). Isso adiciona uma chamada extra por mensagem — validado de ponta a ponta em 2026-09-16 (chamada real ao Codex CLI autenticado, incluindo leitura e escrita de memória funcionando corretamente).
+- **Leitura real:** a cada mensagem, o backend seleciona as memórias mais relevantes (conversa → projeto → geral, nessa ordem de prioridade) e injeta no prompt enviado ao provedor da conversa. É por isso que a IA "lembra" do assunto — ela lê essas memórias antes de responder.
+- **Escrita automática:** depois de cada resposta, uma segunda chamada ao mesmo provedor (`app/memoryExtractor.js`) extrai fatos/decisões/preferências relevantes da troca e salva como memória da conversa (`kind: "extracted"`). Isso adiciona uma chamada extra por mensagem — validado de ponta a ponta com Codex em 2026-09-16 e com Claude em 2026-09-17, incluindo leitura e escrita de memória funcionando corretamente nos dois.
 - **Escrita manual:** também dá para criar/editar/excluir memória à mão pela aba **Memória**.
 - **Relações reais:** a extração automática também propõe relações entre a memória nova e memórias já existentes (`belonging`/`thematic`/`derivation`/`correction`) — é o que alimenta as conexões do Atlas 3D e do Fluxograma.
 - **Aba Memória unificada:** reúne todas as memórias (de todas as conversas e projetos, mais a geral) em um único lugar, com filtro por escopo/origem e busca.

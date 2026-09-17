@@ -32,6 +32,7 @@ export default function AppShell() {
   const [sending, setSending] = useState(false);
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [bootError, setBootError] = useState("");
+  const [newConversationProvider, setNewConversationProvider] = useState("codex");
 
   const refreshMemoryTotal = useCallback(async () => {
     try {
@@ -87,12 +88,12 @@ export default function AppShell() {
 
   const handleNewConversation = useCallback(
     async (projectId?: string | null) => {
-      const created = await createConversation({ projectId: projectId || null });
+      const created = await createConversation({ projectId: projectId || null, provider: newConversationProvider });
       setConversations((items) => [created, ...items]);
       setActiveConversationId(created.id);
       setView("chat");
     },
-    [],
+    [newConversationProvider],
   );
 
   const handleNewProject = useCallback(async (name: string) => {
@@ -190,6 +191,8 @@ export default function AppShell() {
         activeConversationId={activeConversationId}
         activeView={view}
         memoryCount={memoryTotal}
+        newConversationProvider={newConversationProvider}
+        onSelectNewConversationProvider={setNewConversationProvider}
         onSelectView={setView}
         onSelectConversation={(id) => {
           setActiveConversationId(id);
