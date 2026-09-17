@@ -6,8 +6,16 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(root, "data");
-const dbFile = process.env.HARNESS_DB_FILE || join(dataDir, "harness.db");
 const legacyMemoryFile = join(dataDir, "memory.json");
+
+// Resolved lazily (inside getDb(), not at module load time): Electron's main
+// process sets HARNESS_DB_FILE only after app.whenReady(), which runs after
+// this module's static `import` chain has already been evaluated. Reading
+// process.env.HARNESS_DB_FILE here at the top level would permanently bake in
+// the default path (inside app/data, read-only once packaged into an asar).
+function resolveDbFile() {
+  return process.env.HARNESS_DB_FILE || join(dataDir, "harness.db");
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -96,7 +104,8 @@ function migrateLegacyMemory(db) {
 
 export async function getDb() {
   if (instance) return instance;
-  await mkdir(dataDir, { recursive: true });
+  const dbFile = resolveDbFile();
+  await mkdir(dirname(dbFile), { recursive: true });
   instance = new DatabaseSync(dbFile);
   instance.exec("PRAGMA journal_mode = WAL");
   instance.exec("PRAGMA foreign_keys = ON");
