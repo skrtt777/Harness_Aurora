@@ -14,7 +14,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 
-**Pré-requisito que continua existindo:** pelo menos um dos dois CLIs instalado e autenticado — [Codex CLI](https://github.com/openai/codex) (`codex login`) e/ou [Claude Code CLI](https://claude.com/claude-code) (`claude` já autenticado). São ferramentas externas, não dá pra embutir a sessão autenticada de outra pessoa dentro do instalador. Se o provedor escolhido pra uma conversa não estiver disponível, o app avisa e o chat não responde até isso ser resolvido; o resto da interface funciona normalmente.
+**Pré-requisito que continua existindo:** pelo menos um dos dois CLIs instalado e autenticado — [Codex CLI](https://github.com/openai/codex) (`codex login`) e/ou [Claude Code CLI](https://claude.com/claude-code) (`claude` já autenticado). São ferramentas externas, não dá pra embutir a sessão autenticada de outra pessoa dentro do instalador. Se o provedor escolhido pra uma conversa não estiver disponível, o app avisa e o chat não responde até isso ser resolvido; o resto da interface funciona normalmente. Um terceiro provedor, **Local (Ollama)**, é opcional: só aparece disponível se o [Ollama](https://ollama.com) estiver instalado e rodando na própria máquina.
 
 Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente — o histórico e a memória ficam em `%APPDATA%\Harness Aurora\` e não são apagados pelo desinstalador (apague essa pasta manualmente se quiser começar do zero).
 
@@ -26,7 +26,7 @@ Um atalho de teclado global (funciona com o foco em qualquer outro programa) abr
 
 ## Para desenvolvedor
 
-Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI e/ou Claude Code CLI autenticados no terminal.
+Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI e/ou Claude Code CLI autenticados no terminal. [Ollama](https://ollama.com) é opcional, só necessário para usar o provedor Local.
 
 ```powershell
 npm install
@@ -61,9 +61,16 @@ O instalador (`.exe`) e os arquivos de auto-update saem em `release/`. O `build.
 
 Conversas aparecem na barra lateral, agrupadas por **projeto** (opcional) ou soltas em "Conversas". É possível criar projeto, renomear/excluir projeto e conversa, e cada projeto pode ter instruções próprias (enviadas ao provedor em toda mensagem daquele projeto). Tudo é persistido no backend (SQLite), então sobrevive a reiniciar o app.
 
-## Provedores — Codex e Claude
+## Provedores — Codex, Claude e Local (Ollama)
 
-Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor "Codex"/"Claude" na barra lateral, acima do "+ Nova conversa"). Os dois seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
+Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor na barra lateral, acima do "+ Nova conversa"). Codex e Claude seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
+
+O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen2.5-coder:1.5b`) — de graça, offline, sem gastar chamada de Codex/Claude. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
+
+- Ao criar uma conversa **Local**, você também escolhe um **Professor** (Codex ou Claude), guardado em `conversations.teacherProvider`.
+- Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.
+- Essas memórias de ensino são salvas em escopo **projeto** (se a conversa tiver projeto) ou **geral** — de propósito diferente da extração automática normal (que salva na própria conversa): o objetivo é que o modelo local acerte de primeira em **conversas futuras diferentes**, não só na mesma conversa. Validado de ponta a ponta: um erro corrigido numa conversa passou a ser citado em `memoryAccess` e respondido corretamente pelo modelo local numa conversa **nova**, sem precisar de correção de novo.
+- A extração automática de memória (a cada resposta) usa sempre o professor nas conversas locais, nunca o próprio modelo pequeno — um modelo de ~1.5B não segue com confiabilidade a instrução estruturada de extrair JSON.
 
 ## Memória — funcional, não só visual
 

@@ -12,11 +12,17 @@ import { join } from "node:path";
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "harness-test-")), "test.db");
 process.env.CODEX_BIN = "codex-binary-not-installed-in-tests";
 process.env.CLAUDE_BIN = "claude-binary-not-installed-in-tests";
+// Port 1 is a privileged/unassigned port nothing will ever be listening on,
+// so runLocal fails fast with a connection error instead of the test
+// accidentally hitting a real Ollama server that happens to be running on
+// the developer's machine.
+process.env.LOCAL_BASE_URL = "http://127.0.0.1:1";
 
 const { createServer, buildPrompt } = await import("../app/server.js");
-const { buildProviderConfig, parseCodexOutput } = await import("../app/codex.js");
+const { buildProviderConfig, parseCodexOutput, extractCodexError } = await import("../app/codex.js");
 const { parseClaudeOutput } = await import("../app/claude.js");
 const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/memoryExtractor.js");
+const { buildCorrectionPrompt, parseCorrectionResponse } = await import("../app/correction.js");
 const { createRelation } = await import("../app/store.js");
 
 async function withServer(run) {
@@ -61,6 +67,24 @@ test("parser extracts the final Codex agent message", () => {
     threadId: "thread-1",
     usage: { input_tokens: 10, output_tokens: 4 },
   });
+});
+
+test("extractCodexError surfaces a usage-limit error from the JSON stream instead of raw stderr noise", () => {
+  const stdout = [
+    JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+    JSON.stringify({ type: "turn.started" }),
+    JSON.stringify({ type: "error", message: "You've hit your usage limit. Try again later." }),
+    JSON.stringify({
+      type: "turn.failed",
+      error: { message: "You've hit your usage limit. Try again later." },
+    }),
+  ].join("\n");
+  assert.equal(extractCodexError(stdout), "You've hit your usage limit. Try again later.");
+});
+
+test("extractCodexError returns null when the stream has no error event", () => {
+  const stdout = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "ok" } });
+  assert.equal(extractCodexError(stdout), null);
 });
 
 test("parser extracts the result from a Claude Code CLI JSON response", () => {
@@ -138,6 +162,28 @@ test("relatesTo only accepts a known id and a valid relation type", () => {
   assert.deepEqual(c.relatesTo, []);
 });
 
+test("correction prompt embeds the question, the wrong answer and the user's note", () => {
+  const prompt = buildCorrectionPrompt("Como somo dois números em Python?", "print(1, 2)", "isso só imprime, não soma");
+  assert.match(prompt, /Como somo dois números em Python\?/);
+  assert.match(prompt, /print\(1, 2\)/);
+  assert.match(prompt, /isso só imprime, não soma/);
+});
+
+test("correction response parser extracts the answer and teaching memories", () => {
+  const raw = JSON.stringify({
+    answer: "Use return a + b dentro da função.",
+    memories: [{ title: "Soma em Python", content: "Uma função só retorna algo com 'return'.", tags: ["python"] }],
+  });
+  const parsed = parseCorrectionResponse(raw);
+  assert.equal(parsed.answer, "Use return a + b dentro da função.");
+  assert.equal(parsed.memories.length, 1);
+  assert.equal(parsed.memories[0].title, "Soma em Python");
+});
+
+test("correction response parser tolerates malformed output instead of throwing", () => {
+  assert.deepEqual(parseCorrectionResponse("não é json"), { answer: "", memories: [] });
+});
+
 test("local server exposes a health endpoint", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/health");
@@ -147,11 +193,11 @@ test("local server exposes a health endpoint", async () => {
   });
 });
 
-test("GET /api/providers lists both Codex and Claude", async () => {
+test("GET /api/providers lists Codex, Claude and Local", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/providers");
     assert.equal(status, 200);
-    assert.deepEqual(body.providers.map((p) => p.id).sort(), ["claude", "codex"]);
+    assert.deepEqual(body.providers.map((p) => p.id).sort(), ["claude", "codex", "local"]);
   });
 });
 
@@ -221,6 +267,42 @@ test("a conversation created with provider claude persists the user message even
     const fetched = await api(`/api/conversations/${conversation.body.id}`);
     assert.equal(fetched.body.messages[0].content, "Olá, tudo bem?");
     assert.equal(fetched.body.messages[1].provider, "Sistema");
+  });
+});
+
+test("a conversation created with provider local persists the user message even when Ollama is unavailable", async () => {
+  await withServer(async (api) => {
+    const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+    assert.equal(conversation.body.provider, "local");
+    assert.equal(conversation.body.teacherProvider, "codex");
+
+    const turn = await api(`/api/conversations/${conversation.body.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message: "Como somo dois números em Python?" }),
+    });
+    assert.equal(turn.status, 502);
+
+    const fetched = await api(`/api/conversations/${conversation.body.id}`);
+    assert.equal(fetched.body.messages[0].content, "Como somo dois números em Python?");
+    assert.equal(fetched.body.messages[1].provider, "Sistema");
+  });
+});
+
+test("POST /correct fails gracefully when the teacher provider is unavailable", async () => {
+  await withServer(async (api) => {
+    const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+    await api(`/api/conversations/${conversation.body.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message: "Como somo dois números em Python?" }),
+    });
+    const fetched = await api(`/api/conversations/${conversation.body.id}`);
+    const wrongMessage = fetched.body.messages[1];
+
+    const corrected = await api(`/api/conversations/${conversation.body.id}/messages/${wrongMessage.id}/correct`, {
+      method: "POST",
+      body: JSON.stringify({ note: "print não é o mesmo que somar" }),
+    });
+    assert.equal(corrected.status, 502);
   });
 });
 

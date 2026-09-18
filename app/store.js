@@ -23,6 +23,7 @@ function mapConversation(row) {
     projectId: row.project_id || null,
     title: row.title,
     provider: row.provider,
+    teacherProvider: row.teacher_provider || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -156,7 +157,12 @@ export async function getConversationWithMessages(id) {
   return { ...conversation, messages: rows.map(mapMessage) };
 }
 
-export async function createConversation({ projectId = null, title = "Nova conversa", provider = "codex" } = {}) {
+export async function createConversation({
+  projectId = null,
+  title = "Nova conversa",
+  provider = "codex",
+  teacherProvider = null,
+} = {}) {
   const db = await getDb();
   if (projectId) {
     const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
@@ -165,8 +171,8 @@ export async function createConversation({ projectId = null, title = "Nova conve
   const id = randomUUID();
   const ts = now();
   db.prepare(
-    "INSERT INTO conversations (id, project_id, title, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, projectId, title, provider, ts, ts);
+    "INSERT INTO conversations (id, project_id, title, provider, teacher_provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, projectId, title, provider, provider === "local" ? teacherProvider || "codex" : null, ts, ts);
   return getConversation(id);
 }
 

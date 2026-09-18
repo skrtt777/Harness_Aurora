@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT 'codex',
+  teacher_provider TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -78,6 +79,17 @@ CREATE INDEX IF NOT EXISTS idx_relations_to ON memory_relations(to_id);
 
 let instance = null;
 
+// `CREATE TABLE IF NOT EXISTS` only shapes brand-new databases — an existing
+// database (like a real user's) keeps whatever columns it had when it was
+// first created. Adding a column to an existing table needs an explicit
+// ALTER TABLE, checked for idempotently via PRAGMA table_info.
+function migrateSchema(db) {
+  const columns = db.prepare("PRAGMA table_info(conversations)").all();
+  if (!columns.some((c) => c.name === "teacher_provider")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN teacher_provider TEXT");
+  }
+}
+
 function migrateLegacyMemory(db) {
   const { count } = db.prepare("SELECT COUNT(*) AS count FROM memories").get();
   if (count > 0 || !existsSync(legacyMemoryFile)) return;
@@ -121,6 +133,7 @@ export async function getDb() {
   instance.exec("PRAGMA journal_mode = WAL");
   instance.exec("PRAGMA foreign_keys = ON");
   instance.exec(SCHEMA);
+  migrateSchema(instance);
   migrateLegacyMemory(instance);
   return instance;
 }

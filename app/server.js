@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
+import { buildProviderConfig as buildLocalProviderConfig, runLocal } from "./local.js";
 import {
   createConversation,
   createMemory,
@@ -19,6 +20,7 @@ import {
   addMessage,
   listConversations,
   listMemories,
+  listMessages,
   listProjects,
   countMemories,
   selectRelevantMemories,
@@ -28,6 +30,7 @@ import {
   getProject,
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
+import { correctLocalAnswer } from "./correction.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -47,7 +50,7 @@ export function buildPrompt({ input, memories = [], instructions = "", limit = 1
   if (instructions?.trim()) sections.push(`Instruções do projeto:\n${instructions.trim()}`);
   if (memories.length) {
     const memoryText = memories.map((m) => `- ${m.title}: ${m.content}`).join("\n");
-    sections.push(`Memórias relevantes:\n${memoryText}`);
+    sections.push(`Memórias relevantes (fatos e regras aprendidos antes — siga-os ao responder):\n${memoryText}`);
   }
   const prefix = sections.length ? `${sections.join("\n\n")}\n\nTarefa atual:\n` : "Tarefa atual:\n";
   const available = Math.max(0, max - prefix.length);
@@ -87,8 +90,10 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     limit: contextLimit,
   });
 
-  const runProvider = conversation.provider === "claude" ? runClaude : runCodex;
-  const providerLabel = conversation.provider === "claude" ? "Claude" : "Codex";
+  const runProvider =
+    conversation.provider === "claude" ? runClaude : conversation.provider === "local" ? runLocal : runCodex;
+  const providerLabel =
+    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
   const result = await runProvider(prompt, env);
 
   if (!result.ok) {
@@ -101,10 +106,14 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     return { ok: false, status: result.status, error: result.error, message: errorMessage };
   }
 
+  // A small local model can't reliably follow the extractor's structured-JSON
+  // instructions, so local conversations lean on their configured teacher
+  // (Codex/Claude) for memory extraction too, not the local model itself.
+  const extractionProvider = conversation.provider === "local" ? conversation.teacherProvider || "codex" : conversation.provider;
   const memoryCreated = await extractAndStoreMemories({
     conversationId,
     projectId: conversation.projectId,
-    provider: conversation.provider,
+    provider: extractionProvider,
     userMessage: trimmed,
     assistantMessage: result.text,
     env,
@@ -175,7 +184,9 @@ export function createServer() {
         return sendJson(response, 200, { ok: true, version: appVersion, provider: buildProviderConfig() });
       }
       if (method === "GET" && pathname === "/api/providers") {
-        return sendJson(response, 200, { providers: [buildProviderConfig(), buildClaudeProviderConfig()] });
+        return sendJson(response, 200, {
+          providers: [buildProviderConfig(), buildClaudeProviderConfig(), buildLocalProviderConfig()],
+        });
       }
 
       // ---------- Projects ----------
@@ -212,11 +223,13 @@ export function createServer() {
       }
       if (method === "POST" && pathname === "/api/conversations") {
         const body = await readJson(request);
+        const provider = ["claude", "local"].includes(body.provider) ? body.provider : "codex";
         try {
           const conversation = await createConversation({
             projectId: body.projectId || null,
             title: body.title || "Nova conversa",
-            provider: body.provider === "claude" ? "claude" : "codex",
+            provider,
+            teacherProvider: body.teacherProvider === "claude" ? "claude" : "codex",
           });
           return sendJson(response, 201, conversation);
         } catch (error) {
@@ -254,6 +267,59 @@ export function createServer() {
           contextLimit: body.contextLimit,
         });
         return sendJson(response, result.status, result);
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/correct$/);
+      if (match && method === "POST") {
+        const [, conversationId, messageId] = match;
+        const conversation = await getConversation(conversationId);
+        if (!conversation) return sendJson(response, 404, { error: "Conversa não encontrada." });
+
+        const messages = await listMessages(conversationId);
+        const flaggedIndex = messages.findIndex((m) => m.id === messageId);
+        if (flaggedIndex < 1) return sendJson(response, 404, { error: "Mensagem não encontrada." });
+        const flagged = messages[flaggedIndex];
+        const question = [...messages.slice(0, flaggedIndex)].reverse().find((m) => m.role === "user");
+        if (!question) return sendJson(response, 400, { error: "Não foi possível encontrar a pergunta original." });
+
+        const body = await readJson(request);
+        const teacherProvider = conversation.teacherProvider === "claude" ? "claude" : "codex";
+        const correction = await correctLocalAnswer({
+          question: question.content,
+          wrongAnswer: flagged.content,
+          note: body.note,
+          teacherProvider,
+        });
+        if (!correction.ok) return sendJson(response, 502, { error: correction.error });
+
+        const teacherLabel = teacherProvider === "claude" ? "Claude" : "Codex";
+        const scope = conversation.projectId ? "project" : "global";
+        const savedMemories = [];
+        for (const candidate of correction.memories) {
+          try {
+            savedMemories.push(
+              await createMemory({
+                scope,
+                projectId: conversation.projectId || undefined,
+                title: candidate.title,
+                content: candidate.content,
+                tags: candidate.tags,
+                kind: "extracted",
+                source: `Correção ensinada por ${teacherLabel} após resposta do modelo local`,
+              }),
+            );
+          } catch {
+            // A malformed teaching memory is skipped instead of failing the correction.
+          }
+        }
+
+        const correctionMessage = await addMessage({
+          conversationId,
+          role: "assistant",
+          content: correction.answer || "O professor não conseguiu gerar uma correção.",
+          provider: `${teacherLabel} (corrigindo)`,
+          memoryCreated: savedMemories.map((m) => m.id),
+        });
+        return sendJson(response, 200, { message: correctionMessage, memoryCreated: savedMemories });
       }
 
       // ---------- Memories ----------

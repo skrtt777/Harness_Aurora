@@ -11,6 +11,7 @@ export type Conversation = {
   projectId: string | null;
   title: string;
   provider: string;
+  teacherProvider: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -108,8 +109,12 @@ export const listConversations = (projectId?: string) =>
   request<{ conversations: Conversation[] }>(`/conversations${projectId ? `?projectId=${projectId}` : ""}`).then(
     (r) => r.conversations,
   );
-export const createConversation = (data: { projectId?: string | null; title?: string; provider?: string }) =>
-  request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(data) });
+export const createConversation = (data: {
+  projectId?: string | null;
+  title?: string;
+  provider?: string;
+  teacherProvider?: string;
+}) => request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(data) });
 export const getConversation = (id: string) => request<ConversationWithMessages>(`/conversations/${id}`);
 export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null }) =>
   request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -119,6 +124,11 @@ export const sendMessage = (conversationId: string, message: string, contextLimi
     method: "POST",
     body: JSON.stringify({ message, contextLimit }),
   }).catch((error: ApiError) => ({ ok: false, status: error.status, error: error.message }) as ChatTurnResult);
+export const correctMessage = (conversationId: string, messageId: string, note?: string) =>
+  request<{ message: ChatMessage; memoryCreated: MemoryEntry[] }>(
+    `/conversations/${conversationId}/messages/${messageId}/correct`,
+    { method: "POST", body: JSON.stringify({ note }) },
+  );
 
 // ---------- Memories ----------
 export const listMemories = (filters: Partial<{ scope: MemoryScope; projectId: string; conversationId: string; kind: MemoryKind; query: string }> = {}) => {

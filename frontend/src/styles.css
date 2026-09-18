@@ -1224,6 +1224,23 @@ button[aria-pressed="true"] {
   border-color: #31534b;
   color: #c2f2e6;
 }
+.teacher-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 0 10px;
+  font-size: 10px;
+  color: #7e99ab;
+}
+.teacher-picker select {
+  background: #0c1821;
+  border: 1px solid #253847;
+  border-radius: 5px;
+  color: #c2d7e2;
+  font-size: 10px;
+  padding: 4px 6px;
+}
 .sidebar-search {
   display: flex;
   align-items: center;
@@ -1552,6 +1569,38 @@ button[aria-pressed="true"] {
   color: #ffcf94;
   border-color: #6a5327;
   background: #241c0f;
+}
+.correct-box {
+  margin-top: 8px;
+}
+.correct-toggle {
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: #ffcf94;
+  background: #241c0f;
+  border: 1px solid #6a5327;
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.correct-toggle:hover {
+  background: #2e2410;
+}
+.correct-box textarea {
+  width: 100%;
+  resize: none;
+  border-radius: 7px;
+  border: 1px solid #2a414e;
+  background: #0e1822;
+  color: #c2d7e2;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 8px;
+}
+.correct-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
 }
 .typing-dots {
   display: flex;

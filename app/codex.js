@@ -37,6 +37,26 @@ export function parseCodexOutput(stdout) {
 }
 
 /**
+ * When `codex exec` fails (non-zero exit), the real reason is a JSON event on
+ * stdout (e.g. a usage-limit or auth error), not the generic stderr noise
+ * ("Reading additional input from stdin..."). Extract it when present so the
+ * user sees the actual cause instead of that misleading line.
+ */
+export function extractCodexError(stdout) {
+  for (const line of String(stdout).split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "error" && event.message) return event.message;
+      if (event.type === "turn.failed" && event.error?.message) return event.error.message;
+    } catch {
+      // Ignore non-JSON diagnostic lines.
+    }
+  }
+  return null;
+}
+
+/**
  * Runs one ephemeral Codex CLI turn and returns its final agent message.
  * Shared by chat responses and by the memory extractor, so both paths use
  * the exact same authentication and error handling.
@@ -56,11 +76,14 @@ export async function runCodex(prompt, env = process.env) {
     const result = await pending;
     return { ok: true, status: 200, ...parseCodexOutput(result.stdout) };
   } catch (error) {
+    const jsonError = extractCodexError(error.stdout);
     const detail = error.code === "ENOENT"
       ? "Codex CLI não encontrado. Instale o Codex e confirme que o comando codex está no PATH."
-      : error.killed
-        ? "O Codex CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
-        : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.";
+      : jsonError
+        ? jsonError
+        : error.killed
+          ? "O Codex CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
+          : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }
 }

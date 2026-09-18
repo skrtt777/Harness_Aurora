@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
 import {
+  correctMessage as apiCorrectMessage,
   createConversation,
   createProject,
   deleteConversation as apiDeleteConversation,
@@ -33,6 +34,7 @@ export default function AppShell() {
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [bootError, setBootError] = useState("");
   const [newConversationProvider, setNewConversationProvider] = useState("codex");
+  const [newConversationTeacher, setNewConversationTeacher] = useState("codex");
 
   const refreshMemoryTotal = useCallback(async () => {
     try {
@@ -88,12 +90,16 @@ export default function AppShell() {
 
   const handleNewConversation = useCallback(
     async (projectId?: string | null) => {
-      const created = await createConversation({ projectId: projectId || null, provider: newConversationProvider });
+      const created = await createConversation({
+        projectId: projectId || null,
+        provider: newConversationProvider,
+        teacherProvider: newConversationTeacher,
+      });
       setConversations((items) => [created, ...items]);
       setActiveConversationId(created.id);
       setView("chat");
     },
-    [newConversationProvider],
+    [newConversationProvider, newConversationTeacher],
   );
 
   const handleNewProject = useCallback(async (name: string) => {
@@ -151,6 +157,19 @@ export default function AppShell() {
     [activeConversationId, refreshLists, refreshMemoryTotal],
   );
 
+  const handleCorrect = useCallback(
+    async (messageId: string, note: string) => {
+      if (!activeConversationId) return;
+      await apiCorrectMessage(activeConversationId, messageId, note || undefined);
+      const [refreshedConversation] = await Promise.all([
+        getConversation(activeConversationId),
+        refreshMemoryTotal(),
+      ]);
+      setActiveConversation(refreshedConversation);
+    },
+    [activeConversationId, refreshMemoryTotal],
+  );
+
   if (bootError) {
     return (
       <div className="boot-error">
@@ -193,6 +212,8 @@ export default function AppShell() {
         memoryCount={memoryTotal}
         newConversationProvider={newConversationProvider}
         onSelectNewConversationProvider={setNewConversationProvider}
+        newConversationTeacher={newConversationTeacher}
+        onSelectNewConversationTeacher={setNewConversationTeacher}
         onSelectView={setView}
         onSelectConversation={(id) => {
           setActiveConversationId(id);
@@ -214,6 +235,7 @@ export default function AppShell() {
             sending={sending}
             lastMemoryCreatedCount={0}
             onSend={handleSend}
+            onCorrect={handleCorrect}
             onRenameTitle={(title) => activeConversationId && handleRenameConversation(activeConversationId, title)}
           />
         )}

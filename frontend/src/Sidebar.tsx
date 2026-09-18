@@ -11,6 +11,8 @@ type Props = {
   memoryCount: number;
   newConversationProvider: string;
   onSelectNewConversationProvider: (id: string) => void;
+  newConversationTeacher: string;
+  onSelectNewConversationTeacher: (id: string) => void;
   onSelectView: (view: View) => void;
   onSelectConversation: (id: string) => void;
   onNewConversation: (projectId?: string | null) => void;
@@ -100,6 +102,8 @@ export default function Sidebar({
   memoryCount,
   newConversationProvider,
   onSelectNewConversationProvider,
+  newConversationTeacher,
+  onSelectNewConversationTeacher,
   onSelectView,
   onSelectConversation,
   onNewConversation,
@@ -166,6 +170,15 @@ export default function Sidebar({
             </button>
           ))}
         </div>
+      )}
+      {newConversationProvider === "local" && (
+        <label className="teacher-picker">
+          Professor
+          <select value={newConversationTeacher} onChange={(e) => onSelectNewConversationTeacher(e.target.value)}>
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+          </select>
+        </label>
       )}
       <button className="new-conversation" onClick={() => onNewConversation(null)}>
         ＋ Nova conversa

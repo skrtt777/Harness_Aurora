@@ -8,12 +8,39 @@ type Props = {
   sending: boolean;
   lastMemoryCreatedCount: number;
   onSend: (message: string) => void;
+  onCorrect: (messageId: string, note: string) => Promise<void>;
   onRenameTitle: (title: string) => void;
 };
 
-function MessageBubble({ message, providerLabel }: { message: ChatMessage; providerLabel: string }) {
+function MessageBubble({
+  message,
+  providerLabel,
+  correctable,
+  onCorrect,
+}: {
+  message: ChatMessage;
+  providerLabel: string;
+  correctable: boolean;
+  onCorrect: (messageId: string, note: string) => Promise<void>;
+}) {
   const isUser = message.role === "user";
   const isSystem = message.provider === "Sistema";
+  const isCorrection = (message.provider || "").includes("corrigindo");
+  const [correcting, setCorrecting] = useState(false);
+  const [note, setNote] = useState("");
+  const [sendingCorrection, setSendingCorrection] = useState(false);
+
+  const submitCorrection = async () => {
+    setSendingCorrection(true);
+    try {
+      await onCorrect(message.id, note.trim());
+      setCorrecting(false);
+      setNote("");
+    } finally {
+      setSendingCorrection(false);
+    }
+  };
+
   return (
     <div className={`chat-message ${message.role} ${isSystem ? "system" : ""}`}>
       <div className="chat-avatar">{isUser ? "EU" : "✦"}</div>
@@ -38,12 +65,40 @@ function MessageBubble({ message, providerLabel }: { message: ChatMessage; provi
             )}
           </div>
         )}
+        {!isUser && correctable && !isSystem && !isCorrection && (
+          <div className="correct-box">
+            {correcting ? (
+              <>
+                <textarea
+                  autoFocus
+                  rows={2}
+                  placeholder="O que estava errado? (opcional)"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  disabled={sendingCorrection}
+                />
+                <div className="correct-actions">
+                  <button onClick={() => setCorrecting(false)} disabled={sendingCorrection}>
+                    Cancelar
+                  </button>
+                  <button className="primary" onClick={submitCorrection} disabled={sendingCorrection}>
+                    {sendingCorrection ? "Corrigindo…" : "Enviar correção"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button className="correct-toggle" onClick={() => setCorrecting(true)}>
+                🔧 Corrigir
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export default function ChatView({ conversation, project, loading, sending, onSend, onRenameTitle }: Props) {
+export default function ChatView({ conversation, project, loading, sending, onSend, onCorrect, onRenameTitle }: Props) {
   const [draft, setDraft] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(conversation?.title || "");
@@ -76,7 +131,9 @@ export default function ChatView({ conversation, project, loading, sending, onSe
     setDraft("");
   };
 
-  const providerLabel = conversation.provider === "claude" ? "Claude" : "Codex";
+  const providerLabel =
+    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
+  const correctable = conversation.provider === "local";
 
   return (
     <section className="chat-page">
@@ -113,7 +170,9 @@ export default function ChatView({ conversation, project, loading, sending, onSe
 
       <div className="chat-messages" ref={scrollRef}>
         {conversation.messages.length ? (
-          conversation.messages.map((m) => <MessageBubble key={m.id} message={m} providerLabel={providerLabel} />)
+          conversation.messages.map((m) => (
+            <MessageBubble key={m.id} message={m} providerLabel={providerLabel} correctable={correctable} onCorrect={onCorrect} />
+          ))
         ) : (
           <div className="chat-empty">
             Comece uma nova conversa com o {providerLabel}.
