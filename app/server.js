@@ -31,6 +31,7 @@ import {
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
+import { refineLocalAnswer } from "./localRefine.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -48,10 +49,25 @@ export function buildPrompt({ input, memories = [], instructions = "", limit = 1
   const max = Math.max(1000, Number(limit) || 12000);
   const sections = [];
   if (instructions?.trim()) sections.push(`Instruções do projeto:\n${instructions.trim()}`);
-  if (memories.length) {
-    const memoryText = memories.map((m) => `- ${m.title}: ${m.content}`).join("\n");
+
+  // Templates (reusable code skeletons taught via a correction) are kept
+  // separate from plain fact/rule memories and rendered as literal code to
+  // adapt, since a weak local model copy-edits far more reliably than it
+  // reconstructs boilerplate from a described rule.
+  const templates = memories.filter((m) => m.tags?.includes("template"));
+  const facts = memories.filter((m) => !m.tags?.includes("template"));
+
+  if (facts.length) {
+    const memoryText = facts.map((m) => `- ${m.title}: ${m.content}`).join("\n");
     sections.push(`Memórias relevantes (fatos e regras aprendidos antes — siga-os ao responder):\n${memoryText}`);
   }
+  if (templates.length) {
+    const templateText = templates.map((m) => `${m.title}:\n${m.content}`).join("\n\n---\n\n");
+    sections.push(
+      `Esqueleto(s) de código para adaptar (NÃO reescreva do zero — ajuste este código a partir daqui para atender o pedido atual):\n${templateText}`,
+    );
+  }
+
   const prefix = sections.length ? `${sections.join("\n\n")}\n\nTarefa atual:\n` : "Tarefa atual:\n";
   const available = Math.max(0, max - prefix.length);
   return prefix + String(input).slice(-available);
@@ -94,7 +110,15 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     conversation.provider === "claude" ? runClaude : conversation.provider === "local" ? runLocal : runCodex;
   const providerLabel =
     conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
-  const result = await runProvider(prompt, env);
+  let result = await runProvider(prompt, env);
+
+  // For local conversations, spend a little extra free Ollama compute (never
+  // Codex/Claude) trying to catch mistakes before the user sees them: a
+  // syntax-check-and-retry pass for generated code, then a self-review pass
+  // against the same memories already selected above.
+  if (conversation.provider === "local") {
+    result = await refineLocalAnswer({ task: trimmed, result, memories: relevant, env });
+  }
 
   if (!result.ok) {
     const errorMessage = await addMessage({
@@ -312,6 +336,23 @@ export function createServer() {
             );
           } catch {
             // A malformed teaching memory is skipped instead of failing the correction.
+          }
+        }
+        if (correction.template) {
+          try {
+            savedMemories.push(
+              await createMemory({
+                scope,
+                projectId: conversation.projectId || undefined,
+                title: `Template: ${correction.template.title}`,
+                content: correction.template.content,
+                tags: [...correction.template.tags, "template"],
+                kind: "extracted",
+                source: `Esqueleto ensinado por ${teacherLabel} após resposta do modelo local`,
+              }),
+            );
+          } catch {
+            // A malformed template is skipped instead of failing the correction.
           }
         }
 

@@ -24,6 +24,7 @@ const { buildProviderConfig, parseCodexOutput, extractCodexError } = await impor
 const { parseClaudeOutput } = await import("../app/claude.js");
 const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/memoryExtractor.js");
 const { buildCorrectionPrompt, parseCorrectionResponse } = await import("../app/correction.js");
+const { checkJsModuleSyntax, findConstReassignments, refineLocalAnswer } = await import("../app/localRefine.js");
 const { createRelation } = await import("../app/store.js");
 
 async function withServer(run) {
@@ -123,6 +124,23 @@ test("prompt builder works with no memories and no instructions", () => {
   assert.equal(prompt, "Tarefa atual:\nolá");
 });
 
+test("prompt builder renders template memories as code to adapt, separate from plain facts", () => {
+  const prompt = buildPrompt({
+    input: "crie um jogo",
+    memories: [
+      { title: "Preferência", content: "Respostas curtas", tags: ["geral"] },
+      { title: "Template: jogo base", content: "const scene = new THREE.Scene();", tags: ["threejs", "template"] },
+    ],
+  });
+  assert.match(prompt, /Memórias relevantes/);
+  assert.match(prompt, /Preferência: Respostas curtas/);
+  assert.match(prompt, /Esqueleto\(s\) de código para adaptar/);
+  assert.match(prompt, /const scene = new THREE\.Scene\(\);/);
+  // The template's own content must not leak into the plain-facts section.
+  const factsSection = prompt.split("Esqueleto(s) de código")[0];
+  assert.doesNotMatch(factsSection, /const scene = new THREE\.Scene\(\);/);
+});
+
 test("memory extractor parses a clean JSON array", () => {
   const candidates = parseMemoryCandidates('[{"title":"Nome","content":"Usuário se chama Lucas","tags":["perfil"]}]');
   assert.equal(candidates.length, 1);
@@ -174,15 +192,193 @@ test("correction response parser extracts the answer and teaching memories", () 
   const raw = JSON.stringify({
     answer: "Use return a + b dentro da função.",
     memories: [{ title: "Soma em Python", content: "Uma função só retorna algo com 'return'.", tags: ["python"] }],
+    template: null,
   });
   const parsed = parseCorrectionResponse(raw);
   assert.equal(parsed.answer, "Use return a + b dentro da função.");
   assert.equal(parsed.memories.length, 1);
   assert.equal(parsed.memories[0].title, "Soma em Python");
+  assert.equal(parsed.template, null);
+});
+
+test("correction response parser extracts an optional reusable template", () => {
+  const raw = JSON.stringify({
+    answer: "Aqui está o jogo corrigido.",
+    memories: [],
+    template: { title: "Esqueleto Three.js", content: "const scene = new THREE.Scene();", tags: ["threejs"] },
+  });
+  const parsed = parseCorrectionResponse(raw);
+  assert.equal(parsed.template.title, "Esqueleto Three.js");
+  assert.equal(parsed.template.content, "const scene = new THREE.Scene();");
+  assert.deepEqual(parsed.template.tags, ["threejs"]);
 });
 
 test("correction response parser tolerates malformed output instead of throwing", () => {
-  assert.deepEqual(parseCorrectionResponse("não é json"), { answer: "", memories: [] });
+  assert.deepEqual(parseCorrectionResponse("não é json"), { answer: "", memories: [], template: null });
+});
+
+test("checkJsModuleSyntax flags a real syntax error in the generated code", async () => {
+  const html = "```html\n<script type=\"module\">\nconst x = (1, 2;\n</script>\n```";
+  const result = await checkJsModuleSyntax(html);
+  assert.equal(result.checked, true);
+  assert.equal(result.valid, false);
+  assert.ok(result.error.length > 0);
+});
+
+test("checkJsModuleSyntax passes valid code and skips answers with no script block", async () => {
+  const validHtml = "```html\n<script type=\"module\">\nconst x = 1 + 2;\nconsole.log(x);\n</script>\n```";
+  assert.deepEqual(await checkJsModuleSyntax(validHtml), { checked: true, valid: true, error: null });
+  assert.deepEqual(await checkJsModuleSyntax("Só uma resposta de texto, sem código."), {
+    checked: false,
+    valid: true,
+    error: null,
+  });
+});
+
+test("findConstReassignments catches the exact pattern seen in real local-model output (const score = 0; ...; score++)", () => {
+  const js = "const score = 0;\nfunction animate() {\n  score++;\n}\n";
+  assert.deepEqual(findConstReassignments(js), ["score"]);
+});
+
+test("findConstReassignments ignores const variables that are never reassigned", () => {
+  const js = "const speed = 5;\nconst scene = new THREE.Scene();\nmesh.position.x += speed;\n";
+  assert.deepEqual(findConstReassignments(js), []);
+});
+
+test("refineLocalAnswer retries once on a syntax error and keeps the corrected version", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { prompt } = JSON.parse(body);
+      const isRetry = prompt.includes("Erro de sintaxe");
+      const answer = isRetry
+        ? "```html\n<script type=\"module\">\nconst x = 1 + 2;\n</script>\n```"
+        : "não deveria chegar aqui";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nconst x = (1, 2;\n</script>\n```" };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.match(refined.text, /const x = 1 \+ 2;/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer retries once when the code reassigns a const variable (syntax-valid but crashes at runtime)", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { prompt } = JSON.parse(body);
+      const isRetry = prompt.includes("Assignment to constant variable");
+      const answer = isRetry
+        ? "```html\n<script type=\"module\">\nlet score = 0;\nscore++;\n</script>\n```"
+        : "não deveria chegar aqui";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = {
+      ok: true,
+      status: 200,
+      text: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```",
+    };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.match(refined.text, /let score = 0;/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer runs a self-review pass against relevant memories and adopts the revision", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { prompt } = JSON.parse(body);
+      const isReview = prompt.includes("Revise sua propria resposta");
+      const answer = isReview
+        ? "```html\n<script type=\"module\">\nconst cor = 0x0000ff;\n</script>\n```"
+        : "não deveria chegar aqui";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const initial = {
+      ok: true,
+      status: 200,
+      text: "```html\n<script type=\"module\">\nconst cor = 0xff0000;\n</script>\n```",
+    };
+    const refined = await refineLocalAnswer({
+      task: "crie um cubo azul",
+      result: initial,
+      memories: [{ title: "Cor pedida", content: "Use exatamente a cor pedida pelo usuário.", tags: [] }],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.match(refined.text, /0x0000ff/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer discards a self-review reply that dropped the code (keeps the last answer that still has code)", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      // A weak model's degenerate self-review reply: prose confirming the
+      // rules were followed, with no code block at all.
+      res.end(JSON.stringify({ response: "Verifiquei e todas as regras foram seguidas corretamente." }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const initial = {
+      ok: true,
+      status: 200,
+      text: "```html\n<script type=\"module\">\nconst x = 1;\n</script>\n```",
+    };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: initial,
+      memories: [{ title: "Regra", content: "Seja conciso.", tags: [] }],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.equal(refined.text, initial.text);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer leaves plain non-code answers untouched", async () => {
+  const plain = { ok: true, status: 200, text: "Um closure é uma função que lembra do seu escopo externo." };
+  const refined = await refineLocalAnswer({
+    task: "o que é um closure?",
+    result: plain,
+    memories: [{ title: "Regra", content: "Seja conciso.", tags: [] }],
+    env: process.env,
+  });
+  assert.equal(refined, plain);
 });
 
 test("local server exposes a health endpoint", async () => {

@@ -9,8 +9,9 @@ export function buildCorrectionPrompt(question, wrongAnswer, note) {
     "Você é o professor: corrija a resposta para o usuário e, principalmente, ensine o modelo pequeno a acertar perguntas parecidas no futuro.",
     "",
     "Responda SOMENTE com um objeto JSON válido, sem markdown e sem texto fora do objeto, no formato:",
-    '{"answer": "resposta corrigida e completa para o usuário", "memories": [{"title": "título curto", "content": "regra ou fato objetivo (uma frase) que ajudaria um modelo pequeno a acertar perguntas parecidas", "tags": ["1 a 3 palavras-chave em minúsculas"]}]}',
+    '{"answer": "resposta corrigida e completa para o usuário", "memories": [{"title": "título curto", "content": "regra ou fato objetivo (uma frase) que ajudaria um modelo pequeno a acertar perguntas parecidas", "tags": ["1 a 3 palavras-chave em minúsculas"]}], "template": {"title": "título curto", "content": "esqueleto de código reutilizável", "tags": ["1 a 3 palavras-chave"]} ou null}',
     'No máximo 3 itens em "memories". Cada memória deve ser uma regra ou fato reutilizável — não um resumo desta troca.',
+    '"template" é OPCIONAL: inclua só quando a tarefa envolve gerar um artefato de código estruturado (ex: um jogo, uma página) e vale a pena guardar um ESQUELETO/BOILERPLATE correto e reutilizável (setup de cena/câmera/loop de animação, sem a mecânica específica deste pedido) para o modelo pequeno adaptar da próxima vez em vez de reescrever tudo do zero. Se não fizer sentido, responda "template": null.',
     "",
     `Pergunta original do usuário: ${question}`,
     `Resposta errada do modelo local: ${wrongAnswer}`,
@@ -35,9 +36,17 @@ export function parseCorrectionResponse(text) {
             tags: Array.isArray(m.tags) ? m.tags.map((t) => String(t).toLowerCase()).slice(0, 5) : [],
           }))
       : [];
-    return { answer, memories };
+    const template =
+      parsed.template && String(parsed.template.content || "").trim()
+        ? {
+            title: String(parsed.template.title || "Template").trim().slice(0, 120) || "Template",
+            content: String(parsed.template.content).trim().slice(0, 4000),
+            tags: Array.isArray(parsed.template.tags) ? parsed.template.tags.map((t) => String(t).toLowerCase()).slice(0, 5) : [],
+          }
+        : null;
+    return { answer, memories, template };
   } catch {
-    return { answer: "", memories: [] };
+    return { answer: "", memories: [], template: null };
   }
 }
 
