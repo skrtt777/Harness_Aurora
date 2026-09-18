@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import http from "node:http";
 
 // A dedicated, throwaway SQLite file per test run keeps this suite isolated
 // from whatever conversations/memories a real local user has accumulated.
@@ -286,6 +287,36 @@ test("a conversation created with provider local persists the user message even 
     assert.equal(fetched.body.messages[0].content, "Como somo dois números em Python?");
     assert.equal(fetched.body.messages[1].provider, "Sistema");
   });
+});
+
+test("a chat turn on a local conversation never creates memory automatically (no teacher call on normal turns)", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: "Resposta do modelo local." }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const stubUrl = `http://127.0.0.1:${stub.address().port}`;
+  const previousBaseUrl = process.env.LOCAL_BASE_URL;
+  process.env.LOCAL_BASE_URL = stubUrl;
+  try {
+    await withServer(async (api) => {
+      const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+      const turn = await api(`/api/conversations/${conversation.body.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ message: "Como somo dois números em Python?" }),
+      });
+      assert.equal(turn.status, 200);
+      assert.equal(turn.body.message.content, "Resposta do modelo local.");
+      assert.deepEqual(turn.body.memoryCreated, []);
+    });
+  } finally {
+    process.env.LOCAL_BASE_URL = previousBaseUrl;
+    await new Promise((resolve) => stub.close(resolve));
+  }
 });
 
 test("POST /correct fails gracefully when the teacher provider is unavailable", async () => {

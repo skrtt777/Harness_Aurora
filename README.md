@@ -70,7 +70,7 @@ O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://olla
 - Ao criar uma conversa **Local**, você também escolhe um **Professor** (Codex ou Claude), guardado em `conversations.teacherProvider`.
 - Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.
 - Essas memórias de ensino são salvas em escopo **projeto** (se a conversa tiver projeto) ou **geral** — de propósito diferente da extração automática normal (que salva na própria conversa): o objetivo é que o modelo local acerte de primeira em **conversas futuras diferentes**, não só na mesma conversa. Validado de ponta a ponta: um erro corrigido numa conversa passou a ser citado em `memoryAccess` e respondido corretamente pelo modelo local numa conversa **nova**, sem precisar de correção de novo.
-- A extração automática de memória (a cada resposta) usa sempre o professor nas conversas locais, nunca o próprio modelo pequeno — um modelo de ~1.5B não segue com confiabilidade a instrução estruturada de extrair JSON.
+- **Conversas locais nunca chamam o professor num turno normal.** A extração automática de memória (que existe para Codex/Claude) é pulada inteiramente quando `provider === "local"` — só o clique em "Corrigir" gasta uma chamada real de Codex/Claude. Isso é de propósito: gastar token em toda mensagem anularia o ganho de usar um modelo local de graça.
 
 ## Memória — funcional, não só visual
 

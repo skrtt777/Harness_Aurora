@@ -106,18 +106,21 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     return { ok: false, status: result.status, error: result.error, message: errorMessage };
   }
 
-  // A small local model can't reliably follow the extractor's structured-JSON
-  // instructions, so local conversations lean on their configured teacher
-  // (Codex/Claude) for memory extraction too, not the local model itself.
-  const extractionProvider = conversation.provider === "local" ? conversation.teacherProvider || "codex" : conversation.provider;
-  const memoryCreated = await extractAndStoreMemories({
-    conversationId,
-    projectId: conversation.projectId,
-    provider: extractionProvider,
-    userMessage: trimmed,
-    assistantMessage: result.text,
-    env,
-  });
+  // Local conversations never call the teacher (Codex/Claude) on a normal
+  // turn — that would burn a real API call on every message and defeat the
+  // whole point of using a free local model. Teaching memory only comes from
+  // the user explicitly hitting "Corrigir" (see the /correct route below).
+  const memoryCreated =
+    conversation.provider === "local"
+      ? []
+      : await extractAndStoreMemories({
+          conversationId,
+          projectId: conversation.projectId,
+          provider: conversation.provider,
+          userMessage: trimmed,
+          assistantMessage: result.text,
+          env,
+        });
 
   const assistantMessage = await addMessage({
     conversationId,

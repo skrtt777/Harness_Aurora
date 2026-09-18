@@ -422,3 +422,24 @@ Pesquisa feita na própria máquina antes de codar: Ollama já instalado e rodan
 Migração de schema também validada contra uma **cópia** do `harness.db` real do usuário (nunca o arquivo ao vivo): a coluna `teacher_provider` foi adicionada sem erro e sem perda de dados (as 2 conversas reais existentes continuaram intactas, com `teacher_provider: null`).
 
 `npm run check`, `npm test` (30/30), `npm run test:memory` (6/6) e `npm run frontend:build` passando.
+
+## 2026-09-18 — Bateria de testes reais: modelo local jogando Three.js, e um vazamento de token achado no processo
+
+Pedido do usuário: uma bateria de testes de verdade com o modelo local — pediu pra ele criar jogos em Three.js, com o usuário no papel de "técnico" e eu auxiliando/corrigindo. Antes de começar, criei um projeto real ("Jogos Three.js (treino IA local)") no `harness.db` do próprio usuário, com 13 memórias de escopo `project` cobrindo os fundamentos de Three.js pra jogos (scene/camera/renderer, geometria+material, luzes, loop de animação, delta time, teclado, colisão por distância, spawn de obstáculos, placar via HTML, erros comuns).
+
+**Descoberta operacional**: o app instalado (processo Electron rodando) tinha código de uma versão anterior (empacotada antes desta sessão) — pra testar o recurso de hoje contra o banco real, tive que fechar o app instalado (com autorização explícita do usuário, depois que o classificador do modo automático bloqueou eu mesmo matar o processo) e rodar `node app/server.js` na porta 8787 apontando pro mesmo `harness.db` real. App reinstalado ao final do teste.
+
+**Três rodadas de "jogo → correção" com Claude como professor** (Codex ainda com limite de uso batido):
+- Rodada 1 (desviar de cubos caindo): o modelo local gerou um jogo que quebrava por completo — usou `THREE.OrbitControls` sem importar (trava o módulo inteiro antes de `animate()` rodar, nada renderiza), câmera nunca posicionada, placar nunca incrementado, zero colisão. Corrigido via `/correct`, 3 memórias de ensino gravadas em escopo `project`.
+- Rodada 2 (coletar esferas, conversa nova): mesmo com a memória certa sobre OrbitControls presente em `memoryAccess`, o modelo repetiu o erro, inventou um jeito novo de quebrar (`<script type="module" src="...">` seguido de `<script>` comum tentando ler `THREE` como global — não funciona), ignorou o pedido de WASD e trocou as cores pedidas. Corrigido de novo, mais 3 memórias.
+- Rodada 3 (pular sobre espinhos, conversa nova): as 3 lições mais reforçadas (sem OrbitControls, câmera posicionada, estrutura de módulo correta) generalizaram de primeira — prova real de aprendizado via memória entre conversas. Mas apareceram problemas novos, incluindo a reincidência de um bug (listener de teclado dentro do loop de animação) que só tinha sido pego pela **extração automática** na rodada 1 (escopo `conversation`, nunca chega a novas conversas) — só memórias nascidas de `/correct` (escopo `project`/`global`) realmente ensinam conversas futuras. Corrigido pela 3ª vez; resultado final é um jogo completo e coerente (gravidade, pulo, spawn contínuo, colisão, placar, botão de reiniciar).
+
+Todas as correções foram verificadas por leitura direta do código + `node --check` de sintaxe (extensão do `claude-in-chrome` desconectada nas duas tentativas, sem verificação visual real desta vez).
+
+**Vazamento de token real encontrado a partir dessa bateria**: o usuário pediu, no fim da sessão anterior, que o gatilho de escalonamento fosse manual pra evitar gastar token de Codex/Claude em toda mensagem — mas isso só valia pro botão "Corrigir". A **extração automática de memória** (que roda depois de toda resposta, pra qualquer provedor) continuava, pras conversas `local`, despachando pro professor (Codex/Claude) a cada turno, silenciosamente furando essa regra: toda mensagem numa conversa local já gastava uma chamada real de API, mesmo sem o usuário pedir correção nenhuma.
+
+Corrigido: `handleChatTurn` em `app/server.js` agora pula a extração inteiramente quando `conversation.provider === "local"` — `memoryCreated` fica `[]` nesses turnos, e a única forma de gerar memória de ensino numa conversa local volta a ser o clique manual em "Corrigir", como já era a intenção original. Novo teste HTTP com um Ollama de mentira (servidor HTTP local na própria suíte) confirma que um turno local bem-sucedido nunca cria memória.
+
+Discussão em aberto com o usuário sobre economizar ainda mais token (não implementado ainda): a ideia dele de uma "notação tipo hash" pras memórias foi avaliada — o texto da memória não é o maior custo hoje (o código gerado/reescrito nas correções pesa mais), e aplicar uma notação não-natural pro modelo local especificamente arriscaria piorar a confiabilidade dele, que já é frágil com frases normais. Próximo passo sugerido (ainda não implementado): pedir ao professor um diff/patch em vez de reescrever o arquivo inteiro a cada correção.
+
+`npm run check`, `npm test` (31/31) passando.
