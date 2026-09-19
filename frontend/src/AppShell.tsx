@@ -3,6 +3,7 @@ import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
+import SettingsView from "./SettingsView";
 import {
   cancelMessage as apiCancelMessage,
   correctMessage as apiCorrectMessage,
@@ -14,6 +15,7 @@ import {
   getMemoryStats,
   getPendingStage,
   getSavingsStats,
+  getSettings,
   listConversations,
   listProjects,
   sendMessage as apiSendMessage,
@@ -25,7 +27,7 @@ import {
   type SavingsStats,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test";
+type View = "chat" | "memory" | "atlas" | "test" | "settings";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -41,6 +43,20 @@ export default function AppShell() {
   const [bootError, setBootError] = useState("");
   const [newConversationProvider, setNewConversationProvider] = useState("codex");
   const [newConversationTeacher, setNewConversationTeacher] = useState("codex");
+  // Off-canvas sidebar drawer below the 900px breakpoint (see styles.css).
+  // Harmless at desktop widths: the CSS that reacts to "mobile-open" only
+  // exists inside that same media query, so toggling this above 900px has
+  // no visual effect.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
 
   const refreshMemoryTotal = useCallback(async () => {
     try {
@@ -69,12 +85,24 @@ export default function AppShell() {
   useEffect(() => {
     (async () => {
       try {
+        // Preferências salvas na Central de Configurações (Marco 2) — antes
+        // disso, toda nova sessão sempre voltava pro Codex, mesmo que o
+        // usuário só use o modelo Local, por exemplo.
+        const settings = await getSettings().catch(() => null);
+        if (settings) {
+          setNewConversationProvider(settings.defaultProvider);
+          setNewConversationTeacher(settings.defaultTeacher);
+        }
+
         const conversationList = await refreshLists();
         await Promise.all([refreshMemoryTotal(), refreshSavings()]);
         if (conversationList.length) {
           setActiveConversationId(conversationList[0].id);
         } else {
-          const created = await createConversation({});
+          const created = await createConversation({
+            provider: settings?.defaultProvider,
+            teacherProvider: settings?.defaultTeacher,
+          });
           setConversations([created]);
           setActiveConversationId(created.id);
         }
@@ -250,6 +278,12 @@ export default function AppShell() {
 
   return (
     <div className="app-shell">
+      {!sidebarOpen && (
+        <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Abrir menu">
+          ☰
+        </button>
+      )}
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
       <Sidebar
         projects={projects}
         conversations={conversations}
@@ -261,12 +295,20 @@ export default function AppShell() {
         onSelectNewConversationProvider={setNewConversationProvider}
         newConversationTeacher={newConversationTeacher}
         onSelectNewConversationTeacher={setNewConversationTeacher}
-        onSelectView={setView}
+        mobileOpen={sidebarOpen}
+        onSelectView={(v) => {
+          setView(v);
+          setSidebarOpen(false);
+        }}
         onSelectConversation={(id) => {
           setActiveConversationId(id);
           setView("chat");
+          setSidebarOpen(false);
         }}
-        onNewConversation={handleNewConversation}
+        onNewConversation={(projectId) => {
+          handleNewConversation(projectId);
+          setSidebarOpen(false);
+        }}
         onNewProject={handleNewProject}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
@@ -290,6 +332,14 @@ export default function AppShell() {
         )}
         {view === "memory" && (
           <MemoryView projects={projects} conversations={conversations} onMemoriesChanged={refreshMemoryTotal} />
+        )}
+        {view === "settings" && (
+          <SettingsView
+            onDefaultsChanged={(provider, teacher) => {
+              setNewConversationProvider(provider);
+              setNewConversationTeacher(teacher);
+            }}
+          />
         )}
       </main>
     </div>

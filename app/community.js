@@ -1,5 +1,19 @@
-const DEFAULT_MANIFEST_URL =
+import { getSetting } from "./store.js";
+
+export const DEFAULT_MANIFEST_URL =
   "https://raw.githubusercontent.com/skrtt777/Harness_Aurora/main/community-memories/manifest.json";
+
+/**
+ * Resolution order matches the local model's (app/ollamaSetup.js):
+ * COMMUNITY_MANIFEST_URL env (dev/packaging override) > URL chosen in the
+ * Central de Configurações (persisted in the settings table) > built-in
+ * default pointing at this repo's own community-memories/.
+ */
+export async function resolveCommunityManifestUrl(env = process.env) {
+  if (env.COMMUNITY_MANIFEST_URL) return env.COMMUNITY_MANIFEST_URL;
+  const stored = await getSetting("community_manifest_url");
+  return stored || DEFAULT_MANIFEST_URL;
+}
 
 /**
  * Community memory bundles are pull-only, by design: the app never uploads
@@ -9,7 +23,7 @@ const DEFAULT_MANIFEST_URL =
  * the manual export/import feature, so the same import logic handles both.
  */
 export async function fetchCommunityManifest(env = process.env) {
-  const url = env.COMMUNITY_MANIFEST_URL || DEFAULT_MANIFEST_URL;
+  const url = await resolveCommunityManifestUrl(env);
   const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Falha ao buscar a lista de memórias da comunidade (${response.status}).`);
   const data = await response.json();
@@ -21,7 +35,7 @@ export async function fetchCommunityManifest(env = process.env) {
 
 export async function fetchCommunityBundle(file, env = process.env) {
   if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) throw new Error("Nome de arquivo inválido.");
-  const manifestUrl = env.COMMUNITY_MANIFEST_URL || DEFAULT_MANIFEST_URL;
+  const manifestUrl = await resolveCommunityManifestUrl(env);
   const baseUrl = manifestUrl.slice(0, manifestUrl.lastIndexOf("/"));
   const response = await fetch(`${baseUrl}/${file}`, { signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Falha ao buscar o pacote de memórias "${file}" (${response.status}).`);

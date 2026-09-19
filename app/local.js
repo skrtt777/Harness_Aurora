@@ -1,5 +1,7 @@
-export function buildProviderConfig(env = process.env) {
-  const model = env.LOCAL_MODEL || "qwen2.5-coder:1.5b";
+import { resolveLocalModel } from "./ollamaSetup.js";
+
+export async function buildProviderConfig(env = process.env) {
+  const model = await resolveLocalModel(env);
   return {
     id: "local",
     name: "Local (Ollama)",
@@ -21,7 +23,7 @@ export function buildProviderConfig(env = process.env) {
  */
 export async function runLocal(prompt, env = process.env, externalSignal) {
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
-  const model = env.LOCAL_MODEL || "qwen2.5-coder:1.5b";
+  const model = await resolveLocalModel(env);
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || 60_000));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
@@ -45,7 +47,7 @@ export async function runLocal(prompt, env = process.env, externalSignal) {
           ? "Cancelado pelo usuário."
           : "O modelo local demorou demais para responder. Modelos locais podem ser lentos sem GPU dedicada — tente de novo ou use um modelo menor."
         : error.cause?.code === "ECONNREFUSED" || String(error.message || "").includes("fetch failed")
-          ? "Não foi possível conectar ao Ollama em 127.0.0.1:11434. Confirme que o Ollama está aberto."
+          ? "Não foi possível conectar ao Ollama em 127.0.0.1:11434. Abra a aba \"Local\" para preparar o modelo automaticamente."
           : error.message || "Falha ao executar o modelo local.";
     return { ok: false, status: 502, error: detail, cancelled: Boolean(externalSignal?.aborted) };
   } finally {

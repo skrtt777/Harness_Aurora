@@ -8,6 +8,12 @@ import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
 import { buildProviderConfig as buildLocalProviderConfig, runLocal } from "./local.js";
 import {
+  CURATED_MODELS,
+  getLocalStatus,
+  runOllamaSetup,
+  setLocalModel,
+} from "./ollamaSetup.js";
+import {
   createConversation,
   createMemory,
   createProject,
@@ -29,12 +35,21 @@ import {
   updateMemory,
   updateProject,
   getProject,
+  getSetting,
+  setSetting,
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
 import { refineLocalAnswer } from "./localRefine.js";
-import { fetchCommunityManifest, fetchCommunityBundle } from "./community.js";
+import {
+  fetchCommunityManifest,
+  fetchCommunityBundle,
+  resolveCommunityManifestUrl,
+  DEFAULT_MANIFEST_URL as DEFAULT_COMMUNITY_MANIFEST_URL,
+} from "./community.js";
 import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
+
+const KNOWN_PROVIDERS = ["codex", "claude", "local"];
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -232,8 +247,99 @@ export function createServer() {
       }
       if (method === "GET" && pathname === "/api/providers") {
         return sendJson(response, 200, {
-          providers: [buildProviderConfig(), buildClaudeProviderConfig(), buildLocalProviderConfig()],
+          providers: [buildProviderConfig(), buildClaudeProviderConfig(), await buildLocalProviderConfig()],
         });
+      }
+
+      // ---------- Settings (Central de Configurações) ----------
+      // A small, typed surface over the generic settings table — kept
+      // narrow (known keys only) rather than exposing raw key/value CRUD,
+      // so a stray key never leaks through this endpoint by accident.
+      if (method === "GET" && pathname === "/api/settings") {
+        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+          getSetting("default_provider", "codex"),
+          getSetting("default_teacher", "codex"),
+          getSetting("community_manifest_url"),
+        ]);
+        return sendJson(response, 200, {
+          defaultProvider,
+          defaultTeacher,
+          communityManifestUrl: communityManifestUrl || DEFAULT_COMMUNITY_MANIFEST_URL,
+          communityManifestUrlIsDefault: !communityManifestUrl,
+        });
+      }
+      if (method === "PUT" && pathname === "/api/settings") {
+        const body = await readJson(request);
+        if (body.defaultProvider !== undefined) {
+          if (!KNOWN_PROVIDERS.includes(body.defaultProvider)) {
+            return sendJson(response, 400, { error: `Provedor padrão inválido: ${body.defaultProvider}` });
+          }
+          await setSetting("default_provider", body.defaultProvider);
+        }
+        if (body.defaultTeacher !== undefined) {
+          if (!["codex", "claude"].includes(body.defaultTeacher)) {
+            return sendJson(response, 400, { error: `Professor padrão inválido: ${body.defaultTeacher}` });
+          }
+          await setSetting("default_teacher", body.defaultTeacher);
+        }
+        if (body.communityManifestUrl !== undefined) {
+          const trimmed = String(body.communityManifestUrl || "").trim();
+          if (trimmed) {
+            try {
+              new URL(trimmed);
+            } catch {
+              return sendJson(response, 400, { error: "URL do manifesto da comunidade inválida." });
+            }
+            await setSetting("community_manifest_url", trimmed);
+          } else {
+            // An empty string resets to the built-in default instead of
+            // storing an empty value that resolveCommunityManifestUrl would
+            // otherwise have to special-case.
+            await setSetting("community_manifest_url", "");
+          }
+        }
+        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+          getSetting("default_provider", "codex"),
+          getSetting("default_teacher", "codex"),
+          resolveCommunityManifestUrl(process.env),
+        ]);
+        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl });
+      }
+
+      // ---------- Local (Ollama) setup: makes the local model "just work" ----------
+      if (method === "GET" && pathname === "/api/local/status") {
+        return sendJson(response, 200, await getLocalStatus());
+      }
+      if (method === "GET" && pathname === "/api/local/models") {
+        return sendJson(response, 200, { models: CURATED_MODELS });
+      }
+      if (method === "PUT" && pathname === "/api/local/model") {
+        const body = await readJson(request);
+        try {
+          const model = await setLocalModel(body.model);
+          return sendJson(response, 200, { model });
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
+        }
+      }
+      if (method === "GET" && pathname === "/api/local/setup") {
+        // Server-Sent Events: the frontend opens this with EventSource and
+        // renders each stage (baixando instalador → instalando → iniciando
+        // → baixando modelo com % → pronto) without polling. Plain HTTP,
+        // no extra dependency, matches this server's no-framework style.
+        response.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        const send = (event) => response.write(`data: ${JSON.stringify(event)}\n\n`);
+        try {
+          const result = await runOllamaSetup(process.env, send);
+          send({ stage: result.ok ? "done" : "failed", ...result });
+        } catch (error) {
+          send({ stage: "error", message: error.message || "Falha inesperada ao preparar o modelo local." });
+        }
+        return response.end();
       }
 
       // ---------- Projects ----------
