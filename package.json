@@ -1,7 +1,7 @@
 {
   "name": "ai-harness",
   "productName": "Harness Aurora",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
   "type": "module",
