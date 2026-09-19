@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS memories (
   tags TEXT NOT NULL DEFAULT '[]',
   kind TEXT NOT NULL DEFAULT 'manual' CHECK (kind IN ('manual','extracted','imported')),
   source TEXT,
+  embedding BLOB,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -90,9 +91,17 @@ let instance = null;
 // first created. Adding a column to an existing table needs an explicit
 // ALTER TABLE, checked for idempotently via PRAGMA table_info.
 function migrateSchema(db) {
-  const columns = db.prepare("PRAGMA table_info(conversations)").all();
-  if (!columns.some((c) => c.name === "teacher_provider")) {
+  const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all();
+  if (!conversationColumns.some((c) => c.name === "teacher_provider")) {
     db.exec("ALTER TABLE conversations ADD COLUMN teacher_provider TEXT");
+  }
+  // Marco 3 (ROADMAP_MELHORIAS.md): busca de memória por similaridade —
+  // vetor de embedding por memória, calculado sob demanda via Ollama.
+  // NULL em memórias existentes/sem Ollama disponível é o estado normal,
+  // não um erro: selectRelevantMemories() cai de volta pra palavras-chave.
+  const memoryColumns = db.prepare("PRAGMA table_info(memories)").all();
+  if (!memoryColumns.some((c) => c.name === "embedding")) {
+    db.exec("ALTER TABLE memories ADD COLUMN embedding BLOB");
   }
 }
 

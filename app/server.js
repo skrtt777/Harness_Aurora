@@ -112,6 +112,21 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     await updateConversation(conversationId, { title });
   }
 
+  const providerLabel =
+    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
+
+  // Only local turns get a cancellable, staged pipeline — Codex/Claude are
+  // CLI subprocesses with their own timeout handling, and are typically much
+  // faster than the multi-retry local path this is built for. Started
+  // before selectRelevantMemories (not just before runLocal) because Marco
+  // 3's embedding lookup can itself now take real time when Ollama is up —
+  // without this, "Gerando resposta…" wouldn't appear until after that
+  // lookup finished, leaving the UI looking frozen during it. Cancelling
+  // while still inside that lookup takes effect once it returns rather than
+  // instantly, the same honest limitation the pipeline already has around
+  // in-flight HTTP calls elsewhere.
+  const controller = conversation.provider === "local" ? startTurn(conversationId) : null;
+
   const project = conversation.projectId ? await getProject(conversation.projectId) : null;
   const relevant = await selectRelevantMemories(trimmed, {
     conversationId,
@@ -124,13 +139,6 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     limit: contextLimit,
   });
 
-  const providerLabel =
-    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
-
-  // Only local turns get a cancellable, staged pipeline — Codex/Claude are
-  // CLI subprocesses with their own timeout handling, and are typically much
-  // faster than the multi-retry local path this is built for.
-  const controller = conversation.provider === "local" ? startTurn(conversationId) : null;
   let result;
   try {
     if (conversation.provider === "local") {

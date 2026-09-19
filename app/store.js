@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
+import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding } from "./embeddings.js";
 
 const now = () => new Date().toISOString();
 const parseJsonArray = (value) => {
@@ -230,6 +231,30 @@ export async function listMessages(conversationId) {
 
 // ---------- Memories ----------
 
+// Same text a keyword search would tokenize (title + content + tags) is
+// what gets embedded, so both scoring methods in selectRelevantMemories()
+// are judging the same "what is this memory about" surface.
+function embeddingInputFor({ title, content, tags }) {
+  return `${title || ""} ${content || ""} ${(tags || []).join(" ")}`.trim();
+}
+
+/**
+ * Best-effort: computes and stores an embedding for a memory that was just
+ * created or edited. Never throws and never blocks the caller on a missing
+ * Ollama/model — see embedText()'s own doc comment. `env` is only ever
+ * overridden by tests; production callers use the default process.env.
+ */
+async function attachEmbedding(db, id, text, env) {
+  try {
+    const vector = await embedText(text, env);
+    if (!vector) return;
+    db.prepare("UPDATE memories SET embedding = ? WHERE id = ?").run(encodeEmbedding(vector), id);
+  } catch {
+    // The memory itself is already saved either way; a failed embedding
+    // just means this memory falls back to keyword-only search for now.
+  }
+}
+
 export async function createMemory({
   scope = "global",
   projectId = null,
@@ -239,6 +264,7 @@ export async function createMemory({
   tags = [],
   kind = "manual",
   source,
+  env = process.env,
 }) {
   const db = await getDb();
   if (!["global", "project", "conversation"].includes(scope)) throw new Error("Escopo inválido.");
@@ -248,6 +274,7 @@ export async function createMemory({
   if (!cleanContent) throw new Error("O conteúdo da memória é obrigatório.");
   const id = randomUUID();
   const ts = now();
+  const cleanTitle = String(title || "Memória").trim() || "Memória";
   db.prepare(
     `INSERT INTO memories (id, scope, project_id, conversation_id, title, content, tags, kind, source, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -256,7 +283,7 @@ export async function createMemory({
     scope,
     scope === "project" ? projectId : null,
     scope === "conversation" ? conversationId : null,
-    String(title || "Memória").trim() || "Memória",
+    cleanTitle,
     cleanContent,
     JSON.stringify(tags || []),
     kind,
@@ -264,6 +291,7 @@ export async function createMemory({
     ts,
     ts,
   );
+  await attachEmbedding(db, id, embeddingInputFor({ title: cleanTitle, content: cleanContent, tags }), env);
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 
@@ -276,13 +304,14 @@ export async function createRelation({ fromId, toId, type }) {
   ).run(randomUUID(), fromId, toId, type, now());
 }
 
-export async function updateMemory(id, patch) {
+export async function updateMemory(id, patch, env = process.env) {
   const db = await getDb();
   const existing = db.prepare("SELECT * FROM memories WHERE id = ?").get(id);
   if (!existing) return null;
   const title = patch.title !== undefined ? String(patch.title).trim() || existing.title : existing.title;
   const content = patch.content !== undefined ? String(patch.content).trim() || existing.content : existing.content;
-  const tags = patch.tags !== undefined ? JSON.stringify(patch.tags) : existing.tags;
+  const tagsChanged = patch.tags !== undefined;
+  const tags = tagsChanged ? JSON.stringify(patch.tags) : existing.tags;
   db.prepare("UPDATE memories SET title = ?, content = ?, tags = ?, updated_at = ? WHERE id = ?").run(
     title,
     content,
@@ -290,6 +319,12 @@ export async function updateMemory(id, patch) {
     now(),
     id,
   );
+  // Only recompute the embedding when the text it's derived from actually
+  // changed — re-embedding on every touch (e.g. just re-saving tags-only
+  // patches unchanged) would be wasted work for identical content.
+  if (title !== existing.title || content !== existing.content || tagsChanged) {
+    await attachEmbedding(db, id, embeddingInputFor({ title, content, tags: parseJsonArray(tags) }), env);
+  }
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 
@@ -340,16 +375,37 @@ function scoreMemory(memory, queryTokens) {
   return overlap;
 }
 
+// Scales cosine similarity (roughly 0..1 for embedding vectors) into the
+// same rough magnitude as keyword-overlap counts (usually a handful of
+// words), so neither signal drowns out the other by default. A memory that
+// shares no words with the query but is clearly "about" the same thing —
+// exactly the synonym/reformulation gap ROADMAP_MELHORIAS.md's Marco 3
+// calls out — can now still out-rank a memory with a stray word match.
+const SEMANTIC_SCALE = 5;
+// Below this, cosine similarity is treated as noise rather than signal —
+// unrelated text still tends to land well above 0 in embedding space, so a
+// low-but-nonzero score isn't meaningful relevance on its own.
+const SEMANTIC_THRESHOLD = 0.5;
+
 /**
  * Selects the most relevant memories for a prompt, pulling from the
  * conversation's own memory first, then its project, then the global pool.
  * This is what makes memory "real": every conversation reads back its own
  * neurons plus whatever it inherited from its project and from the general
  * context, instead of a single undifferentiated bag of facts.
+ *
+ * Marco 3 (ROADMAP_MELHORIAS.md): ranking combines the original
+ * keyword-overlap score with semantic (embedding) similarity when both the
+ * query and a given memory have a vector available — computed in parallel,
+ * not as a replacement, per the roadmap's own principle of preferring
+ * local/reversible changes. When no embedding is available for the query
+ * (Ollama not running, model not pulled yet, ...) this degrades exactly to
+ * the pre-Marco-3 keyword-only ranking — same scores, same order.
  */
-export async function selectRelevantMemories(input, { conversationId, projectId } = {}, limit = 12) {
+export async function selectRelevantMemories(input, { conversationId, projectId } = {}, limit = 12, env = process.env) {
   const db = await getDb();
   const queryTokens = tokenize(input);
+  const queryEmbedding = await embedText(input, env);
   const pools = [
     { scope: "conversation", weight: 1.6, rows: conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ?").all(conversationId) : [] },
     { scope: "project", weight: 1.3, rows: projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ?").all(projectId) : [] },
@@ -360,7 +416,13 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
     for (const row of pool.rows) {
       const memory = mapMemory(row);
       const overlap = scoreMemory(memory, queryTokens);
-      scored.push({ memory, score: overlap * pool.weight + pool.weight * 0.01 });
+      let semantic = 0;
+      if (queryEmbedding && row.embedding) {
+        const memoryEmbedding = decodeEmbedding(row.embedding);
+        const similarity = memoryEmbedding ? cosineSimilarity(queryEmbedding, memoryEmbedding) : 0;
+        if (similarity >= SEMANTIC_THRESHOLD) semantic = similarity * SEMANTIC_SCALE;
+      }
+      scored.push({ memory, score: (overlap + semantic) * pool.weight + pool.weight * 0.01 });
     }
   }
   scored.sort((a, b) => b.score - a.score);
