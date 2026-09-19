@@ -1,18 +1,49 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 
 const { buildAgentPrompt, normalizeGotoUrl, parseAction, executeAction, runBrowserAgent } = await import("../app/browserAgent.js");
 
-// This sandbox's pre-installed Chromium (see the environment notes) is a
-// slightly older revision than the `playwright` npm version this project
-// depends on, so Playwright's own auto-resolved executablePath() doesn't
-// match it — pointing at it explicitly is what the project's own dev
-// environment already does for this kind of test, not something a real
-// user's machine needs (there, Playwright's normally-downloaded browser
-// matches its own revision).
-const CHROMIUM_PATH = process.env.CHROMIUM_EXECUTABLE_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+/**
+ * These tests drive a real Chromium to exercise executeAction()'s actual
+ * Playwright calls, not a mock. That only works when *some* real browser
+ * binary is on disk — which varies a lot machine to machine:
+ *  - `CHROMIUM_EXECUTABLE_PATH` lets any environment point at whatever it has.
+ *  - This particular cloud sandbox ships a pre-installed Chromium at a fixed
+ *    path, one revision behind what this `playwright` version auto-resolves
+ *    to — so `chromium.executablePath()` alone doesn't find it here.
+ *  - A machine with a normal internet connection (a real end-user's, or one
+ *    that already ran `playwright install chromium`) has it wherever
+ *    Playwright's own executablePath() points.
+ *  - A locked-down environment with neither — e.g. a network policy that
+ *    blocks the Chromium download outright — has no working browser at all.
+ * Rather than hard-failing in that last case (which would make `npm test`
+ * report false failures on any machine other than this exact sandbox), the
+ * browser-dependent tests below skip themselves with a clear reason. The
+ * pure-logic tests (parseAction, buildAgentPrompt, normalizeGotoUrl) and the
+ * fake-page orchestration tests further down never touch a real browser, so
+ * they always run regardless.
+ */
+function resolveChromiumPath() {
+  const envPath = process.env.CHROMIUM_EXECUTABLE_PATH;
+  if (envPath && existsSync(envPath)) return envPath;
+  const sandboxFallback = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+  if (existsSync(sandboxFallback)) return sandboxFallback;
+  try {
+    const resolved = chromium.executablePath();
+    if (resolved && existsSync(resolved)) return resolved;
+  } catch {
+    /* playwright couldn't resolve one either */
+  }
+  return null;
+}
+
+const CHROMIUM_PATH = resolveChromiumPath();
+const skipRealBrowser = CHROMIUM_PATH
+  ? false
+  : "Nenhum Chromium real encontrado (defina CHROMIUM_EXECUTABLE_PATH ou rode `npx playwright install chromium`).";
 
 // ---------- Pure logic: parseAction ----------
 
@@ -92,7 +123,7 @@ const TEST_PAGE_HTML = `data:text/html,${encodeURIComponent(`
   </body></html>
 `)}`;
 
-test("executeAction: click resolves the target text to real coordinates and clicks it", async () => {
+test("executeAction: click resolves the target text to real coordinates and clicks it", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     await page.goto(TEST_PAGE_HTML);
     // A hand-built word box matching where "Salvar" is actually rendered
@@ -105,7 +136,7 @@ test("executeAction: click resolves the target text to real coordinates and clic
   });
 });
 
-test("executeAction: click returns a clear error when the target text isn't in the OCR word list", async () => {
+test("executeAction: click returns a clear error when the target text isn't in the OCR word list", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     await page.goto(TEST_PAGE_HTML);
     const result = await executeAction(page, { action: "click", target: "Excluir" }, []);
@@ -114,7 +145,7 @@ test("executeAction: click returns a clear error when the target text isn't in t
   });
 });
 
-test("executeAction: type sends keystrokes to whatever currently has focus", async () => {
+test("executeAction: type sends keystrokes to whatever currently has focus", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     await page.goto(TEST_PAGE_HTML);
     await page.locator("#name").click();
@@ -124,7 +155,7 @@ test("executeAction: type sends keystrokes to whatever currently has focus", asy
   });
 });
 
-test("executeAction: goto navigates to a real URL", async () => {
+test("executeAction: goto navigates to a real URL", { skip: skipRealBrowser }, async () => {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end("<h1>ok</h1>");
@@ -141,14 +172,14 @@ test("executeAction: goto navigates to a real URL", async () => {
   }
 });
 
-test("executeAction: goto without a URL fails clearly instead of navigating nowhere", async () => {
+test("executeAction: goto without a URL fails clearly instead of navigating nowhere", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     const result = await executeAction(page, { action: "goto", url: "" }, []);
     assert.equal(result.ok, false);
   });
 });
 
-test("executeAction: key and scroll run without error against a real page", async () => {
+test("executeAction: key and scroll run without error against a real page", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     await page.goto(TEST_PAGE_HTML);
     assert.equal((await executeAction(page, { action: "key", key: "Tab" }, [])).ok, true);
@@ -156,7 +187,7 @@ test("executeAction: key and scroll run without error against a real page", asyn
   });
 });
 
-test("executeAction: wait respects an explicit 0ms instead of falling back to the 1000ms default", async () => {
+test("executeAction: wait respects an explicit 0ms instead of falling back to the 1000ms default", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     const start = Date.now();
     const result = await executeAction(page, { action: "wait", ms: 0 }, []);
@@ -165,7 +196,7 @@ test("executeAction: wait respects an explicit 0ms instead of falling back to th
   });
 });
 
-test("executeAction: finish is a no-op that reports finished", async () => {
+test("executeAction: finish is a no-op that reports finished", { skip: skipRealBrowser }, async () => {
   await withPage(async (page) => {
     await page.goto(TEST_PAGE_HTML);
     const result = await executeAction(page, { action: "finish", reason: "pronto" }, []);
