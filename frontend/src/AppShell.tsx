@@ -41,6 +41,20 @@ export default function AppShell() {
   const [bootError, setBootError] = useState("");
   const [newConversationProvider, setNewConversationProvider] = useState("codex");
   const [newConversationTeacher, setNewConversationTeacher] = useState("codex");
+  // Off-canvas sidebar drawer below the 900px breakpoint (see styles.css).
+  // Harmless at desktop widths: the CSS that reacts to "mobile-open" only
+  // exists inside that same media query, so toggling this above 900px has
+  // no visual effect.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
 
   const refreshMemoryTotal = useCallback(async () => {
     try {
@@ -250,6 +264,12 @@ export default function AppShell() {
 
   return (
     <div className="app-shell">
+      {!sidebarOpen && (
+        <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Abrir menu">
+          ☰
+        </button>
+      )}
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
       <Sidebar
         projects={projects}
         conversations={conversations}
@@ -261,12 +281,20 @@ export default function AppShell() {
         onSelectNewConversationProvider={setNewConversationProvider}
         newConversationTeacher={newConversationTeacher}
         onSelectNewConversationTeacher={setNewConversationTeacher}
-        onSelectView={setView}
+        mobileOpen={sidebarOpen}
+        onSelectView={(v) => {
+          setView(v);
+          setSidebarOpen(false);
+        }}
         onSelectConversation={(id) => {
           setActiveConversationId(id);
           setView("chat");
+          setSidebarOpen(false);
         }}
-        onNewConversation={handleNewConversation}
+        onNewConversation={(projectId) => {
+          handleNewConversation(projectId);
+          setSidebarOpen(false);
+        }}
         onNewProject={handleNewProject}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}

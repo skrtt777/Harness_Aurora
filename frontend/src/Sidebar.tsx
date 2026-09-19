@@ -22,6 +22,8 @@ type Props = {
   onDeleteConversation: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
   onDeleteProject: (id: string) => void;
+  /** Off-canvas drawer state below the 900px breakpoint — see AppShell.tsx. */
+  mobileOpen?: boolean;
 };
 
 function timeAgo(iso: string) {
@@ -114,6 +116,7 @@ export default function Sidebar({
   onDeleteConversation,
   onRenameProject,
   onDeleteProject,
+  mobileOpen,
 }: Props) {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -150,7 +153,7 @@ export default function Sidebar({
   }, [filtered]);
 
   return (
-    <aside className="app-sidebar">
+    <aside className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="app-logo">
         <span>◈</span>
         <div>

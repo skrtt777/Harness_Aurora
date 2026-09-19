@@ -2088,12 +2088,61 @@ button[aria-pressed="true"] {
   padding: 5px 10px;
 }
 
+.menu-toggle {
+  display: none;
+}
+.sidebar-backdrop {
+  display: none;
+}
+
+/*
+ * Below 900px the sidebar used to just vanish (display: none) with no way
+ * to bring it back — there was no menu button, so switching conversations
+ * or projects, or opening Memória/Atlas 3D, required widening the window.
+ * It's now an off-canvas drawer instead: fixed position, slid out of view
+ * via transform, opened by .menu-toggle and closed by tapping the backdrop,
+ * picking something in it, or Escape (see AppShell.tsx).
+ */
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
+  .app-main {
+    padding-top: 52px;
+  }
   .app-sidebar {
-    display: none;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(280px, 85vw);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 10px 0 28px rgba(0, 0, 0, 0.45);
+  }
+  .app-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  .menu-toggle {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid #253847;
+    background: #101a24;
+    color: #c2f2e6;
+    font-size: 16px;
+    z-index: 65;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 8, 12, 0.55);
+    z-index: 55;
   }
   .memory-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
