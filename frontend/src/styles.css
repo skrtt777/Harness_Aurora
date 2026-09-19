@@ -1993,6 +1993,101 @@ button[aria-pressed="true"] {
   margin-top: 2px;
 }
 
+.local-setup-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 24px 12px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 11px;
+  border: 1px solid #22303c;
+  background: #0b121b;
+  color: #94b8c4;
+}
+.local-setup-panel.ready {
+  border-color: #1f3a34;
+  background: #0e1c19;
+  color: #65e2d4;
+}
+.local-setup-panel.error {
+  border-color: #4a2530;
+  background: #211117;
+  color: #ef829e;
+}
+.local-setup-panel small {
+  flex-basis: 100%;
+  color: #6b8a98;
+  font-size: 9px;
+}
+.local-setup-panel a {
+  color: inherit;
+  text-decoration: underline;
+}
+.local-setup-panel .link-button {
+  border: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 10px;
+}
+.local-setup-panel .spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: local-setup-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes local-setup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.model-picker {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.model-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid #253847;
+  border-radius: 6px;
+  background: #0c1821;
+  color: #c2d7e2;
+  padding: 5px 9px;
+  font-size: 10px;
+}
+.model-picker button small {
+  color: #7893a3;
+  font-size: 9px;
+}
+.model-picker form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.model-picker input {
+  background: #0c1821;
+  border: 1px solid #253847;
+  border-radius: 6px;
+  color: #dce7ed;
+  padding: 5px 8px;
+  font-size: 10px;
+  min-width: 180px;
+}
+.model-picker form button {
+  padding: 5px 10px;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;

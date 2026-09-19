@@ -8,6 +8,12 @@ import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
 import { buildProviderConfig as buildLocalProviderConfig, runLocal } from "./local.js";
 import {
+  CURATED_MODELS,
+  getLocalStatus,
+  runOllamaSetup,
+  setLocalModel,
+} from "./ollamaSetup.js";
+import {
   createConversation,
   createMemory,
   createProject,
@@ -232,8 +238,44 @@ export function createServer() {
       }
       if (method === "GET" && pathname === "/api/providers") {
         return sendJson(response, 200, {
-          providers: [buildProviderConfig(), buildClaudeProviderConfig(), buildLocalProviderConfig()],
+          providers: [buildProviderConfig(), buildClaudeProviderConfig(), await buildLocalProviderConfig()],
         });
+      }
+
+      // ---------- Local (Ollama) setup: makes the local model "just work" ----------
+      if (method === "GET" && pathname === "/api/local/status") {
+        return sendJson(response, 200, await getLocalStatus());
+      }
+      if (method === "GET" && pathname === "/api/local/models") {
+        return sendJson(response, 200, { models: CURATED_MODELS });
+      }
+      if (method === "PUT" && pathname === "/api/local/model") {
+        const body = await readJson(request);
+        try {
+          const model = await setLocalModel(body.model);
+          return sendJson(response, 200, { model });
+        } catch (error) {
+          return sendJson(response, 400, { error: error.message });
+        }
+      }
+      if (method === "GET" && pathname === "/api/local/setup") {
+        // Server-Sent Events: the frontend opens this with EventSource and
+        // renders each stage (baixando instalador → instalando → iniciando
+        // → baixando modelo com % → pronto) without polling. Plain HTTP,
+        // no extra dependency, matches this server's no-framework style.
+        response.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        const send = (event) => response.write(`data: ${JSON.stringify(event)}\n\n`);
+        try {
+          const result = await runOllamaSetup(process.env, send);
+          send({ stage: result.ok ? "done" : "failed", ...result });
+        } catch (error) {
+          send({ stage: "error", message: error.message || "Falha inesperada ao preparar o modelo local." });
+        }
+        return response.end();
       }
 
       // ---------- Projects ----------

@@ -422,3 +422,19 @@ export async function getSavingsStats() {
   const savingsPercent = baselineCalls > 0 ? Math.round((savedCalls / baselineCalls) * 100) : 0;
   return { localTurns, corrections, baselineCalls, actualCalls, savedCalls, savingsPercent };
 }
+
+// ---------- Settings (small key/value store, e.g. the chosen local model) ----------
+
+export async function getSetting(key, fallback = null) {
+  const db = await getDb();
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  return row ? row.value : fallback;
+}
+
+export async function setSetting(key, value) {
+  const db = await getDb();
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+  ).run(key, String(value), now());
+  return value;
+}

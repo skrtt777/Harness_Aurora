@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ConversationWithMessages, Project } from "./api";
+import LocalSetupPanel from "./LocalSetupPanel";
 
 type Props = {
   conversation: ConversationWithMessages | null;
@@ -179,6 +180,8 @@ export default function ChatView({
           <p>Memória própria desta conversa · lida e atualizada a cada resposta</p>
         </div>
       </div>
+
+      <LocalSetupPanel active={conversation.provider === "local"} />
 
       <div className="chat-messages" ref={scrollRef}>
         {conversation.messages.length ? (

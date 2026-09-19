@@ -169,6 +169,66 @@ export type SavingsStats = {
 };
 export const getSavingsStats = () => request<SavingsStats>("/savings");
 
+// ---------- Local model (Ollama) setup ----------
+export type LocalStatus = {
+  installed: boolean;
+  running: boolean;
+  modelReady: boolean;
+  ready: boolean;
+  model: string;
+  platform: string;
+};
+export type LocalModelOption = { id: string; label: string; size: string; recommendedRamGb: number };
+export type LocalSetupEvent = {
+  stage:
+    | "checking"
+    | "downloading-installer"
+    | "installing"
+    | "installed"
+    | "starting"
+    | "server-ready"
+    | "pulling"
+    | "ready"
+    | "done"
+    | "failed"
+    | "error";
+  model?: string;
+  status?: string;
+  completed?: number;
+  total?: number;
+  message?: string;
+  manual?: boolean;
+  url?: string;
+};
+
+export const getLocalStatus = () => request<LocalStatus>("/local/status");
+export const getLocalModels = () => request<{ models: LocalModelOption[] }>("/local/models").then((r) => r.models);
+export const setLocalModel = (model: string) =>
+  request<{ model: string }>("/local/model", { method: "PUT", body: JSON.stringify({ model }) });
+
+/**
+ * Opens the SSE stream that drives the whole "usuário não configura nada"
+ * flow (install → start → pull, with progress). Returns a function that
+ * closes the connection, so callers can clean up on unmount.
+ */
+export function watchLocalSetup(onEvent: (event: LocalSetupEvent) => void): () => void {
+  const source = new EventSource("/api/local/setup");
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data));
+    } catch {
+      /* ignore a malformed/partial event */
+    }
+  };
+  source.onerror = () => {
+    // EventSource retries on its own; a terminal "done"/"failed"/"error"
+    // stage from the server already closes the stream server-side, so this
+    // path is only hit on a genuine network hiccup mid-stream.
+    onEvent({ stage: "error", message: "A conexão com o servidor local caiu. Tentando de novo…" });
+  };
+  return () => source.close();
+}
+
 // ---------- Community memories (pull-only) ----------
 export type CommunityBundleInfo = { id: string; file: string; title: string; description: string; tags: string[] };
 export type MemoryExportEnvelope = {
