@@ -398,3 +398,27 @@ export async function countMemories() {
   const rows = db.prepare("SELECT scope, kind, COUNT(*) AS count FROM memories GROUP BY scope, kind").all();
   return rows;
 }
+
+/**
+ * Token-savings math, derived entirely from existing message rows (no
+ * separate counter to keep in sync). Every successful local-model turn is
+ * saved with provider "Local"; every teacher correction is saved with
+ * provider "<Codex|Claude> (corrigindo)". Sending the same turn straight to
+ * Codex/Claude would have cost 2 paid calls (the answer + the automatic
+ * memory extraction that runs after every non-local turn); a local turn
+ * costs 0 paid calls, and a corrected one costs exactly 1 (the correction
+ * call folds extraction into itself) — so the baseline this compares
+ * against is `localTurns * 2`, never inflated by turns that were never local.
+ */
+export async function getSavingsStats() {
+  const db = await getDb();
+  const { localTurns } = db.prepare("SELECT COUNT(*) AS localTurns FROM messages WHERE provider = 'Local'").get();
+  const { corrections } = db
+    .prepare("SELECT COUNT(*) AS corrections FROM messages WHERE provider LIKE '%(corrigindo)%'")
+    .get();
+  const baselineCalls = localTurns * 2;
+  const actualCalls = corrections;
+  const savedCalls = Math.max(0, baselineCalls - actualCalls);
+  const savingsPercent = baselineCalls > 0 ? Math.round((savedCalls / baselineCalls) * 100) : 0;
+  return { localTurns, corrections, baselineCalls, actualCalls, savedCalls, savingsPercent };
+}

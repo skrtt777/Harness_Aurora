@@ -26,7 +26,8 @@ const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/me
 const { buildCorrectionPrompt, parseCorrectionResponse } = await import("../app/correction.js");
 const { checkJsModuleSyntax, findConstReassignments, refineLocalAnswer } = await import("../app/localRefine.js");
 const { runCodeInSandbox } = await import("../app/jsSandbox.js");
-const { createRelation } = await import("../app/store.js");
+const { createRelation, createConversation, addMessage, getSavingsStats } = await import("../app/store.js");
+const { fetchCommunityManifest, fetchCommunityBundle } = await import("../app/community.js");
 
 async function withServer(run) {
   const server = createServer();
@@ -828,5 +829,131 @@ test("each conversation keeps its own memory, separate from other conversations"
     const memoriesOfB = await api(`/api/memories?conversationId=${b.body.id}`);
     assert.equal(memoriesOfA.body.memories.length, 1);
     assert.equal(memoriesOfB.body.memories.length, 0);
+  });
+});
+
+test("fetchCommunityManifest fetches and validates the manifest format", async () => {
+  const stub = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ format: "harness-aurora-community-manifest", version: 1, bundles: [{ id: "x", file: "x.json" }] }));
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const bundles = await fetchCommunityManifest({ COMMUNITY_MANIFEST_URL: `http://127.0.0.1:${stub.address().port}/manifest.json` });
+    assert.deepEqual(bundles, [{ id: "x", file: "x.json" }]);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("fetchCommunityManifest rejects a response with the wrong format instead of trusting it blindly", async () => {
+  const stub = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ hello: "not a manifest" }));
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    await assert.rejects(() =>
+      fetchCommunityManifest({ COMMUNITY_MANIFEST_URL: `http://127.0.0.1:${stub.address().port}/manifest.json` }),
+    );
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("fetchCommunityBundle fetches a bundle relative to the manifest URL and validates its format", async () => {
+  const stub = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ format: "harness-aurora-memories", version: 1, memories: [{ id: "m1", title: "t" }] }));
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const bundle = await fetchCommunityBundle("threejs.json", {
+      COMMUNITY_MANIFEST_URL: `http://127.0.0.1:${stub.address().port}/manifest.json`,
+    });
+    assert.equal(bundle.memories.length, 1);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("fetchCommunityBundle rejects a filename that isn't a plain name.json (no path traversal)", async () => {
+  await assert.rejects(() => fetchCommunityBundle("../../etc/passwd", { COMMUNITY_MANIFEST_URL: "http://127.0.0.1:1/manifest.json" }));
+});
+
+test("GET /api/community/manifest and /api/community/bundles/:file proxy the community repo", async () => {
+  const stub = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    if (req.url.endsWith("manifest.json")) {
+      res.end(JSON.stringify({ format: "harness-aurora-community-manifest", version: 1, bundles: [{ id: "threejs", file: "threejs.json" }] }));
+    } else {
+      res.end(JSON.stringify({ format: "harness-aurora-memories", version: 1, memories: [{ id: "m1", title: "t" }] }));
+    }
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const previous = process.env.COMMUNITY_MANIFEST_URL;
+  process.env.COMMUNITY_MANIFEST_URL = `http://127.0.0.1:${stub.address().port}/manifest.json`;
+  try {
+    await withServer(async (api) => {
+      const manifest = await api("/api/community/manifest");
+      assert.equal(manifest.status, 200);
+      assert.equal(manifest.body.bundles[0].id, "threejs");
+
+      const bundle = await api("/api/community/bundles/threejs.json");
+      assert.equal(bundle.status, 200);
+      assert.equal(bundle.body.memories.length, 1);
+    });
+  } finally {
+    process.env.COMMUNITY_MANIFEST_URL = previous;
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("GET /api/community/manifest returns a graceful error when the upstream is unreachable", async () => {
+  const previous = process.env.COMMUNITY_MANIFEST_URL;
+  process.env.COMMUNITY_MANIFEST_URL = "http://127.0.0.1:1/manifest.json";
+  try {
+    await withServer(async (api) => {
+      const response = await api("/api/community/manifest");
+      assert.equal(response.status, 502);
+      assert.ok(response.body.error);
+    });
+  } finally {
+    process.env.COMMUNITY_MANIFEST_URL = previous;
+  }
+});
+
+test("getSavingsStats computes token savings from existing message rows, no separate counter", async () => {
+  const before = await getSavingsStats();
+  const conversation = await createConversation({ provider: "local", teacherProvider: "claude" });
+
+  // Three successful local turns that never needed a correction: each one
+  // avoided the 2 paid calls (answer + auto-extraction) a Codex/Claude turn
+  // would have cost, so the baseline compares against localTurns * 2.
+  await addMessage({ conversationId: conversation.id, role: "assistant", content: "ok 1", provider: "Local" });
+  await addMessage({ conversationId: conversation.id, role: "assistant", content: "ok 2", provider: "Local" });
+  await addMessage({ conversationId: conversation.id, role: "assistant", content: "ok 3", provider: "Local" });
+  // A fourth local turn that DID need a correction: one paid call (the
+  // correction folds extraction in, so it never costs 2).
+  await addMessage({ conversationId: conversation.id, role: "assistant", content: "ok 4 (errado)", provider: "Local" });
+  await addMessage({ conversationId: conversation.id, role: "assistant", content: "corrigido", provider: "Claude (corrigindo)" });
+
+  const after = await getSavingsStats();
+  assert.equal(after.localTurns - before.localTurns, 4);
+  assert.equal(after.corrections - before.corrections, 1);
+  assert.equal(after.baselineCalls - before.baselineCalls, 8);
+  assert.equal(after.actualCalls - before.actualCalls, 1);
+  assert.equal(after.savedCalls - before.savedCalls, 7);
+});
+
+test("GET /api/savings exposes the same numbers over HTTP as the store function", async () => {
+  await withServer(async (api) => {
+    const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+    await addMessage({ conversationId: conversation.body.id, role: "assistant", content: "ok", provider: "Local" });
+
+    const [response, direct] = await Promise.all([api("/api/savings"), getSavingsStats()]);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, direct);
+    assert.ok(response.body.localTurns >= 1);
   });
 });

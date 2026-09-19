@@ -23,6 +23,7 @@ import {
   listMessages,
   listProjects,
   countMemories,
+  getSavingsStats,
   selectRelevantMemories,
   updateConversation,
   updateMemory,
@@ -32,6 +33,7 @@ import {
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
 import { refineLocalAnswer } from "./localRefine.js";
+import { fetchCommunityManifest, fetchCommunityBundle } from "./community.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -369,6 +371,26 @@ export function createServer() {
       // ---------- Memories ----------
       if (method === "GET" && pathname === "/api/memories/stats") {
         return sendJson(response, 200, { stats: await countMemories() });
+      }
+      if (method === "GET" && pathname === "/api/savings") {
+        return sendJson(response, 200, await getSavingsStats());
+      }
+
+      // ---------- Community memories (pull-only: never uploads anything) ----------
+      if (method === "GET" && pathname === "/api/community/manifest") {
+        try {
+          return sendJson(response, 200, { bundles: await fetchCommunityManifest() });
+        } catch (error) {
+          return sendJson(response, 502, { error: error.message });
+        }
+      }
+      match = pathname.match(/^\/api\/community\/bundles\/([^/]+)$/);
+      if (match && method === "GET") {
+        try {
+          return sendJson(response, 200, await fetchCommunityBundle(match[1]));
+        } catch (error) {
+          return sendJson(response, 502, { error: error.message });
+        }
       }
       if (method === "GET" && pathname === "/api/memories") {
         const filters = {

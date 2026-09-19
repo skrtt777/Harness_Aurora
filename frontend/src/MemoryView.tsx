@@ -3,11 +3,15 @@ import {
   createMemory,
   createMemoryRelation,
   deleteMemory,
+  getCommunityBundle,
+  getCommunityManifest,
   getMemoryStats,
   listMemories,
   updateMemory,
+  type CommunityBundleInfo,
   type Conversation,
   type MemoryEntry,
+  type MemoryExportEnvelope,
   type MemoryKind,
   type MemoryScope,
   type MemoryStat,
@@ -15,13 +19,6 @@ import {
 } from "./api";
 
 const EXPORT_FORMAT = "harness-aurora-memories";
-
-type MemoryExportEnvelope = {
-  format: typeof EXPORT_FORMAT;
-  version: 1;
-  exportedAt: string;
-  memories: MemoryEntry[];
-};
 
 function downloadMemories(memories: MemoryEntry[]) {
   const envelope: MemoryExportEnvelope = {
@@ -249,6 +246,10 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [importStatus, setImportStatus] = useState("");
+  const [communityOpen, setCommunityOpen] = useState(false);
+  const [communityBundles, setCommunityBundles] = useState<CommunityBundleInfo[] | null>(null);
+  const [communityError, setCommunityError] = useState("");
+  const [importingBundle, setImportingBundle] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -295,6 +296,78 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     onMemoriesChanged?.();
   };
 
+  // Shared by both import paths (a local file and a community bundle) since
+  // both deliver the exact same envelope shape — only where the JSON comes
+  // from differs.
+  const importEnvelope = async (parsed: unknown, sourceLabel: string) => {
+    const envelope = parsed as Partial<MemoryExportEnvelope> | null;
+    if (!envelope || envelope.format !== EXPORT_FORMAT || !Array.isArray(envelope.memories)) {
+      throw new Error("Conteúdo não reconhecido — formato de memórias do Harness Aurora esperado.");
+    }
+    const entries = envelope.memories;
+    const projectIds = new Set(projects.map((p) => p.id));
+    const conversationIds = new Set(conversations.map((c) => c.id));
+    const idMap = new Map<string, string>();
+    let downgraded = 0;
+    let failed = 0;
+
+    for (const entry of entries) {
+      let scope: MemoryScope = entry.scope;
+      let projectId = entry.projectId ?? undefined;
+      let conversationId = entry.conversationId ?? undefined;
+      if (scope === "project" && !(projectId && projectIds.has(projectId))) {
+        scope = "global";
+        projectId = undefined;
+        downgraded += 1;
+      }
+      if (scope === "conversation" && !(conversationId && conversationIds.has(conversationId))) {
+        scope = "global";
+        conversationId = undefined;
+        downgraded += 1;
+      }
+      try {
+        const created = await createMemory({
+          scope,
+          projectId: scope === "project" ? projectId : undefined,
+          conversationId: scope === "conversation" ? conversationId : undefined,
+          title: entry.title,
+          content: entry.content,
+          tags: entry.tags,
+          kind: "imported",
+          source: entry.source ? `Importado (${entry.source})` : `Importado (${sourceLabel})`,
+        });
+        idMap.set(entry.id, created.id);
+      } catch {
+        failed += 1;
+      }
+    }
+
+    let relationsCreated = 0;
+    for (const entry of entries) {
+      const newFromId = idMap.get(entry.id);
+      if (!newFromId || !entry.relations) continue;
+      for (const targetId of entry.relations) {
+        const newToId = idMap.get(targetId);
+        const type = entry.relationTypes?.[targetId];
+        if (!newToId || !type) continue;
+        try {
+          await createMemoryRelation(newFromId, newToId, type);
+          relationsCreated += 1;
+        } catch {
+          // A relation that fails validation is skipped instead of aborting the import.
+        }
+      }
+    }
+
+    setImportStatus(
+      `${idMap.size} memórias importadas, ${relationsCreated} relações recriadas` +
+        (downgraded ? `, ${downgraded} rebaixadas pra escopo geral (projeto/conversa não encontrado aqui)` : "") +
+        (failed ? `, ${failed} falharam` : "") +
+        ".",
+    );
+    afterChange();
+  };
+
   const importFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -302,74 +375,35 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     setImportStatus("Importando…");
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error("O arquivo deve ter no máximo 10 MB.");
-      const parsed = JSON.parse(await file.text());
-      if (!parsed || parsed.format !== EXPORT_FORMAT || !Array.isArray(parsed.memories)) {
-        throw new Error("Arquivo não reconhecido — exporte pela aba Memória do Harness Aurora.");
-      }
-      const entries: MemoryEntry[] = parsed.memories;
-      const projectIds = new Set(projects.map((p) => p.id));
-      const conversationIds = new Set(conversations.map((c) => c.id));
-      const idMap = new Map<string, string>();
-      let downgraded = 0;
-      let failed = 0;
-
-      for (const entry of entries) {
-        let scope: MemoryScope = entry.scope;
-        let projectId = entry.projectId ?? undefined;
-        let conversationId = entry.conversationId ?? undefined;
-        if (scope === "project" && !(projectId && projectIds.has(projectId))) {
-          scope = "global";
-          projectId = undefined;
-          downgraded += 1;
-        }
-        if (scope === "conversation" && !(conversationId && conversationIds.has(conversationId))) {
-          scope = "global";
-          conversationId = undefined;
-          downgraded += 1;
-        }
-        try {
-          const created = await createMemory({
-            scope,
-            projectId: scope === "project" ? projectId : undefined,
-            conversationId: scope === "conversation" ? conversationId : undefined,
-            title: entry.title,
-            content: entry.content,
-            tags: entry.tags,
-            kind: "imported",
-            source: entry.source ? `Importado (${entry.source})` : "Importado de arquivo",
-          });
-          idMap.set(entry.id, created.id);
-        } catch {
-          failed += 1;
-        }
-      }
-
-      let relationsCreated = 0;
-      for (const entry of entries) {
-        const newFromId = idMap.get(entry.id);
-        if (!newFromId || !entry.relations) continue;
-        for (const targetId of entry.relations) {
-          const newToId = idMap.get(targetId);
-          const type = entry.relationTypes?.[targetId];
-          if (!newToId || !type) continue;
-          try {
-            await createMemoryRelation(newFromId, newToId, type);
-            relationsCreated += 1;
-          } catch {
-            // A relation that fails validation is skipped instead of aborting the import.
-          }
-        }
-      }
-
-      setImportStatus(
-        `${idMap.size} memórias importadas, ${relationsCreated} relações recriadas` +
-          (downgraded ? `, ${downgraded} rebaixadas pra escopo geral (projeto/conversa não encontrado aqui)` : "") +
-          (failed ? `, ${failed} falharam` : "") +
-          ".",
-      );
-      afterChange();
+      await importEnvelope(JSON.parse(await file.text()), "arquivo");
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Falha ao importar.");
+    }
+  };
+
+  const toggleCommunity = async () => {
+    const next = !communityOpen;
+    setCommunityOpen(next);
+    if (next && communityBundles === null) {
+      setCommunityError("");
+      try {
+        setCommunityBundles(await getCommunityManifest());
+      } catch (error) {
+        setCommunityBundles([]);
+        setCommunityError(error instanceof Error ? error.message : "Falha ao buscar memórias da comunidade.");
+      }
+    }
+  };
+
+  const importCommunityBundle = async (bundle: CommunityBundleInfo) => {
+    setImportingBundle(bundle.id);
+    setImportStatus("Importando…");
+    try {
+      await importEnvelope(await getCommunityBundle(bundle.file), `comunidade: ${bundle.title}`);
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "Falha ao importar da comunidade.");
+    } finally {
+      setImportingBundle(null);
     }
   };
 
@@ -439,8 +473,41 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           ↑ Importar
           <input type="file" accept="application/json,.json" onChange={importFile} />
         </label>
+        <button className="export-button" onClick={toggleCommunity}>
+          🌐 Comunidade
+        </button>
       </div>
       {importStatus && <p className="memory-import-status">{importStatus}</p>}
+
+      {communityOpen && (
+        <div className="community-panel">
+          <p className="community-hint">
+            Memórias revisadas, compartilhadas por quem usa o Harness Aurora. Só baixa e importa — nada seu é
+            enviado a lugar nenhum.
+          </p>
+          {communityError && <p className="memory-import-status">{communityError}</p>}
+          {communityBundles === null && !communityError && <p className="sidebar-empty">Buscando…</p>}
+          {communityBundles?.length === 0 && !communityError && (
+            <p className="sidebar-empty">Nenhum pacote disponível no momento.</p>
+          )}
+          {communityBundles?.map((bundle) => (
+            <div className="community-bundle" key={bundle.id}>
+              <div>
+                <strong>{bundle.title}</strong>
+                <p>{bundle.description}</p>
+                <div className="community-tags">
+                  {bundle.tags.map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => importCommunityBundle(bundle)} disabled={importingBundle === bundle.id}>
+                {importingBundle === bundle.id ? "Importando…" : "Importar"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <NewMemoryForm projects={projects} conversations={conversations} onCreated={afterChange} />
 

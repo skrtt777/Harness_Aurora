@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo } from "./api";
+import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
 
 type View = "chat" | "memory" | "atlas" | "test";
 
@@ -9,6 +9,7 @@ type Props = {
   activeConversationId: string | null;
   activeView: View;
   memoryCount: number;
+  savings: SavingsStats | null;
   newConversationProvider: string;
   onSelectNewConversationProvider: (id: string) => void;
   newConversationTeacher: string;
@@ -100,6 +101,7 @@ export default function Sidebar({
   activeConversationId,
   activeView,
   memoryCount,
+  savings,
   newConversationProvider,
   onSelectNewConversationProvider,
   newConversationTeacher,
@@ -303,6 +305,14 @@ export default function Sidebar({
         <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
           ⚗ <span>Teste</span>
         </button>
+        {savings && savings.localTurns > 0 && (
+          <div
+            className="savings-indicator"
+            title={`${savings.localTurns} resposta${savings.localTurns > 1 ? "s" : ""} do modelo local, ${savings.corrections} corrigida${savings.corrections === 1 ? "" : "s"} pelo professor. Comparado a mandar tudo direto pro Codex/Claude: ${savings.actualCalls} chamada${savings.actualCalls === 1 ? "" : "s"} paga${savings.actualCalls === 1 ? "" : "s"} em vez de ${savings.baselineCalls}.`}
+          >
+            💰 {savings.savingsPercent}% de economia
+          </div>
+        )}
         {appVersion && <div className="sidebar-version">v{appVersion}</div>}
       </div>
     </aside>

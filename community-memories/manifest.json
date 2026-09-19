@@ -1,0 +1,13 @@
+{
+  "format": "harness-aurora-community-manifest",
+  "version": 1,
+  "bundles": [
+    {
+      "id": "threejs",
+      "file": "threejs.json",
+      "title": "Three.js: fundamentos para jogos",
+      "description": "Scene/camera/renderer, geometria/material, luzes, loop de animação, teclado, colisão, e as lições mais repetidas em testes reais com modelo local (OrbitControls sem import, const reatribuído, câmera sem posição).",
+      "tags": ["threejs", "games", "javascript"]
+    }
+  ]
+}

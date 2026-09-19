@@ -1475,6 +1475,13 @@ button[aria-pressed="true"] {
   text-align: center;
   padding-top: 6px;
 }
+.savings-indicator {
+  font-size: 11px;
+  color: #8fd19e;
+  text-align: center;
+  padding-top: 8px;
+  cursor: default;
+}
 
 /* ---- Atlas takeover (legacy 3D view lives full-bleed, own internal rail) ---- */
 .atlas-takeover {
@@ -1706,6 +1713,64 @@ button[aria-pressed="true"] {
   color: #65e2d4;
   font-size: 11px;
   margin: -6px 0 12px;
+}
+.community-panel {
+  border: 1px solid #22303c;
+  background: #0b121b;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: -4px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.community-hint {
+  color: #7c8b98;
+  font-size: 11px;
+  margin: 0;
+}
+.community-bundle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #182029;
+  padding-top: 10px;
+}
+.community-bundle strong {
+  color: #dce7ed;
+  font-size: 12px;
+}
+.community-bundle p {
+  color: #96adba;
+  font-size: 11px;
+  margin: 3px 0 6px;
+}
+.community-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.community-tags span {
+  font-size: 9px;
+  color: #7c8b98;
+  border: 1px solid #22303c;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.community-bundle button {
+  flex-shrink: 0;
+  background: #14312b;
+  color: #8fd19e;
+  border: 1px solid #1f5945;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.community-bundle button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .memory-form-actions {
   display: flex;

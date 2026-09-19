@@ -11,6 +11,7 @@ import {
   deleteProject as apiDeleteProject,
   getConversation,
   getMemoryStats,
+  getSavingsStats,
   listConversations,
   listProjects,
   sendMessage as apiSendMessage,
@@ -19,6 +20,7 @@ import {
   type Conversation,
   type ConversationWithMessages,
   type Project,
+  type SavingsStats,
 } from "./api";
 
 type View = "chat" | "memory" | "atlas" | "test";
@@ -32,6 +34,7 @@ export default function AppShell() {
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [memoryTotal, setMemoryTotal] = useState(0);
+  const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [bootError, setBootError] = useState("");
   const [newConversationProvider, setNewConversationProvider] = useState("codex");
   const [newConversationTeacher, setNewConversationTeacher] = useState("codex");
@@ -42,6 +45,14 @@ export default function AppShell() {
       setMemoryTotal(stats.reduce((sum, row) => sum + row.count, 0));
     } catch {
       // The badge is a nicety; a transient failure here should not block the UI.
+    }
+  }, []);
+
+  const refreshSavings = useCallback(async () => {
+    try {
+      setSavings(await getSavingsStats());
+    } catch {
+      // Same as the memory badge: a nicety, not worth blocking the UI over.
     }
   }, []);
 
@@ -56,7 +67,7 @@ export default function AppShell() {
     (async () => {
       try {
         const conversationList = await refreshLists();
-        await refreshMemoryTotal();
+        await Promise.all([refreshMemoryTotal(), refreshSavings()]);
         if (conversationList.length) {
           setActiveConversationId(conversationList[0].id);
         } else {
@@ -148,13 +159,14 @@ export default function AppShell() {
           getConversation(activeConversationId),
           refreshLists(),
           refreshMemoryTotal(),
+          refreshSavings(),
         ]);
         setActiveConversation(refreshedConversation);
       } finally {
         setSending(false);
       }
     },
-    [activeConversationId, refreshLists, refreshMemoryTotal],
+    [activeConversationId, refreshLists, refreshMemoryTotal, refreshSavings],
   );
 
   const handleCorrect = useCallback(
@@ -164,10 +176,11 @@ export default function AppShell() {
       const [refreshedConversation] = await Promise.all([
         getConversation(activeConversationId),
         refreshMemoryTotal(),
+        refreshSavings(),
       ]);
       setActiveConversation(refreshedConversation);
     },
-    [activeConversationId, refreshMemoryTotal],
+    [activeConversationId, refreshMemoryTotal, refreshSavings],
   );
 
   if (bootError) {
@@ -210,6 +223,7 @@ export default function AppShell() {
         activeConversationId={activeConversationId}
         activeView={view}
         memoryCount={memoryTotal}
+        savings={savings}
         newConversationProvider={newConversationProvider}
         onSelectNewConversationProvider={setNewConversationProvider}
         newConversationTeacher={newConversationTeacher}

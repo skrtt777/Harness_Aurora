@@ -153,3 +153,26 @@ export const deleteMemory = (id: string) => request<{ ok: true }>(`/memories/${i
 export const getMemoryStats = () => request<{ stats: MemoryStat[] }>("/memories/stats").then((r) => r.stats);
 export const createMemoryRelation = (fromId: string, toId: string, type: MemoryRelationType) =>
   request<{ ok: true }>(`/memories/${fromId}/relations`, { method: "POST", body: JSON.stringify({ toId, type }) });
+
+// ---------- Savings ----------
+export type SavingsStats = {
+  localTurns: number;
+  corrections: number;
+  baselineCalls: number;
+  actualCalls: number;
+  savedCalls: number;
+  savingsPercent: number;
+};
+export const getSavingsStats = () => request<SavingsStats>("/savings");
+
+// ---------- Community memories (pull-only) ----------
+export type CommunityBundleInfo = { id: string; file: string; title: string; description: string; tags: string[] };
+export type MemoryExportEnvelope = {
+  format: "harness-aurora-memories";
+  version: 1;
+  exportedAt: string;
+  memories: MemoryEntry[];
+};
+export const getCommunityManifest = () =>
+  request<{ bundles: CommunityBundleInfo[] }>("/community/manifest").then((r) => r.bundles);
+export const getCommunityBundle = (file: string) => request<MemoryExportEnvelope>(`/community/bundles/${file}`);
