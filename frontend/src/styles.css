@@ -2103,6 +2103,111 @@ button[aria-pressed="true"] {
  * via transform, opened by .menu-toggle and closed by tapping the backdrop,
  * picking something in it, or Escape (see AppShell.tsx).
  */
+.settings-page {
+  padding: 34px 5% 40px;
+  overflow-y: auto;
+  flex: 1;
+}
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+  margin-top: 10px;
+}
+.settings-card {
+  border: 1px solid #22303c;
+  background: #0b121b;
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.settings-card h2 {
+  font-size: 14px;
+  margin: 0 0 6px;
+  color: #dce7ed;
+}
+.settings-hint {
+  font-size: 11px;
+  color: #7e99ab;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+.settings-field {
+  margin-bottom: 14px;
+}
+.settings-field:last-child {
+  margin-bottom: 0;
+}
+.settings-field > label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #94b8c4;
+  margin-bottom: 8px;
+}
+.settings-field > input {
+  width: 100%;
+  background: #0c1821;
+  border: 1px solid #253847;
+  border-radius: 6px;
+  color: #dce7ed;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.settings-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-options button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #253847;
+  border-radius: 7px;
+  background: #0c1821;
+  color: #94b8c4;
+  padding: 7px 12px;
+  font-size: 11px;
+}
+.settings-options button.selected {
+  background: #19312e;
+  border-color: #31534b;
+  color: #c2f2e6;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5c7683;
+}
+.status-dot.ready {
+  background: #65e2d4;
+  box-shadow: 0 0 6px rgba(101, 226, 212, 0.6);
+}
+.status-dot.pending {
+  background: #e0a25c;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.settings-actions button {
+  border: 1px solid #253847;
+  border-radius: 6px;
+  background: #101a24;
+  color: #c2d7e2;
+  padding: 6px 14px;
+  font-size: 11px;
+}
+.settings-saved {
+  display: block;
+  color: #65e2d4;
+  font-size: 10px;
+  margin-top: 6px;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;

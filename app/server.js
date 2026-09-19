@@ -35,12 +35,21 @@ import {
   updateMemory,
   updateProject,
   getProject,
+  getSetting,
+  setSetting,
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
 import { refineLocalAnswer } from "./localRefine.js";
-import { fetchCommunityManifest, fetchCommunityBundle } from "./community.js";
+import {
+  fetchCommunityManifest,
+  fetchCommunityBundle,
+  resolveCommunityManifestUrl,
+  DEFAULT_MANIFEST_URL as DEFAULT_COMMUNITY_MANIFEST_URL,
+} from "./community.js";
 import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
+
+const KNOWN_PROVIDERS = ["codex", "claude", "local"];
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -240,6 +249,61 @@ export function createServer() {
         return sendJson(response, 200, {
           providers: [buildProviderConfig(), buildClaudeProviderConfig(), await buildLocalProviderConfig()],
         });
+      }
+
+      // ---------- Settings (Central de Configurações) ----------
+      // A small, typed surface over the generic settings table — kept
+      // narrow (known keys only) rather than exposing raw key/value CRUD,
+      // so a stray key never leaks through this endpoint by accident.
+      if (method === "GET" && pathname === "/api/settings") {
+        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+          getSetting("default_provider", "codex"),
+          getSetting("default_teacher", "codex"),
+          getSetting("community_manifest_url"),
+        ]);
+        return sendJson(response, 200, {
+          defaultProvider,
+          defaultTeacher,
+          communityManifestUrl: communityManifestUrl || DEFAULT_COMMUNITY_MANIFEST_URL,
+          communityManifestUrlIsDefault: !communityManifestUrl,
+        });
+      }
+      if (method === "PUT" && pathname === "/api/settings") {
+        const body = await readJson(request);
+        if (body.defaultProvider !== undefined) {
+          if (!KNOWN_PROVIDERS.includes(body.defaultProvider)) {
+            return sendJson(response, 400, { error: `Provedor padrão inválido: ${body.defaultProvider}` });
+          }
+          await setSetting("default_provider", body.defaultProvider);
+        }
+        if (body.defaultTeacher !== undefined) {
+          if (!["codex", "claude"].includes(body.defaultTeacher)) {
+            return sendJson(response, 400, { error: `Professor padrão inválido: ${body.defaultTeacher}` });
+          }
+          await setSetting("default_teacher", body.defaultTeacher);
+        }
+        if (body.communityManifestUrl !== undefined) {
+          const trimmed = String(body.communityManifestUrl || "").trim();
+          if (trimmed) {
+            try {
+              new URL(trimmed);
+            } catch {
+              return sendJson(response, 400, { error: "URL do manifesto da comunidade inválida." });
+            }
+            await setSetting("community_manifest_url", trimmed);
+          } else {
+            // An empty string resets to the built-in default instead of
+            // storing an empty value that resolveCommunityManifestUrl would
+            // otherwise have to special-case.
+            await setSetting("community_manifest_url", "");
+          }
+        }
+        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+          getSetting("default_provider", "codex"),
+          getSetting("default_teacher", "codex"),
+          resolveCommunityManifestUrl(process.env),
+        ]);
+        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl });
       }
 
       // ---------- Local (Ollama) setup: makes the local model "just work" ----------

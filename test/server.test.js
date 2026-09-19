@@ -26,8 +26,10 @@ const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/me
 const { buildCorrectionPrompt, parseCorrectionResponse } = await import("../app/correction.js");
 const { checkJsModuleSyntax, findConstReassignments, refineLocalAnswer } = await import("../app/localRefine.js");
 const { runCodeInSandbox } = await import("../app/jsSandbox.js");
-const { createRelation, createConversation, addMessage, getSavingsStats } = await import("../app/store.js");
-const { fetchCommunityManifest, fetchCommunityBundle } = await import("../app/community.js");
+const { createRelation, createConversation, addMessage, getSavingsStats, setSetting } = await import("../app/store.js");
+const { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl, DEFAULT_MANIFEST_URL } = await import(
+  "../app/community.js"
+);
 
 async function withServer(run) {
   const server = createServer();
@@ -605,6 +607,57 @@ test("GET /api/providers lists Codex, Claude and Local", async () => {
   });
 });
 
+// ---------- Settings (Central de Configurações) ----------
+
+test("GET /api/settings returns sane defaults before anything is ever saved", async () => {
+  await withServer(async (api) => {
+    const { status, body } = await api("/api/settings");
+    assert.equal(status, 200);
+    assert.equal(body.defaultProvider, "codex");
+    assert.equal(body.defaultTeacher, "codex");
+    assert.equal(body.communityManifestUrlIsDefault, true);
+    assert.match(body.communityManifestUrl, /^https:\/\//);
+  });
+});
+
+test("PUT /api/settings persists the default provider/teacher and rejects unknown ones", async () => {
+  await withServer(async (api) => {
+    const ok = await api("/api/settings", { method: "PUT", body: JSON.stringify({ defaultProvider: "local", defaultTeacher: "claude" }) });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.defaultProvider, "local");
+    assert.equal(ok.body.defaultTeacher, "claude");
+
+    const refetched = await api("/api/settings");
+    assert.equal(refetched.body.defaultProvider, "local");
+    assert.equal(refetched.body.defaultTeacher, "claude");
+
+    const bad = await api("/api/settings", { method: "PUT", body: JSON.stringify({ defaultProvider: "gemini" }) });
+    assert.equal(bad.status, 400);
+
+    // Reset so later tests in this file (and their own boot behavior
+    // assumptions) aren't affected by state a previous test left behind.
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ defaultProvider: "codex", defaultTeacher: "codex" }) });
+  });
+});
+
+test("PUT /api/settings validates and persists a custom community manifest URL, and an empty string resets it", async () => {
+  await withServer(async (api) => {
+    const bad = await api("/api/settings", { method: "PUT", body: JSON.stringify({ communityManifestUrl: "not a url" }) });
+    assert.equal(bad.status, 400);
+
+    const ok = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ communityManifestUrl: "https://example.com/manifest.json" }),
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.communityManifestUrl, "https://example.com/manifest.json");
+
+    const reset = await api("/api/settings", { method: "PUT", body: JSON.stringify({ communityManifestUrl: "" }) });
+    assert.equal(reset.status, 200);
+    assert.match(reset.body.communityManifestUrl, /skrtt777\/Harness_Aurora/);
+  });
+});
+
 test("projects and conversations can be created, listed and scoped", async () => {
   await withServer(async (api) => {
     const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "Projeto X", instructions: "Seja direto." }) });
@@ -912,6 +965,20 @@ test("each conversation keeps its own memory, separate from other conversations"
     assert.equal(memoriesOfA.body.memories.length, 1);
     assert.equal(memoriesOfB.body.memories.length, 0);
   });
+});
+
+test("resolveCommunityManifestUrl: env override > saved setting > built-in default, in that priority", async () => {
+  assert.equal(await resolveCommunityManifestUrl({}), DEFAULT_MANIFEST_URL);
+
+  await setSetting("community_manifest_url", "https://example.com/mine.json");
+  assert.equal(await resolveCommunityManifestUrl({}), "https://example.com/mine.json");
+
+  assert.equal(
+    await resolveCommunityManifestUrl({ COMMUNITY_MANIFEST_URL: "https://example.com/env.json" }),
+    "https://example.com/env.json",
+  );
+
+  await setSetting("community_manifest_url", "");
 });
 
 test("fetchCommunityManifest fetches and validates the manifest format", async () => {

@@ -10,18 +10,20 @@ Cada marco tem: o que foi observado no código real (não suposição), a propos
 
 ## Visão geral de prioridade
 
-| # | Marco | Dimensões | Esforço | Por quê agora |
-|---|-------|-----------|---------|----------------|
-| 1 | Sidebar sumindo em janela estreita, sem volta | UI, Layout | Baixo | Trava a navegação inteira — bug, não melhoria |
-| 2 | Central de Configurações unificada | UI, QoL | Médio | Hoje configuração está espalhada em 3 lugares diferentes |
-| 3 | Busca de memória por similaridade (embeddings via Ollama) | Performance, QoL | Médio-Alto | Reduz corrigir manualmente, que é o maior custo hoje |
-| 4 | Expectativa de tempo e cancelamento no modelo local | UI, Performance | Baixo-Médio | "Pensando…" sem noção de 1–4 min reais frustra |
-| 5 | Onboarding de primeira abertura | UI, QoL | Médio | Usuário leigo não sabe o que Codex/Claude/Local significam |
-| 6 | Gerenciamento de conversas: mover, arquivar, buscar por conteúdo | QoL | Baixo-Médio | Backend já suporta parte disso; falta só a UI |
-| 7 | Tema claro e revisão de contraste/tipografia | UI, Layout | Baixo | Item já previsto desde o `ROADMAP_MASTER.md`, nunca resolvido |
-| 8 | Corrigir código via diff/patch em vez de reescrever tudo | Performance | Alto | Já identificado no `PROJECT_LOG.md` como próximo passo, não feito |
-| 9 | Carregamento sob demanda do Atlas 3D/Three.js | Performance, UI | Baixo | Chunk de 874 kB carregado mesmo quando o usuário só quer conversar |
-| 10 | Painel de latência do time-to-first-token | Performance, UI | Médio | Sem instrumentação hoje, difícil saber se uma mudança ajudou de verdade |
+| # | Marco | Dimensões | Esforço | Status | Por quê agora |
+|---|-------|-----------|---------|--------|----------------|
+| 1 | Sidebar sumindo em janela estreita, sem volta | UI, Layout | Baixo | ✅ Feito (2026-09-19) | Trava a navegação inteira — bug, não melhoria |
+| 2 | Central de Configurações unificada | UI, QoL | Médio | ✅ Núcleo feito (2026-09-19)¹ | Hoje configuração está espalhada em 3 lugares diferentes |
+| 3 | Busca de memória por similaridade (embeddings via Ollama) | Performance, QoL | Médio-Alto | Pendente | Reduz corrigir manualmente, que é o maior custo hoje |
+| 4 | Expectativa de tempo e cancelamento no modelo local | UI, Performance | Baixo-Médio | Pendente | "Pensando…" sem noção de 1–4 min reais frustra |
+| 5 | Onboarding de primeira abertura | UI, QoL | Médio | Pendente | Usuário leigo não sabe o que Codex/Claude/Local significam |
+| 6 | Gerenciamento de conversas: mover, arquivar, buscar por conteúdo | QoL | Baixo-Médio | Pendente | Backend já suporta parte disso; falta só a UI |
+| 7 | Tema claro e revisão de contraste/tipografia | UI, Layout | Baixo | Pendente | Item já previsto desde o `ROADMAP_MASTER.md`, nunca resolvido |
+| 8 | Corrigir código via diff/patch em vez de reescrever tudo | Performance | Alto | Pendente | Já identificado no `PROJECT_LOG.md` como próximo passo, não feito |
+| 9 | Carregamento sob demanda do Atlas 3D/Three.js | Performance, UI | Baixo | Pendente | Chunk de 874 kB carregado mesmo quando o usuário só quer conversar |
+| 10 | Painel de latência do time-to-first-token | Performance, UI | Médio | Pendente | Sem instrumentação hoje, difícil saber se uma mudança ajudou de verdade |
+
+¹ Feito: provedor/professor padrão, seletor de modelo local e URL da comunidade, tudo persistido e com indicador de pronto/pendente. Pendente dentro do próprio Marco 2: atalho de captura rápida configurável pela UI e a seção de Aparência (depende do Marco 7). Ver `PROJECT_LOG.md` (2026-09-19) para o detalhe de cada um.
 
 ---
 

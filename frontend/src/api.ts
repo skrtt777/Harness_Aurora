@@ -169,6 +169,17 @@ export type SavingsStats = {
 };
 export const getSavingsStats = () => request<SavingsStats>("/savings");
 
+// ---------- Settings (Central de Configurações) ----------
+export type Settings = {
+  defaultProvider: string;
+  defaultTeacher: string;
+  communityManifestUrl: string;
+  communityManifestUrlIsDefault?: boolean;
+};
+export const getSettings = () => request<Settings>("/settings");
+export const updateSettings = (patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl">>) =>
+  request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
+
 // ---------- Local model (Ollama) setup ----------
 export type LocalStatus = {
   installed: boolean;

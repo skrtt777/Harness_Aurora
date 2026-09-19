@@ -130,7 +130,8 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
   );
 }
 
-function ModelPicker({
+/** Also reused by SettingsView.tsx (Central de Configurações), so the model list/custom-tag form isn't duplicated. */
+export function ModelPicker({
   models,
   customModel,
   setCustomModel,
