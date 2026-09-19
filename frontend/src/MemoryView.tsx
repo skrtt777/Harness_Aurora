@@ -510,7 +510,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           )}
           {communityBundles?.map((bundle) => (
             <div className="community-bundle" key={bundle.id}>
-              <div>
+              <div className="community-bundle-text">
                 <strong>{bundle.title}</strong>
                 <p>{bundle.description}</p>
                 <div className="community-tags">

@@ -1648,15 +1648,21 @@ button[aria-pressed="true"] {
 }
 .memory-stats {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
+}
+.memory-stats .card.stat {
+  min-width: 0;
 }
 .memory-stats .stat-label {
   font-size: 9px;
   color: #7893a3;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .memory-stats .stat-value {
   font-size: 22px;
@@ -1736,6 +1742,9 @@ button[aria-pressed="true"] {
   gap: 12px;
   border-top: 1px solid #182029;
   padding-top: 10px;
+}
+.community-bundle-text {
+  min-width: 0;
 }
 .community-bundle strong {
   color: #dce7ed;
@@ -1992,6 +2001,6 @@ button[aria-pressed="true"] {
     display: none;
   }
   .memory-stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
