@@ -144,19 +144,26 @@ async function describeCodeProblems(text) {
 // the same class of mistake again on the very next attempt.
 const MAX_FIX_ATTEMPTS = 2;
 
-export async function refineLocalAnswer({ task, result, memories = [], env = process.env }) {
+export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage }) {
   if (!result.ok || !looksLikeCode(result.text)) return result;
 
   let current = result;
 
-  for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS && !signal?.aborted; attempt++) {
     const problem = await describeCodeProblems(current.text);
     if (!problem) break;
+    onStage?.(
+      attempt === 0
+        ? "Corrigindo um erro encontrado no código…"
+        : `Corrigindo um erro encontrado no código (tentativa ${attempt + 1})…`,
+    );
     const retryPrompt = `${task}\n\nSua resposta anterior tinha um problema:\n${problem}\n\nGere a resposta completa novamente (o HTML completo, em um unico bloco de codigo), corrigindo esse problema.`;
-    const retried = await runLocal(retryPrompt, env);
+    const retried = await runLocal(retryPrompt, env, signal);
     if (!retried.ok || !retried.text.trim()) break;
     current = retried;
   }
+
+  if (signal?.aborted) return current;
 
   // The loop above never re-checks the very last retry it produced (it just
   // ran out of budget after setting `current`) — check once more, for free,
@@ -165,8 +172,9 @@ export async function refineLocalAnswer({ task, result, memories = [], env = pro
   const remainingProblem = await describeCodeProblems(current.text);
 
   if (memories.length > 0 || remainingProblem) {
+    onStage?.("Revisando a resposta antes de entregar…");
     const reviewPrompt = buildSelfReviewPrompt(task, current.text, memories, remainingProblem);
-    const reviewed = await runLocal(reviewPrompt, env);
+    const reviewed = await runLocal(reviewPrompt, env, signal);
     // A weak local model sometimes ignores the "repeat the same answer or
     // give a corrected one" instruction and writes prose *about* the review
     // instead (e.g. "verifiquei e está tudo certo"), silently discarding the

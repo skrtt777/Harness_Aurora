@@ -6,8 +6,10 @@ type Props = {
   project: Project | null;
   loading: boolean;
   sending: boolean;
+  pendingStage: string | null;
   lastMemoryCreatedCount: number;
   onSend: (message: string) => void;
+  onCancel: () => void;
   onCorrect: (messageId: string, note: string) => Promise<void>;
   onRenameTitle: (title: string) => void;
 };
@@ -98,7 +100,17 @@ function MessageBubble({
   );
 }
 
-export default function ChatView({ conversation, project, loading, sending, onSend, onCorrect, onRenameTitle }: Props) {
+export default function ChatView({
+  conversation,
+  project,
+  loading,
+  sending,
+  pendingStage,
+  onSend,
+  onCancel,
+  onCorrect,
+  onRenameTitle,
+}: Props) {
   const [draft, setDraft] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(conversation?.title || "");
@@ -184,7 +196,7 @@ export default function ChatView({ conversation, project, loading, sending, onSe
           <div className="chat-message assistant pending">
             <div className="chat-avatar">✦</div>
             <div className="chat-bubble-wrap">
-              <div className="chat-meta">{providerLabel.toUpperCase()} · pensando…</div>
+              <div className="chat-meta">{providerLabel.toUpperCase()} · {pendingStage || "pensando…"}</div>
               <div className="chat-content typing-dots">
                 <span />
                 <span />
@@ -207,11 +219,17 @@ export default function ChatView({ conversation, project, loading, sending, onSe
           }}
           placeholder="Escreva uma mensagem…"
           rows={2}
-          disabled={loading}
+          disabled={loading || sending}
         />
-        <button onClick={send} disabled={sending || loading || !draft.trim()}>
-          {sending ? "…" : "Enviar"} ↗
-        </button>
+        {sending ? (
+          <button className="cancel-send" onClick={onCancel}>
+            ✕ Cancelar
+          </button>
+        ) : (
+          <button onClick={send} disabled={loading || !draft.trim()}>
+            Enviar ↗
+          </button>
+        )}
       </div>
     </section>
   );

@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
 import {
+  cancelMessage as apiCancelMessage,
   correctMessage as apiCorrectMessage,
   createConversation,
   createProject,
@@ -11,6 +12,7 @@ import {
   deleteProject as apiDeleteProject,
   getConversation,
   getMemoryStats,
+  getPendingStage,
   getSavingsStats,
   listConversations,
   listProjects,
@@ -33,6 +35,7 @@ export default function AppShell() {
   const [view, setView] = useState<View>("chat");
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pendingStage, setPendingStage] = useState<string | null>(null);
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [bootError, setBootError] = useState("");
@@ -164,10 +167,40 @@ export default function AppShell() {
         setActiveConversation(refreshedConversation);
       } finally {
         setSending(false);
+        setPendingStage(null);
       }
     },
     [activeConversationId, refreshLists, refreshMemoryTotal, refreshSavings],
   );
+
+  // Local turns can now take minutes (retries + self-review, all free/local)
+  // — poll for a human-readable stage instead of a static "pensando…" so it
+  // doesn't look frozen, and stop the moment sending finishes either way.
+  useEffect(() => {
+    if (!sending || !activeConversationId) {
+      setPendingStage(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = () => {
+      getPendingStage(activeConversationId)
+        .then((stage) => {
+          if (!cancelled) setPendingStage(stage);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 1200);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [sending, activeConversationId]);
+
+  const handleCancel = useCallback(async () => {
+    if (!activeConversationId) return;
+    await apiCancelMessage(activeConversationId).catch(() => {});
+  }, [activeConversationId]);
 
   const handleCorrect = useCallback(
     async (messageId: string, note: string) => {
@@ -247,8 +280,10 @@ export default function AppShell() {
             project={activeProject}
             loading={loadingConversation}
             sending={sending}
+            pendingStage={pendingStage}
             lastMemoryCreatedCount={0}
             onSend={handleSend}
+            onCancel={handleCancel}
             onCorrect={handleCorrect}
             onRenameTitle={(title) => activeConversationId && handleRenameConversation(activeConversationId, title)}
           />

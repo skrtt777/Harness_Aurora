@@ -34,6 +34,7 @@ import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
 import { refineLocalAnswer } from "./localRefine.js";
 import { fetchCommunityManifest, fetchCommunityBundle } from "./community.js";
+import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const distDir = join(root, "..", "frontend", "dist");
@@ -108,28 +109,45 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     limit: contextLimit,
   });
 
-  const runProvider =
-    conversation.provider === "claude" ? runClaude : conversation.provider === "local" ? runLocal : runCodex;
   const providerLabel =
     conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
-  let result = await runProvider(prompt, env);
 
-  // For local conversations, spend a little extra free Ollama compute (never
-  // Codex/Claude) trying to catch mistakes before the user sees them: a
-  // syntax-check-and-retry pass for generated code, then a self-review pass
-  // against the same memories already selected above.
-  if (conversation.provider === "local") {
-    result = await refineLocalAnswer({ task: trimmed, result, memories: relevant, env });
+  // Only local turns get a cancellable, staged pipeline — Codex/Claude are
+  // CLI subprocesses with their own timeout handling, and are typically much
+  // faster than the multi-retry local path this is built for.
+  const controller = conversation.provider === "local" ? startTurn(conversationId) : null;
+  let result;
+  try {
+    if (conversation.provider === "local") {
+      result = await runLocal(prompt, env, controller.signal);
+      // For local conversations, spend a little extra free Ollama compute
+      // (never Codex/Claude) trying to catch mistakes before the user sees
+      // them: a syntax-check-and-retry pass for generated code, then a
+      // self-review pass against the same memories already selected above.
+      result = await refineLocalAnswer({
+        task: trimmed,
+        result,
+        memories: relevant,
+        env,
+        signal: controller.signal,
+        onStage: (stage) => setStage(conversationId, stage),
+      });
+    } else {
+      result = await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env);
+    }
+  } finally {
+    if (controller) endTurn(conversationId);
   }
 
   if (!result.ok) {
+    const cancelled = Boolean(controller?.signal.aborted);
     const errorMessage = await addMessage({
       conversationId,
       role: "assistant",
-      content: result.error,
+      content: cancelled ? "Mensagem cancelada." : result.error,
       provider: "Sistema",
     });
-    return { ok: false, status: result.status, error: result.error, message: errorMessage };
+    return { ok: false, status: result.status, error: result.error, message: errorMessage, cancelled };
   }
 
   // Local conversations never call the teacher (Codex/Claude) on a normal
@@ -296,6 +314,16 @@ export function createServer() {
           contextLimit: body.contextLimit,
         });
         return sendJson(response, result.status, result);
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/pending$/);
+      if (match && method === "GET") {
+        const [, id] = match;
+        return sendJson(response, 200, { stage: getStage(id) });
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/cancel$/);
+      if (match && method === "POST") {
+        const [, id] = match;
+        return sendJson(response, 200, { cancelled: cancelTurn(id) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/correct$/);
       if (match && method === "POST") {

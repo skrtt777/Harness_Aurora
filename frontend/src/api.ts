@@ -129,6 +129,10 @@ export const correctMessage = (conversationId: string, messageId: string, note?:
     `/conversations/${conversationId}/messages/${messageId}/correct`,
     { method: "POST", body: JSON.stringify({ note }) },
   );
+export const getPendingStage = (conversationId: string) =>
+  request<{ stage: string | null }>(`/conversations/${conversationId}/pending`).then((r) => r.stage);
+export const cancelMessage = (conversationId: string) =>
+  request<{ cancelled: boolean }>(`/conversations/${conversationId}/cancel`, { method: "POST" });
 
 // ---------- Memories ----------
 export const listMemories = (filters: Partial<{ scope: MemoryScope; projectId: string; conversationId: string; kind: MemoryKind; query: string }> = {}) => {

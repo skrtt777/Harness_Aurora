@@ -14,18 +14,23 @@ export function buildProviderConfig(env = process.env) {
  * Talks to a local Ollama server over plain HTTP instead of spawning a CLI
  * subprocess like runCodex/runClaude do — Ollama already exposes a simple
  * REST API on 127.0.0.1, so there's no process/stdin management needed here.
+ *
+ * `externalSignal` (optional) lets a caller cancel an in-flight call — e.g.
+ * the user hitting "Cancelar" on a slow local turn — independent of the
+ * timeout below, which still applies on its own.
  */
-export async function runLocal(prompt, env = process.env) {
+export async function runLocal(prompt, env = process.env, externalSignal) {
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = env.LOCAL_MODEL || "qwen2.5-coder:1.5b";
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Number(env.LOCAL_TIMEOUT_MS || 60_000));
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || 60_000));
+  const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
   try {
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, prompt, stream: false }),
-      signal: controller.signal,
+      signal,
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -36,11 +41,13 @@ export async function runLocal(prompt, env = process.env) {
   } catch (error) {
     const detail =
       error.name === "AbortError"
-        ? "O modelo local demorou demais para responder. Modelos locais podem ser lentos sem GPU dedicada — tente de novo ou use um modelo menor."
+        ? externalSignal?.aborted
+          ? "Cancelado pelo usuário."
+          : "O modelo local demorou demais para responder. Modelos locais podem ser lentos sem GPU dedicada — tente de novo ou use um modelo menor."
         : error.cause?.code === "ECONNREFUSED" || String(error.message || "").includes("fetch failed")
           ? "Não foi possível conectar ao Ollama em 127.0.0.1:11434. Confirme que o Ollama está aberto."
           : error.message || "Falha ao executar o modelo local.";
-    return { ok: false, status: 502, error: detail };
+    return { ok: false, status: 502, error: detail, cancelled: Boolean(externalSignal?.aborted) };
   } finally {
     clearTimeout(timer);
   }

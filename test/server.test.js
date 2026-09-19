@@ -722,6 +722,88 @@ test("a chat turn on a local conversation never creates memory automatically (no
   }
 });
 
+test("GET /api/conversations/:id/pending reports a stage while a local turn is in flight, then clears", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ response: "Resposta do modelo local." }));
+      }, 300);
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const previousBaseUrl = process.env.LOCAL_BASE_URL;
+  process.env.LOCAL_BASE_URL = `http://127.0.0.1:${stub.address().port}`;
+  try {
+    await withServer(async (api) => {
+      const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+      const cid = conversation.body.id;
+
+      const idleBefore = await api(`/api/conversations/${cid}/pending`);
+      assert.equal(idleBefore.body.stage, null);
+
+      const turnPromise = api(`/api/conversations/${cid}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ message: "oi" }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const midFlight = await api(`/api/conversations/${cid}/pending`);
+      assert.equal(midFlight.body.stage, "Gerando resposta…");
+
+      await turnPromise;
+      const idleAfter = await api(`/api/conversations/${cid}/pending`);
+      assert.equal(idleAfter.body.stage, null);
+    });
+  } finally {
+    process.env.LOCAL_BASE_URL = previousBaseUrl;
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("POST /api/conversations/:id/cancel aborts an in-flight local turn", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      // Never actually responds within the test's lifetime — only a cancel
+      // (not the stub) should end this turn.
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ response: "não deveria chegar aqui" }));
+      }, 30_000);
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const previousBaseUrl = process.env.LOCAL_BASE_URL;
+  process.env.LOCAL_BASE_URL = `http://127.0.0.1:${stub.address().port}`;
+  try {
+    await withServer(async (api) => {
+      const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });
+      const cid = conversation.body.id;
+
+      const turnPromise = api(`/api/conversations/${cid}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ message: "oi" }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const cancelResult = await api(`/api/conversations/${cid}/cancel`, { method: "POST" });
+      assert.equal(cancelResult.body.cancelled, true);
+
+      const turn = await turnPromise;
+      assert.equal(turn.status, 502);
+      assert.equal(turn.body.cancelled, true);
+      assert.equal(turn.body.message.content, "Mensagem cancelada.");
+    });
+  } finally {
+    process.env.LOCAL_BASE_URL = previousBaseUrl;
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
 test("POST /correct fails gracefully when the teacher provider is unavailable", async () => {
   await withServer(async (api) => {
     const conversation = await api("/api/conversations", { method: "POST", body: JSON.stringify({ provider: "local" }) });

@@ -501,3 +501,21 @@ Usuário pediu pra publicar a release, deixando claro o objetivo por trás: "o f
 **Bug real de confiabilidade encontrado e corrigido nessa mesma checagem de robustez**: `importEnvelope` (usado tanto pelo "Importar" de arquivo quanto pelo novo "🌐 Comunidade") nunca verificava se uma memória já existia antes de criar — importar o mesmo pacote duas vezes (clique duplo, ou reimportar depois de uma atualização do pacote da comunidade) duplicava tudo silenciosamente. Corrigido com uma chave de deduplicação (`escopo::título::conteúdo`, normalizados) calculada a partir da lista completa e não-filtrada de memórias antes de importar — reimportar o mesmo pacote agora é inofensivo. **Validado ao vivo**: importei o pacote de Three.js duas vezes seguidas via `claude-in-chrome` — primeira vez "16 memórias importadas", segunda vez "0 memórias importadas... 16 já existiam (puladas)", total permanecendo em 16.
 
 `npm run check`, `npm test` (59/59), `npm run test:memory` (6/6), `npm run frontend:build` passando.
+
+## 2026-09-19 — Melhorias de qualidade de vida e UI (publicadas como v0.1.8/v0.1.9)
+
+Usuário pediu pra focar em qualidade de vida e UI. Escolheu, entre as opções que propus, todas: corrigir o layout que estoura a tela, indicador de progresso do modelo local, botão de cancelar, e polimento visual do Atlas 3D (esse último ainda pendente).
+
+**Bug de overflow real, encontrado direto nos testes visuais de hoje**: `.memory-stats` usava `grid-template-columns: repeat(5, 1fr)` sem `minmax(0, ...)` — o rótulo "EXTRAÍDAS PELA IA" (mais longo que os outros) forçava a coluna a ficar mais larga que sua fração justa, empurrando a linha inteira pra fora da tela em janelas mais estreitas que um desktop bem largo (confirmado em 1280×800, uma resolução de notebook comum). Mesma lacuna (`min-width: 0` faltando) no painel da comunidade. Corrigido nos dois lugares; validado visualmente antes/depois com `claude-in-chrome`.
+
+**Indicador de progresso + cancelamento pro modelo local** (`app/pendingTurns.js`, novo): como o pipeline local de hoje pode levar de 1 a 4+ minutos (retries + auto-revisão), mostrar só "pensando…" genérico parecia travado. Agora:
+- Um registro em memória (por conversa, não persistido — é só estado de UI) guarda a etapa atual ("Gerando resposta…", "Corrigindo um erro encontrado no código…", "Revisando a resposta antes de entregar…") e um `AbortController`.
+- `runLocal` e `refineLocalAnswer` (`app/local.js`, `app/localRefine.js`) agora aceitam um `signal` externo, combinado com o timeout interno via `AbortSignal.any` — cancelar não espera o timeout de 60s, aborta a chamada ao Ollama na hora.
+- Duas rotas novas: `GET /api/conversations/:id/pending` (a aba consulta a cada 1.2s enquanto `sending`) e `POST /api/conversations/:id/cancel`.
+- Frontend: o texto "pensando…" virou a etapa real; um botão vermelho "✕ Cancelar" substitui "Enviar" durante o envio.
+
+**Validado ao vivo com Ollama real** (porta isolada, `claude-in-chrome`): mandei uma pergunta de jogo Three.js numa conversa local, vi "LOCAL · Gerando resposta…" aparecer imediatamente (em vez do "pensando…" genérico), cliquei em "✕ Cancelar" e a conversa mostrou "Sistema · Mensagem cancelada." em ~2 segundos — não esperou o pipeline inteiro, nem o timeout de 60s.
+
+3 novos testes de backend (`GET /pending` reportando a etapa durante um turno em andamento e voltando a `null` depois; `POST /cancel` abortando um turno preso, verificado por não esperar os 30s do stub). `npm run check`, `npm test` (61/61), `npm run test:memory` (6/6), `npm run frontend:build` passando.
+
+Pendente: polimento visual do Atlas 3D (materiais/iluminação/geometria) — ainda não iniciado, fica pro próximo ciclo.
