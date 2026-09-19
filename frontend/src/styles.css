@@ -2145,7 +2145,8 @@ button[aria-pressed="true"] {
   color: #94b8c4;
   margin-bottom: 8px;
 }
-.settings-field > input {
+.settings-field > input,
+.settings-field > textarea {
   width: 100%;
   background: #0c1821;
   border: 1px solid #253847;
@@ -2153,6 +2154,8 @@ button[aria-pressed="true"] {
   color: #dce7ed;
   padding: 8px 10px;
   font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
 }
 .settings-options {
   display: flex;
@@ -2206,6 +2209,52 @@ button[aria-pressed="true"] {
   color: #65e2d4;
   font-size: 10px;
   margin-top: 6px;
+}
+.browser-agent-log h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.browser-agent-log .spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: local-setup-spin 0.7s linear infinite;
+  flex-shrink: 0;
+  color: #7e99ab;
+}
+.browser-agent-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.browser-agent-step {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 11px;
+  color: #c2d7e2;
+  border-bottom: 1px solid #172330;
+  padding-bottom: 6px;
+}
+.browser-agent-step small {
+  flex-shrink: 0;
+  color: #5c7683;
+  font-size: 10px;
+}
+.browser-agent-step.error span,
+.browser-agent-step.invalid-action span {
+  color: #e0a25c;
+}
+.browser-agent-step.finished span {
+  color: #65e2d4;
 }
 
 @media (max-width: 900px) {

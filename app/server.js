@@ -48,6 +48,8 @@ import {
   DEFAULT_MANIFEST_URL as DEFAULT_COMMUNITY_MANIFEST_URL,
 } from "./community.js";
 import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
+import { createRun, pushStep, finishRun, getRun, cancelRun } from "./agentRuns.js";
+import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
 
 const KNOWN_PROVIDERS = ["codex", "claude", "local"];
 
@@ -348,6 +350,54 @@ export function createServer() {
           send({ stage: "error", message: error.message || "Falha inesperada ao preparar o modelo local." });
         }
         return response.end();
+      }
+
+      // ---------- Browser agent: local model + OCR drive a real browser ----------
+      // POST starts a run in the background and returns its id immediately —
+      // the run itself can take minutes (each step is a screenshot + OCR +
+      // a full local-model call), so the frontend polls GET .../status the
+      // same way it already polls /pending for local chat turns, instead of
+      // holding one HTTP request open the whole time.
+      if (method === "POST" && pathname === "/api/browser-agent/start") {
+        const body = await readJson(request);
+        const goal = String(body.goal || "").trim();
+        if (!goal) return sendJson(response, 400, { error: "Descreva a tarefa que o agente deve realizar." });
+        const { id, controller } = createRun();
+        (async () => {
+          try {
+            if (!isChromiumInstalled()) {
+              pushStep(id, { stage: "preparing-browser" });
+              const installResult = await installChromium((event) => pushStep(id, event));
+              if (!installResult.ok) {
+                finishRun(id, { ok: false, error: installResult.error });
+                return;
+              }
+            }
+            const { page } = await getOrLaunchBrowserContext();
+            const result = await runBrowserAgent({
+              page,
+              goal,
+              signal: controller.signal,
+              onStep: (event) => pushStep(id, event),
+            });
+            finishRun(id, result);
+          } catch (error) {
+            finishRun(id, { ok: false, error: error.message || "Falha inesperada no agente de navegador." });
+          }
+        })();
+        return sendJson(response, 200, { runId: id });
+      }
+      const agentStatusMatch = pathname.match(/^\/api\/browser-agent\/([^/]+)\/status$/);
+      if (agentStatusMatch && method === "GET") {
+        const [, id] = agentStatusMatch;
+        const run = getRun(id);
+        if (!run) return sendJson(response, 404, { error: "Execução não encontrada." });
+        return sendJson(response, 200, { status: run.status, steps: run.steps, result: run.result });
+      }
+      const agentCancelMatch = pathname.match(/^\/api\/browser-agent\/([^/]+)\/cancel$/);
+      if (agentCancelMatch && method === "POST") {
+        const [, id] = agentCancelMatch;
+        return sendJson(response, 200, { cancelled: cancelRun(id) });
       }
 
       // ---------- Projects ----------

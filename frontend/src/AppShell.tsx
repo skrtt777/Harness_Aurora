@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
 import SettingsView from "./SettingsView";
+import BrowserAgentView from "./BrowserAgentView";
 import {
   cancelMessage as apiCancelMessage,
   correctMessage as apiCorrectMessage,
@@ -27,7 +28,7 @@ import {
   type SavingsStats,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -341,6 +342,7 @@ export default function AppShell() {
             }}
           />
         )}
+        {view === "browser-agent" && <BrowserAgentView />}
       </main>
     </div>
   );

@@ -240,6 +240,46 @@ export function watchLocalSetup(onEvent: (event: LocalSetupEvent) => void): () =
   return () => source.close();
 }
 
+// ---------- Browser agent (controle de navegador via OCR + modelo local) ----------
+export type BrowserAgentStep = {
+  stage:
+    | "preparing-browser"
+    | "downloading-browser"
+    | "observing"
+    | "thinking"
+    | "acted"
+    | "invalid-action"
+    | "error"
+    | "finished";
+  step?: number;
+  url?: string;
+  action?: { action: string; target?: string; text?: string; url?: string; key?: string; dy?: number; ms?: number; reason?: string };
+  execResult?: { ok: boolean; error?: string; clickedAt?: { x: number; y: number }; finished?: boolean };
+  raw?: string;
+  message?: string;
+  reason?: string;
+  at: string;
+};
+export type BrowserAgentResult = {
+  ok: boolean;
+  done?: boolean;
+  cancelled?: boolean;
+  reason?: string;
+  error?: string;
+  history?: unknown[];
+};
+export type BrowserAgentRunStatus = {
+  status: "running" | "done" | "error" | "cancelled";
+  steps: BrowserAgentStep[];
+  result: BrowserAgentResult | null;
+};
+export const startBrowserAgent = (goal: string) =>
+  request<{ runId: string }>("/browser-agent/start", { method: "POST", body: JSON.stringify({ goal }) });
+export const getBrowserAgentStatus = (runId: string) =>
+  request<BrowserAgentRunStatus>(`/browser-agent/${runId}/status`);
+export const cancelBrowserAgent = (runId: string) =>
+  request<{ cancelled: boolean }>(`/browser-agent/${runId}/cancel`, { method: "POST" });
+
 // ---------- Community memories (pull-only) ----------
 export type CommunityBundleInfo = { id: string; file: string; title: string; description: string; tags: string[] };
 export type MemoryExportEnvelope = {

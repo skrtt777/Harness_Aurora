@@ -181,6 +181,18 @@ Itens reais observados durante esta análise que valem registro, mas não chegam
 - Sincronização entre dispositivos/nuvem — contraria o princípio já registrado em `ROADMAP_MASTER.md` de manter tudo local.
 - Fine-tuning do modelo local — a estratégia do projeto inteiro é "ensinar via memória", não retreinar pesos; mudar isso seria uma decisão de produto nova, não uma melhoria incremental.
 
+---
+
+## Fora dos 10 marcos originais: Agente de navegador (adicionado em 2026-09-19)
+
+Este documento partiu do estado do código em 2026-09-19 e cobre UI/Layout/QoL/Performance da LLM local sobre o que já existia. O agente de navegador — pedido explícito do usuário nessa mesma data, depois da priorização inicial — é uma capacidade nova, não um ajuste de algo já existente, então não força um encaixe artificial na tabela de marcos acima.
+
+**O que é:** o modelo local ganha uma forma de agir fora do chat — controlar um navegador de verdade (Playwright) pra realizar tarefas em apps web (o caso de uso citado foi PowerApps), do mesmo jeito que o usuário já orquestra manualmente com Claude/Codex. Em vez de acessibilidade/DOM (que exigiria integração mais profunda por site), a "visão" do modelo é OCR local via Tesseract.js — sem gastar tokens de IA paga — sobre screenshots da própria página, respondendo com uma ação JSON (clicar num texto, digitar, navegar, etc.) a cada passo, num loop até o próprio modelo decidir que terminou ou até um limite de passos.
+
+**Por que capacidade interna, não um protocolo MCP de verdade:** o usuário descreveu o objetivo ("igual eu faço com Claude/Codex pra mexer em apps do PowerApps"), não a arquitetura; entre as opções, escolheu explicitamente "capacidade interna do Harness" em vez de expor um servidor MCP real — mais simples de manter e já resolve o objetivo (o modelo local ganha a mesma capacidade de ação, sem o overhead de um protocolo cliente/servidor separado).
+
+**Detalhe completo do que foi implementado, testado e as limitações honestas de validação:** ver a entrada de `PROJECT_LOG.md` na mesma data ("Agente de navegador: controle via OCR local + Playwright, sem tokens de IA paga").
+
 ## Como usar este documento
 
 Mesmo padrão que o projeto já segue: ao fechar um marco (ou parte dele), registrar o que foi feito de fato no `PROJECT_LOG.md` (o que mudou, o que foi validado, o que ficou como limite conhecido) — este arquivo é o plano, aquele é o registro do que realmente aconteceu, e os dois já se mostraram úteis juntos em todas as sessões anteriores deste projeto.

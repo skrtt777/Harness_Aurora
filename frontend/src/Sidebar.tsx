@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent";
 
 type Props = {
   projects: Project[];
@@ -307,6 +307,9 @@ export default function Sidebar({
         </button>
         <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
           ⚗ <span>Teste</span>
+        </button>
+        <button className={`rail-link ${activeView === "browser-agent" ? "active" : ""}`} onClick={() => onSelectView("browser-agent")}>
+          🖱 <span>Agente do navegador</span>
         </button>
         <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
           ⚙ <span>Configurações</span>

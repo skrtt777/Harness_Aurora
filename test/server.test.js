@@ -1106,3 +1106,55 @@ test("GET /api/savings exposes the same numbers over HTTP as the store function"
     assert.ok(response.body.localTurns >= 1);
   });
 });
+
+// ---------- Browser agent routes ----------
+//
+// A full end-to-end run (real Chromium + real Tesseract) isn't exercised
+// here: it would hit the same network-restricted OCR language download
+// documented in test/ocr.test.js, and could try to download Chromium itself
+// in an environment where it isn't already installed. These tests only
+// cover the HTTP contract the frontend will rely on — that starting a run
+// returns promptly with an id instead of blocking on the (potentially slow
+// or network-bound) agent loop, and that status/cancel behave sanely for an
+// unknown run id. The agent loop itself is already covered thoroughly by
+// test/browserAgent.test.js.
+
+test("POST /api/browser-agent/start rejects an empty goal", async () => {
+  await withServer(async (api) => {
+    const response = await api("/api/browser-agent/start", { method: "POST", body: JSON.stringify({ goal: "   " }) });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /tarefa/);
+  });
+});
+
+test("POST /api/browser-agent/start returns a run id promptly without waiting for the agent loop", async () => {
+  await withServer(async (api) => {
+    const start = Date.now();
+    const response = await api("/api/browser-agent/start", {
+      method: "POST",
+      body: JSON.stringify({ goal: "abrir o site e clicar em salvar" }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(typeof response.body.runId, "string");
+    assert.ok(response.body.runId.length > 0);
+    // The route kicks off browser/model work in the background instead of
+    // awaiting it before responding — this should come back almost
+    // instantly regardless of how long (or how it fails) that work takes.
+    assert.ok(Date.now() - start < 2000, "starting a run should not block on the agent loop");
+  });
+});
+
+test("GET /api/browser-agent/:id/status returns 404 for an unknown run", async () => {
+  await withServer(async (api) => {
+    const response = await api("/api/browser-agent/does-not-exist/status");
+    assert.equal(response.status, 404);
+  });
+});
+
+test("POST /api/browser-agent/:id/cancel reports cancelled:false for an unknown run", async () => {
+  await withServer(async (api) => {
+    const response = await api("/api/browser-agent/does-not-exist/cancel", { method: "POST" });
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { cancelled: false });
+  });
+});
