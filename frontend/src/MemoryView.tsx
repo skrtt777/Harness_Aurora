@@ -296,6 +296,9 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     onMemoriesChanged?.();
   };
 
+  const dedupeKey = (scope: string, title: string, content: string) =>
+    `${scope}::${title.trim().toLowerCase()}::${content.trim().toLowerCase()}`;
+
   // Shared by both import paths (a local file and a community bundle) since
   // both deliver the exact same envelope shape — only where the JSON comes
   // from differs.
@@ -308,8 +311,16 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     const projectIds = new Set(projects.map((p) => p.id));
     const conversationIds = new Set(conversations.map((c) => c.id));
     const idMap = new Map<string, string>();
+    // Importing the same bundle twice (a duplicate click, or a community
+    // bundle re-imported after an update) used to silently create duplicate
+    // memories every time — fetch the full, unfiltered list once so
+    // repeated imports are safe no-ops instead of accumulating copies.
+    const existingKeys = new Set(
+      (await listMemories({})).map((m) => dedupeKey(m.scope, m.title, m.content)),
+    );
     let downgraded = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (const entry of entries) {
       let scope: MemoryScope = entry.scope;
@@ -325,6 +336,11 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
         conversationId = undefined;
         downgraded += 1;
       }
+      const key = dedupeKey(scope, entry.title, entry.content);
+      if (existingKeys.has(key)) {
+        skipped += 1;
+        continue;
+      }
       try {
         const created = await createMemory({
           scope,
@@ -337,6 +353,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           source: entry.source ? `Importado (${entry.source})` : `Importado (${sourceLabel})`,
         });
         idMap.set(entry.id, created.id);
+        existingKeys.add(key);
       } catch {
         failed += 1;
       }
@@ -361,6 +378,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
 
     setImportStatus(
       `${idMap.size} memórias importadas, ${relationsCreated} relações recriadas` +
+        (skipped ? `, ${skipped} já existiam (puladas)` : "") +
         (downgraded ? `, ${downgraded} rebaixadas pra escopo geral (projeto/conversa não encontrado aqui)` : "") +
         (failed ? `, ${failed} falharam` : "") +
         ".",
