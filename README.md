@@ -105,6 +105,8 @@ O Atlas 3D é uma aba separada (não é mais a tela inicial). Ele mostra **só a
 
 A cena inclui grupos por projeto, neurônios volumétricos, inspeção técnica, relações de origem e vistas CAD. Consulte [o guia da memória 3D](docs/MEMORY_CAD.md) para controles e formato de dados.
 
+Na qualidade "Alta" (seletor no rodapé da cena), a cena usa pós-processamento (`@react-three/postprocessing`) — bloom real nos materiais emissivos dos neurônios, campo de estrelas e vinheta — mais névoa e tone mapping cinematográfico (ACES filmic). A qualidade "Baixa" pula esse custo extra de GPU e continua limpa e legível.
+
 ## Teste — sandbox com dados sintéticos
 
 Aba separada do Atlas 3D real, pensada pra experimentar a visualização sem depender de memória de verdade: abre com 1.000 registros sintéticos de demonstração (`createDemoMemories`), e deixa importar/exportar uma coleção JSON própria (formato em `frontend/src/data.ts`) pra brincar com dados personalizados. Nunca lê nem escreve na memória real do backend — é puramente local ao navegador (`localStorage`).

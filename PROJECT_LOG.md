@@ -519,3 +519,18 @@ Usuário pediu pra focar em qualidade de vida e UI. Escolheu, entre as opções 
 3 novos testes de backend (`GET /pending` reportando a etapa durante um turno em andamento e voltando a `null` depois; `POST /cancel` abortando um turno preso, verificado por não esperar os 30s do stub). `npm run check`, `npm test` (61/61), `npm run test:memory` (6/6), `npm run frontend:build` passando.
 
 Pendente: polimento visual do Atlas 3D (materiais/iluminação/geometria) — ainda não iniciado, fica pro próximo ciclo.
+
+## 2026-09-19 — Polimento visual do Atlas 3D (o item que faltava)
+
+Usuário pediu "o mais bonito possível". A cena já era mais sofisticada do que eu esperava (materiais emissivos, metalness/roughness, geometria em camadas por neurônio), mas faltava exatamente a peça que faz material emissivo parecer de verdade brilhante: pós-processamento.
+
+- Nova dependência `@react-three/postprocessing@2.16.3` (a versão 3.x mais recente exige React Three Fiber v9; este projeto está na v8, então fixei a última versão 2.x compatível).
+- `EffectComposer` com `Bloom` (glow nos materiais emissivos dos neurônios) e `Vignette` (framing sutil nas bordas), habilitado só em qualidade "Alta" — a opção "Baixa" já existente continua sem esse custo extra de GPU.
+- `<Stars>` do drei (campo de estrelas) também só em qualidade alta.
+- `fog` pra profundidade atmosférica, fundo mais escuro, tone mapping ACES filmic (`gl.toneMapping` via `onCreated`) pra um visual mais cinematográfico, ambiente/luzes reequilibrados pra funcionar bem COM o bloom (intensidade alta demais de ambiente lavaria o efeito).
+
+**Depuração real durante a verificação visual**: na primeira checagem via `claude-in-chrome`, a cena parecia completamente preta/vazia. Não era regressão nenhuma — o canvas WebGL existia e tinha o tamanho certo (confirmado via `javascript_tool` inspecionando `canvas.width`/`getBoundingClientRect`), só que os clusters de neurônios são pequenos e escuros contra um fundo bem grande e bem escuro, então "quase invisível a olho nu no screenshot comprimido" foi confundido com "não está renderizando". Zoom na imagem (não zoom da câmera) confirmou que estava tudo lá, inclusive as estrelas novas. A partir daí, ajustei o bloom de forma mais agressiva (`intensity` 0.85→1.6, `luminanceThreshold` 0.18→0.06) porque o threshold original só pegava os núcleos mais brilhantes dos neurônios, não os ramos — depois do ajuste, os clusters inteiros ganharam um halo suave visível.
+
+Validado visualmente nos dois níveis de qualidade: "Alta" com bloom/estrelas/vignette nítidos, "Baixa" continua limpo e legível sem o custo extra (sem regressão pra quem usa hardware mais fraco).
+
+`npm run check`, `npm test` (61/61), `npm run test:memory` (6/6), `npm run frontend:build` passando. Com isso, as 4 melhorias de qualidade de vida/UI pedidas nesta rodada estão completas.

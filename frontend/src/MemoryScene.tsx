@@ -16,7 +16,9 @@ import {
   GizmoHelper,
   GizmoViewport,
   Html,
+  Stars,
 } from "@react-three/drei";
+import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import Neuron from "./Neuron";
@@ -490,16 +492,20 @@ function SceneContent(props: Props) {
         near={0.1}
         far={100000}
       />
-      <color attach="background" args={["#070d15"]} />
-      <ambientLight intensity={1} />
+      <color attach="background" args={["#050810"]} />
+      <fog attach="fog" args={["#050810", 60, 220]} />
+      {props.quality === "high" && (
+        <Stars radius={140} depth={60} count={2400} factor={2.6} saturation={0} fade speed={0.35} />
+      )}
+      <ambientLight intensity={0.55} />
       <directionalLight
         position={[15, 30, 20]}
-        intensity={2.5}
+        intensity={2.2}
         color="#d0edff"
       />
       <directionalLight
         position={[-15, -5, -15]}
-        intensity={1.2}
+        intensity={1}
         color="#7b8bdd"
       />
       {cad && (
@@ -594,6 +600,18 @@ function SceneContent(props: Props) {
         />
       </GizmoHelper>
       <Metrics onStats={onStats} />
+      {props.quality === "high" && (
+        <EffectComposer multisampling={0}>
+          <Bloom
+            intensity={1.6}
+            luminanceThreshold={0.06}
+            luminanceSmoothing={0.4}
+            mipmapBlur
+            radius={0.85}
+          />
+          <Vignette eskil={false} offset={0.15} darkness={0.65} />
+        </EffectComposer>
+      )}
     </>
   );
 }
@@ -639,6 +657,10 @@ export default function MemoryScene(props: Props) {
         gl={{
           antialias: props.quality === "high",
           powerPreference: "high-performance",
+        }}
+        onCreated={({ gl }) => {
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.15;
         }}
         fallback={fallback}
       >
