@@ -123,7 +123,16 @@ test("pullModel streams NDJSON progress and resolves ok on a final success event
 });
 
 test("getLocalStatus reports everything false/not-ready when Ollama isn't installed or running", async () => {
-  const status = await getLocalStatus({ LOCAL_BASE_URL: "http://127.0.0.1:1", OLLAMA_BIN: "ollama-binary-not-installed-in-tests" });
+  // On win32, isOllamaInstalled() also falls back to checking Ollama's
+  // default per-user install path under LOCALAPPDATA, independent of
+  // OLLAMA_BIN — on a machine where Ollama is genuinely installed there,
+  // faking "not installed" requires overriding both, not just OLLAMA_BIN.
+  const fakeLocalAppData = mkdtempSync(join(tmpdir(), "harness-no-ollama-"));
+  const status = await getLocalStatus({
+    LOCAL_BASE_URL: "http://127.0.0.1:1",
+    OLLAMA_BIN: "ollama-binary-not-installed-in-tests",
+    LOCALAPPDATA: fakeLocalAppData,
+  });
   assert.equal(status.running, false);
   assert.equal(status.installed, false);
   assert.equal(status.modelReady, false);
