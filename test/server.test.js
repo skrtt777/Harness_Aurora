@@ -25,6 +25,7 @@ const { parseClaudeOutput } = await import("../app/claude.js");
 const { parseMemoryCandidates, buildExtractionPrompt } = await import("../app/memoryExtractor.js");
 const { buildCorrectionPrompt, parseCorrectionResponse } = await import("../app/correction.js");
 const { checkJsModuleSyntax, findConstReassignments, refineLocalAnswer } = await import("../app/localRefine.js");
+const { runCodeInSandbox } = await import("../app/jsSandbox.js");
 const { createRelation } = await import("../app/store.js");
 
 async function withServer(run) {
@@ -245,6 +246,84 @@ test("findConstReassignments ignores const variables that are never reassigned",
   assert.deepEqual(findConstReassignments(js), []);
 });
 
+test("runCodeInSandbox catches a real use-before-declaration bug that node --check cannot see (the exact 'cube' bug found in testing)", () => {
+  const js = [
+    "const cubes = [];",
+    "function animate() {",
+    "  cube.position.y -= 0.05;", // `cube` (singular) was never declared anywhere
+    "}",
+    "animate();",
+  ].join("\n");
+  const result = runCodeInSandbox(js);
+  assert.equal(result.checked, true);
+  assert.equal(result.crashed, true);
+  assert.match(result.error, /ReferenceError/);
+});
+
+test("runCodeInSandbox catches const reassignment and TDZ by actually running the code", () => {
+  const constBug = runCodeInSandbox("const score = 0;\nfunction animate() { score++; }\nanimate();");
+  assert.equal(constBug.crashed, true);
+
+  const tdzBug = runCodeInSandbox("function animate() { return keys['w']; }\nanimate();\nconst keys = {};");
+  assert.equal(tdzBug.crashed, true);
+});
+
+test("runCodeInSandbox catches THREE.OrbitControls used without importing the addon (the most repeated bug seen in testing)", () => {
+  const js = "const camera = new THREE.PerspectiveCamera();\nconst controls = new THREE.OrbitControls(camera, {});\n";
+  const sourceWithoutImport = `<script type="module">\nimport * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';\n${js}\n</script>`;
+  const result = runCodeInSandbox(js, sourceWithoutImport);
+  assert.equal(result.crashed, true);
+  assert.match(result.error, /OrbitControls/);
+});
+
+test("runCodeInSandbox allows THREE.OrbitControls when the source actually imports the addon", () => {
+  const js = "const camera = new THREE.PerspectiveCamera();\nconst controls = new THREE.OrbitControls(camera, {});\n";
+  const sourceWithImport = `<script type="module">\nimport * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';\nimport { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';\n${js}\n</script>`;
+  const result = runCodeInSandbox(js, sourceWithImport);
+  assert.equal(result.crashed, false);
+});
+
+test("runCodeInSandbox does not false-positive on a realistic, correct Three.js game using many APIs", () => {
+  const js = [
+    "const scene = new THREE.Scene();",
+    "const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);",
+    "camera.position.set(0, 5, 10);",
+    "camera.lookAt(0, 0, 0);",
+    "const renderer = new THREE.WebGLRenderer();",
+    "renderer.setSize(window.innerWidth, window.innerHeight);",
+    "document.body.appendChild(renderer.domElement);",
+    "scene.add(new THREE.AmbientLight(0xffffff, 0.5));",
+    "const light = new THREE.DirectionalLight(0xffffff, 1);",
+    "light.position.set(1, 1, 1);",
+    "scene.add(light);",
+    "const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x0000ff }));",
+    "scene.add(cube);",
+    "const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffff00 }));",
+    "scene.add(sphere);",
+    "let score = 0;",
+    "const scoreEl = document.getElementById('score');",
+    "const keys = {};",
+    "window.addEventListener('keydown', (e) => { keys[e.key] = true; });",
+    "window.addEventListener('keyup', (e) => { keys[e.key] = false; });",
+    "const clock = new THREE.Clock();",
+    "function animate() {",
+    "  requestAnimationFrame(animate);",
+    "  const delta = clock.getDelta();",
+    "  if (keys.w) cube.position.z -= delta;",
+    "  if (cube.position.distanceTo(sphere.position) < 1) { score += 10; scoreEl.textContent = String(score); }",
+    "  renderer.render(scene, camera);",
+    "}",
+    "animate();",
+    "window.addEventListener('resize', () => {",
+    "  camera.aspect = window.innerWidth / window.innerHeight;",
+    "  camera.updateProjectionMatrix();",
+    "  renderer.setSize(window.innerWidth, window.innerHeight);",
+    "});",
+  ].join("\n");
+  const result = runCodeInSandbox(js);
+  assert.deepEqual(result, { checked: true, crashed: false, error: null });
+});
+
 test("refineLocalAnswer retries once on a syntax error and keeps the corrected version", async () => {
   const stub = http.createServer((req, res) => {
     let body = "";
@@ -302,6 +381,97 @@ test("refineLocalAnswer retries once when the code reassigns a const variable (s
       env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
     });
     assert.match(refined.text, /let score = 0;/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer retries once when the sandbox catches a use-before-declaration crash (syntax and const checks both miss it)", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { prompt } = JSON.parse(body);
+      const isRetry = prompt.includes("testado de verdade num sandbox");
+      const answer = isRetry
+        ? "```html\n<script type=\"module\">\nconst cube = {};\nfunction animate() { cube.x = 1; }\nanimate();\n</script>\n```"
+        : "não deveria chegar aqui";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = {
+      ok: true,
+      status: 200,
+      text: "```html\n<script type=\"module\">\nfunction animate() { cube.x = 1; }\nanimate();\n</script>\n```",
+    };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.match(refined.text, /const cube = \{\};/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer loops up to MAX_FIX_ATTEMPTS when the first retry still has a problem, and keeps the eventually-clean version", async () => {
+  let retryCalls = 0;
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      retryCalls += 1;
+      // First retry is broken in the SAME way (const reassigned); only the
+      // second retry actually fixes it.
+      const answer =
+        retryCalls === 1
+          ? "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```"
+          : "```html\n<script type=\"module\">\nlet score = 0;\nscore++;\n</script>\n```";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.equal(retryCalls, 2);
+    assert.match(refined.text, /let score = 0;/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer rejects a self-review revision that reintroduces a problem the retries already fixed", async () => {
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      // Self-review "fixes" it by breaking it again.
+      res.end(JSON.stringify({ response: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const clean = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nlet score = 0;\nscore++;\n</script>\n```" };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: clean,
+      memories: [{ title: "Regra", content: "Seja conciso.", tags: [] }],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.equal(refined.text, clean.text);
   } finally {
     await new Promise((resolve) => stub.close(resolve));
   }
@@ -365,6 +535,42 @@ test("refineLocalAnswer discards a self-review reply that dropped the code (keep
       env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
     });
     assert.equal(refined.text, initial.text);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
+test("refineLocalAnswer gives a persistent problem one more free self-review chance even with zero memories (the exact gap found in live testing)", async () => {
+  // Both retries stay broken (same const-reassignment mistake each time) —
+  // exhausting MAX_FIX_ATTEMPTS without ever producing clean code. Without
+  // the post-loop recheck, this would ship broken code silently since
+  // memories is empty and self-review used to be skipped entirely.
+  let calls = 0;
+  const stub = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      calls += 1;
+      const { prompt } = JSON.parse(body);
+      const isSelfReview = prompt.includes("Revise sua propria resposta");
+      const answer = isSelfReview
+        ? "```html\n<script type=\"module\">\nlet score = 0;\nscore++;\n</script>\n```"
+        : "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```";
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ response: answer }));
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.ok(calls >= 3, `expected at least 2 retries + 1 self-review, got ${calls} calls`);
+    assert.match(refined.text, /let score = 0;/);
   } finally {
     await new Promise((resolve) => stub.close(resolve));
   }

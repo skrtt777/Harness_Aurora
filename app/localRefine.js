@@ -4,6 +4,7 @@ import { writeFile, unlink, mkdtemp, rmdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runLocal } from "./local.js";
+import { runCodeInSandbox } from "./jsSandbox.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -81,7 +82,7 @@ export function findConstReassignments(js) {
   return offenders;
 }
 
-export function buildSelfReviewPrompt(task, answer, memories) {
+export function buildSelfReviewPrompt(task, answer, memories, knownProblem = null) {
   const rules = memories.map((m) => `- ${m.title}: ${m.content}`).join("\n");
   return [
     "Voce gerou a resposta abaixo para a tarefa indicada. Revise sua propria resposta com cuidado, uma ultima vez, antes de entregar.",
@@ -91,9 +92,10 @@ export function buildSelfReviewPrompt(task, answer, memories) {
     `Sua resposta:\n${answer}`,
     "",
     rules ? `Regras que voce deve seguir (aprendidas antes):\n${rules}` : "",
+    knownProblem ? `Problema conhecido que AINDA precisa ser corrigido nesta resposta:\n${knownProblem}` : "",
     "",
-    "Se a resposta ja atende TODAS as regras acima e cumpre o pedido original por completo, responda EXATAMENTE com a mesma resposta, sem nenhuma mudanca.",
-    "Se encontrar qualquer problema (regra nao seguida, parte do pedido faltando, erro de logica), responda com a versao corrigida e COMPLETA — nao um resumo do que mudou, a resposta inteira de novo.",
+    "Se a resposta ja atende TODAS as regras acima, nao tem o problema conhecido (se houver) e cumpre o pedido original por completo, responda EXATAMENTE com a mesma resposta, sem nenhuma mudanca.",
+    "Se encontrar qualquer problema (regra nao seguida, problema conhecido nao resolvido, parte do pedido faltando, erro de logica), responda com a versao corrigida e COMPLETA — nao um resumo do que mudou, a resposta inteira de novo.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -120,30 +122,62 @@ async function describeCodeProblems(text) {
     return `Estas variaveis foram declaradas com "const" mas reatribuidas depois, o que quebra em tempo de execucao com "Assignment to constant variable": ${offenders.join(", ")}. Troque a declaracao dessas variaveis especificas para "let".`;
   }
 
+  // Neither check above is a real parser, so as a last line of defense
+  // actually run the code (against a permissive fake THREE/DOM — see
+  // jsSandbox.js) to catch anything else that's syntactically fine but
+  // throws the moment it executes (e.g. a variable used without ever being
+  // declared, like `cube` in a game that only declared `cubes`, or an addon
+  // class like OrbitControls referenced without its own import/script).
+  // The full `text` (not just the extracted script) is passed through so
+  // the sandbox can see any <script src="..."> tags outside the inline
+  // script when deciding which addons are actually available.
+  const sandbox = runCodeInSandbox(js, text);
+  if (sandbox.checked && sandbox.crashed) {
+    return `O código quebra assim que roda (testado de verdade num sandbox): ${sandbox.error}`;
+  }
+
   return null;
 }
+
+// Extra local-only retries beyond the first answer, always free (Ollama),
+// bounded because the same weak model that made a mistake sometimes makes
+// the same class of mistake again on the very next attempt.
+const MAX_FIX_ATTEMPTS = 2;
 
 export async function refineLocalAnswer({ task, result, memories = [], env = process.env }) {
   if (!result.ok || !looksLikeCode(result.text)) return result;
 
   let current = result;
 
-  const problem = await describeCodeProblems(current.text);
-  if (problem) {
+  for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
+    const problem = await describeCodeProblems(current.text);
+    if (!problem) break;
     const retryPrompt = `${task}\n\nSua resposta anterior tinha um problema:\n${problem}\n\nGere a resposta completa novamente (o HTML completo, em um unico bloco de codigo), corrigindo esse problema.`;
     const retried = await runLocal(retryPrompt, env);
-    if (retried.ok && retried.text.trim()) current = retried;
+    if (!retried.ok || !retried.text.trim()) break;
+    current = retried;
   }
 
-  if (memories.length > 0) {
-    const reviewPrompt = buildSelfReviewPrompt(task, current.text, memories);
+  // The loop above never re-checks the very last retry it produced (it just
+  // ran out of budget after setting `current`) — check once more, for free,
+  // so a lingering problem is at least handed to the self-review pass below
+  // instead of shipping an unverified answer silently.
+  const remainingProblem = await describeCodeProblems(current.text);
+
+  if (memories.length > 0 || remainingProblem) {
+    const reviewPrompt = buildSelfReviewPrompt(task, current.text, memories, remainingProblem);
     const reviewed = await runLocal(reviewPrompt, env);
     // A weak local model sometimes ignores the "repeat the same answer or
     // give a corrected one" instruction and writes prose *about* the review
     // instead (e.g. "verifiquei e está tudo certo"), silently discarding the
-    // actual code. Only adopt the revision if it still looks like code —
-    // otherwise the original, at least-it-has-code answer is safer to keep.
-    if (reviewed.ok && reviewed.text.trim() && looksLikeCode(reviewed.text)) current = reviewed;
+    // actual code — or reintroduces exactly the bug the retries above just
+    // fixed while rewriting. Only adopt the revision if it still looks like
+    // code AND doesn't reintroduce a detectable problem; otherwise the
+    // already-checked pre-review answer is safer to keep.
+    if (reviewed.ok && reviewed.text.trim() && looksLikeCode(reviewed.text)) {
+      const reviewedProblem = await describeCodeProblems(reviewed.text);
+      if (!reviewedProblem) current = reviewed;
+    }
   }
 
   return current;
