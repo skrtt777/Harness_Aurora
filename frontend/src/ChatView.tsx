@@ -54,7 +54,7 @@ function SandboxPanel({ conversationId, messageId }: { conversationId: string; m
           className="sandbox-preview"
           src={previewUrl}
           title="Preview do código executado"
-          sandbox="allow-scripts allow-same-origin allow-pointer-lock"
+          sandbox="allow-scripts allow-pointer-lock"
         />
       )}
     </div>
@@ -68,7 +68,7 @@ type Props = {
   sending: boolean;
   pendingStage: string | null;
   lastMemoryCreatedCount: number;
-  onSend: (message: string) => void;
+  onSend: (message: string) => Promise<boolean>;
   onCancel: () => void;
   onCorrect: (messageId: string, note: string) => Promise<void>;
   onRenameTitle: (title: string) => void;
@@ -119,6 +119,8 @@ function MessageBubble({
           {isUser ? "VOCÊ" : message.provider || providerLabel} · {new Date(message.createdAt).toLocaleString("pt-BR")}
         </div>
         <div className="chat-content">{message.content}</div>
+        {message.memoryStatus === "pending" && <small>Extraindo memórias em segundo plano…</small>}
+        {["failed", "interrupted"].includes(message.memoryStatus || "") && <small>Resposta salva; a extração automática de memória não foi concluída.</small>}
         {!isUser && !isSystem && looksRunnable(message.content) && (
           <SandboxPanel conversationId={conversationId} messageId={message.id} />
         )}
@@ -175,6 +177,8 @@ function MessageBubble({
   );
 }
 
+const drafts = new Map<string, string>();
+
 export default function ChatView({
   conversation,
   project,
@@ -186,7 +190,10 @@ export default function ChatView({
   onCorrect,
   onRenameTitle,
 }: Props) {
-  const [draft, setDraft] = useState("");
+  const [draftsState, setDraftsState] = useState(() => new Map(drafts));
+  const draftId = conversation?.id || "";
+  const draft = draftsState.get(draftId) || "";
+  const setDraft = (value: string, id = draftId) => { drafts.set(id, value); setDraftsState(new Map(drafts)); };
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(conversation?.title || "");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -211,11 +218,11 @@ export default function ChatView({
     );
   }
 
-  const send = () => {
+  const send = async () => {
     const message = draft.trim();
     if (!message || sending) return;
-    onSend(message);
-    setDraft("");
+    const id = conversation.id;
+    if (await onSend(message)) setDraft("", id);
   };
 
   const providerLabel =
@@ -265,7 +272,7 @@ export default function ChatView({
               message={m}
               conversationId={conversation.id}
               providerLabel={providerLabel}
-              correctable={correctable}
+              correctable={correctable && m.provider === "Local" && !conversation.messages.some(c => c.correctionOf === m.id)}
               onCorrect={onCorrect}
             />
           ))

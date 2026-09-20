@@ -173,7 +173,7 @@ async function withServer(run) {
   const { port } = server.address();
   const base = `http://127.0.0.1:${port}`;
   const api = (path, options) =>
-    fetch(`${base}${path}`, { headers: { "content-type": "application/json" }, ...options }).then(async (response) => ({
+    fetch(`${base}${path}`, { headers: { "content-type": "application/json", "x-harness-token": server.apiToken }, ...options }).then(async (response) => ({
       status: response.status,
       body: await response.json(),
     }));
@@ -210,13 +210,13 @@ test("PUT /api/local/model updates the stored choice, and rejects an empty model
   });
 });
 
-test("GET /api/local/setup streams SSE progress ending in a final stage", async () => {
+test("POST /api/local/setup streams SSE progress ending in a final stage", async () => {
   await withStub({ tags: [DEFAULT_LOCAL_MODEL] }, async (baseUrl) => {
     const previous = process.env.LOCAL_BASE_URL;
     process.env.LOCAL_BASE_URL = baseUrl;
     try {
       await withServer(async (base) => {
-        const response = await fetch(`${base}/api/local/setup`);
+        const response = await fetch(`${base}/api/local/setup`, { method: "POST", headers: { "content-type": "application/json", "x-harness-token": (await (await fetch(`${base}/api/session`)).json()).token }, body: "{}" });
         assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
         const text = await response.text();
         const lines = text

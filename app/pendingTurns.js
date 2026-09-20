@@ -9,6 +9,7 @@
 const pending = new Map();
 
 export function startTurn(conversationId) {
+  if (pending.has(conversationId)) throw Object.assign(new Error("Esta conversa já tem uma resposta em andamento."), { status: 409 });
   const controller = new AbortController();
   pending.set(conversationId, { controller, stage: "Gerando resposta…" });
   return controller;
@@ -23,8 +24,8 @@ export function getStage(conversationId) {
   return pending.get(conversationId)?.stage || null;
 }
 
-export function endTurn(conversationId) {
-  pending.delete(conversationId);
+export function endTurn(conversationId, controller) {
+  if (!controller || pending.get(conversationId)?.controller === controller) pending.delete(conversationId);
 }
 
 export function cancelTurn(conversationId) {

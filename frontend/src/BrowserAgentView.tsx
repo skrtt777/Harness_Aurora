@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   cancelBrowserAgent,
   getBrowserAgentStatus,
+  getActiveBrowserAgent,
   startBrowserAgent,
   type BrowserAgentRunStatus,
   type BrowserAgentStep,
@@ -86,7 +87,24 @@ export default function BrowserAgentView() {
     }
   };
 
-  useEffect(() => stopPolling, []);
+  useEffect(() => {
+    let stale = false;
+    getActiveBrowserAgent().then(({ runId: id }) => { if (!stale) setRunId(id); }).catch(e => setStartError(e.message));
+    return () => { stale = true; stopPolling(); };
+  }, []);
+
+  useEffect(() => {
+    if (!runId) return;
+    let stale = false;
+    const poll = () => getBrowserAgentStatus(runId).then(status => {
+      if (stale) return;
+      setRun(status);
+      if (status.status !== "running") stopPolling();
+    }).catch(e => { if (!stale) { setStartError(e.message); stopPolling(); } });
+    void poll();
+    pollRef.current = setInterval(poll, 1000);
+    return () => { stale = true; stopPolling(); };
+  }, [runId]);
 
   const handleStart = async () => {
     const trimmed = goal.trim();
@@ -97,17 +115,7 @@ export default function BrowserAgentView() {
     try {
       const { runId: id } = await startBrowserAgent(trimmed);
       setRunId(id);
-      stopPolling();
-      const poll = () => {
-        getBrowserAgentStatus(id)
-          .then((status) => {
-            setRun(status);
-            if (status.status !== "running") stopPolling();
-          })
-          .catch(() => stopPolling());
-      };
-      poll();
-      pollRef.current = setInterval(poll, 1000);
+
     } catch (error) {
       setStartError(error instanceof Error ? error.message : "Falha ao iniciar o agente.");
     } finally {

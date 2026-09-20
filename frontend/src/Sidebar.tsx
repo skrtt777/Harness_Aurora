@@ -319,7 +319,7 @@ export default function Sidebar({
             className="savings-indicator"
             title={`${savings.localTurns} resposta${savings.localTurns > 1 ? "s" : ""} do modelo local, ${savings.corrections} corrigida${savings.corrections === 1 ? "" : "s"} pelo professor. Comparado a mandar tudo direto pro Codex/Claude: ${savings.actualCalls} chamada${savings.actualCalls === 1 ? "" : "s"} paga${savings.actualCalls === 1 ? "" : "s"} em vez de ${savings.baselineCalls}.`}
           >
-            💰 {savings.savingsPercent}% de economia
+            💰 {savings.savingsPercent}% de chamadas estimadas evitadas
           </div>
         )}
         {appVersion && <div className="sidebar-version">v{appVersion}</div>}

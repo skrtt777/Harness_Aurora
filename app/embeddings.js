@@ -70,14 +70,15 @@ export function cosineSimilarity(a, b) {
  * a ~274 MB download; that memory/search simply proceeds without a vector
  * this time, and later calls succeed once the pull finishes.
  */
-export async function embedText(text, env = process.env) {
+export async function embedText(text, env = process.env, signal) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
   const baseUrl = defaultBaseUrl(env);
   const model = resolveEmbeddingModel(env);
   try {
-    if (!(await isServerUp(baseUrl))) return null;
-    if (!(await isModelPulled(baseUrl, model))) {
+    if (!(await isServerUp(baseUrl, signal))) return null;
+    if (!(await isModelPulled(baseUrl, model, signal))) {
+      if (signal?.aborted) return null;
       pullModel(baseUrl, model).catch(() => {});
       return null;
     }
@@ -89,14 +90,14 @@ export async function embedText(text, env = process.env) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ model, prompt: trimmed }),
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return Array.isArray(data.embedding) && data.embedding.length && data.embedding.every(Number.isFinite) ? data.embedding : null;
     } finally {
       clearTimeout(timer);
     }
-    if (!response.ok) return null;
-    const data = await response.json();
-    return Array.isArray(data.embedding) && data.embedding.length ? data.embedding : null;
   } catch {
     return null;
   }

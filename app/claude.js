@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { resolveCli, executeCli } from "./cliRuntime.js";
 
-const execFileAsync = promisify(execFile);
 
 export function buildProviderConfig(env = process.env) {
   return {
@@ -10,13 +8,15 @@ export function buildProviderConfig(env = process.env) {
     mode: "cli",
     command: env.CLAUDE_BIN || "claude",
     model: env.CLAUDE_MODEL || "configured in Claude Code CLI",
-    configured: true,
+    configured: resolveCli("claude", env).installed,
+    authentication: "unverified",
   };
 }
 
 export function parseClaudeOutput(stdout) {
   try {
     const parsed = JSON.parse(stdout);
+    if (parsed.is_error || typeof parsed.result !== "string") return { text: "", threadId: null, usage: null };
     return { text: parsed.result || "", threadId: parsed.session_id || null, usage: parsed.usage || null };
   } catch {
     return { text: "", threadId: null, usage: null };
@@ -29,21 +29,21 @@ export function parseClaudeOutput(stdout) {
  * same stdin-close safeguard) so both providers are interchangeable from
  * the caller's point of view.
  */
-export async function runClaude(prompt, env = process.env) {
+export async function runClaude(prompt, env = process.env, signal) {
   try {
     const args = ["-p", prompt, "--output-format", "json", "--no-session-persistence"];
     if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);
-    const pending = execFileAsync(env.CLAUDE_BIN || "claude", args, {
+    const cli = resolveCli("claude", env);
+    const result = await executeCli(cli.command, [...cli.prefix, ...args], {
       cwd: env.CLAUDE_CWD || process.cwd(),
       windowsHide: true,
+      signal,
+      env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
       timeout: Number(env.CLAUDE_TIMEOUT_MS || 120_000),
     });
-    // Not observed to hang like Codex's exec does, but closing stdin costs
-    // nothing and keeps this consistent/safe if that ever changes upstream.
-    pending.child.stdin.end();
-    const result = await pending;
     const parsed = parseClaudeOutput(result.stdout);
+    if (!parsed.text.trim()) throw new Error("Claude retornou uma resposta vazia ou um erro.");
     return { ok: true, status: 200, ...parsed };
   } catch (error) {
     const detail = error.code === "ENOENT"

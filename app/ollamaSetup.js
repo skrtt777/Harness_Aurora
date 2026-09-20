@@ -84,16 +84,13 @@ export async function isOllamaInstalled(env = process.env) {
   return false;
 }
 
-export async function isServerUp(baseUrl) {
+export async function isServerUp(baseUrl, signal) {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch(`${baseUrl}/api/version`, { signal: controller.signal });
-    clearTimeout(timer);
+    const timeout = AbortSignal.timeout(2000);
+    const response = await fetch(`${baseUrl}/api/version`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    await response.body?.cancel();
     return response.ok;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 export async function waitForServerUp(baseUrl, timeoutMs = 25_000) {
@@ -113,6 +110,7 @@ export async function startOllamaServer(env = process.env) {
     windowsHide: true,
     env: { ...process.env, ...env },
   });
+  await new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
   // Detached + unref: the server keeps running as its own background
   // process even after the Harness app (and this Node process) closes,
   // which is what makes the next launch instant instead of repeating setup.
@@ -123,7 +121,7 @@ export async function startOllamaServer(env = process.env) {
 async function installOllamaWindows(onProgress) {
   onProgress({ stage: "downloading-installer" });
   const installerPath = join(tmpdir(), "OllamaSetup.exe");
-  const response = await fetch("https://ollama.com/download/OllamaSetup.exe");
+  const response = await fetch("https://ollama.com/download/OllamaSetup.exe", { signal: AbortSignal.timeout(300000) });
   if (!response.ok) {
     return { ok: false, error: `Não foi possível baixar o instalador do Ollama (HTTP ${response.status}).` };
   }
@@ -174,32 +172,48 @@ async function installOllama(onProgress) {
   };
 }
 
-export async function isModelPulled(baseUrl, model) {
+export async function isModelPulled(baseUrl, model, signal) {
   try {
-    const response = await fetch(`${baseUrl}/api/tags`);
+    const response = await fetch(`${baseUrl}/api/tags`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000) });
     if (!response.ok) return false;
     const data = await response.json();
     const names = (data.models || []).map((m) => m.name);
     if (names.includes(model)) return true;
     // "llama3.2:3b" pulled should also satisfy a request for the bare
     // "llama3.2:3b" tag written without ":latest", and vice versa.
-    const [base, tag] = model.split(":");
-    return names.some((n) => {
-      const [nBase, nTag] = n.split(":");
-      return nBase === base && (tag === undefined || tag === "latest" || nTag === tag);
-    });
+    const canonical = n => n.slice(n.lastIndexOf("/") + 1).includes(":") ? n : `${n}:latest`;
+    return names.some(n => canonical(n) === canonical(model));
   } catch {
     return false;
   }
 }
 
 export async function pullModel(baseUrl, model, onProgress = () => {}) {
+  const key = `${baseUrl}|${model}`;
+  if (activePulls.has(key)) {
+    const entry = activePulls.get(key); entry.listeners.add(onProgress);
+    try { return await entry.promise; } finally { entry.listeners.delete(onProgress); }
+  }
+  const entry = { listeners: new Set([onProgress]), promise: null };
+  activePulls.set(key, entry);
+  entry.promise = pullModelOnce(baseUrl, model, event => { for (const listener of entry.listeners) listener(event); }).finally(() => activePulls.delete(key));
+  return entry.promise;
+}
+
+const activePulls = new Map();
+async function pullModelOnce(baseUrl, model, onProgress) {
+  const controller = new AbortController();
+  let timer;
+  const refreshTimeout = () => { clearTimeout(timer); timer = setTimeout(() => controller.abort(), 120000); };
+  refreshTimeout();
+  try {
   let response;
   try {
     response = await fetch(`${baseUrl}/api/pull`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, stream: true }),
+      signal: controller.signal,
     });
   } catch (error) {
     return { ok: false, error: `Não foi possível iniciar o download do modelo: ${error.message}` };
@@ -213,9 +227,18 @@ export async function pullModel(baseUrl, model, onProgress = () => {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let lastError = null;
+  let success = false;
+  const accept = line => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.error) lastError = String(event.error);
+    if (event.status === "success") success = true;
+    onProgress(event);
+  };
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    refreshTimeout();
     buffer += decoder.decode(value, { stream: true });
     let newlineIndex;
     while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
@@ -223,16 +246,19 @@ export async function pullModel(baseUrl, model, onProgress = () => {}) {
       buffer = buffer.slice(newlineIndex + 1);
       if (!line) continue;
       try {
-        const event = JSON.parse(line);
-        if (event.error) lastError = event.error;
-        onProgress(event);
+        accept(line);
       } catch {
         // A partial/malformed NDJSON line: ignore it, the next chunk usually completes it.
       }
     }
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) { try { accept(buffer); } catch { lastError = "Resposta de download inválida."; } }
   if (lastError) return { ok: false, error: lastError };
+  if (!success) return { ok: false, error: "Download interrompido antes da confirmação do Ollama." };
   return { ok: true };
+  } catch (error) { return { ok: false, error: `Download não concluído: ${error.message}` }; }
+  finally { clearTimeout(timer); }
 }
 
 /**
@@ -258,6 +284,17 @@ export async function getLocalStatus(env = process.env) {
  * conversation: each step is skipped if already satisfied.
  */
 export async function runOllamaSetup(env = process.env, onProgress = () => {}) {
+  if (setupTask) {
+    setupListeners.add(onProgress);
+    try { return await setupTask; } finally { setupListeners.delete(onProgress); }
+  }
+  setupListeners.add(onProgress);
+  setupTask = runSetupOnce(env, event => { for (const listener of setupListeners) listener(event); });
+  try { return await setupTask; } finally { setupTask = null; setupListeners.clear(); }
+}
+let setupTask = null;
+const setupListeners = new Set();
+async function runSetupOnce(env, onProgress) {
   const baseUrl = defaultBaseUrl(env);
   const model = await resolveLocalModel(env);
 
@@ -292,6 +329,7 @@ export async function runOllamaSetup(env = process.env, onProgress = () => {}) {
     }
   }
 
+  if (!(await isModelPulled(baseUrl, model))) return { ok: false, error: "O Ollama não confirmou a presença do modelo solicitado. Tente novamente." };
   onProgress({ stage: "ready", model });
   return { ok: true, model };
 }

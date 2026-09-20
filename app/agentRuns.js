@@ -16,9 +16,11 @@ const runs = new Map();
 const MAX_STEPS_KEPT = 200;
 
 export function createRun() {
+  if ([...runs.values()].some(r => r.status === "running")) throw Object.assign(new Error("Já existe um agente de navegador em execução."), { status: 409 });
+  for (const [id, run] of runs) if (Date.now() - run.createdAt > 3600000 || runs.size >= 50) runs.delete(id);
   const id = randomUUID();
   const controller = new AbortController();
-  runs.set(id, { id, controller, status: "running", steps: [], result: null });
+  runs.set(id, { id, controller, createdAt: Date.now(), status: "running", steps: [], result: null });
   return { id, controller };
 }
 
@@ -39,6 +41,7 @@ export function finishRun(id, result) {
 export function getRun(id) {
   return runs.get(id) || null;
 }
+export function getActiveRun() { return [...runs.values()].find(r => r.status === "running") || null; }
 
 export function cancelRun(id) {
   const run = runs.get(id);

@@ -49,6 +49,8 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
     stopRef.current = watchLocalSetup((e) => {
       setEvent(e);
       if (e.stage === "done" || e.stage === "failed" || e.stage === "error") {
+        stopRef.current?.();
+        stopRef.current = null;
         setRunning(false);
         getLocalStatus()
           .then(setStatus)
@@ -59,8 +61,10 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (!active) return;
+    let stale = false;
     getLocalStatus()
       .then((s) => {
+        if (stale) return;
         setStatus(s);
         if (!s.ready) startSetup();
       })
@@ -68,15 +72,18 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
     getLocalModels()
       .then(setModels)
       .catch(() => {});
-    return () => stopRef.current?.();
+    return () => { stale = true; stopRef.current?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   if (!active) return null;
 
   const applyModel = async (model: string) => {
-    if (!model.trim()) return;
-    await setLocalModel(model.trim());
+    if (!model.trim() || running) return;
+    setRunning(true);
+    try { await setLocalModel(model.trim()); } catch (e) {
+      setRunning(false); setEvent({ stage: "error", message: e instanceof Error ? e.message : "Falha ao selecionar modelo." }); return;
+    }
     setShowModelPicker(false);
     setCustomModel("");
     startSetup();
@@ -136,16 +143,18 @@ export function ModelPicker({
   customModel,
   setCustomModel,
   onPick,
+  disabled = false,
 }: {
   models: LocalModelOption[];
   customModel: string;
   setCustomModel: (v: string) => void;
   onPick: (model: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="model-picker">
       {models.map((m) => (
-        <button key={m.id} onClick={() => onPick(m.id)} title={`Recomendado: ${m.recommendedRamGb} GB de RAM`}>
+        <button disabled={disabled} key={m.id} onClick={() => onPick(m.id)} title={`Recomendado: ${m.recommendedRamGb} GB de RAM`}>
           {m.label} <small>{m.size}</small>
         </button>
       ))}
@@ -156,11 +165,12 @@ export function ModelPicker({
         }}
       >
         <input
+          disabled={disabled}
           placeholder="ou nome de outro modelo do Ollama…"
           value={customModel}
           onChange={(e) => setCustomModel(e.target.value)}
         />
-        <button type="submit" disabled={!customModel.trim()}>
+        <button type="submit" disabled={disabled || !customModel.trim()}>
           Usar
         </button>
       </form>

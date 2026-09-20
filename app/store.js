@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
-import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding } from "./embeddings.js";
+import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 
 const now = () => new Date().toISOString();
 const parseJsonArray = (value) => {
@@ -36,6 +36,8 @@ function mapMessage(row) {
     id: row.id,
     conversationId: row.conversation_id,
     role: row.role,
+    memoryStatus: row.memory_status || "none",
+    correctionOf: row.correction_of || null,
     content: row.content,
     provider: row.provider || undefined,
     memoryAccess: parseJsonArray(row.memory_access),
@@ -153,7 +155,7 @@ export async function getConversationWithMessages(id) {
   if (!conversation) return null;
   const db = await getDb();
   const rows = db
-    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC")
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC")
     .all(id);
   return { ...conversation, messages: rows.map(mapMessage) };
 }
@@ -209,14 +211,14 @@ export async function deleteConversation(id) {
 
 // ---------- Messages ----------
 
-export async function addMessage({ conversationId, role, content, provider, memoryAccess = [], memoryCreated = [] }) {
+export async function addMessage({ conversationId, role, content, provider, memoryAccess = [], memoryCreated = [], memoryStatus = "none", correctionOf = null }) {
   const db = await getDb();
   const id = randomUUID();
   const ts = now();
   db.prepare(
-    `INSERT INTO messages (id, conversation_id, role, content, provider, memory_access, memory_created, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, conversationId, role, content, provider || null, JSON.stringify(memoryAccess), JSON.stringify(memoryCreated), ts);
+    `INSERT INTO messages (id, conversation_id, role, content, provider, memory_access, memory_created, created_at, memory_status, correction_of)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, conversationId, role, content, provider || null, JSON.stringify(memoryAccess), JSON.stringify(memoryCreated), ts, memoryStatus, correctionOf);
   await touchConversation(conversationId);
   return mapMessage(db.prepare("SELECT * FROM messages WHERE id = ?").get(id));
 }
@@ -224,7 +226,7 @@ export async function addMessage({ conversationId, role, content, provider, memo
 export async function listMessages(conversationId) {
   const db = await getDb();
   const rows = db
-    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC")
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC")
     .all(conversationId);
   return rows.map(mapMessage);
 }
@@ -250,10 +252,12 @@ function embeddingInputFor({ title, content, tags }) {
  * overridden by tests; production callers use the default process.env.
  */
 async function attachEmbedding(db, id, text, env) {
+  const revision = db.prepare("SELECT revision FROM memories WHERE id = ?").get(id)?.revision;
+  if (revision === undefined) return;
   try {
     const vector = await embedText(text, env);
     if (!vector) return;
-    db.prepare("UPDATE memories SET embedding = ? WHERE id = ?").run(encodeEmbedding(vector), id);
+    db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ? AND revision = ?").run(encodeEmbedding(vector), resolveEmbeddingModel(env), id, revision);
   } catch {
     // The memory itself is already saved either way; a failed embedding
     // just means this memory falls back to keyword-only search for now.
@@ -271,6 +275,7 @@ export async function createMemory({
   source,
   env = process.env,
 }) {
+  if (!Array.isArray(tags) || tags.some(t => typeof t !== "string")) throw new Error("Tags devem ser uma lista de textos.");
   const db = await getDb();
   if (!["global", "project", "conversation"].includes(scope)) throw new Error("Escopo inválido.");
   if (scope === "project" && !projectId) throw new Error("Memória de projeto requer projectId.");
@@ -310,6 +315,7 @@ export async function createRelation({ fromId, toId, type }) {
 }
 
 export async function updateMemory(id, patch, env = process.env) {
+  if (patch.tags !== undefined && (!Array.isArray(patch.tags) || patch.tags.some(t => typeof t !== "string"))) throw Object.assign(new Error("Tags inválidas."), {status: 400});
   const db = await getDb();
   const existing = db.prepare("SELECT * FROM memories WHERE id = ?").get(id);
   if (!existing) return null;
@@ -317,7 +323,7 @@ export async function updateMemory(id, patch, env = process.env) {
   const content = patch.content !== undefined ? String(patch.content).trim() || existing.content : existing.content;
   const tagsChanged = patch.tags !== undefined;
   const tags = tagsChanged ? JSON.stringify(patch.tags) : existing.tags;
-  db.prepare("UPDATE memories SET title = ?, content = ?, tags = ?, updated_at = ? WHERE id = ?").run(
+  db.prepare("UPDATE memories SET title = ?, content = ?, tags = ?, updated_at = ?, embedding = NULL, embedding_model = NULL, revision = revision + 1 WHERE id = ?").run(
     title,
     content,
     tags,
@@ -327,7 +333,7 @@ export async function updateMemory(id, patch, env = process.env) {
   // Only recompute the embedding when the text it's derived from actually
   // changed — re-embedding on every touch (e.g. just re-saving tags-only
   // patches unchanged) would be wasted work for identical content.
-  if (title !== existing.title || content !== existing.content || tagsChanged) {
+  {
     await attachEmbedding(db, id, embeddingInputFor({ title, content, tags: parseJsonArray(tags) }), env);
   }
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
@@ -391,6 +397,7 @@ const SEMANTIC_SCALE = 5;
 // unrelated text still tends to land well above 0 in embedding space, so a
 // low-but-nonzero score isn't meaningful relevance on its own.
 const SEMANTIC_THRESHOLD = 0.5;
+const pendingEmbeddings = new Set();
 
 /**
  * Selects the most relevant memories for a prompt, pulling from the
@@ -407,22 +414,30 @@ const SEMANTIC_THRESHOLD = 0.5;
  * (Ollama not running, model not pulled yet, ...) this degrades exactly to
  * the pre-Marco-3 keyword-only ranking — same scores, same order.
  */
-export async function selectRelevantMemories(input, { conversationId, projectId } = {}, limit = 12, env = process.env) {
+export async function selectRelevantMemories(input, { conversationId, projectId } = {}, limit = 12, env = process.env, signal) {
   const db = await getDb();
   const queryTokens = tokenize(input);
-  const queryEmbedding = await embedText(input, env);
+  const queryEmbedding = await embedText(input, env, signal);
   const pools = [
     { scope: "conversation", weight: 1.6, rows: conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ?").all(conversationId) : [] },
     { scope: "project", weight: 1.3, rows: projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ?").all(projectId) : [] },
     { scope: "global", weight: 1, rows: db.prepare("SELECT * FROM memories WHERE scope = 'global'").all() },
   ];
   const scored = [];
+  if (queryEmbedding) {
+    // Incrementally repair legacy/missing vectors without delaying this search.
+    for (const row of pools.flatMap(p => p.rows).filter(r => !r.embedding || r.embedding_model !== resolveEmbeddingModel(env)).slice(0, 5)) {
+      if (pendingEmbeddings.has(row.id)) continue;
+      pendingEmbeddings.add(row.id);
+      void attachEmbedding(db, row.id, embeddingInputFor(mapMemory(row)), env).finally(() => pendingEmbeddings.delete(row.id));
+    }
+  }
   for (const pool of pools) {
     for (const row of pool.rows) {
       const memory = mapMemory(row);
       const overlap = scoreMemory(memory, queryTokens);
       let semantic = 0;
-      if (queryEmbedding && row.embedding) {
+      if (queryEmbedding && row.embedding && row.embedding_model === resolveEmbeddingModel(env)) {
         const memoryEmbedding = decodeEmbedding(row.embedding);
         const similarity = memoryEmbedding ? cosineSimilarity(queryEmbedding, memoryEmbedding) : 0;
         if (similarity >= SEMANTIC_THRESHOLD) semantic = similarity * SEMANTIC_SCALE;

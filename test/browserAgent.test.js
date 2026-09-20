@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium } from "playwright";
 
 const { buildAgentPrompt, normalizeGotoUrl, parseAction, executeAction, runBrowserAgent } = await import("../app/browserAgent.js");
@@ -29,6 +31,8 @@ const { buildAgentPrompt, normalizeGotoUrl, parseAction, executeAction, runBrows
 function resolveChromiumPath() {
   const envPath = process.env.CHROMIUM_EXECUTABLE_PATH;
   if (envPath && existsSync(envPath)) return envPath;
+  const edge = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
+  if (existsSync(edge)) return edge;
   const sandboxFallback = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
   if (existsSync(sandboxFallback)) return sandboxFallback;
   try {
@@ -44,6 +48,18 @@ const CHROMIUM_PATH = resolveChromiumPath();
 const skipRealBrowser = CHROMIUM_PATH
   ? false
   : "Nenhum Chromium real encontrado (defina CHROMIUM_EXECUTABLE_PATH ou rode `npx playwright install chromium`).";
+
+test("closed persistent browser context is relaunched instead of returning a closed page", { skip: skipRealBrowser }, async () => {
+  const { getOrLaunchBrowserContext, closeBrowserContext } = await import("../app/browserAgent.js");
+  const env = { CHROMIUM_EXECUTABLE_PATH: CHROMIUM_PATH, BROWSER_AGENT_HEADLESS: "1", BROWSER_AGENT_PROFILE_DIR: mkdtempSync(join(tmpdir(), "harness-browser-lifecycle-")) };
+  try {
+    const first = await getOrLaunchBrowserContext(env);
+    await first.context.close();
+    const second = await getOrLaunchBrowserContext(env);
+    assert.notEqual(first.context, second.context);
+    assert.equal(second.page.isClosed(), false);
+  } finally { await closeBrowserContext(); }
+});
 
 // ---------- Pure logic: parseAction ----------
 

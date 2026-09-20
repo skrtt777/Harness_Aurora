@@ -64,7 +64,7 @@ test("slugify strips accents and falls back when nothing usable remains", () => 
 
 // ---------- sandboxFilePath / materializeSandboxFile / readSandboxFile ----------
 
-test("materializeSandboxFile writes the file under a slugified conversation subfolder, creating dirs as needed", async () => {
+test("materializeSandboxFile writes the file under an immutable conversation subfolder, creating dirs as needed", async () => {
   const dir = await mkdtemp(join(tmpdir(), "harness-sandbox-"));
   const filePath = await materializeSandboxFile(dir, {
     conversationId: "conv-1",
@@ -72,7 +72,7 @@ test("materializeSandboxFile writes the file under a slugified conversation subf
     messageId: "msg-1",
     html: "<html><body>jogo</body></html>",
   });
-  assert.equal(filePath, join(dir, "crie-um-jogo-simples-em-three-js", "msg-1.html"));
+  assert.equal(filePath, join(dir, "conversation-conv-1", "msg-1.html"));
   const onDisk = await readFileFs(filePath, "utf8");
   assert.equal(onDisk, "<html><body>jogo</body></html>");
 });
@@ -88,7 +88,7 @@ test("materializeSandboxFile overwrites on a second run for the same message ins
 
 test("sandboxFilePath falls back to the conversation id when the title has nothing slug-worthy", () => {
   const path = sandboxFilePath("/base", { conversationId: "conv-abc", conversationTitle: "😀", messageId: "m1" });
-  assert.equal(path, join("/base", "conv-abc", "m1.html"));
+  assert.equal(path, join("/base", "conversation-conv-abc", "m1.html"));
 });
 
 test("readSandboxFile returns the content written by materializeSandboxFile", async () => {

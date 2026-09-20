@@ -1,12 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { writeFile, unlink, mkdtemp, rmdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { runLocal } from "./local.js";
-import { runCodeInSandbox } from "./jsSandbox.js";
-
-const execFileAsync = promisify(execFile);
+import { runCodeInSandbox, parseJavaScript, constReassignments } from "./jsSandbox.js";
 
 function looksLikeCode(text) {
   return /<script[^>]*>/i.test(text || "") || /```html/i.test(text || "");
@@ -24,7 +17,7 @@ function looksLikeCode(text) {
 function extractModuleScript(text) {
   const codeBlockMatch = String(text || "").match(/```html\n([\s\S]*?)\n```/);
   const html = codeBlockMatch ? codeBlockMatch[1] : text;
-  const matches = [...String(html || "").matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
+  const matches = [...String(html || "").matchAll(/<script(?![^>]*\bsrc\s*=)(?![^>]*\btype\s*=\s*["'](?:importmap|application\/json))[^>]*>([\s\S]*?)<\/script>/gi)];
   if (!matches.length) return null;
   return matches.map((m) => m[1]).sort((a, b) => b.length - a.length)[0];
 }
@@ -40,46 +33,18 @@ export async function checkJsModuleSyntax(text) {
   const js = extractModuleScript(text);
   if (!js || !js.trim()) return { checked: false, valid: true, error: null };
 
-  const dir = await mkdtemp(join(tmpdir(), "harness-syntax-"));
-  const file = join(dir, "check.mjs");
   try {
-    await writeFile(file, js, "utf8");
-    await execFileAsync(process.execPath, ["--check", file]);
+    parseJavaScript(js);
     return { checked: true, valid: true, error: null };
   } catch (error) {
     const detail = (error.stderr || error.message || "").toString().trim().slice(0, 500);
     return { checked: true, valid: false, error: detail || "Erro de sintaxe desconhecido." };
-  } finally {
-    await unlink(file).catch(() => {});
-    await rmdir(dir).catch(() => {});
   }
 }
 
-/**
- * A heuristic (not a real parser) that catches a pattern this specific class
- * of small model produces constantly: declaring a variable with `const` and
- * reassigning it later (`const score = 0; ...; score++`), which is valid
- * syntax — `node --check` never sees it — but throws
- * "Assignment to constant variable" the moment the code actually runs.
- * False positives are possible (this is line-based, not AST-based); that's
- * an acceptable cost for a free, best-effort safety net.
- */
+/** Uses lexical bindings, not text matching, to detect reassignment. */
 export function findConstReassignments(js) {
-  if (!js) return [];
-  const lines = js.split(/\r?\n/);
-  const constNames = new Set();
-  for (const line of lines) {
-    const m = line.match(/\bconst\s+([a-zA-Z_$][\w$]*)\s*=/);
-    if (m) constNames.add(m[1]);
-  }
-  const offenders = [];
-  for (const name of constNames) {
-    const declRe = new RegExp(`\\bconst\\s+${name}\\b`);
-    const reassignRe = new RegExp(`\\b${name}\\b\\s*(=(?!=)|\\+\\+|--|\\+=|-=|\\*=|/=)`);
-    const reassigned = lines.some((line) => !declRe.test(line) && reassignRe.test(line));
-    if (reassigned) offenders.push(name);
-  }
-  return offenders;
+  return constReassignments(js);
 }
 
 export function buildSelfReviewPrompt(task, answer, memories, knownProblem = null) {
@@ -122,18 +87,10 @@ async function describeCodeProblems(text) {
     return `Estas variaveis foram declaradas com "const" mas reatribuidas depois, o que quebra em tempo de execucao com "Assignment to constant variable": ${offenders.join(", ")}. Troque a declaracao dessas variaveis especificas para "let".`;
   }
 
-  // Neither check above is a real parser, so as a last line of defense
-  // actually run the code (against a permissive fake THREE/DOM — see
-  // jsSandbox.js) to catch anything else that's syntactically fine but
-  // throws the moment it executes (e.g. a variable used without ever being
-  // declared, like `cube` in a game that only declared `cubes`, or an addon
-  // class like OrbitControls referenced without its own import/script).
-  // The full `text` (not just the extracted script) is passed through so
-  // the sandbox can see any <script src="..."> tags outside the inline
-  // script when deciding which addons are actually available.
+  // Static diagnostics only: generated code is never evaluated in Node.
   const sandbox = runCodeInSandbox(js, text);
   if (sandbox.checked && sandbox.crashed) {
-    return `O código quebra assim que roda (testado de verdade num sandbox): ${sandbox.error}`;
+    return `A análise estática encontrou um possível erro: ${sandbox.error}`;
   }
 
   return null;
@@ -145,6 +102,8 @@ async function describeCodeProblems(text) {
 const MAX_FIX_ATTEMPTS = 2;
 
 export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage }) {
+  const cancelled = () => ({ ok: false, status: 499, cancelled: true, error: "Mensagem cancelada." });
+  if (signal?.aborted) return cancelled();
   if (!result.ok || !looksLikeCode(result.text)) return result;
 
   let current = result;
@@ -159,11 +118,11 @@ export async function refineLocalAnswer({ task, result, memories = [], env = pro
     );
     const retryPrompt = `${task}\n\nSua resposta anterior tinha um problema:\n${problem}\n\nGere a resposta completa novamente (o HTML completo, em um unico bloco de codigo), corrigindo esse problema.`;
     const retried = await runLocal(retryPrompt, env, signal);
-    if (!retried.ok || !retried.text.trim()) break;
+    if (!retried.ok || !retried.text.trim() || !looksLikeCode(retried.text)) break;
     current = retried;
   }
 
-  if (signal?.aborted) return current;
+  if (signal?.aborted) return cancelled();
 
   // The loop above never re-checks the very last retry it produced (it just
   // ran out of budget after setting `current`) — check once more, for free,
@@ -188,5 +147,5 @@ export async function refineLocalAnswer({ task, result, memories = [], env = pro
     }
   }
 
-  return current;
+  return signal?.aborted ? cancelled() : current;
 }

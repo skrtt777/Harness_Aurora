@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
@@ -37,7 +37,13 @@ export default function AppShell() {
   const [activeConversation, setActiveConversation] = useState<ConversationWithMessages | null>(null);
   const [view, setView] = useState<View>("chat");
   const [loadingConversation, setLoadingConversation] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const busyRef = useRef(new Set<string>());
+  const selectedRef = useRef(activeConversationId);
+  selectedRef.current = activeConversationId;
+  const sending = Boolean(activeConversationId && busyIds.has(activeConversationId));
+  const [operationError, setOperationError] = useState("");
+  const bootStarted = useRef(false);
   const [pendingStage, setPendingStage] = useState<string | null>(null);
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
@@ -84,6 +90,8 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
+    if (bootStarted.current) return;
+    bootStarted.current = true;
     (async () => {
       try {
         // Preferências salvas na Central de Configurações (Marco 2) — antes
@@ -119,12 +127,30 @@ export default function AppShell() {
       setActiveConversation(null);
       return;
     }
+    let stale = false;
+    setActiveConversation(null);
     setLoadingConversation(true);
     getConversation(activeConversationId)
-      .then(setActiveConversation)
-      .catch(() => setActiveConversation(null))
-      .finally(() => setLoadingConversation(false));
+      .then(c => { if (!stale) setActiveConversation(c); })
+      .catch(error => { if (!stale) setOperationError(error.message); })
+      .finally(() => { if (!stale) setLoadingConversation(false); });
+    return () => { stale = true; };
   }, [activeConversationId]);
+
+  const extractingMemory = Boolean(activeConversation?.messages.some(m => m.memoryStatus === "pending"));
+  useEffect(() => {
+    if (!activeConversationId || !extractingMemory || sending) return;
+    let stale = false;
+    const timer = setInterval(() => {
+      getConversation(activeConversationId).then(c => {
+        if (!stale && selectedRef.current === c.id && !busyRef.current.has(c.id)) {
+          setActiveConversation(c);
+          void refreshMemoryTotal();
+        }
+      }).catch(() => {});
+    }, 1500);
+    return () => { stale = true; clearInterval(timer); };
+  }, [activeConversationId, extractingMemory, sending, refreshMemoryTotal]);
 
   const activeProject = useMemo(
     () => (activeConversation?.projectId ? projects.find((p) => p.id === activeConversation.projectId) || null : null),
@@ -183,20 +209,24 @@ export default function AppShell() {
 
   const handleSend = useCallback(
     async (message: string) => {
-      if (!activeConversationId) return;
-      setSending(true);
+      const id = activeConversationId;
+      if (!id || busyRef.current.has(id)) return false;
+      busyRef.current.add(id); setBusyIds(new Set(busyRef.current));
+      setOperationError("");
       try {
-        await apiSendMessage(activeConversationId, message);
+        const result = await apiSendMessage(id, message);
         const [refreshedConversation] = await Promise.all([
-          getConversation(activeConversationId),
-          refreshLists(),
-          refreshMemoryTotal(),
-          refreshSavings(),
+          getConversation(id), refreshLists(), refreshMemoryTotal(), refreshSavings(),
         ]);
-        setActiveConversation(refreshedConversation);
+        if (selectedRef.current === id) setActiveConversation(refreshedConversation);
+        if (!result.ok) setOperationError(result.error || "Não foi possível enviar a mensagem.");
+        return result.ok;
+      } catch (error) {
+        setOperationError(error instanceof Error ? error.message : "Falha ao enviar.");
+        return false;
       } finally {
-        setSending(false);
-        setPendingStage(null);
+        busyRef.current.delete(id); setBusyIds(new Set(busyRef.current));
+        if (selectedRef.current === id) setPendingStage(null);
       }
     },
     [activeConversationId, refreshLists, refreshMemoryTotal, refreshSavings],
@@ -233,14 +263,20 @@ export default function AppShell() {
 
   const handleCorrect = useCallback(
     async (messageId: string, note: string) => {
-      if (!activeConversationId) return;
-      await apiCorrectMessage(activeConversationId, messageId, note || undefined);
-      const [refreshedConversation] = await Promise.all([
-        getConversation(activeConversationId),
-        refreshMemoryTotal(),
-        refreshSavings(),
-      ]);
-      setActiveConversation(refreshedConversation);
+      const id = activeConversationId;
+      if (!id) return;
+      if (busyRef.current.has(id)) throw new Error("Aguarde a operação atual ou cancele-a.");
+      busyRef.current.add(id); setBusyIds(new Set(busyRef.current));
+      try {
+        await apiCorrectMessage(id, messageId, note || undefined);
+        const [refreshedConversation] = await Promise.all([
+          getConversation(id), refreshMemoryTotal(), refreshSavings(),
+        ]);
+        if (selectedRef.current === id) setActiveConversation(refreshedConversation);
+      } finally {
+        busyRef.current.delete(id); setBusyIds(new Set(busyRef.current));
+        if (selectedRef.current === id) setPendingStage(null);
+      }
     },
     [activeConversationId, refreshMemoryTotal, refreshSavings],
   );
@@ -307,16 +343,17 @@ export default function AppShell() {
           setSidebarOpen(false);
         }}
         onNewConversation={(projectId) => {
-          handleNewConversation(projectId);
+          void handleNewConversation(projectId).catch(e => setOperationError(e.message));
           setSidebarOpen(false);
         }}
-        onNewProject={handleNewProject}
-        onRenameConversation={handleRenameConversation}
-        onDeleteConversation={handleDeleteConversation}
-        onRenameProject={handleRenameProject}
-        onDeleteProject={handleDeleteProject}
+        onNewProject={(...args) => { void handleNewProject(...args).catch(e => setOperationError(e.message)); }}
+        onRenameConversation={(...args) => { void handleRenameConversation(...args).catch(e => setOperationError(e.message)); }}
+        onDeleteConversation={(...args) => { void handleDeleteConversation(...args).catch(e => setOperationError(e.message)); }}
+        onRenameProject={(...args) => { void handleRenameProject(...args).catch(e => setOperationError(e.message)); }}
+        onDeleteProject={(...args) => { void handleDeleteProject(...args).catch(e => setOperationError(e.message)); }}
       />
       <main className="app-main">
+        {operationError && <p role="alert" className="memory-form-error">{operationError} <button onClick={() => setOperationError("")}>Fechar</button></p>}
         {view === "chat" && (
           <ChatView
             conversation={activeConversation}
@@ -328,7 +365,7 @@ export default function AppShell() {
             onSend={handleSend}
             onCancel={handleCancel}
             onCorrect={handleCorrect}
-            onRenameTitle={(title) => activeConversationId && handleRenameConversation(activeConversationId, title)}
+            onRenameTitle={(title) => { if (activeConversationId) void handleRenameConversation(activeConversationId, title).catch(e => setOperationError(e.message)); }}
           />
         )}
         {view === "memory" && (

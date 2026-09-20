@@ -1,162 +1,68 @@
-import vm from "node:vm";
+import { parse } from "acorn";
+import { simple } from "acorn-walk";
+import { analyze } from "eslint-scope";
+import globals from "globals";
 
-/**
- * An object/function that accepts any property access or call and returns
- * more of itself, so a fake THREE/DOM API never throws "X is not a
- * function" just because our stub doesn't happen to model that specific
- * method. This matters because we want the sandbox to only ever surface
- * real JS-language errors (ReferenceError, const reassignment, TDZ) —
- * never a false positive caused by our own stub being incomplete.
- */
-function permissive() {
-  const fn = function permissiveCallable() {
-    return permissive();
-  };
-  return new Proxy(fn, {
-    get(target, prop) {
-      if (prop === Symbol.toPrimitive) return () => 0;
-      if (prop === "then" || prop === "constructor") return undefined;
-      if (typeof prop === "symbol") return undefined;
-      if (!(prop in target)) target[prop] = permissive();
-      return target[prop];
-    },
-    set(target, prop, value) {
-      target[prop] = value;
-      return true;
-    },
-    construct() {
-      return permissive();
-    },
-    apply() {
-      return permissive();
-    },
-  });
+// Generated code is UNTRUSTED. Never evaluate it in Node (node:vm is not a
+// security boundary). The legacy function name is retained for compatibility.
+export function parseJavaScript(js) {
+  return parse(js, { ecmaVersion: "latest", sourceType: "module", ranges: true, locations: true });
 }
 
-/**
- * Three.js classes that live in separate addon/example files, not the core
- * build — the single most common mistake seen across this project's local-
- * model testing (referencing THREE.OrbitControls, THREE.GLTFLoader, etc.
- * without ever importing/loading the addon that defines it, which throws
- * the moment it's constructed). A blanket-permissive THREE stub can't catch
- * this — it would happily pretend OrbitControls exists too. So these
- * specific names are left undefined on the stub unless the answer's own
- * source actually references a matching import/script URL for them.
- */
-const KNOWN_ADDON_CLASSES = [
-  "OrbitControls",
-  "TrackballControls",
-  "FirstPersonControls",
-  "PointerLockControls",
-  "FlyControls",
-  "MapControls",
-  "ArcballControls",
-  "GLTFLoader",
-  "FBXLoader",
-  "OBJLoader",
-  "MTLLoader",
-  "DRACOLoader",
-  "KTX2Loader",
-  "RGBELoader",
-  "EffectComposer",
-  "RenderPass",
-  "UnrealBloomPass",
-  "ShaderPass",
-  "OutlinePass",
-  "TransformControls",
-  "DragControls",
-  "CSS2DRenderer",
-  "CSS3DRenderer",
-  "BufferGeometryUtils",
-  "SkeletonUtils",
-];
-
-function detectAvailableAddons(sourceText) {
-  const urls = [
-    ...[...String(sourceText || "").matchAll(/<script[^>]*\bsrc=["']([^"']+)["']/gi)].map((m) => m[1]),
-    ...[...String(sourceText || "").matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]),
-  ];
-  const available = new Set();
-  for (const name of KNOWN_ADDON_CLASSES) {
-    if (urls.some((url) => url.includes(name))) available.add(name);
-  }
-  return available;
+function scopes(js) {
+  return analyze(parseJavaScript(js), { ecmaVersion: 2024, sourceType: "module" });
 }
 
-function buildThreeStub(availableAddons) {
-  const base = permissive();
-  return new Proxy(base, {
-    get(target, prop) {
-      if (typeof prop === "string" && KNOWN_ADDON_CLASSES.includes(prop) && !availableAddons.has(prop)) {
-        return undefined;
-      }
-      return target[prop];
-    },
-  });
-}
-
-function buildSandboxGlobals(availableAddons) {
-  const document = {
-    createElement: () => permissive(),
-    getElementById: () => permissive(),
-    body: permissive(),
-    documentElement: permissive(),
-    addEventListener: () => {},
-  };
-  const globals = {
-    THREE: buildThreeStub(availableAddons),
-    document,
-    console: { log() {}, warn() {}, error() {}, info() {} },
-    performance: { now: () => Date.now() },
-    requestAnimationFrame: () => 0,
-    cancelAnimationFrame: () => {},
-    innerWidth: 1024,
-    innerHeight: 768,
-    devicePixelRatio: 1,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    setTimeout: () => 0,
-    clearTimeout: () => {},
-    setInterval: () => 0,
-    clearInterval: () => {},
-    alert: () => {},
-    Math,
-    JSON,
-    Date,
-  };
-  // Real browsers expose window as the global object itself (window.window
-  // === window); generated code inconsistently uses bare globals or
-  // window.-prefixed ones, so both must resolve the same way.
-  globals.window = globals;
-  return globals;
-}
-
-function stripImportsAndExports(js) {
-  return js
-    .replace(/^\s*import\s[^\n]*$/gm, "")
-    .replace(/^\s*export\s+default\s+/gm, "")
-    .replace(/^\s*export\s+/gm, "");
-}
-
-/**
- * Actually runs the local model's generated JS in a sandboxed context with
- * a permissive fake THREE/DOM, instead of guessing at bug patterns. A
- * permissive stub never throws on its own, so any exception that surfaces
- * is a genuine language-level bug (ReferenceError from an undeclared
- * variable, TDZ, const reassignment, a real syntax error, ...) — the kind
- * of runtime-only mistake `node --check` structurally cannot see, caught
- * with much higher confidence than a regex heuristic.
- */
-export function runCodeInSandbox(js, sourceText = js) {
-  if (!js || !js.trim()) return { checked: false, crashed: false, error: null };
-
-  const context = vm.createContext(buildSandboxGlobals(detectAvailableAddons(sourceText)));
-  const stripped = stripImportsAndExports(js);
+export function constReassignments(js) {
   try {
-    vm.runInContext(stripped, context, { timeout: 2000, displayErrors: false });
+    return [...new Set(scopes(js).scopes.flatMap(scope => scope.variables)
+      .filter(v => v.defs.some(d => d.kind === "const") && v.references.some(r => r.isWrite() && !r.init))
+      .map(v => v.name))];
+  } catch { return []; }
+}
+
+export function runCodeInSandbox(js, sourceText = js) {
+  if (!js?.trim()) return { checked: false, crashed: false, error: null };
+  try {
+    const manager = scopes(js);
+    const ast = parseJavaScript(js);
+    const constants = constReassignments(js);
+    if (constants.length) throw new TypeError(`Assignment to constant variable: ${constants.join(", ")}`);
+    // External scripts can introduce globals which cannot be resolved statically.
+    const externalScripts = /<script\b[^>]*\bsrc\s*=/i.test(sourceText);
+    const allowed = new Set([...Object.keys(globals.browser), ...Object.keys(globals.es2025), "THREE"]);
+    const missing = manager.globalScope.through.find(r => !allowed.has(r.identifier.name));
+    if (missing && !externalScripts) throw new ReferenceError(`${missing.identifier.name} is not defined`);
+    for (const scope of manager.scopes) {
+      for (const variable of scope.variables) {
+        const declaration = variable.defs.find(d => d.kind === "let" || d.kind === "const");
+        if (!declaration) continue;
+        // Do not guess when closures execute: only check reads in the same scope.
+        if (variable.references.some(r => r.isRead() && r.from.variableScope === scope.variableScope && r.identifier.start < declaration.name.start)) {
+          throw new ReferenceError(`Cannot access '${variable.name}' before initialization`);
+        }
+        for (const reference of variable.references.filter(r => r.isRead())) {
+          const fn = reference.from.variableScope.block;
+          if (fn.type !== "FunctionDeclaration" || !fn.id) continue;
+          const functionBinding = scope.variables.find(v => v.defs.some(d => d.node === fn));
+          if (functionBinding?.references.some(r => r.from.variableScope === scope.variableScope && r.identifier.start > fn.end && r.identifier.start < declaration.name.start)) {
+            throw new ReferenceError(`Cannot access '${variable.name}' before initialization`);
+          }
+        }
+      }
+    }
+    const addons = new Set(["OrbitControls", "GLTFLoader", "FBXLoader", "OBJLoader", "EffectComposer", "RenderPass", "UnrealBloomPass", "PointerLockControls"]);
+    simple(ast, { NewExpression(node) {
+      const callee = node.callee;
+      if (callee.type !== "MemberExpression" || callee.computed || callee.object.name !== "THREE" || !addons.has(callee.property.name)) return;
+      const localThree = manager.scopes.flatMap(s => s.variables).find(v => v.name === "THREE" && v.defs.some(d => d.type !== "ImportBinding"));
+      if (localThree) return;
+      const name = callee.property.name;
+      const legacyAddon = [...String(sourceText).matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)].some(m => m[1].includes(name) && !m[1].includes("/jsm/"));
+      if (!legacyAddon) throw new ReferenceError(`${name} é um addon: importe e use o binding ${name}, não THREE.${name}.`);
+    } });
     return { checked: true, crashed: false, error: null };
   } catch (error) {
-    const detail = `${error.name || "Error"}: ${error.message || String(error)}`.slice(0, 500);
-    return { checked: true, crashed: true, error: detail };
+    return { checked: true, crashed: true, error: `${error.name}: ${error.message}`.slice(0, 500) };
   }
 }

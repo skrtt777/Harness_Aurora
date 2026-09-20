@@ -25,23 +25,23 @@ export function parseCorrectionResponse(text) {
   const match = String(text || "").match(/\{[\s\S]*\}/);
   try {
     const parsed = JSON.parse(match ? match[0] : text);
-    const answer = String(parsed.answer || "").trim();
+    const answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
     const memories = Array.isArray(parsed.memories)
       ? parsed.memories
-          .filter((m) => m && String(m.content || "").trim())
+          .filter((m) => m && typeof m.content === "string" && m.content.trim())
           .slice(0, 3)
           .map((m) => ({
             title: String(m.title || "Correção").trim().slice(0, 120) || "Correção",
             content: String(m.content).trim().slice(0, 600),
-            tags: Array.isArray(m.tags) ? m.tags.map((t) => String(t).toLowerCase()).slice(0, 5) : [],
+            tags: Array.isArray(m.tags) ? m.tags.filter(t => typeof t === "string").map(t => t.toLowerCase()).slice(0, 5) : [],
           }))
       : [];
     const template =
-      parsed.template && String(parsed.template.content || "").trim()
+      parsed.template && typeof parsed.template.content === "string" && parsed.template.content.trim()
         ? {
             title: String(parsed.template.title || "Template").trim().slice(0, 120) || "Template",
             content: String(parsed.template.content).trim().slice(0, 4000),
-            tags: Array.isArray(parsed.template.tags) ? parsed.template.tags.map((t) => String(t).toLowerCase()).slice(0, 5) : [],
+            tags: Array.isArray(parsed.template.tags) ? parsed.template.tags.filter(t => typeof t === "string").map(t => t.toLowerCase()).slice(0, 5) : [],
           }
         : null;
     return { answer, memories, template };
@@ -55,14 +55,16 @@ export function parseCorrectionResponse(text) {
  * distills the lesson into memory candidates, in a single call — this is
  * what lets the local model "learn" via memory instead of fine-tuning.
  */
-export async function correctLocalAnswer({ question, wrongAnswer, note, teacherProvider = "codex", env = process.env }) {
+export async function correctLocalAnswer({ question, wrongAnswer, note, teacherProvider = "codex", env = process.env, signal }) {
   const runProvider = teacherProvider === "claude" ? runClaude : runCodex;
   const timeoutKey = teacherProvider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
   const prompt = buildCorrectionPrompt(question, wrongAnswer, note);
   const result = await runProvider(prompt, {
     ...env,
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,
-  });
+  }, signal);
   if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true, ...parseCorrectionResponse(result.text) };
+  const parsed = parseCorrectionResponse(result.text);
+  if (!parsed.answer) return { ok: false, error: "O professor retornou uma correção vazia ou inválida." };
+  return { ok: true, ...parsed };
 }

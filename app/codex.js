@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { resolveCli, executeCli } from "./cliRuntime.js";
 
-const execFileAsync = promisify(execFile);
 
 export function buildProviderConfig(env = process.env) {
   return {
@@ -10,7 +8,8 @@ export function buildProviderConfig(env = process.env) {
     mode: "cli",
     command: env.CODEX_BIN || "codex",
     model: env.CODEX_MODEL || "configured in Codex CLI",
-    configured: true,
+    configured: resolveCli("codex", env).installed,
+    authentication: "unverified",
   };
 }
 
@@ -61,20 +60,22 @@ export function extractCodexError(stdout) {
  * Shared by chat responses and by the memory extractor, so both paths use
  * the exact same authentication and error handling.
  */
-export async function runCodex(prompt, env = process.env) {
+export async function runCodex(prompt, env = process.env, signal) {
   try {
     const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", prompt];
-    const pending = execFileAsync(env.CODEX_BIN || "codex", args, {
+    if (env.CODEX_MODEL) args.splice(args.length - 1, 0, "--model", env.CODEX_MODEL);
+    const cli = resolveCli("codex", env);
+    const result = await executeCli(cli.command, [...cli.prefix, ...args], {
       cwd: env.CODEX_CWD || process.cwd(),
       windowsHide: true,
+      signal,
+      env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
       timeout: Number(env.CODEX_TIMEOUT_MS || 120_000),
     });
-    // execFile never sends EOF on the child's stdin; without this, `codex exec`
-    // waits forever for stdin input that will never arrive and the request hangs.
-    pending.child.stdin.end();
-    const result = await pending;
-    return { ok: true, status: 200, ...parseCodexOutput(result.stdout) };
+    const parsed = parseCodexOutput(result.stdout);
+    if (!parsed.text.trim() || extractCodexError(result.stdout)) throw new Error(extractCodexError(result.stdout) || "Codex retornou uma resposta vazia ou inválida.");
+    return { ok: true, status: 200, ...parsed };
   } catch (error) {
     const jsonError = extractCodexError(error.stdout);
     const detail = error.code === "ENOENT"

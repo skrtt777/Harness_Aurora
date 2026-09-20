@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getLocalModels,
   getLocalStatus,
@@ -33,6 +33,10 @@ export default function SettingsView({
   const [settings, setSettingsState] = useState<Settings | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [localStatus, setLocalStatus] = useState<LocalStatus | null>(null);
+  const [customModel, setCustomModel] = useState("");
+  const [error, setError] = useState("");
+  const setupStop = useRef<(() => void) | null>(null);
+  useEffect(() => () => setupStop.current?.(), []);
   const [models, setModels] = useState<LocalModelOption[]>([]);
   const [manifestDraft, setManifestDraft] = useState("");
   const [manifestSaved, setManifestSaved] = useState(false);
@@ -48,10 +52,10 @@ export default function SettingsView({
       setSettingsState(s);
       setManifestDraft(s.communityManifestUrl);
       setSandboxDraft(s.sandboxDir);
-    });
-    getProviders().then(setProviders);
-    getLocalStatus().then(setLocalStatus);
-    getLocalModels().then(setModels);
+    }).catch(e => setError(e.message));
+    getProviders().then(setProviders).catch(e => setError(e.message));
+    getLocalStatus().then(setLocalStatus).catch(e => setError(e.message));
+    getLocalModels().then(setModels).catch(e => setError(e.message));
   };
 
   useEffect(refresh, []);
@@ -62,12 +66,14 @@ export default function SettingsView({
   };
 
   const setDefaultProvider = async (id: string) => {
-    const updated = await updateSettings({ defaultProvider: id });
+    const updated = await updateSettings({ defaultProvider: id }).catch(e => { setError(e.message); return null; });
+    if (!updated) return;
     setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
     onDefaultsChanged?.(updated.defaultProvider, updated.defaultTeacher);
   };
   const setDefaultTeacher = async (id: string) => {
-    const updated = await updateSettings({ defaultTeacher: id });
+    const updated = await updateSettings({ defaultTeacher: id }).catch(e => { setError(e.message); return null; });
+    if (!updated) return;
     setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
     onDefaultsChanged?.(updated.defaultProvider, updated.defaultTeacher);
   };
@@ -99,12 +105,15 @@ export default function SettingsView({
   };
 
   const chooseSandboxFolder = async () => {
-    const chosen = await pickFolder();
+    const chosen = await pickFolder().catch(e => { setSandboxError(e.message); return null; });
     if (chosen) await saveSandboxDir(chosen);
   };
 
   const pickModel = async (model: string) => {
-    if (!model.trim()) return;
+    if (!model.trim() || pullingModel) return;
+    setError("");
+    setPullingModel(true);
+    try {
     await setLocalModel(model.trim());
     setPullingModel(true);
     setModelStage("checking");
@@ -113,12 +122,15 @@ export default function SettingsView({
       if (event.stage === "done" || event.stage === "failed" || event.stage === "error") {
         stop();
         setPullingModel(false);
-        getLocalStatus().then(setLocalStatus);
+        if (event.stage !== "done") setError(event.message || "Falha ao preparar o modelo.");
+        getLocalStatus().then(setLocalStatus).catch(e => setError(e.message));
       }
     });
+    setupStop.current = stop;
+    } catch (e) { setPullingModel(false); setError(e instanceof Error ? e.message : "Falha ao selecionar modelo."); }
   };
 
-  if (!settings) return <section className="settings-page">Carregando…</section>;
+  if (!settings) return <section className="settings-page">{error || "Carregando…"}</section>;
 
   return (
     <section className="settings-page">
@@ -128,6 +140,7 @@ export default function SettingsView({
       </div>
 
       <div className="settings-body">
+        {error && <p role="alert" className="memory-form-error">{error}</p>}
         <div className="settings-card">
           <h2>Provedores</h2>
           <p className="settings-hint">Qual provedor uma nova conversa usa por padrão, e qual professor corrige o modelo local.</p>
@@ -141,7 +154,7 @@ export default function SettingsView({
                   onClick={() => setDefaultProvider(id)}
                 >
                   {PROVIDER_LABEL[id]}
-                  <span className={`status-dot ${isReady(id) ? "ready" : "pending"}`} title={isReady(id) ? "Pronto" : "Precisa configurar"} />
+                  <span className={`status-dot ${isReady(id) ? "ready" : "pending"}`} title={isReady(id) ? (id === "local" ? "Pronto" : "CLI encontrado; autenticação verificada ao conversar") : "Provedor não encontrado"} />
                 </button>
               ))}
             </div>
@@ -169,9 +182,10 @@ export default function SettingsView({
           {pullingModel && <p className="settings-hint">Trocando modelo… ({modelStage})</p>}
           <ModelPicker
             models={models}
-            customModel=""
-            setCustomModel={() => {}}
+            customModel={customModel}
+            setCustomModel={setCustomModel}
             onPick={pickModel}
+            disabled={pullingModel}
           />
         </div>
 

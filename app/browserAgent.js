@@ -51,7 +51,7 @@ function playwrightCliPath() {
   // directly — the same way ollamaSetup.js spawns the real Ollama installer
   // — is the documented, stable way to trigger a browser download
   // programmatically; Playwright's internal download APIs aren't public.
-  return fileURLToPath(new URL("../node_modules/playwright/cli.js", import.meta.url));
+  return fileURLToPath(new URL("../node_modules/playwright/cli.js", import.meta.url)).replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
 }
 
 /**
@@ -73,7 +73,7 @@ export async function installChromium(onProgress = () => {}) {
       // environments (see test setup) to avoid re-downloading Chromium on
       // every `npm install`; explicitly cleared here so an actual install
       // triggered by this function always goes through, in dev or in prod.
-      { windowsHide: true, timeout: 10 * 60_000, env: { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "" } },
+      { windowsHide: true, timeout: 10 * 60_000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "" } },
       (error) => {
         if (error) resolve({ ok: false, error: `Não foi possível baixar o navegador automatizado: ${error.message}` });
         else resolve({ ok: true });
@@ -100,6 +100,7 @@ async function launchBrowserContext(env) {
   };
   if (env.CHROMIUM_EXECUTABLE_PATH) launchOptions.executablePath = env.CHROMIUM_EXECUTABLE_PATH;
   const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
+  context.once("close", () => { contextPromise = null; });
   const page = context.pages()[0] || (await context.newPage());
   return { context, page };
 }
@@ -122,7 +123,9 @@ export async function getOrLaunchBrowserContext(env = process.env) {
       throw error;
     });
   }
-  return contextPromise;
+  const state = await contextPromise;
+  if (state.page.isClosed()) state.page = await state.context.newPage();
+  return state;
 }
 
 export async function closeBrowserContext() {
@@ -253,7 +256,9 @@ export async function executeAction(page, action, words = []) {
       case "goto": {
         const url = String(action.url || "").trim();
         if (!url) return { ok: false, error: "Nenhuma URL informada." };
-        await page.goto(normalizeGotoUrl(url));
+        const destination = new URL(normalizeGotoUrl(url));
+        if (!["http:", "https:"].includes(destination.protocol)) return { ok: false, error: "O agente só pode navegar em HTTP/HTTPS." };
+        await page.goto(destination.href, { timeout: 30000 });
         return { ok: true };
       }
       case "key": {
@@ -319,9 +324,11 @@ export async function runBrowserAgent({
     onStep({ stage: "observing", step });
     const screenshot = await page.screenshot();
     const ocr = await recognize(screenshot, env);
+    if (signal?.aborted) return { ok: false, cancelled: true, history };
 
     onStep({ stage: "thinking", step, url: page.url() });
     const modelResult = await ask(buildAgentPrompt({ goal, url: page.url(), ocrText: ocr.text, history }), env, signal);
+    if (signal?.aborted) return { ok: false, cancelled: true, history };
     if (!modelResult.ok) {
       onStep({ stage: "error", step, message: modelResult.error });
       return { ok: false, error: modelResult.error, cancelled: Boolean(modelResult.cancelled), history };

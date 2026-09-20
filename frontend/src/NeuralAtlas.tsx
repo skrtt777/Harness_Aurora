@@ -215,10 +215,16 @@ export default function NeuralAtlas({ variant }: Props) {
     e.target.value = "";
   };
 
+  const syncGeneration = useRef(0);
+  useEffect(() => () => { syncGeneration.current++; }, []);
   const syncRealMemory = useCallback(async () => {
+    const generation = ++syncGeneration.current;
     setSyncing(true);
     try {
       const real = await loadRealMemoriesAsAtlas();
+      if (generation !== syncGeneration.current) return;
+      setMemories(real);
+      setSelectedId(null);
       if (real.length) {
         setMemories(real);
         setConnected(true);
@@ -233,7 +239,7 @@ export default function NeuralAtlas({ variant }: Props) {
     } catch {
       setNotice("Não foi possível conectar à memória real agora. Confirme que a API local está rodando.");
     } finally {
-      setSyncing(false);
+      if (generation === syncGeneration.current) setSyncing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

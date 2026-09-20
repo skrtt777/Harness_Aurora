@@ -1,4 +1,6 @@
-import { createWorker } from "tesseract.js";
+import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
+import { mkdir } from "node:fs/promises";
 
 // Default: English + Portuguese, since this app is used in Portuguese but
 // the screens it looks at (browser UIs, PowerApps, ...) are frequently in
@@ -15,42 +17,59 @@ let workerPromise = null;
  * for the chat model itself. A failed start clears the cached promise so the
  * next call gets a fresh attempt instead of a permanently broken worker.
  */
-function getWorker(env = process.env) {
+async function getWorker(env = process.env) {
+  if (env.OCR_CACHE_PATH) await mkdir(env.OCR_CACHE_PATH, { recursive: true });
   if (!workerPromise) {
-    const startTimeoutMs = Number(env.OCR_START_TIMEOUT_MS) || 45_000;
-    const worker = createWorker(
-      env.OCR_LANG || DEFAULT_LANG,
-      1,
-      {
-        langPath: env.OCR_LANG_PATH || undefined,
-        cachePath: env.OCR_CACHE_PATH || undefined,
-        // Without this, tesseract.js's worker message handler does
-        // `throw Error(data)` on a failed load (e.g. the trained-language
-        // download failing) *in addition to* rejecting the promise below —
-        // an uncaught, unrejectable exception that crashes the whole
-        // process instead of just failing this call. The real error still
-        // reaches callers via the rejected promise; this only stops the
-        // second, unrecoverable copy of it.
-        errorHandler: () => {},
-      },
-    );
-    // Belt-and-suspenders alongside errorHandler above: some failure modes
-    // (a language-data fetch that never resolves either way — a captive
-    // portal, a proxy that silently drops the connection instead of
-    // answering with an error) leave the worker's own promise pending
-    // forever instead of rejecting it. Without this, one bad network
-    // condition would hang every future screenshot the browser agent takes,
-    // since getWorker() is awaited before every recognizeImage() call.
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Tempo esgotado preparando o OCR (dados do idioma podem não ter baixado).")), startTimeoutMs),
-    );
-    workerPromise = Promise.race([worker, timeout]).catch((error) => {
-      workerPromise = null;
-      throw error;
+    const file = fileURLToPath(new URL("./ocrWorker.mjs", import.meta.url)).replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
+    const thread = new Worker(file, { execArgv: [], workerData: {
+      lang: env.OCR_LANG || DEFAULT_LANG,
+      langPath: env.OCR_LANG_PATH || undefined,
+      cachePath: env.OCR_CACHE_PATH || undefined,
+    } });
+    activeThread = thread;
+    workerPromise = new Promise((resolve, reject) => {
+      const pending = new Map();
+      let sequence = 0;
+      const fail = error => {
+        clearTimeout(timer);
+        reject(error);
+        for (const job of pending.values()) job.reject(error);
+        pending.clear();
+        if (activeThread === thread) { activeThread = null; workerPromise = null; stopWorker = null; }
+        void thread.terminate();
+      };
+      const timer = setTimeout(() => fail(new Error("Tempo esgotado preparando o OCR.")), Number(env.OCR_START_TIMEOUT_MS) || 45000);
+      stopWorker = fail;
+      thread.on("error", fail);
+      thread.on("exit", code => {
+        if (activeThread === thread) fail(new Error(`OCR encerrado (código ${code}).`));
+      });
+      thread.on("message", message => {
+        if (message.ready) {
+          clearTimeout(timer);
+          resolve({
+            recognize(image) {
+              return new Promise((resolve, reject) => {
+                const id = ++sequence;
+                pending.set(id, { resolve, reject });
+                thread.postMessage({ id, image });
+              });
+            },
+            terminate: () => { fail(new Error("OCR encerrado.")); return thread.terminate(); },
+          });
+        } else if (message.id) {
+          const job = pending.get(message.id);
+          pending.delete(message.id);
+          if (message.error) job?.reject(new Error(message.error));
+          else job?.resolve({ data: message.data });
+        } else if (message.error) fail(new Error(message.error));
+      });
     });
   }
   return workerPromise;
 }
+let activeThread = null;
+let stopWorker = null;
 
 /**
  * Runs OCR on a screenshot (Buffer, data URL, or file path — anything
@@ -62,11 +81,24 @@ function getWorker(env = process.env) {
  */
 export async function recognizeImage(image, env = process.env) {
   const worker = await getWorker(env);
-  const { data } = await worker.recognize(image);
+  let timer;
+  let data;
+  try {
+    ({ data } = await Promise.race([
+      worker.recognize(image, {}, { text: true, blocks: true }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Tempo esgotado lendo a imagem.")), Number(env.OCR_TIMEOUT_MS) || 45000); }),
+    ]));
+  } catch (error) { workerPromise = null; await worker.terminate(); throw error; }
+  finally { clearTimeout(timer); }
+  return mapOcrData(data);
+}
+
+export function mapOcrData(data) {
+  const words = data.words || (data.blocks || []).flatMap(b => b.paragraphs || []).flatMap(p => p.lines || []).flatMap(l => l.words || []);
   return {
     text: data.text || "",
-    words: (data.words || [])
-      .filter((w) => w.text && w.text.trim())
+    words: words
+      .filter((w) => w.text && w.text.trim() && w.bbox)
       .map((w) => ({
         text: w.text,
         confidence: w.confidence,
@@ -80,10 +112,11 @@ export async function recognizeImage(image, env = process.env) {
 
 /** Releases the Tesseract worker. Call on app shutdown, not between screenshots. */
 export async function terminateOcr() {
-  if (!workerPromise) return;
-  const worker = await workerPromise.catch(() => null);
+  const thread = activeThread;
+  stopWorker?.(new Error("OCR encerrado."));
+  activeThread = null;
   workerPromise = null;
-  if (worker) await worker.terminate();
+  if (thread) await thread.terminate();
 }
 
 export function resetOcrWorkerForTests() {

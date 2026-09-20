@@ -85,12 +85,17 @@ CREATE INDEX IF NOT EXISTS idx_relations_to ON memory_relations(to_id);
 `;
 
 let instance = null;
+let initialization = null;
 
 // `CREATE TABLE IF NOT EXISTS` only shapes brand-new databases — an existing
 // database (like a real user's) keeps whatever columns it had when it was
 // first created. Adding a column to an existing table needs an explicit
 // ALTER TABLE, checked for idempotently via PRAGMA table_info.
 function migrateSchema(db) {
+  const messageColumns = db.prepare("PRAGMA table_info(messages)").all();
+  if (!messageColumns.some(c => c.name === "memory_status")) db.exec("ALTER TABLE messages ADD COLUMN memory_status TEXT NOT NULL DEFAULT 'none'");
+  if (!messageColumns.some(c => c.name === "correction_of")) db.exec("ALTER TABLE messages ADD COLUMN correction_of TEXT REFERENCES messages(id) ON DELETE SET NULL");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_message_correction ON messages(correction_of) WHERE correction_of IS NOT NULL");
   const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all();
   if (!conversationColumns.some((c) => c.name === "teacher_provider")) {
     db.exec("ALTER TABLE conversations ADD COLUMN teacher_provider TEXT");
@@ -103,6 +108,8 @@ function migrateSchema(db) {
   if (!memoryColumns.some((c) => c.name === "embedding")) {
     db.exec("ALTER TABLE memories ADD COLUMN embedding BLOB");
   }
+  if (!memoryColumns.some(c => c.name === "embedding_model")) db.exec("ALTER TABLE memories ADD COLUMN embedding_model TEXT");
+  if (!memoryColumns.some(c => c.name === "revision")) db.exec("ALTER TABLE memories ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
 }
 
 function migrateLegacyMemory(db) {
@@ -142,21 +149,29 @@ function migrateLegacyMemory(db) {
 
 export async function getDb() {
   if (instance) return instance;
-  const dbFile = resolveDbFile();
-  await mkdir(dirname(dbFile), { recursive: true });
-  instance = new DatabaseSync(dbFile);
-  instance.exec("PRAGMA journal_mode = WAL");
-  instance.exec("PRAGMA foreign_keys = ON");
-  instance.exec(SCHEMA);
-  migrateSchema(instance);
-  migrateLegacyMemory(instance);
-  return instance;
+  if (!initialization) initialization = (async () => {
+    const dbFile = resolveDbFile();
+    await mkdir(dirname(dbFile), { recursive: true });
+    const db = new DatabaseSync(dbFile);
+    try {
+      db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
+      db.exec(SCHEMA);
+      migrateSchema(db);
+      db.exec("UPDATE messages SET memory_status = 'interrupted' WHERE memory_status = 'pending'");
+      migrateLegacyMemory(db);
+      instance = db;
+      return db;
+    } catch (error) { db.close(); throw error; }
+  })().finally(() => { initialization = null; });
+  return initialization;
 }
 
 export function resetDbForTests(file) {
+  instance?.close();
   instance = new DatabaseSync(file || ":memory:");
   instance.exec("PRAGMA foreign_keys = ON");
   instance.exec(SCHEMA);
+  migrateSchema(instance);
   return instance;
 }
 

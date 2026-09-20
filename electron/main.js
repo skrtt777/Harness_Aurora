@@ -1,14 +1,16 @@
 import { app, BrowserWindow, dialog, Tray, Menu, globalShortcut, ipcMain, screen, shell } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
-import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "../app/server.js";
 import { createMemory } from "../app/store.js";
+import { closeBrowserContext } from "../app/browserAgent.js";
+import { terminateOcr } from "../app/ocr.js";
 
-const PORT = 8787;
+const PORT = Number(process.env.HARNESS_PORT || 8787);
 const HOST = "127.0.0.1";
+const testing = process.env.HARNESS_TEST_MODE === "1";
 // Tried in order until one registers successfully — a single hardcoded
 // combo is too likely to already be claimed by some other running program.
 const QUICK_CAPTURE_SHORTCUT_CANDIDATES = [
@@ -19,7 +21,11 @@ const QUICK_CAPTURE_SHORTCUT_CANDIDATES = [
 ];
 const ICON_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "icon.png");
 const devUrl = process.env.ELECTRON_START_URL;
-const startUrl = devUrl || `http://${HOST}:${PORT}/`;
+let startUrl = devUrl || `http://${HOST}:${PORT}/`;
+if (process.env.HARNESS_USER_DATA_DIR) {
+  if (!path.isAbsolute(process.env.HARNESS_USER_DATA_DIR)) throw new Error("HARNESS_USER_DATA_DIR deve ser absoluto.");
+  app.setPath("userData", process.env.HARNESS_USER_DATA_DIR);
+}
 
 let server;
 let mainWindow;
@@ -39,14 +45,6 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-function checkCodexCli() {
-  return new Promise((resolve) => {
-    execFile(process.env.CODEX_BIN || "codex", ["--version"], { windowsHide: true }, (error) => {
-      resolve(!error || error.code !== "ENOENT");
-    });
-  });
-}
-
 function deriveQuickCaptureTitle(content) {
   const firstLine = content.split("\n")[0].trim();
   if (!firstLine) return "Captura rápida";
@@ -55,6 +53,7 @@ function deriveQuickCaptureTitle(content) {
 
 async function createWindow(startUrl) {
   mainWindow = new BrowserWindow({
+    show: !testing,
     width: 1280,
     height: 800,
     autoHideMenuBar: true,
@@ -73,6 +72,11 @@ async function createWindow(startUrl) {
     event.preventDefault();
     mainWindow.hide();
   });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin !== new URL(startUrl).origin || new URL(url).pathname.startsWith("/api/")) event.preventDefault();
+  });
+  mainWindow.webContents.on("will-attach-webview", event => event.preventDefault());
   await mainWindow.loadURL(startUrl);
 }
 
@@ -139,7 +143,13 @@ function createTray(startUrl, shortcut) {
   tray.on("click", () => showMainWindow(startUrl));
 }
 
-ipcMain.handle("quick-capture:save", async (_event, content) => {
+function trustedSender(event, window) {
+  return window && !window.isDestroyed() && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
+}
+
+ipcMain.handle("quick-capture:save", async (event, content) => {
+  if (!trustedSender(event, quickCaptureWindow)) throw new Error("Origem IPC inválida.");
+  if (typeof content !== "string" || content.length > 100000) throw new Error("Captura inválida.");
   const trimmed = String(content || "").trim();
   if (!trimmed) return null;
   const memory = await createMemory({
@@ -152,7 +162,8 @@ ipcMain.handle("quick-capture:save", async (_event, content) => {
   return memory;
 });
 
-ipcMain.on("quick-capture:close", () => {
+ipcMain.on("quick-capture:close", (event) => {
+  if (!trustedSender(event, quickCaptureWindow)) return;
   quickCaptureWindow?.close();
 });
 
@@ -162,14 +173,18 @@ ipcMain.on("quick-capture:close", () => {
 // funcionalidade que precisam do processo principal, o resto (extrair o
 // código, salvar o arquivo, servir o preview) já é feito no backend HTTP
 // comum, alcançável de qualquer jeito que a UI rode (Electron ou navegador).
-ipcMain.handle("shell:open-external", (_event, url) => {
+ipcMain.handle("shell:open-external", async (event, url) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
   const trimmed = String(url || "").trim();
   if (!trimmed) return false;
-  shell.openExternal(trimmed);
+  const parsed = new URL(trimmed);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Somente links HTTP/HTTPS são permitidos.");
+  await shell.openExternal(parsed.href);
   return true;
 });
 
-ipcMain.handle("dialog:pick-folder", async () => {
+ipcMain.handle("dialog:pick-folder", async (event) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
   const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];
@@ -185,6 +200,8 @@ if (hasSingleInstanceLock) {
     process.env.HARNESS_DB_FILE = process.env.HARNESS_DB_FILE || path.join(app.getPath("userData"), "harness.db");
     process.env.CODEX_CWD = process.env.CODEX_CWD || app.getPath("userData");
     process.env.CLAUDE_CWD = process.env.CLAUDE_CWD || app.getPath("userData");
+    process.env.BROWSER_AGENT_PROFILE_DIR ||= path.join(app.getPath("userData"), "browser-profile");
+    process.env.OCR_CACHE_PATH ||= path.join(app.getPath("userData"), "ocr-cache");
 
     if (!devUrl) {
       server = createServer();
@@ -196,33 +213,23 @@ if (hasSingleInstanceLock) {
         app.quit();
       });
       await new Promise((resolve) => server.listen(PORT, HOST, resolve));
-    }
-
-    const codexAvailable = await checkCodexCli();
-    if (!codexAvailable) {
-      dialog.showMessageBox({
-        type: "warning",
-        title: "Codex CLI não encontrado",
-        message: "O Harness Aurora precisa do Codex CLI instalado e autenticado para conversar com a IA.",
-        detail:
-          "Instale o Codex CLI, autentique com \"codex login\" e reabra o app. Você ainda pode navegar pela interface, mas o chat não vai responder até isso ser resolvido.",
-      });
+      startUrl = `http://${HOST}:${server.address().port}/`;
     }
 
     await createWindow(startUrl);
 
-    const registeredShortcut = QUICK_CAPTURE_SHORTCUT_CANDIDATES.find((combo) => globalShortcut.register(combo, openQuickCapture));
+    const registeredShortcut = !testing && QUICK_CAPTURE_SHORTCUT_CANDIDATES.find((combo) => globalShortcut.register(combo, openQuickCapture));
     if (registeredShortcut) {
       console.log(`Atalho de captura rápida registrado: ${registeredShortcut}`);
     } else {
       console.warn("Nenhum atalho global de captura rápida pôde ser registrado (todos já em uso por outros programas).");
     }
 
-    createTray(startUrl, registeredShortcut);
+    if (!testing) createTray(startUrl, registeredShortcut);
 
     app.on("activate", () => showMainWindow(startUrl));
 
-    if (app.isPackaged) {
+    if (app.isPackaged && !testing) {
       autoUpdater.checkForUpdatesAndNotify().catch(() => {
         // Sem internet ou sem release publicada ainda: não impede o uso do app.
       });
@@ -233,5 +240,7 @@ if (hasSingleInstanceLock) {
     isQuitting = true;
     globalShortcut.unregisterAll();
     if (server) server.close();
+    void closeBrowserContext();
+    void terminateOcr();
   });
 }

@@ -47,12 +47,12 @@ export function parseMemoryCandidates(text, validIds = []) {
     const parsed = JSON.parse(jsonText);
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((item) => item && typeof item === "object" && String(item.content || "").trim())
+      .filter((item) => item && typeof item === "object" && typeof item.content === "string" && item.content.trim())
       .slice(0, 4)
       .map((item) => ({
         title: String(item.title || "Memória").trim().slice(0, 120) || "Memória",
         content: String(item.content).trim().slice(0, 600),
-        tags: Array.isArray(item.tags) ? item.tags.map((t) => String(t).toLowerCase()).slice(0, 5) : [],
+        tags: Array.isArray(item.tags) ? item.tags.filter(t => typeof t === "string").map(t => t.toLowerCase()).slice(0, 5) : [],
         relatesTo: Array.isArray(item.relatesTo)
           ? item.relatesTo
               .filter((r) => r && validIdSet.has(r.id) && RELATION_TYPES.includes(r.type))
@@ -83,7 +83,7 @@ export async function extractAndStoreMemories({ conversationId, projectId, provi
     ...env,
     [timeoutKey]: env.MEMORY_EXTRACTION_TIMEOUT_MS || DEFAULT_EXTRACTION_TIMEOUT_MS,
   });
-  if (!result.ok) return [];
+  if (!result.ok) throw new Error(result.error || "Extração indisponível.");
 
   const candidates = parseMemoryCandidates(result.text, nearby.map((m) => m.id));
   const saved = [];

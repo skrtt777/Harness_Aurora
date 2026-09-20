@@ -1,14 +1,16 @@
-import { resolveLocalModel } from "./ollamaSetup.js";
+import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 
 export async function buildProviderConfig(env = process.env) {
   const model = await resolveLocalModel(env);
+  const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
+  const ready = await isServerUp(baseUrl) && await isModelPulled(baseUrl, model);
   return {
     id: "local",
     name: "Local (Ollama)",
     mode: "http",
     command: model,
     model,
-    configured: true,
+    configured: ready,
   };
 }
 
@@ -39,6 +41,7 @@ export async function runLocal(prompt, env = process.env, externalSignal) {
       return { ok: false, status: 502, error: text.trim() || `O Ollama respondeu com erro ${response.status}.` };
     }
     const data = await response.json();
+    if (typeof data.response !== "string" || !data.response.trim()) return { ok: false, status: 502, error: "O modelo local retornou uma resposta vazia ou inválida." };
     return { ok: true, status: 200, text: data.response || "", threadId: null, usage: null };
   } catch (error) {
     const detail =

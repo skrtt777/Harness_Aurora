@@ -2352,3 +2352,11 @@ button[aria-pressed="true"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Keyboard users must be able to discover actions hidden until hover. */
+.conv-row:focus-within .conv-actions,
+.project-head:focus-within .project-actions { opacity: 1; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid #a1c8ff;
+  outline-offset: 3px;
+}

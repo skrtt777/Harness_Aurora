@@ -1,4 +1,9 @@
+import "./config.js";
 import http from "node:http";
+import { randomBytes } from "node:crypto";
+import { authorize, readJson, httpError } from "./httpSecurity.js";
+import { getDb } from "./db.js";
+import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
@@ -37,7 +42,6 @@ import {
   updateProject,
   getProject,
   getSetting,
-  setSetting,
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
@@ -46,10 +50,9 @@ import {
   fetchCommunityManifest,
   fetchCommunityBundle,
   resolveCommunityManifestUrl,
-  DEFAULT_MANIFEST_URL as DEFAULT_COMMUNITY_MANIFEST_URL,
 } from "./community.js";
 import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
-import { createRun, pushStep, finishRun, getRun, cancelRun } from "./agentRuns.js";
+import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
 import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
 
@@ -67,8 +70,8 @@ const appVersion = JSON.parse(readFileSync(join(root, "..", "package.json"), "ut
  * scope, then the user's task. This is the piece that makes memory
  * functional rather than cosmetic — the model reads back its own notes.
  */
-export function buildPrompt({ input, memories = [], instructions = "", limit = 12000 }) {
-  const max = Math.max(1000, Number(limit) || 12000);
+export function buildPrompt({ input, memories = [], instructions = "", history = [], limit = 12000 }) {
+  const max = Math.min(64000, Math.max(1000, Number(limit) || 12000));
   const sections = [];
   if (instructions?.trim()) sections.push(`Instruções do projeto:\n${instructions.trim()}`);
 
@@ -90,9 +93,15 @@ export function buildPrompt({ input, memories = [], instructions = "", limit = 1
     );
   }
 
-  const prefix = sections.length ? `${sections.join("\n\n")}\n\nTarefa atual:\n` : "Tarefa atual:\n";
-  const available = Math.max(0, max - prefix.length);
-  return prefix + String(input).slice(-available);
+  const task = `Tarefa atual:\n${String(input)}`.slice(0, max);
+  let remaining = Math.max(0, max - task.length - 2);
+  const recent = history.filter(m => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema")
+    .map(m => `${m.role === "user" ? "Usuário" : "Assistente"}: ${m.content}`);
+  const historyBudget = Math.min(remaining, Math.floor(max * 0.55));
+  const historyText = recent.length && historyBudget > 25 ? `Histórico recente:\n${recent.join("\n\n").slice(-(historyBudget - 20))}` : "";
+  remaining = Math.max(0, remaining - historyText.length - (historyText ? 2 : 0));
+  const context = sections.join("\n\n").slice(0, remaining);
+  return [context, historyText, task].filter(Boolean).join("\n\n").slice(0, max);
 }
 
 /**
@@ -103,130 +112,131 @@ export function buildPrompt({ input, memories = [], instructions = "", limit = 1
  * for that exchange.
  */
 export async function handleChatTurn({ conversationId, message, contextLimit, env = process.env }) {
-  const conversation = await getConversation(conversationId);
-  if (!conversation) return { ok: false, status: 404, error: "Conversa não encontrada." };
-
-  const trimmed = String(message || "").trim();
-  if (!trimmed) return { ok: false, status: 400, error: "A mensagem é obrigatória." };
-
-  await addMessage({ conversationId, role: "user", content: trimmed });
-
-  if (conversation.title === "Nova conversa") {
-    const title = trimmed.slice(0, 42) + (trimmed.length > 42 ? "…" : "");
-    await updateConversation(conversationId, { title });
-  }
-
-  const providerLabel =
-    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
-
-  // Only local turns get a cancellable, staged pipeline — Codex/Claude are
-  // CLI subprocesses with their own timeout handling, and are typically much
-  // faster than the multi-retry local path this is built for. Started
-  // before selectRelevantMemories (not just before runLocal) because Marco
-  // 3's embedding lookup can itself now take real time when Ollama is up —
-  // without this, "Gerando resposta…" wouldn't appear until after that
-  // lookup finished, leaving the UI looking frozen during it. Cancelling
-  // while still inside that lookup takes effect once it returns rather than
-  // instantly, the same honest limitation the pipeline already has around
-  // in-flight HTTP calls elsewhere.
-  const controller = conversation.provider === "local" ? startTurn(conversationId) : null;
-
-  const project = conversation.projectId ? await getProject(conversation.projectId) : null;
-  const relevant = await selectRelevantMemories(trimmed, {
-    conversationId,
-    projectId: conversation.projectId,
-  });
-  const prompt = buildPrompt({
-    input: trimmed,
-    memories: relevant,
-    instructions: project?.instructions || "",
-    limit: contextLimit,
-  });
-
-  let result;
+  let controller;
+  try { controller = startTurn(conversationId); }
+  catch (error) { return { ok: false, status: 409, error: error.message }; }
   try {
-    if (conversation.provider === "local") {
-      result = await runLocal(prompt, env, controller.signal);
-      // For local conversations, spend a little extra free Ollama compute
-      // (never Codex/Claude) trying to catch mistakes before the user sees
-      // them: a syntax-check-and-retry pass for generated code, then a
-      // self-review pass against the same memories already selected above.
-      result = await refineLocalAnswer({
-        task: trimmed,
-        result,
-        memories: relevant,
-        env,
-        signal: controller.signal,
-        onStage: (stage) => setStage(conversationId, stage),
-      });
-    } else {
-      result = await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env);
-    }
-  } finally {
-    if (controller) endTurn(conversationId);
-  }
+    const conversation = await getConversation(conversationId);
+    if (!conversation) return { ok: false, status: 404, error: "Conversa não encontrada." };
 
-  if (!result.ok) {
-    const cancelled = Boolean(controller?.signal.aborted);
-    const errorMessage = await addMessage({
+    const trimmed = typeof message === "string" ? message.trim() : "";
+    if (!trimmed) return { ok: false, status: 400, error: "A mensagem é obrigatória." };
+    if (trimmed.length + 13 > Math.min(64000, Math.max(1000, Number(contextLimit) || 12000))) return { ok: false, status: 400, error: "A mensagem excede o limite de contexto. Divida-a em partes menores." };
+
+    const history = await listMessages(conversationId);
+    await addMessage({ conversationId, role: "user", content: trimmed });
+
+    if (conversation.title === "Nova conversa") {
+      const title = trimmed.slice(0, 42) + (trimmed.length > 42 ? "…" : "");
+      await updateConversation(conversationId, { title });
+    }
+
+    const providerLabel =
+      conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
+
+    // Keep ownership through retrieval, generation, refinement and persistence.
+    const project = conversation.projectId ? await getProject(conversation.projectId) : null;
+    const relevant = await selectRelevantMemories(trimmed, {
+      conversationId,
+      projectId: conversation.projectId,
+    }, 12, env, controller.signal);
+    const prompt = buildPrompt({
+      input: trimmed,
+      history,
+      memories: relevant,
+      instructions: project?.instructions || "",
+      limit: contextLimit,
+    });
+
+    let result;
+    try {
+      if (conversation.provider === "local") {
+        result = await runLocal(prompt, env, controller.signal);
+        // For local conversations, spend a little extra free Ollama compute
+        // (never Codex/Claude) trying to catch mistakes before the user sees
+        // them: a syntax-check-and-retry pass for generated code, then a
+        // self-review pass against the same memories already selected above.
+        result = await refineLocalAnswer({
+          task: prompt,
+          result,
+          memories: relevant,
+          env,
+          signal: controller.signal,
+          onStage: (stage) => setStage(conversationId, stage),
+        });
+      } else {
+        result = await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env, controller.signal);
+      }
+    } catch (error) {
+      result = { ok: false, status: 502, error: error.message };
+    }
+    if (controller.signal.aborted) result = { ok: false, status: 499, error: "Mensagem cancelada." };
+
+    if (!result.ok) {
+      const cancelled = Boolean(controller?.signal.aborted);
+      const errorMessage = await addMessage({
+        conversationId,
+        role: "assistant",
+        content: cancelled ? "Mensagem cancelada." : result.error,
+        provider: "Sistema",
+      });
+      return { ok: false, status: result.status, error: result.error, message: errorMessage, cancelled };
+    }
+
+    // Local conversations never call the teacher (Codex/Claude) on a normal
+    // turn — that would burn a real API call on every message and defeat the
+    // whole point of using a free local model. Teaching memory only comes from
+    // the user explicitly hitting "Corrigir" (see the /correct route below).
+    const memoryCreated = [];
+
+    const assistantMessage = await addMessage({
       conversationId,
       role: "assistant",
-      content: cancelled ? "Mensagem cancelada." : result.error,
-      provider: "Sistema",
+      content: result.text,
+      provider: providerLabel,
+      memoryStatus: conversation.provider === "local" ? "none" : "pending",
+      memoryAccess: relevant.map((m) => m.id),
+      memoryCreated: memoryCreated.map((m) => m.id),
     });
-    return { ok: false, status: result.status, error: result.error, message: errorMessage, cancelled };
-  }
 
-  // Local conversations never call the teacher (Codex/Claude) on a normal
-  // turn — that would burn a real API call on every message and defeat the
-  // whole point of using a free local model. Teaching memory only comes from
-  // the user explicitly hitting "Corrigir" (see the /correct route below).
-  const memoryCreated =
-    conversation.provider === "local"
-      ? []
-      : await extractAndStoreMemories({
-          conversationId,
-          projectId: conversation.projectId,
-          provider: conversation.provider,
-          userMessage: trimmed,
-          assistantMessage: result.text,
-          env,
-        });
+    if (conversation.provider !== "local") {
+      // The answer is durable and can be returned immediately; extraction is best effort.
+      void extractAndStoreMemories({ conversationId, projectId: conversation.projectId,
+        provider: conversation.provider, userMessage: trimmed, assistantMessage: result.text, env })
+        .then(async memories => {
+          const db = await getDb();
+          db.prepare("UPDATE messages SET memory_created = ?, memory_status = 'complete' WHERE id = ?").run(JSON.stringify(memories.map(m => m.id)), assistantMessage.id);
+        }).catch(async error => {
+          console.warn("Extração de memória não concluída:", error.message);
+          (await getDb()).prepare("UPDATE messages SET memory_status = 'failed' WHERE id = ?").run(assistantMessage.id);
+        }).catch(() => {});
+    }
 
-  const assistantMessage = await addMessage({
-    conversationId,
-    role: "assistant",
-    content: result.text,
-    provider: providerLabel,
-    memoryAccess: relevant.map((m) => m.id),
-    memoryCreated: memoryCreated.map((m) => m.id),
-  });
-
-  return {
-    ok: true,
-    status: 200,
-    message: assistantMessage,
-    memoryAccess: relevant,
-    memoryCreated,
-    usage: result.usage,
-    threadId: result.threadId,
-  };
-}
-
-async function readJson(request) {
-  let body = "";
-  for await (const chunk of request) body += chunk;
-  if (body.length > 1_000_000) throw new Error("Payload muito grande");
-  return JSON.parse(body || "{}");
+    return {
+      ok: true,
+      status: 200,
+      message: assistantMessage,
+      memoryAccess: relevant,
+      memoryCreated,
+      usage: result.usage,
+      threadId: result.threadId,
+    };
+  } finally { endTurn(conversationId, controller); }
 }
 
 function sendJson(response, status, payload) {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
   response.end(JSON.stringify(payload));
 }
 
 function sendHtml(response, status, html) {
-  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "content-security-policy": "sandbox allow-scripts allow-pointer-lock; default-src 'none'; script-src 'unsafe-inline' https: blob:; style-src 'unsafe-inline' https:; img-src data: blob: https:; media-src data: blob: https:; font-src data: https:; connect-src https:; base-uri 'none'; form-action 'none'",
+  });
   response.end(html);
 }
 
@@ -251,13 +261,15 @@ async function serveStatic(response, pathname) {
   }
 }
 
-export function createServer() {
-  return http.createServer(async (request, response) => {
-    const url = new URL(request.url, `http://${request.headers.host || host}`);
-    const { pathname } = url;
-    const method = request.method;
-
+export function createServer({ allowDev = !process.versions.electron } = {}) {
+  const apiToken = randomBytes(32).toString("hex");
+  const server = http.createServer(async (request, response) => {
     try {
+      const url = new URL(request.url, "http://127.0.0.1");
+      const { pathname } = url;
+      const method = request.method;
+      authorize(request, url, apiToken, allowDev);
+      if (method === "GET" && pathname === "/api/session") return sendJson(response, 200, { token: apiToken });
       // ---------- Health ----------
       if (method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, { ok: true, version: appVersion, provider: buildProviderConfig() });
@@ -282,55 +294,43 @@ export function createServer() {
         return sendJson(response, 200, {
           defaultProvider,
           defaultTeacher,
-          communityManifestUrl: communityManifestUrl || DEFAULT_COMMUNITY_MANIFEST_URL,
-          communityManifestUrlIsDefault: !communityManifestUrl,
+          communityManifestUrl: await resolveCommunityManifestUrl(process.env),
+          communityManifestUrlIsDefault: !communityManifestUrl && !process.env.COMMUNITY_MANIFEST_URL,
           sandboxDir: sandboxDir || "",
         });
       }
       if (method === "PUT" && pathname === "/api/settings") {
         const body = await readJson(request);
+        const values = {};
         if (body.defaultProvider !== undefined) {
-          if (!KNOWN_PROVIDERS.includes(body.defaultProvider)) {
-            return sendJson(response, 400, { error: `Provedor padrão inválido: ${body.defaultProvider}` });
-          }
-          await setSetting("default_provider", body.defaultProvider);
+          if (!KNOWN_PROVIDERS.includes(body.defaultProvider)) throw httpError(400, "Provedor padrão inválido.");
+          values.default_provider = body.defaultProvider;
         }
         if (body.defaultTeacher !== undefined) {
-          if (!["codex", "claude"].includes(body.defaultTeacher)) {
-            return sendJson(response, 400, { error: `Professor padrão inválido: ${body.defaultTeacher}` });
-          }
-          await setSetting("default_teacher", body.defaultTeacher);
+          if (!["codex", "claude"].includes(body.defaultTeacher)) throw httpError(400, "Professor padrão inválido.");
+          values.default_teacher = body.defaultTeacher;
         }
         if (body.communityManifestUrl !== undefined) {
-          const trimmed = String(body.communityManifestUrl || "").trim();
-          if (trimmed) {
-            try {
-              new URL(trimmed);
-            } catch {
-              return sendJson(response, 400, { error: "URL do manifesto da comunidade inválida." });
-            }
-            await setSetting("community_manifest_url", trimmed);
-          } else {
-            // An empty string resets to the built-in default instead of
-            // storing an empty value that resolveCommunityManifestUrl would
-            // otherwise have to special-case.
-            await setSetting("community_manifest_url", "");
+          const value = body.communityManifestUrl.trim();
+          if (value) {
+            let parsed;
+            try { parsed = new URL(value); } catch { throw httpError(400, "URL do manifesto inválida."); }
+            if (!["http:", "https:"].includes(parsed.protocol)) throw httpError(400, "Use uma URL HTTP/HTTPS.");
           }
+          values.community_manifest_url = value;
         }
         if (body.sandboxDir !== undefined) {
-          const trimmed = String(body.sandboxDir || "").trim();
-          // Only a light sanity check here (must look like an absolute path
-          // on some platform) — actually verifying it exists/is writable
-          // would mean touching the disk on every settings save, and the
-          // folder may legitimately not exist yet (materializeSandboxFile
-          // creates it on first use). A real problem (no permission, wrong
-          // drive letter, ...) surfaces with a clear error the moment
-          // "Executar" is actually clicked instead.
-          if (trimmed && !/^(\/|[a-zA-Z]:[\\/])/.test(trimmed)) {
-            return sendJson(response, 400, { error: "Informe um caminho de pasta absoluto (ex.: C:\\Users\\você\\Documents\\Harness\\Sandbox)." });
-          }
-          await setSetting("sandbox_dir", trimmed);
+          const value = body.sandboxDir.trim();
+          if (value && !/^(\/|[a-zA-Z]:[\\/])/.test(value)) throw httpError(400, "Informe uma pasta absoluta.");
+          values.sandbox_dir = value;
         }
+        const db = await getDb();
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          const save = db.prepare("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at");
+          for (const [key, value] of Object.entries(values)) save.run(key, value, new Date().toISOString());
+          db.exec("COMMIT");
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
         const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir] = await Promise.all([
           getSetting("default_provider", "codex"),
           getSetting("default_teacher", "codex"),
@@ -356,7 +356,8 @@ export function createServer() {
           return sendJson(response, 400, { error: error.message });
         }
       }
-      if (method === "GET" && pathname === "/api/local/setup") {
+      if (method === "POST" && pathname === "/api/local/setup") {
+        await readJson(request);
         // Server-Sent Events: the frontend opens this with EventSource and
         // renders each stage (baixando instalador → instalando → iniciando
         // → baixando modelo com % → pronto) without polling. Plain HTTP,
@@ -366,7 +367,7 @@ export function createServer() {
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
-        const send = (event) => response.write(`data: ${JSON.stringify(event)}\n\n`);
+        const send = (event) => { if (!response.destroyed && !response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`); };
         try {
           const result = await runOllamaSetup(process.env, send);
           send({ stage: result.ok ? "done" : "failed", ...result });
@@ -410,6 +411,9 @@ export function createServer() {
           }
         })();
         return sendJson(response, 200, { runId: id });
+      }
+      if (method === "GET" && pathname === "/api/browser-agent/active") {
+        return sendJson(response, 200, { runId: getActiveRun()?.id || null });
       }
       const agentStatusMatch = pathname.match(/^\/api\/browser-agent\/([^/]+)\/status$/);
       if (agentStatusMatch && method === "GET") {
@@ -458,6 +462,8 @@ export function createServer() {
       }
       if (method === "POST" && pathname === "/api/conversations") {
         const body = await readJson(request);
+        if (body.provider !== undefined && !KNOWN_PROVIDERS.includes(body.provider)) throw httpError(400, "Provedor inválido.");
+        if (body.teacherProvider !== undefined && !["codex", "claude"].includes(body.teacherProvider)) throw httpError(400, "Professor inválido.");
         const provider = ["claude", "local"].includes(body.provider) ? body.provider : "codex";
         try {
           const conversation = await createConversation({
@@ -488,12 +494,14 @@ export function createServer() {
           }
         }
         if (method === "DELETE") {
+          cancelTurn(id);
           const removed = await deleteConversation(id);
           return removed ? sendJson(response, 200, { ok: true }) : sendJson(response, 404, { error: "Conversa não encontrada." });
         }
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (match) {
+        if (method !== "POST") throw httpError(405, "Use POST para enviar mensagens.");
         const [, id] = match;
         const body = await readJson(request);
         const result = await handleChatTurn({
@@ -523,65 +531,74 @@ export function createServer() {
         const flaggedIndex = messages.findIndex((m) => m.id === messageId);
         if (flaggedIndex < 1) return sendJson(response, 404, { error: "Mensagem não encontrada." });
         const flagged = messages[flaggedIndex];
+        if (conversation.provider !== "local" || flagged.role !== "assistant" || flagged.provider !== "Local") return sendJson(response, 400, { error: "Só respostas do modelo local podem ser corrigidas." });
         const question = [...messages.slice(0, flaggedIndex)].reverse().find((m) => m.role === "user");
         if (!question) return sendJson(response, 400, { error: "Não foi possível encontrar a pergunta original." });
 
         const body = await readJson(request);
-        const teacherProvider = conversation.teacherProvider === "claude" ? "claude" : "codex";
-        const correction = await correctLocalAnswer({
-          question: question.content,
-          wrongAnswer: flagged.content,
-          note: body.note,
-          teacherProvider,
-        });
-        if (!correction.ok) return sendJson(response, 502, { error: correction.error });
+        if (messages.some(m => m.correctionOf === messageId)) return sendJson(response, 409, { error: "Esta mensagem já foi corrigida." });
+        const correctionController = startTurn(conversationId);
+        setStage(conversationId, "Consultando o professor…");
+        try {
+          const teacherProvider = conversation.teacherProvider === "claude" ? "claude" : "codex";
+          const correction = await correctLocalAnswer({
+            question: question.content,
+            wrongAnswer: flagged.content,
+            note: body.note,
+            teacherProvider,
+            signal: correctionController.signal,
+          });
+          if (correctionController.signal.aborted) return sendJson(response, 499, { error: "Correção cancelada." });
+          if (!correction.ok) return sendJson(response, 502, { error: correction.error });
 
-        const teacherLabel = teacherProvider === "claude" ? "Claude" : "Codex";
-        const scope = conversation.projectId ? "project" : "global";
-        const savedMemories = [];
-        for (const candidate of correction.memories) {
-          try {
-            savedMemories.push(
-              await createMemory({
-                scope,
-                projectId: conversation.projectId || undefined,
-                title: candidate.title,
-                content: candidate.content,
-                tags: candidate.tags,
-                kind: "extracted",
-                source: `Correção ensinada por ${teacherLabel} após resposta do modelo local`,
-              }),
-            );
-          } catch {
-            // A malformed teaching memory is skipped instead of failing the correction.
+          const teacherLabel = teacherProvider === "claude" ? "Claude" : "Codex";
+          const scope = conversation.projectId ? "project" : "global";
+          const savedMemories = [];
+          for (const candidate of correction.memories) {
+            try {
+              savedMemories.push(
+                await createMemory({
+                  scope,
+                  projectId: conversation.projectId || undefined,
+                  title: candidate.title,
+                  content: candidate.content,
+                  tags: candidate.tags,
+                  kind: "extracted",
+                  source: `Correção ensinada por ${teacherLabel} após resposta do modelo local`,
+                }),
+              );
+            } catch {
+              // A malformed teaching memory is skipped instead of failing the correction.
+            }
           }
-        }
-        if (correction.template) {
-          try {
-            savedMemories.push(
-              await createMemory({
-                scope,
-                projectId: conversation.projectId || undefined,
-                title: `Template: ${correction.template.title}`,
-                content: correction.template.content,
-                tags: [...correction.template.tags, "template"],
-                kind: "extracted",
-                source: `Esqueleto ensinado por ${teacherLabel} após resposta do modelo local`,
-              }),
-            );
-          } catch {
-            // A malformed template is skipped instead of failing the correction.
+          if (correction.template) {
+            try {
+              savedMemories.push(
+                await createMemory({
+                  scope,
+                  projectId: conversation.projectId || undefined,
+                  title: `Template: ${correction.template.title}`,
+                  content: correction.template.content,
+                  tags: [...correction.template.tags, "template"],
+                  kind: "extracted",
+                  source: `Esqueleto ensinado por ${teacherLabel} após resposta do modelo local`,
+                }),
+              );
+            } catch {
+              // A malformed template is skipped instead of failing the correction.
+            }
           }
-        }
 
-        const correctionMessage = await addMessage({
-          conversationId,
-          role: "assistant",
-          content: correction.answer || "O professor não conseguiu gerar uma correção.",
-          provider: `${teacherLabel} (corrigindo)`,
-          memoryCreated: savedMemories.map((m) => m.id),
-        });
-        return sendJson(response, 200, { message: correctionMessage, memoryCreated: savedMemories });
+          const correctionMessage = await addMessage({
+            conversationId,
+            role: "assistant",
+            content: correction.answer || "O professor não conseguiu gerar uma correção.",
+            provider: `${teacherLabel} (corrigindo)`,
+            correctionOf: messageId,
+            memoryCreated: savedMemories.map((m) => m.id),
+          });
+          return sendJson(response, 200, { message: correctionMessage, memoryCreated: savedMemories });
+        } finally { endTurn(conversationId, correctionController); }
       }
 
       // ---------- Sandbox de execução (roda código gerado pelo modelo local de verdade) ----------
@@ -633,6 +650,8 @@ export function createServer() {
       if (match && method === "GET") {
         const [, conversationId, messageId] = match;
         const conversation = await getConversation(conversationId);
+        const message = await getMessage(messageId);
+        if (!message || message.conversationId !== conversationId) return sendHtml(response, 404, "<p>Mensagem não encontrada.</p>");
         const sandboxDir = await getSetting("sandbox_dir");
         if (!conversation || !sandboxDir) {
           return sendHtml(response, 404, "<p>Nada para mostrar ainda — clique em “Executar” na mensagem primeiro.</p>");
@@ -645,6 +664,7 @@ export function createServer() {
       }
 
       // ---------- Memories ----------
+      if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/stats") {
         return sendJson(response, 200, { stats: await countMemories() });
       }
@@ -715,9 +735,12 @@ export function createServer() {
       if (method === "GET" && await serveStatic(response, pathname)) return;
       sendJson(response, 404, { error: "Rota não encontrada." });
     } catch (error) {
-      sendJson(response, 500, { error: error.message || "Erro interno." });
+      if (!response.headersSent) sendJson(response, error.status || 500, { error: error.message || "Erro interno." });
+      else response.end();
     }
   });
+  server.apiToken = apiToken;
+  return server;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

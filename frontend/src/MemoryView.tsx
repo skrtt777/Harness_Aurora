@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   createMemory,
-  createMemoryRelation,
+  importMemories,
   deleteMemory,
   getCommunityBundle,
   getCommunityManifest,
@@ -181,9 +181,12 @@ function MemoryRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(memory.content);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   return (
     <div className="memory-row">
+      {error && <p role="alert" className="memory-form-error">{error}</p>}
       <div className="memory-row-head">
         <span className={`scope-badge scope-${memory.scope}`}>{scopeLabels[memory.scope]}</span>
         <span className={`kind-badge kind-${memory.kind}`}>{kindLabels[memory.kind]}</span>
@@ -215,9 +218,11 @@ function MemoryRow({
             <button
               className="primary"
               onClick={async () => {
-                await updateMemory(memory.id, { content });
-                setEditing(false);
-                onUpdated();
+                if (saving) return;
+                setSaving(true); setError("");
+                try { await updateMemory(memory.id, { content }); setEditing(false); onUpdated(); }
+                catch (e) { setError(e instanceof Error ? e.message : "Falha ao salvar memória."); }
+                finally { setSaving(false); }
               }}
             >
               Salvar
@@ -251,7 +256,10 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
   const [communityError, setCommunityError] = useState("");
   const [importingBundle, setImportingBundle] = useState<string | null>(null);
 
+  const refreshId = useRef(0);
+  useEffect(() => () => { refreshId.current++; }, []);
   const refresh = async () => {
+    const id = ++refreshId.current;
     setLoading(true);
     try {
       const [list, statList] = await Promise.all([
@@ -262,10 +270,11 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
         }),
         getMemoryStats(),
       ]);
-      setMemories(list);
-      setStats(statList);
+      if (id === refreshId.current) { setMemories(list); setStats(statList); }
+    } catch (error) {
+      if (id === refreshId.current) setImportStatus(error instanceof Error ? error.message : "Falha ao carregar memórias.");
     } finally {
-      setLoading(false);
+      if (id === refreshId.current) setLoading(false);
     }
   };
 
@@ -296,93 +305,9 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     onMemoriesChanged?.();
   };
 
-  const dedupeKey = (scope: string, title: string, content: string) =>
-    `${scope}::${title.trim().toLowerCase()}::${content.trim().toLowerCase()}`;
-
-  // Shared by both import paths (a local file and a community bundle) since
-  // both deliver the exact same envelope shape — only where the JSON comes
-  // from differs.
-  const importEnvelope = async (parsed: unknown, sourceLabel: string) => {
-    const envelope = parsed as Partial<MemoryExportEnvelope> | null;
-    if (!envelope || envelope.format !== EXPORT_FORMAT || !Array.isArray(envelope.memories)) {
-      throw new Error("Conteúdo não reconhecido — formato de memórias do Harness Aurora esperado.");
-    }
-    const entries = envelope.memories;
-    const projectIds = new Set(projects.map((p) => p.id));
-    const conversationIds = new Set(conversations.map((c) => c.id));
-    const idMap = new Map<string, string>();
-    // Importing the same bundle twice (a duplicate click, or a community
-    // bundle re-imported after an update) used to silently create duplicate
-    // memories every time — fetch the full, unfiltered list once so
-    // repeated imports are safe no-ops instead of accumulating copies.
-    const existingKeys = new Set(
-      (await listMemories({})).map((m) => dedupeKey(m.scope, m.title, m.content)),
-    );
-    let downgraded = 0;
-    let failed = 0;
-    let skipped = 0;
-
-    for (const entry of entries) {
-      let scope: MemoryScope = entry.scope;
-      let projectId = entry.projectId ?? undefined;
-      let conversationId = entry.conversationId ?? undefined;
-      if (scope === "project" && !(projectId && projectIds.has(projectId))) {
-        scope = "global";
-        projectId = undefined;
-        downgraded += 1;
-      }
-      if (scope === "conversation" && !(conversationId && conversationIds.has(conversationId))) {
-        scope = "global";
-        conversationId = undefined;
-        downgraded += 1;
-      }
-      const key = dedupeKey(scope, entry.title, entry.content);
-      if (existingKeys.has(key)) {
-        skipped += 1;
-        continue;
-      }
-      try {
-        const created = await createMemory({
-          scope,
-          projectId: scope === "project" ? projectId : undefined,
-          conversationId: scope === "conversation" ? conversationId : undefined,
-          title: entry.title,
-          content: entry.content,
-          tags: entry.tags,
-          kind: "imported",
-          source: entry.source ? `Importado (${entry.source})` : `Importado (${sourceLabel})`,
-        });
-        idMap.set(entry.id, created.id);
-        existingKeys.add(key);
-      } catch {
-        failed += 1;
-      }
-    }
-
-    let relationsCreated = 0;
-    for (const entry of entries) {
-      const newFromId = idMap.get(entry.id);
-      if (!newFromId || !entry.relations) continue;
-      for (const targetId of entry.relations) {
-        const newToId = idMap.get(targetId);
-        const type = entry.relationTypes?.[targetId];
-        if (!newToId || !type) continue;
-        try {
-          await createMemoryRelation(newFromId, newToId, type);
-          relationsCreated += 1;
-        } catch {
-          // A relation that fails validation is skipped instead of aborting the import.
-        }
-      }
-    }
-
-    setImportStatus(
-      `${idMap.size} memórias importadas, ${relationsCreated} relações recriadas` +
-        (skipped ? `, ${skipped} já existiam (puladas)` : "") +
-        (downgraded ? `, ${downgraded} rebaixadas pra escopo geral (projeto/conversa não encontrado aqui)` : "") +
-        (failed ? `, ${failed} falharam` : "") +
-        ".",
-    );
+  const importEnvelope = async (parsed: unknown, _sourceLabel: string) => {
+    const result = await importMemories(parsed);
+    setImportStatus(`${result.imported} memórias importadas, ${result.relationsCreated} relações recriadas, ${result.skipped} já existentes.`);
     afterChange();
   };
 
@@ -392,7 +317,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
     if (!file) return;
     setImportStatus("Importando…");
     try {
-      if (file.size > 10 * 1024 * 1024) throw new Error("O arquivo deve ter no máximo 10 MB.");
+      if (file.size > 990000) throw new Error("O arquivo deve ter no máximo 990 KB.");
       await importEnvelope(JSON.parse(await file.text()), "arquivo");
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Falha ao importar.");
@@ -539,8 +464,8 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
             projectName={memory.projectId ? projectNames.get(memory.projectId) : undefined}
             conversationName={memory.conversationId ? conversationNames.get(memory.conversationId) : undefined}
             onDeleted={async () => {
-              await deleteMemory(memory.id);
-              afterChange();
+              try { await deleteMemory(memory.id); afterChange(); }
+              catch (e) { setImportStatus(e instanceof Error ? e.message : "Falha ao excluir memória."); }
             }}
             onUpdated={afterChange}
           />

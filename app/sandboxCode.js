@@ -84,7 +84,8 @@ export function slugify(text, fallback) {
  * without needing any extra database table to remember it.
  */
 export function sandboxFilePath(sandboxDir, { conversationId, conversationTitle, messageId }) {
-  const folder = slugify(conversationTitle, conversationId);
+  if (![conversationId, messageId].every(id => typeof id === "string" && /^[a-zA-Z0-9_-]+$/.test(id))) throw new Error("Identificador de sandbox inválido.");
+  const folder = `conversation-${conversationId}`;
   return join(sandboxDir, folder, `${messageId}.html`);
 }
 
@@ -107,6 +108,8 @@ export async function readSandboxFile(sandboxDir, { conversationId, conversation
   try {
     return await readFile(filePath, "utf8");
   } catch {
-    return null;
+    // Read legacy title-based paths without moving or deleting user artifacts.
+    try { return await readFile(join(sandboxDir, slugify(conversationTitle, conversationId), `${messageId}.html`), "utf8"); }
+    catch { return null; }
   }
 }

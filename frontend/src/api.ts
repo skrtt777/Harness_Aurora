@@ -21,6 +21,8 @@ export type ChatMessage = {
   conversationId: string;
   role: "user" | "assistant" | "system";
   content: string;
+  memoryStatus?: "none" | "pending" | "complete" | "failed" | "interrupted";
+  correctionOf?: string | null;
   provider?: string;
   memoryAccess: string[];
   memoryCreated: string[];
@@ -69,11 +71,21 @@ class ApiError extends Error {
   }
 }
 
+let session: Promise<string> | undefined;
+async function sessionToken(): Promise<string> {
+  if (!session) session = fetch("/api/session", { cache: "no-store" }).then(async r => {
+    if (!r.ok) throw new Error("Não foi possível abrir a sessão local.");
+    return (await r.json()).token as string;
+  }).catch(error => { session = undefined; throw error; });
+  return session;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
-    headers: { "content-type": "application/json" },
     ...options,
+    headers: { "content-type": "application/json", ...options?.headers, "x-harness-token": await sessionToken() },
   });
+  if (response.status === 401) session = undefined;
   let body: unknown = null;
   try {
     body = await response.json();
@@ -225,21 +237,37 @@ export const setLocalModel = (model: string) =>
  * closes the connection, so callers can clean up on unmount.
  */
 export function watchLocalSetup(onEvent: (event: LocalSetupEvent) => void): () => void {
-  const source = new EventSource("/api/local/setup");
-  source.onmessage = (message) => {
+  const controller = new AbortController();
+  void (async () => {
+    const response = await fetch("/api/local/setup", {
+      method: "POST", body: "{}", signal: controller.signal,
+      headers: { "content-type": "application/json", "x-harness-token": await sessionToken() },
+    });
+    if (!response.ok || !response.body) throw new Error(`Falha ao preparar modelo (${response.status}).`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let terminal = false;
     try {
-      onEvent(JSON.parse(message.data));
-    } catch {
-      /* ignore a malformed/partial event */
-    }
-  };
-  source.onerror = () => {
-    // EventSource retries on its own; a terminal "done"/"failed"/"error"
-    // stage from the server already closes the stream server-side, so this
-    // path is only hit on a genuine network hiccup mid-stream.
-    onEvent({ stage: "error", message: "A conexão com o servidor local caiu. Tentando de novo…" });
-  };
-  return () => source.close();
+      while (!terminal) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        let end;
+        while ((end = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+          if (!frame.startsWith("data: ")) continue;
+          const event = JSON.parse(frame.slice(6)) as LocalSetupEvent;
+          if (!controller.signal.aborted) onEvent(event);
+          if (["done", "failed", "error"].includes(event.stage)) terminal = true;
+        }
+        if (done) break;
+      }
+      if (!terminal && !controller.signal.aborted) throw new Error("Conexão encerrada antes de concluir a preparação. Tente novamente.");
+    } finally { await reader.cancel().catch(() => {}); }
+  })().catch(error => {
+    if (!controller.signal.aborted) onEvent({ stage: "error", message: error.message });
+  });
+  return () => controller.abort();
 }
 
 // ---------- Browser agent (controle de navegador via OCR + modelo local) ----------
@@ -275,6 +303,7 @@ export type BrowserAgentRunStatus = {
   steps: BrowserAgentStep[];
   result: BrowserAgentResult | null;
 };
+export const getActiveBrowserAgent = () => request<{ runId: string | null }>("/browser-agent/active");
 export const startBrowserAgent = (goal: string) =>
   request<{ runId: string }>("/browser-agent/start", { method: "POST", body: JSON.stringify({ goal }) });
 export const getBrowserAgentStatus = (runId: string) =>
@@ -317,3 +346,5 @@ export type MemoryExportEnvelope = {
 export const getCommunityManifest = () =>
   request<{ bundles: CommunityBundleInfo[] }>("/community/manifest").then((r) => r.bundles);
 export const getCommunityBundle = (file: string) => request<MemoryExportEnvelope>(`/community/bundles/${file}`);
+
+export const importMemories = (envelope: unknown) => request<{ imported: number; skipped: number; relationsCreated: number }>("/memories/import", { method: "POST", body: JSON.stringify(envelope) });

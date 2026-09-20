@@ -39,7 +39,7 @@ async function withServer(run) {
   const base = `http://127.0.0.1:${port}`;
   const api = (path, options) =>
     fetch(`${base}${path}`, {
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-harness-token": server.apiToken },
       ...options,
     }).then(async (response) => ({ status: response.status, body: await response.json() }));
   try {
@@ -53,7 +53,8 @@ test("provider config uses the authenticated Codex CLI", () => {
   const config = buildProviderConfig({});
   assert.equal(config.id, "codex");
   assert.equal(config.mode, "cli");
-  assert.equal(config.configured, true);
+  assert.equal(typeof config.configured, "boolean");
+  assert.equal(config.authentication, "unverified");
   assert.equal(config.command, "codex");
 });
 
@@ -120,8 +121,7 @@ test("prompt builder includes project instructions and relevant memories, and ca
     limit: 2000,
   });
   assert.equal(prompt.length, 2000);
-  assert.match(prompt, /Memórias relevantes/);
-  assert.match(prompt, /Instruções do projeto/);
+  assert.match(prompt, /^Tarefa atual:/); // Current task has priority when it alone exceeds the budget.
 });
 
 test("prompt builder works with no memories and no instructions", () => {
@@ -264,7 +264,7 @@ test("runCodeInSandbox catches a real use-before-declaration bug that node --che
   assert.match(result.error, /ReferenceError/);
 });
 
-test("runCodeInSandbox catches const reassignment and TDZ by actually running the code", () => {
+test("runCodeInSandbox catches const reassignment and TDZ without executing generated code", () => {
   const constBug = runCodeInSandbox("const score = 0;\nfunction animate() { score++; }\nanimate();");
   assert.equal(constBug.crashed, true);
 
@@ -280,11 +280,9 @@ test("runCodeInSandbox catches THREE.OrbitControls used without importing the ad
   assert.match(result.error, /OrbitControls/);
 });
 
-test("runCodeInSandbox allows THREE.OrbitControls when the source actually imports the addon", () => {
-  const js = "const camera = new THREE.PerspectiveCamera();\nconst controls = new THREE.OrbitControls(camera, {});\n";
-  const sourceWithImport = `<script type="module">\nimport * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';\nimport { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';\n${js}\n</script>`;
-  const result = runCodeInSandbox(js, sourceWithImport);
-  assert.equal(result.crashed, false);
+test("static review respects actual named import bindings for Three.js addons", () => {
+  const js = "import { OrbitControls } from 'https://example.test/OrbitControls.js'; const controls = new OrbitControls({}, {});";
+  assert.equal(runCodeInSandbox(js).crashed, false);
 });
 
 test("runCodeInSandbox does not false-positive on a realistic, correct Three.js game using many APIs", () => {
@@ -396,7 +394,7 @@ test("refineLocalAnswer retries once when the sandbox catches a use-before-decla
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       const { prompt } = JSON.parse(body);
-      const isRetry = prompt.includes("testado de verdade num sandbox");
+      const isRetry = prompt.includes("análise estática");
       const answer = isRetry
         ? "```html\n<script type=\"module\">\nconst cube = {};\nfunction animate() { cube.x = 1; }\nanimate();\n</script>\n```"
         : "não deveria chegar aqui";
@@ -844,10 +842,8 @@ test("POST /api/conversations/:id/cancel aborts an in-flight local turn", async 
     req.on("end", () => {
       // Never actually responds within the test's lifetime — only a cancel
       // (not the stub) should end this turn.
-      setTimeout(() => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ response: "não deveria chegar aqui" }));
-      }, 30_000);
+      const timer = setTimeout(() => res.end(JSON.stringify({ response: "não deveria chegar aqui" })), 30000);
+      res.on("close", () => clearTimeout(timer));
     });
   });
   await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
@@ -868,7 +864,7 @@ test("POST /api/conversations/:id/cancel aborts an in-flight local turn", async 
       assert.equal(cancelResult.body.cancelled, true);
 
       const turn = await turnPromise;
-      assert.equal(turn.status, 502);
+      assert.equal(turn.status, 499);
       assert.equal(turn.body.cancelled, true);
       assert.equal(turn.body.message.content, "Mensagem cancelada.");
     });
@@ -886,7 +882,7 @@ test("POST /correct fails gracefully when the teacher provider is unavailable", 
       body: JSON.stringify({ message: "Como somo dois números em Python?" }),
     });
     const fetched = await api(`/api/conversations/${conversation.body.id}`);
-    const wrongMessage = fetched.body.messages[1];
+    const wrongMessage = await addMessage({ conversationId: conversation.body.id, role: "assistant", content: "print(1, 2)", provider: "Local" });
 
     const corrected = await api(`/api/conversations/${conversation.body.id}/messages/${wrongMessage.id}/correct`, {
       method: "POST",
@@ -1154,7 +1150,10 @@ test("POST /api/browser-agent/start rejects an empty goal", async () => {
 });
 
 test("POST /api/browser-agent/start returns a run id promptly without waiting for the agent loop", async () => {
-  await withServer(async (api) => {
+  const previous = process.env.CHROMIUM_EXECUTABLE_PATH;
+  process.env.CHROMIUM_EXECUTABLE_PATH = process.execPath; // Exists, but isn't a browser: fail locally, never download.
+  process.env.BROWSER_AGENT_PROFILE_DIR = mkdtempSync(join(tmpdir(), "harness-agent-test-"));
+  try { await withServer(async (api) => {
     const start = Date.now();
     const response = await api("/api/browser-agent/start", {
       method: "POST",
@@ -1167,7 +1166,12 @@ test("POST /api/browser-agent/start returns a run id promptly without waiting fo
     // awaiting it before responding — this should come back almost
     // instantly regardless of how long (or how it fails) that work takes.
     assert.ok(Date.now() - start < 2000, "starting a run should not block on the agent loop");
-  });
+    for (let i = 0; i < 100; i++) {
+      const state = await api(`/api/browser-agent/${response.body.runId}/status`);
+      if (state.body.status !== "running") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }); } finally { if (previous === undefined) delete process.env.CHROMIUM_EXECUTABLE_PATH; else process.env.CHROMIUM_EXECUTABLE_PATH = previous; }
 });
 
 test("GET /api/browser-agent/:id/status returns 404 for an unknown run", async () => {
@@ -1231,7 +1235,7 @@ test("POST .../sandbox materializes the code to a real file, and GET .../preview
 
     const run = await api(`/api/conversations/${conversation.id}/messages/${message.id}/sandbox`, { method: "POST" });
     assert.equal(run.status, 200);
-    assert.ok(run.body.filePath.includes("crie-um-jogo-simples-em-three-js"));
+    assert.ok(run.body.filePath.includes(`conversation-${conversation.id}`));
     assert.equal(await readFile(run.body.filePath, "utf8"), html);
     assert.equal(run.body.previewUrl, `/api/conversations/${conversation.id}/messages/${message.id}/sandbox/preview`);
 
