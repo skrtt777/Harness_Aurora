@@ -93,13 +93,19 @@ function MessageBubble({
   const [correcting, setCorrecting] = useState(false);
   const [note, setNote] = useState("");
   const [sendingCorrection, setSendingCorrection] = useState(false);
+  const [correctionError, setCorrectionError] = useState("");
 
   const submitCorrection = async () => {
     setSendingCorrection(true);
+    setCorrectionError("");
     try {
       await onCorrect(message.id, note.trim());
       setCorrecting(false);
       setNote("");
+    } catch (err) {
+      setCorrectionError(
+        err instanceof Error ? err.message : "Não foi possível corrigir essa resposta. Tente de novo.",
+      );
     } finally {
       setSendingCorrection(false);
     }
@@ -152,6 +158,10 @@ function MessageBubble({
                     {sendingCorrection ? "Corrigindo…" : "Enviar correção"}
                   </button>
                 </div>
+                {sendingCorrection && (
+                  <small className="correct-hint">O professor (Codex/Claude) está revisando — pode levar até 1 minuto.</small>
+                )}
+                {correctionError && <p className="memory-form-error">{correctionError}</p>}
               </>
             ) : (
               <button className="correct-toggle" onClick={() => setCorrecting(true)}>

@@ -893,6 +893,11 @@ test("POST /correct fails gracefully when the teacher provider is unavailable", 
       body: JSON.stringify({ note: "print não é o mesmo que somar" }),
     });
     assert.equal(corrected.status, 502);
+    // The frontend (ChatView.tsx's correction box) surfaces this string
+    // directly to the user instead of leaving "Corrigindo…" up forever with
+    // no explanation — so a non-empty, human-readable message here is load-bearing.
+    assert.equal(typeof corrected.body.error, "string");
+    assert.ok(corrected.body.error.length > 0);
   });
 });
 
