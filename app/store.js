@@ -229,6 +229,11 @@ export async function listMessages(conversationId) {
   return rows.map(mapMessage);
 }
 
+export async function getMessage(id) {
+  const db = await getDb();
+  return mapMessage(db.prepare("SELECT * FROM messages WHERE id = ?").get(id));
+}
+
 // ---------- Memories ----------
 
 // Same text a keyword search would tokenize (title + content + tags) is

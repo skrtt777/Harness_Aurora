@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Tray, Menu, globalShortcut, ipcMain, screen } from "electron";
+import { app, BrowserWindow, dialog, Tray, Menu, globalShortcut, ipcMain, screen, shell } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
 import { execFile } from "node:child_process";
@@ -62,6 +62,7 @@ async function createWindow(startUrl) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(path.dirname(fileURLToPath(import.meta.url)), "preload-main.cjs"),
     },
   });
   // Closing the window (X) minimizes to the tray instead of quitting — the
@@ -153,6 +154,25 @@ ipcMain.handle("quick-capture:save", async (_event, content) => {
 
 ipcMain.on("quick-capture:close", () => {
   quickCaptureWindow?.close();
+});
+
+// Sandbox de execução (rodar código gerado pelo modelo local): abrir no
+// navegador de verdade do sistema (não outra janela Electron) e escolher a
+// pasta onde os arquivos gerados são salvos — as duas únicas coisas dessa
+// funcionalidade que precisam do processo principal, o resto (extrair o
+// código, salvar o arquivo, servir o preview) já é feito no backend HTTP
+// comum, alcançável de qualquer jeito que a UI rode (Electron ou navegador).
+ipcMain.handle("shell:open-external", (_event, url) => {
+  const trimmed = String(url || "").trim();
+  if (!trimmed) return false;
+  shell.openExternal(trimmed);
+  return true;
+});
+
+ipcMain.handle("dialog:pick-folder", async () => {
+  const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
 });
 
 if (hasSingleInstanceLock) {

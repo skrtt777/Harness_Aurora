@@ -193,6 +193,18 @@ Este documento partiu do estado do código em 2026-09-19 e cobre UI/Layout/QoL/P
 
 **Detalhe completo do que foi implementado, testado e as limitações honestas de validação:** ver a entrada de `PROJECT_LOG.md` na mesma data ("Agente de navegador: controle via OCR local + Playwright, sem tokens de IA paga").
 
+---
+
+## Fora dos 10 marcos originais: Sandbox de execução de código (adicionado em 2026-09-20)
+
+Outra capacidade nova, mesmo motivo do item acima (pedido explícito depois da priorização inicial, não um ajuste de algo já existente).
+
+**O que é:** o modelo local frequentemente gera código completo (jogos em Three.js, páginas, scripts) como resposta de chat, mas até aqui isso só existia como texto — sem arquivo em disco, sem jeito de rodar de verdade e ver se funciona. Agora qualquer resposta com código executável ganha um botão "▶ Executar": salva um arquivo `.html` real numa pasta que o usuário escolhe (organizada por conversa), mostra um preview ao vivo dentro do próprio chat, e oferece "Abrir no navegador" pra rodar no navegador padrão de verdade do sistema.
+
+**Por que isso importa além do caso concreto (avaliar os jogos de teste):** o pedido foi enquadrado explicitamente como "o padrão dos harness" — a mesma expectativa de que uma IA com acesso a um ambiente real (arquivos, execução, ver o resultado) deveria valer aqui também, não só nas ferramentas usadas pra construir o próprio Harness. Este marco entrega a parte concreta e imediatamente útil dessa ideia (rodar e ver o que o modelo local produziu); a ambição mais ampla — o Harness ganhando acesso ao computador do usuário de forma equivalente ao que ferramentas de agente de código já oferecem — é maior que uma única mudança e fica registrada aqui como direção, não como algo já implementado: cada capacidade nesse sentido (esta, o agente de navegador acima) deve continuar entrando uma de cada vez, com o mesmo processo de esclarecer escopo com o usuário antes de construir, em vez de tentar tudo de uma vez.
+
+**Detalhe completo do que foi implementado e testado:** ver a entrada de `PROJECT_LOG.md` em 2026-09-20 ("Sandbox de execução: rodar de verdade o código que o modelo local gera").
+
 ## Como usar este documento
 
 Mesmo padrão que o projeto já segue: ao fechar um marco (ou parte dele), registrar o que foi feito de fato no `PROJECT_LOG.md` (o que mudou, o que foi validado, o que ficou como limite conhecido) — este arquivo é o plano, aquele é o registro do que realmente aconteceu, e os dois já se mostraram úteis juntos em todas as sessões anteriores deste projeto.

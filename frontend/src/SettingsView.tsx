@@ -4,6 +4,7 @@ import {
   getLocalStatus,
   getProviders,
   getSettings,
+  pickFolder,
   setLocalModel,
   updateSettings,
   watchLocalSetup,
@@ -38,11 +39,15 @@ export default function SettingsView({
   const [manifestError, setManifestError] = useState("");
   const [pullingModel, setPullingModel] = useState(false);
   const [modelStage, setModelStage] = useState<string | null>(null);
+  const [sandboxDraft, setSandboxDraft] = useState("");
+  const [sandboxSaved, setSandboxSaved] = useState(false);
+  const [sandboxError, setSandboxError] = useState("");
 
   const refresh = () => {
     getSettings().then((s) => {
       setSettingsState(s);
       setManifestDraft(s.communityManifestUrl);
+      setSandboxDraft(s.sandboxDir);
     });
     getProviders().then(setProviders);
     getLocalStatus().then(setLocalStatus);
@@ -78,6 +83,24 @@ export default function SettingsView({
     } catch (err) {
       setManifestError(err instanceof Error ? err.message : "Falha ao salvar.");
     }
+  };
+
+  const saveSandboxDir = async (dir: string) => {
+    setSandboxError("");
+    try {
+      const updated = await updateSettings({ sandboxDir: dir });
+      setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
+      setSandboxDraft(updated.sandboxDir);
+      setSandboxSaved(true);
+      setTimeout(() => setSandboxSaved(false), 2000);
+    } catch (err) {
+      setSandboxError(err instanceof Error ? err.message : "Falha ao salvar.");
+    }
+  };
+
+  const chooseSandboxFolder = async () => {
+    const chosen = await pickFolder();
+    if (chosen) await saveSandboxDir(chosen);
   };
 
   const pickModel = async (model: string) => {
@@ -169,6 +192,28 @@ export default function SettingsView({
             </div>
             {manifestSaved && <small className="settings-saved">Salvo.</small>}
             {manifestError && <p className="memory-form-error">{manifestError}</p>}
+          </div>
+        </div>
+
+        <div className="settings-card">
+          <h2>Sandbox de execução</h2>
+          <p className="settings-hint">
+            Pasta onde fica salvo o código que o modelo local gera (jogos, páginas, scripts) quando você clica em
+            "▶ Executar" numa resposta — organizado numa subpasta por conversa, pra você achar fácil no seu
+            Explorer/Finder.
+          </p>
+          <div className="settings-field">
+            <input
+              value={sandboxDraft}
+              onChange={(e) => setSandboxDraft(e.target.value)}
+              placeholder="Ex.: C:\Users\você\Documents\Harness\Sandbox"
+            />
+            <div className="settings-actions">
+              <button onClick={chooseSandboxFolder}>Escolher pasta…</button>
+              <button onClick={() => saveSandboxDir(sandboxDraft)}>Salvar</button>
+            </div>
+            {sandboxSaved && <small className="settings-saved">Salvo.</small>}
+            {sandboxError && <p className="memory-form-error">{sandboxError}</p>}
           </div>
         </div>
       </div>

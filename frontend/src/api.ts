@@ -175,10 +175,12 @@ export type Settings = {
   defaultTeacher: string;
   communityManifestUrl: string;
   communityManifestUrlIsDefault?: boolean;
+  sandboxDir: string;
 };
 export const getSettings = () => request<Settings>("/settings");
-export const updateSettings = (patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl">>) =>
-  request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
+export const updateSettings = (
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir">>,
+) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------
 export type LocalStatus = {
@@ -279,6 +281,30 @@ export const getBrowserAgentStatus = (runId: string) =>
   request<BrowserAgentRunStatus>(`/browser-agent/${runId}/status`);
 export const cancelBrowserAgent = (runId: string) =>
   request<{ cancelled: boolean }>(`/browser-agent/${runId}/cancel`, { method: "POST" });
+
+// ---------- Sandbox de execução (rodar código gerado pelo modelo local) ----------
+export type SandboxRunResult = { ok: true; filePath: string; previewUrl: string };
+export const runSandbox = (conversationId: string, messageId: string) =>
+  request<SandboxRunResult>(`/conversations/${conversationId}/messages/${messageId}/sandbox`, { method: "POST" });
+
+/**
+ * Opens a URL in the user's actual default browser when running inside the
+ * Electron app (window.harness, exposed by electron/preload-main.cjs), or
+ * falls back to a plain new tab — the only option a normal webpage has —
+ * when it isn't (dev mode in a browser, this project's own tests).
+ */
+export function openExternalUrl(url: string) {
+  const harness = (window as unknown as { harness?: { openExternal?: (url: string) => void } }).harness;
+  if (harness?.openExternal) harness.openExternal(url);
+  else window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** Native folder picker when running inside Electron; null when unavailable (caller falls back to a text field). */
+export async function pickFolder(): Promise<string | null> {
+  const harness = (window as unknown as { harness?: { pickFolder?: () => Promise<string | null> } }).harness;
+  if (!harness?.pickFolder) return null;
+  return harness.pickFolder();
+}
 
 // ---------- Community memories (pull-only) ----------
 export type CommunityBundleInfo = { id: string; file: string; title: string; description: string; tags: string[] };

@@ -23,6 +23,7 @@ import {
   deleteProject,
   getConversation,
   getConversationWithMessages,
+  getMessage,
   addMessage,
   listConversations,
   listMemories,
@@ -50,6 +51,7 @@ import {
 import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
 import { createRun, pushStep, finishRun, getRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
+import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
 
 const KNOWN_PROVIDERS = ["codex", "claude", "local"];
 
@@ -223,6 +225,11 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function sendHtml(response, status, html) {
+  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  response.end(html);
+}
+
 async function serveStatic(response, pathname) {
   const requested = pathname === "/" ? "/index.html" : pathname;
   const safePath = join(distDir, requested.replace(/^\/+/, ""));
@@ -266,16 +273,18 @@ export function createServer() {
       // narrow (known keys only) rather than exposing raw key/value CRUD,
       // so a stray key never leaks through this endpoint by accident.
       if (method === "GET" && pathname === "/api/settings") {
-        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir] = await Promise.all([
           getSetting("default_provider", "codex"),
           getSetting("default_teacher", "codex"),
           getSetting("community_manifest_url"),
+          getSetting("sandbox_dir"),
         ]);
         return sendJson(response, 200, {
           defaultProvider,
           defaultTeacher,
           communityManifestUrl: communityManifestUrl || DEFAULT_COMMUNITY_MANIFEST_URL,
           communityManifestUrlIsDefault: !communityManifestUrl,
+          sandboxDir: sandboxDir || "",
         });
       }
       if (method === "PUT" && pathname === "/api/settings") {
@@ -308,12 +317,27 @@ export function createServer() {
             await setSetting("community_manifest_url", "");
           }
         }
-        const [defaultProvider, defaultTeacher, communityManifestUrl] = await Promise.all([
+        if (body.sandboxDir !== undefined) {
+          const trimmed = String(body.sandboxDir || "").trim();
+          // Only a light sanity check here (must look like an absolute path
+          // on some platform) — actually verifying it exists/is writable
+          // would mean touching the disk on every settings save, and the
+          // folder may legitimately not exist yet (materializeSandboxFile
+          // creates it on first use). A real problem (no permission, wrong
+          // drive letter, ...) surfaces with a clear error the moment
+          // "Executar" is actually clicked instead.
+          if (trimmed && !/^(\/|[a-zA-Z]:[\\/])/.test(trimmed)) {
+            return sendJson(response, 400, { error: "Informe um caminho de pasta absoluto (ex.: C:\\Users\\você\\Documents\\Harness\\Sandbox)." });
+          }
+          await setSetting("sandbox_dir", trimmed);
+        }
+        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir] = await Promise.all([
           getSetting("default_provider", "codex"),
           getSetting("default_teacher", "codex"),
           resolveCommunityManifestUrl(process.env),
+          getSetting("sandbox_dir"),
         ]);
-        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl });
+        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir: sandboxDir || "" });
       }
 
       // ---------- Local (Ollama) setup: makes the local model "just work" ----------
@@ -558,6 +582,66 @@ export function createServer() {
           memoryCreated: savedMemories.map((m) => m.id),
         });
         return sendJson(response, 200, { message: correctionMessage, memoryCreated: savedMemories });
+      }
+
+      // ---------- Sandbox de execução (roda código gerado pelo modelo local de verdade) ----------
+      // "Materializar" e "servir" recalculam o mesmo caminho de arquivo
+      // (sandboxFilePath, em app/sandboxCode.js) a partir de
+      // conversationId+conversationTitle+messageId — nenhuma tabela nova é
+      // necessária só para lembrar "onde ficou o arquivo desta mensagem".
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/sandbox$/);
+      if (match && method === "POST") {
+        const [, conversationId, messageId] = match;
+        const conversation = await getConversation(conversationId);
+        if (!conversation) return sendJson(response, 404, { error: "Conversa não encontrada." });
+        const message = await getMessage(messageId);
+        if (!message || message.conversationId !== conversationId) {
+          return sendJson(response, 404, { error: "Mensagem não encontrada." });
+        }
+
+        const sandboxDir = await getSetting("sandbox_dir");
+        if (!sandboxDir) {
+          return sendJson(response, 400, {
+            error: "Escolha uma pasta para o sandbox de execução na Central de Configurações antes de rodar um código.",
+          });
+        }
+
+        const extracted = extractRunnableHtml(message.content);
+        if (!extracted) {
+          return sendJson(response, 400, { error: "Não encontrei nenhum código executável nesta mensagem." });
+        }
+
+        try {
+          const filePath = await materializeSandboxFile(sandboxDir, {
+            conversationId,
+            conversationTitle: conversation.title,
+            messageId,
+            html: extracted.html,
+          });
+          return sendJson(response, 200, {
+            ok: true,
+            filePath,
+            previewUrl: `/api/conversations/${conversationId}/messages/${messageId}/sandbox/preview`,
+          });
+        } catch (error) {
+          return sendJson(response, 500, {
+            error: `Não foi possível salvar o arquivo (${error.message}). Confirme se a pasta escolhida existe e o Harness tem permissão de escrita nela.`,
+          });
+        }
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/sandbox\/preview$/);
+      if (match && method === "GET") {
+        const [, conversationId, messageId] = match;
+        const conversation = await getConversation(conversationId);
+        const sandboxDir = await getSetting("sandbox_dir");
+        if (!conversation || !sandboxDir) {
+          return sendHtml(response, 404, "<p>Nada para mostrar ainda — clique em “Executar” na mensagem primeiro.</p>");
+        }
+        const html = await readSandboxFile(sandboxDir, { conversationId, conversationTitle: conversation.title, messageId });
+        if (html === null) {
+          return sendHtml(response, 404, "<p>Nada para mostrar ainda — clique em “Executar” na mensagem primeiro.</p>");
+        }
+        return sendHtml(response, 200, html);
       }
 
       // ---------- Memories ----------

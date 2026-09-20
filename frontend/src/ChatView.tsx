@@ -1,6 +1,65 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ConversationWithMessages, Project } from "./api";
+import { openExternalUrl, runSandbox } from "./api";
 import LocalSetupPanel from "./LocalSetupPanel";
+
+/**
+ * A quick, client-side "does this look worth offering a Executar button
+ * for" check — deliberately looser than the backend's real extraction
+ * (app/sandboxCode.js), which is the one that actually decides what gets
+ * saved and run. This only decides whether to show the button at all, so a
+ * false positive here just means a button that reports "nenhum código
+ * executável" when clicked, not a wrong preview.
+ */
+function looksRunnable(content: string) {
+  return /```html|```(?:javascript|js)\b|<html[\s>]|<script(?![^>]*\bsrc=)[^>]*>/i.test(content || "");
+}
+
+function SandboxPanel({ conversationId, messageId }: { conversationId: string; messageId: string }) {
+  const [state, setState] = useState<"idle" | "running" | "error">("idle");
+  const [error, setError] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null);
+
+  const execute = async () => {
+    setState("running");
+    setError("");
+    try {
+      const result = await runSandbox(conversationId, messageId);
+      setPreviewUrl(`${result.previewUrl}?t=${Date.now()}`);
+      setFilePath(result.filePath);
+      setState("idle");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao executar o código.");
+      setState("error");
+    }
+  };
+
+  return (
+    <div className="sandbox-panel">
+      <div className="sandbox-actions">
+        <button onClick={execute} disabled={state === "running"}>
+          {state === "running" ? "Executando…" : previewUrl ? "▶ Executar de novo" : "▶ Executar"}
+        </button>
+        {previewUrl && (
+          <button className="link-button" onClick={() => openExternalUrl(`${window.location.origin}${previewUrl}`)}>
+            Abrir no navegador
+          </button>
+        )}
+      </div>
+      {error && <p className="memory-form-error">{error}</p>}
+      {filePath && <small className="sandbox-filepath">Salvo em: {filePath}</small>}
+      {previewUrl && (
+        <iframe
+          className="sandbox-preview"
+          src={previewUrl}
+          title="Preview do código executado"
+          sandbox="allow-scripts allow-same-origin allow-pointer-lock"
+        />
+      )}
+    </div>
+  );
+}
 
 type Props = {
   conversation: ConversationWithMessages | null;
@@ -17,11 +76,13 @@ type Props = {
 
 function MessageBubble({
   message,
+  conversationId,
   providerLabel,
   correctable,
   onCorrect,
 }: {
   message: ChatMessage;
+  conversationId: string;
   providerLabel: string;
   correctable: boolean;
   onCorrect: (messageId: string, note: string) => Promise<void>;
@@ -52,6 +113,9 @@ function MessageBubble({
           {isUser ? "VOCÊ" : message.provider || providerLabel} · {new Date(message.createdAt).toLocaleString("pt-BR")}
         </div>
         <div className="chat-content">{message.content}</div>
+        {!isUser && !isSystem && looksRunnable(message.content) && (
+          <SandboxPanel conversationId={conversationId} messageId={message.id} />
+        )}
         {!isUser && (message.memoryAccess.length > 0 || message.memoryCreated.length > 0) && (
           <div className="memory-footnote">
             {message.memoryAccess.length > 0 && (
@@ -186,7 +250,14 @@ export default function ChatView({
       <div className="chat-messages" ref={scrollRef}>
         {conversation.messages.length ? (
           conversation.messages.map((m) => (
-            <MessageBubble key={m.id} message={m} providerLabel={providerLabel} correctable={correctable} onCorrect={onCorrect} />
+            <MessageBubble
+              key={m.id}
+              message={m}
+              conversationId={conversation.id}
+              providerLabel={providerLabel}
+              correctable={correctable}
+              onCorrect={onCorrect}
+            />
           ))
         ) : (
           <div className="chat-empty">

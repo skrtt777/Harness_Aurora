@@ -1609,6 +1609,49 @@ button[aria-pressed="true"] {
   gap: 8px;
   margin-top: 6px;
 }
+.sandbox-panel {
+  margin-top: 10px;
+  border: 1px solid #22303c;
+  border-radius: 8px;
+  background: #0b121b;
+  padding: 10px 12px;
+}
+.sandbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sandbox-actions button {
+  border: 1px solid #253847;
+  border-radius: 6px;
+  background: #101a24;
+  color: #c2d7e2;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+.sandbox-actions .link-button {
+  border: none;
+  background: none;
+  color: #65e2d4;
+  text-decoration: underline;
+  padding: 6px 4px;
+}
+.sandbox-filepath {
+  display: block;
+  color: #7e99ab;
+  font-size: 10px;
+  margin-top: 8px;
+  word-break: break-all;
+}
+.sandbox-preview {
+  width: 100%;
+  height: 420px;
+  margin-top: 10px;
+  border: 1px solid #22303c;
+  border-radius: 8px;
+  background: #fff;
+}
 .typing-dots {
   display: flex;
   gap: 4px;

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
@@ -42,7 +43,7 @@ async function withServer(run) {
       ...options,
     }).then(async (response) => ({ status: response.status, body: await response.json() }));
   try {
-    await run(api);
+    await run(api, base);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
@@ -658,6 +659,26 @@ test("PUT /api/settings validates and persists a custom community manifest URL, 
   });
 });
 
+test("PUT /api/settings validates and persists the sandbox execution folder", async () => {
+  await withServer(async (api) => {
+    const bad = await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "not-an-absolute-path" }) });
+    assert.equal(bad.status, 400);
+
+    const ok = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ sandboxDir: "C:\\Users\\alguem\\Documents\\Harness\\Sandbox" }),
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.sandboxDir, "C:\\Users\\alguem\\Documents\\Harness\\Sandbox");
+
+    const refetched = await api("/api/settings");
+    assert.equal(refetched.body.sandboxDir, "C:\\Users\\alguem\\Documents\\Harness\\Sandbox");
+
+    // Reset so later tests aren't affected by state this test left behind.
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
+  });
+});
+
 test("projects and conversations can be created, listed and scoped", async () => {
   await withServer(async (api) => {
     const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "Projeto X", instructions: "Seja direto." }) });
@@ -1156,5 +1177,79 @@ test("POST /api/browser-agent/:id/cancel reports cancelled:false for an unknown 
     const response = await api("/api/browser-agent/does-not-exist/cancel", { method: "POST" });
     assert.equal(response.status, 200);
     assert.deepEqual(response.body, { cancelled: false });
+  });
+});
+
+// ---------- Sandbox de execução (rodar código gerado pelo modelo local) ----------
+
+test("POST .../sandbox requires a configured sandbox folder before it will run anything", async () => {
+  await withServer(async (api) => {
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
+    const conversation = await createConversation({ provider: "local", title: "Jogo de teste" });
+    const message = await addMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "```html\n<!DOCTYPE html>\n<html><body>jogo</body></html>\n```",
+      provider: "Local",
+    });
+    const response = await api(`/api/conversations/${conversation.id}/messages/${message.id}/sandbox`, { method: "POST" });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /pasta/);
+  });
+});
+
+test("POST .../sandbox rejects a message with no runnable code, even with a folder configured", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "harness-sandbox-test-"));
+  await withServer(async (api) => {
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: dir }) });
+    const conversation = await createConversation({ provider: "local", title: "Conversa qualquer" });
+    const message = await addMessage({ conversationId: conversation.id, role: "assistant", content: "Só uma explicação em texto.", provider: "Local" });
+    const response = await api(`/api/conversations/${conversation.id}/messages/${message.id}/sandbox`, { method: "POST" });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /código executável/);
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
+  });
+});
+
+test("POST .../sandbox materializes the code to a real file, and GET .../preview serves it back", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "harness-sandbox-test-"));
+  await withServer(async (api, base) => {
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: dir }) });
+    const conversation = await createConversation({ provider: "local", title: "Crie um jogo simples em Three.js" });
+    const html = "<!DOCTYPE html>\n<html><body><h1>Meu Jogo</h1></body></html>";
+    const message = await addMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Aqui está:\n\n\`\`\`html\n${html}\n\`\`\`\n\nTestei e funciona.`,
+      provider: "Local",
+    });
+
+    const run = await api(`/api/conversations/${conversation.id}/messages/${message.id}/sandbox`, { method: "POST" });
+    assert.equal(run.status, 200);
+    assert.ok(run.body.filePath.includes("crie-um-jogo-simples-em-three-js"));
+    assert.equal(await readFile(run.body.filePath, "utf8"), html);
+    assert.equal(run.body.previewUrl, `/api/conversations/${conversation.id}/messages/${message.id}/sandbox/preview`);
+
+    // api() always parses the response as JSON, so the HTML preview route
+    // (text/html, not JSON) is fetched directly instead of through it.
+    const previewResponse = await fetch(`${base}${run.body.previewUrl}`);
+    assert.equal(previewResponse.status, 200);
+    assert.match(previewResponse.headers.get("content-type") || "", /text\/html/);
+    assert.equal(await previewResponse.text(), html);
+
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
+  });
+});
+
+test("GET .../sandbox/preview returns 404 before Executar has ever been clicked for that message", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "harness-sandbox-test-"));
+  await withServer(async (api, base) => {
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: dir }) });
+    const conversation = await createConversation({ provider: "local", title: "Conversa sem execução ainda" });
+    const message = await addMessage({ conversationId: conversation.id, role: "assistant", content: "```html\n<html></html>\n```", provider: "Local" });
+    // api() always parses as JSON; this route can return plain HTML, so it's fetched directly.
+    const response = await fetch(`${base}/api/conversations/${conversation.id}/messages/${message.id}/sandbox/preview`);
+    assert.equal(response.status, 404);
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
   });
 });
