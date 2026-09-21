@@ -250,20 +250,20 @@ export default function NeuralAtlas({ variant }: Props) {
   }, [variant]);
 
   return (
-    <div className={`shell ${focus ? "focus-mode" : ""}`}>
+    <div className={`shell aurora-atlas ${focus ? "focus-mode" : ""}`}>
       {!focus && (
         <aside className="rail">
           <div className="logo">
-            <span>◈</span>
+            <img className="atlas-symbol" src="/brand/aurora-symbol.png" alt="" />
             <div>
-              <strong>ATLAS</strong>
+              <strong>Atlas Aurora</strong>
               <small>{variant === "test" ? "AMBIENTE DE TESTE" : "MEMÓRIA VISUAL · BETA"}</small>
             </div>
           </div>
           {variant === "real" ? (
             <div className={`atlas-disclaimer ${connected ? "connected" : ""}`}>
               {connected
-                ? "Conectado à memória real do harness (mesmos dados da aba Memória). Relações vêm da extração automática; só a posição no espaço é visual."
+                ? "Suas memórias e conexões reais, organizadas para explorar."
                 : "Ainda não há memória real gerada. Converse no chat para começar a criá-la, ou visite a aba Teste para experimentar com dados sintéticos."}
             </div>
           ) : (
@@ -489,10 +489,10 @@ export default function NeuralAtlas({ variant }: Props) {
             </div>
             <div className="scene-legend">
               <span>
-                <i style={{ background: "#65e2d4" }} /> Neurônio / memória
+                <i style={{ background: "#75eaff" }} /> Neurônio / memória
               </span>
               <span>
-                <i style={{ background: "#ffcf94" }} /> Relação selecionada
+                <i style={{ background: "#d49bff" }} /> Relação selecionada
               </span>
               <small>Pulsos ilustrativos · {motion ? "ativos" : "pausados"}</small>
             </div>
@@ -584,9 +584,7 @@ export default function NeuralAtlas({ variant }: Props) {
           {selected ? (
             <>
               <div className="detail-hero" style={{ borderColor: groupColor(groupKey(selected)) }}>
-                <span className="detail-symbol" style={{ color: groupColor(groupKey(selected)) }}>
-                  ✳
-                </span>
+                <img className="detail-symbol atlas-symbol" src="/brand/aurora-symbol.png" alt="" />
                 <strong>{selected.title}</strong>
                 <small>{variant === "real" ? "MEMÓRIA REAL" : selected.kind === "demo" ? "DEMONSTRAÇÃO SINTÉTICA" : "CONTEXTO IMPORTADO"}</small>
               </div>
@@ -665,7 +663,7 @@ export default function NeuralAtlas({ variant }: Props) {
           ) : (
             <>
               <div className="empty-inspector">
-                <div className="empty-glyph">✳</div>
+                <div className="empty-glyph"><img className="atlas-symbol" src="/brand/aurora-symbol.png" alt="" /></div>
                 <h3>Uma rede que você pode explorar.</h3>
                 <p>Clique em uma memória para ver seu conteúdo, origem e conexões.</p>
                 <small>Duplo clique aproxima o neurônio.</small>

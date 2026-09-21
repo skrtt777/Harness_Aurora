@@ -4,5 +4,6 @@ import AppShell from './AppShell';
 import './styles.css';
 import './history.css';
 import './conversation.css';
+import './atlas.css';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><AppShell /></React.StrictMode>);

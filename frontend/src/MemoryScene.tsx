@@ -93,7 +93,7 @@ function Instances({
         mesh.setMatrixAt(i, dummy.matrix);
         const color = new THREE.Color(groupColor(groupKey(m)));
         if (selectedId && !highlighted.has(m.id)) color.multiplyScalar(0.22);
-        if (highlighted.has(m.id)) color.lerp(new THREE.Color("#ffe5b9"), 0.5);
+        if (highlighted.has(m.id)) color.lerp(new THREE.Color("#e6d4ff"), 0.5);
         mesh.setColorAt(i, color);
       });
       mesh.instanceMatrix.needsUpdate = true;
@@ -184,7 +184,7 @@ function Connections({
     for (const { edge, curve, active } of data) {
       const points = curve.getPoints(12);
       const color = new THREE.Color(
-        active ? "#ffcf94" : groupColor(groupKey(edge.from)),
+        active ? "#d49bff" : groupColor(groupKey(edge.from)),
       ).multiplyScalar(active ? 1 : selectedId ? 0.09 : 0.3);
       for (let i = 0; i < points.length - 1; i++) {
         positions.push(...points[i].toArray(), ...points[i + 1].toArray());
@@ -232,7 +232,7 @@ function Connections({
           frustumCulled={false}
         >
           <icosahedronGeometry args={[1, 0]} />
-          <meshBasicMaterial color="#ffe6bf" toneMapped={false} />
+          <meshBasicMaterial color="#eee2ff" toneMapped={false} />
         </instancedMesh>
       )}
     </>
@@ -289,7 +289,7 @@ function CollectionStructure({
         id="aurora-collection"
         position={center.toArray() as [number, number, number]}
         scale={3.3}
-        color="#65e2d4"
+        color="#75eaff"
         cad={cad}
         wireframe={wireframe}
       />
@@ -492,8 +492,8 @@ function SceneContent(props: Props) {
         near={0.1}
         far={100000}
       />
-      <color attach="background" args={["#050810"]} />
-      <fog attach="fog" args={["#050810", 60, 220]} />
+      <color attach="background" args={["#0c101c"]} />
+      <fog attach="fog" args={["#0c101c", 60, 220]} />
       {props.quality === "high" && (
         <Stars radius={140} depth={60} count={2400} factor={2.6} saturation={0} fade speed={0.35} />
       )}
@@ -506,7 +506,7 @@ function SceneContent(props: Props) {
       <directionalLight
         position={[-15, -5, -15]}
         intensity={1}
-        color="#7b8bdd"
+        color="#a68ae8"
       />
       {cad && (
         <>
@@ -515,8 +515,8 @@ function SceneContent(props: Props) {
             args={[160, 160]}
             cellSize={2}
             sectionSize={10}
-            cellColor="#193743"
-            sectionColor="#315665"
+            cellColor="#202d48"
+            sectionColor="#45557f"
             cellThickness={0.45}
             sectionThickness={0.65}
             fadeDistance={150}

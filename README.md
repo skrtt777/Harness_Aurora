@@ -1,4 +1,4 @@
-> Versão 0.1.17: interface Aurora, arquivos ao lado do chat, skills sob demanda, execução por etapas e validação funcional. [Notas da versão](docs/RELEASE_0.1.17.md) · [Chat e arquivos](docs/CHAT_E_ARQUIVOS.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
+> Versão 0.1.18: Atlas visual atualizado com as cores e logos da Aurora, incluindo mapa 3D, lista e fluxograma. [Notas da versão](docs/RELEASE_0.1.18.md) · [Chat e arquivos](docs/CHAT_E_ARQUIVOS.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
 
 # Harness Aurora
 
@@ -12,7 +12,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.17.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.18.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 

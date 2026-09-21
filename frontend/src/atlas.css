@@ -1,0 +1,96 @@
+/* Aurora identity, scoped to the atlas so chat and memory data stay independent. */
+.app-shell.atlas-takeover { display: flex; flex-direction: column; min-height: 0; background: #14171f; }
+.atlas-topbar { flex: 0 0 54px; display: flex; align-items: center; justify-content: space-between; padding: 5px 20px; border-bottom: 1px solid #292f40; background: #101219; }
+.atlas-topbar > img { width: 112px; height: 43px; object-fit: contain; }
+.atlas-topbar .atlas-back { position: static; border-color: #354355; background: #1a202d; color: #dce8fa; border-radius: 9px; padding: 9px 12px; }
+.atlas-topbar .atlas-back:hover { border-color: var(--aurora-cyan); background: #232c40; }
+.aurora-atlas { --atlas-border: #30374c; --atlas-muted: #a3aec7; --atlas-surface: #1a202e; flex: 1; height: auto; min-height: 0; color: #e8edf5; background: #14171f; }
+.aurora-atlas .rail, .aurora-atlas .inspector { background: #10141e; border-color: #292f40; }
+.aurora-atlas .rail { padding-top: 22px; }
+.aurora-atlas .logo { gap: 10px; margin: 0 3px 22px; }
+.atlas-symbol { object-fit: contain; mix-blend-mode: screen; }
+.aurora-atlas .logo > img { width: 44px; height: 44px; flex-shrink: 0; }
+.aurora-atlas .logo strong { font-size: 16px; letter-spacing: -.03em; color: var(--aurora-cyan); }
+.aurora-atlas .logo small { font-size: 8px; letter-spacing: .08em; color: var(--atlas-muted); }
+.aurora-atlas .empty-glyph { background: radial-gradient(ellipse, #31285566, transparent 70%); }
+.aurora-atlas .empty-glyph img { width: 120px; height: 120px; }
+.aurora-atlas .detail-symbol { width: 42px; height: 42px; }
+.aurora-atlas .atlas-disclaimer, .aurora-atlas .atlas-disclaimer.connected { background: linear-gradient(115deg, #172b38, #252037); border-color: #394b65; color: #ccdef2; font-size: 11px; padding: 12px; margin: 0 3px 22px; }
+.aurora-atlas .rail-section > label { color: #a4aec7; font-size: 9px; letter-spacing: .1em; }
+.aurora-atlas .rail-link { color: #b9c3d9; font-size: 12px; border-radius: 9px; }
+.aurora-atlas .rail-link:hover, .aurora-atlas .rail-link.active { background: linear-gradient(110deg, #1b3040, #29223d); border-color: #425577; color: #ecf7ff; }
+.aurora-atlas .rail-link b, .aurora-atlas .demo-note small { color: #b1bed5; }
+.aurora-atlas .topic-buttons button, .aurora-atlas .demo-note, .aurora-atlas .tags span { background: var(--atlas-surface); border-color: var(--atlas-border); color: #bbc8e0; border-radius: 8px; }
+.aurora-atlas .topic-buttons button { font-size: 10px; }
+.aurora-atlas .topic-buttons button.on { border-color: var(--aurora-violet); color: #eadcff; }
+.aurora-atlas .live-dot { background: var(--aurora-cyan); box-shadow: 0 0 8px #75eaff55; }
+.aurora-atlas .toolbar { border-color: #292f40; }
+.aurora-atlas .search { background: #1a202b; border-color: var(--atlas-border); border-radius: 10px; height: 38px; }
+.aurora-atlas .search input { color: #e8edf5; font-size: 12px; }
+.aurora-atlas .search input::placeholder, .aurora-atlas .search > span { color: var(--atlas-muted); }
+.aurora-atlas .search kbd { color: #b0bdd8; border-color: #404b65; }
+.aurora-atlas .tool-button, .aurora-atlas .view-toggle, .aurora-atlas select { background: var(--atlas-surface); border-color: var(--atlas-border); color: #c7d3e8; border-radius: 8px; }
+.aurora-atlas .tool-button, .aurora-atlas .view-toggle button { font-size: 11px; }
+.aurora-atlas button[aria-pressed="true"], .aurora-atlas .view-toggle button.selected { background: #282440 !important; border-color: #8072ad !important; color: #e8dbff !important; }
+.aurora-atlas .view-toggle button { color: #b9c7e0; }
+.aurora-atlas .titlebar { padding-top: 20px; padding-bottom: 18px; flex-wrap: wrap; }
+.aurora-atlas .titlebar h1 { color: #f0f4ff; }
+.aurora-atlas .titlebar h1 > span { color: var(--aurora-violet); background: #272138; border-color: #564472; border-radius: 7px; }
+.aurora-atlas .titlebar p { font-size: 12px; color: #b1bed5; }
+.aurora-atlas .overline { color: #a6b6d7; letter-spacing: .12em; }
+.aurora-atlas .overline span { color: #928bb5; }
+.aurora-atlas .filterbar label, .aurora-atlas .result-count { color: #aebbd3; font-size: 10px; }
+.aurora-atlas .clear-filter, .aurora-atlas .import-button, .aurora-atlas .export-button { color: var(--aurora-cyan); }
+.aurora-atlas .notice { color: #d5dff6; background: #242139; border-color: #453a61; }
+.aurora-atlas .scene-wrap, .aurora-atlas .memory-flow, .aurora-atlas .list-view { background: #0c101c; border-color: #36405a; border-radius: 14px; }
+.aurora-atlas .scene-caption strong { color: #e0e8fc; }
+.aurora-atlas .scene-caption small, .aurora-atlas .scene-legend, .aurora-atlas .scene-legend small, .aurora-atlas .statusline { color: #a3b1ce; }
+.aurora-atlas .view-presets button, .aurora-atlas .scene-controls button { background: #191e30ed; border-color: #404964; color: #c8d6ee; border-radius: 7px; }
+.aurora-atlas .view-presets button:hover, .aurora-atlas .scene-controls button:hover { background: #302846; color: #eee3ff; border-color: #8871ad; }
+.aurora-atlas .cluster-label { background: #151c2ced; color: #e6edff; border-radius: 0 8px 8px 0; }
+.aurora-atlas .cluster-label small { color: #b2c0dc; }
+.aurora-atlas .cell-annotation { background: #201c32ed; border-color: #685488; color: #e0c9ff; }
+.aurora-atlas .inspector-head h2, .aurora-atlas .empty-inspector h3 { color: #e0e7f8; }
+.aurora-atlas .empty-inspector p, .aurora-atlas .empty-inspector small, .aurora-atlas .performance small, .aurora-atlas .detail-body > p { color: #adbbd6; }
+.aurora-atlas .anatomy-guide, .aurora-atlas .anatomy-guide > small, .aurora-atlas .detail-body dl { border-color: var(--atlas-border); }
+.aurora-atlas .anatomy-guide p b, .aurora-atlas .related button em, .aurora-atlas .detail-hero small { color: var(--aurora-violet); }
+.aurora-atlas .anatomy-guide p span, .aurora-atlas .anatomy-guide > small, .aurora-atlas .detail-body dt, .aurora-atlas .related small { color: var(--atlas-muted); }
+.aurora-atlas .detail-hero { background: linear-gradient(110deg, #21324a80, #2e244240); border-radius: 0 10px 10px 0; }
+.aurora-atlas .inspect-button, .aurora-atlas .pagination button, .aurora-atlas .no-results button, .aurora-atlas .scene-fallback button { background: linear-gradient(110deg, #1c3546, #332746); border-color: #625780; color: #e2eaff; border-radius: 9px; }
+.aurora-atlas .related button { color: #cfdbf2; border-color: var(--atlas-border); }
+.aurora-atlas .related button i { background: var(--aurora-violet); }
+.aurora-atlas .list-table-head { background: #1a2030; color: #bcc9e3; }
+.aurora-atlas .list-row { color: #e2eafa; border-color: #293248; }
+.aurora-atlas .list-row:hover, .aurora-atlas .list-row.selected { background: #27243c; }
+.aurora-atlas .list-row small, .aurora-atlas .list-row em, .aurora-atlas .pagination { color: #aebbd4; }
+.aurora-atlas .no-results { background: #101421e8; }
+.aurora-atlas .memory-flow .react-flow__background { background: #0c101c; }
+.aurora-atlas .memory-flow .react-flow__controls, .aurora-atlas .memory-flow .react-flow__minimap { border-color: #404964; }
+.aurora-atlas .memory-flow .react-flow__controls button, .aurora-atlas .flow-node { background: #1a2030; color: #dde7fb; border-color: #404964; }
+.aurora-atlas .memory-flow .react-flow__controls button:hover { background: #302846; }
+.aurora-atlas .flow-node.selected { background: #302440; border-color: var(--aurora-violet); box-shadow: 0 0 16px #c5a0ff20; }
+.aurora-atlas .flow-node-body small { color: #afbdd8; }
+.aurora-atlas .react-flow__edge-text { fill: #cbd8f3; }
+.aurora-atlas .react-flow__edge-textbg { fill: #1a2030; }
+.aurora-atlas .react-flow__handle { background: var(--aurora-cyan); border-color: #243147; }
+.aurora-atlas :is(button, input, select):focus-visible { outline-color: var(--aurora-cyan); }
+@supports (background-clip: text) {
+  .aurora-atlas .logo strong { background: var(--aurora-gradient); background-clip: text; -webkit-background-clip: text; color: transparent; }
+}
+@media (max-width: 1000px) { .aurora-atlas .inspector.has-selection { top: 54px; } }
+@media (max-width: 700px) {
+  .atlas-topbar { padding: 5px 12px; }
+  .aurora-atlas .toolbar { flex-wrap: wrap; }
+  .aurora-atlas .search { min-width: 140px; }
+  .aurora-atlas .search input { font-size: 11px; }
+  .aurora-atlas .titlebar { gap: 14px; padding: 14px 12px; }
+  .aurora-atlas .titlebar h1 { margin-top: 5px; }
+  .aurora-atlas .titlebar p { max-width: none; }
+  .aurora-atlas .view-toggle { width: 100%; }
+  .aurora-atlas .view-toggle button { flex: 1; padding: 8px 5px; }
+  .aurora-atlas .filterbar { gap: 6px; }
+  .aurora-atlas .filterbar select { max-width: 82px; }
+  .aurora-atlas .memory-flow { margin: 0 8px; }
+  .aurora-atlas .inspector.has-selection { top: auto; border-color: #665487; }
+}
+@media (forced-colors: active) { .aurora-atlas .logo strong { background: none; color: CanvasText; } }

@@ -22,12 +22,12 @@ export type Memory = {
   relationTypes?: Record<string, RelationType>;
 };
 export const palette = [
-  "#65e2d4",
+  "#75eaff",
   "#83a8ff",
-  "#bd91f7",
-  "#f2b879",
-  "#ef829e",
-  "#8ad4a4",
+  "#c5a0ff",
+  "#d49bff",
+  "#a5b4fc",
+  "#38bdf8",
 ];
 export const groupKey = (memory: Memory) => memory.project || "Contexto geral";
 export function hash(value: string) {

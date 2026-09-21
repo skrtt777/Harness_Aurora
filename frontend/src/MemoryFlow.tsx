@@ -26,10 +26,10 @@ const RELATION_LABEL: Record<string, string> = {
 };
 
 const RELATION_COLOR: Record<string, string> = {
-  belonging: "#65e2d4",
+  belonging: "#75eaff",
   thematic: "#83a8ff",
-  derivation: "#f2b879",
-  correction: "#ef829e",
+  derivation: "#c5a0ff",
+  correction: "#d49bff",
 };
 
 function layoutWithDagre(memories: Memory[], edges: MemoryEdge[]) {
@@ -119,9 +119,11 @@ export default function MemoryFlow({ memories, allMemories, selectedId, onSelect
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} color="#1b2732" />
+        <Background gap={24} color="#28334c" />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable style={{ background: "#0b1118" }} />
+        <MiniMap pannable zoomable style={{ background: "#141a2a" }}
+          nodeColor={(node) => groupColor(groupKey((node.data as NodeData).memory))}
+          maskColor="#0c101cb8" maskStrokeColor="#c5a0ff" />
       </ReactFlow>
     </div>
   );

@@ -301,9 +301,12 @@ export default function AppShell() {
   if (view === "atlas") {
     return (
       <div className="app-shell atlas-takeover">
+        <header className="atlas-topbar">
         <button className="atlas-back" onClick={() => setView("chat")}>
           ← Voltar para o chat
         </button>
+        <img src="/brand/aurora-wordmark.png" alt="Aurora" />
+        </header>
         <NeuralAtlas variant="real" />
       </div>
     );
@@ -312,9 +315,12 @@ export default function AppShell() {
   if (view === "test") {
     return (
       <div className="app-shell atlas-takeover">
+        <header className="atlas-topbar">
         <button className="atlas-back" onClick={() => setView("chat")}>
           ← Voltar para o chat
         </button>
+        <img src="/brand/aurora-wordmark.png" alt="Aurora" />
+        </header>
         <NeuralAtlas variant="test" />
       </div>
     );
