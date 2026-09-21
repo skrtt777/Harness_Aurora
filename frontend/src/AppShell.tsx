@@ -5,6 +5,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
 import SettingsView from "./SettingsView";
+import WelcomeGuide from "./WelcomeGuide";
 import BrowserAgentView from "./BrowserAgentView";
 import {
   cancelMessage as apiCancelMessage,
@@ -37,6 +38,7 @@ export default function AppShell() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<ConversationWithMessages | null>(null);
   const [view, setView] = useState<View>("chat");
+  const [guideOpen, setGuideOpen] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const busyRef = useRef(new Set<string>());
@@ -102,6 +104,7 @@ export default function AppShell() {
         if (settings) {
           setNewConversationProvider(settings.defaultProvider);
           setNewConversationTeacher(settings.defaultTeacher);
+          setGuideOpen(!settings.onboardingCompleted);
         }
 
         const conversationList = await refreshLists();
@@ -385,6 +388,7 @@ export default function AppShell() {
         )}
         {view === "settings" && (
           <SettingsView
+            onOpenGuide={() => setGuideOpen(true)}
             onDefaultsChanged={(provider, teacher) => {
               setNewConversationProvider(provider);
               setNewConversationTeacher(teacher);
@@ -394,6 +398,7 @@ export default function AppShell() {
         {view === "browser-agent" && <BrowserAgentView />}
         {view === "skills" && <SkillsView />}
       </main>
+      {guideOpen && <WelcomeGuide onClose={(settings) => { setGuideOpen(false); if (settings) { setView('settings'); setSidebarOpen(false); } }} />}
     </div>
   );
 }

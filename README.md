@@ -1,4 +1,4 @@
-> Versão 0.1.19: memória central pública revisada, sincronização a cada 6 horas e compartilhamento de cópias aprovadas pelo usuário. [Notas da versão](docs/RELEASE_0.1.19.md) · [Memória central](docs/MEMORIA_CENTRAL.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
+> Vers?o 0.1.20: guia de boas-vindas na primeira abertura, instru??es de uso e conex?o com Codex/Claude. [Notas da vers?o](docs/RELEASE_0.1.20.md) ? [Mem?ria central](docs/MEMORIA_CENTRAL.md) ? [Execu??o econ?mica](docs/EXECUCAO_ECONOMICA.md).
 
 # Harness Aurora
 
@@ -12,7 +12,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.19.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.20.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 

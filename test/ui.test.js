@@ -13,6 +13,7 @@ process.env.CLAUDE_BIN = join(temp, "missing-claude.exe");
 process.env.LOCAL_BASE_URL = "http://127.0.0.1:1";
 const { createServer } = await import("../app/server.js");
 const { createConversation, addMessage, setSetting, createMemory } = await import("../app/store.js");
+await setSetting('onboarding_completed', 'true');
 const executable = process.env.CHROMIUM_EXECUTABLE_PATH || (process.platform === "win32" && existsSync("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe") ? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" : chromium.executablePath());
 const skip = !existsSync(executable) || !existsSync(new URL("../frontend/dist/index.html", import.meta.url)) ? "Build do frontend e Chromium necessários para teste de UI." : false;
 

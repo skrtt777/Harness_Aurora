@@ -21,6 +21,9 @@ const desktop = await electron.launch({ executablePath, args: executablePath ? [
 try {
   const page = await desktop.firstWindow();
   await page.locator(".app-shell").waitFor();
+  await page.getByRole('dialog').waitFor();
+  await page.getByRole('button', { name: 'Ver depois', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
   assert.equal(await page.evaluate(() => typeof window.harness?.openExternal), "function");
   await desktop.evaluate(({ shell, dialog }, folder) => {
     shell.openExternal = async url => { globalThis.__smokeOpenedUrl = url; };
@@ -65,12 +68,14 @@ try {
 
 const restarted = await electron.launch({ executablePath, args: executablePath ? [] : [root], cwd: root, env, timeout: 30000 });
 try {
-  await (await restarted.firstWindow()).locator(".app-shell").waitFor();
+  const restartedPage = await restarted.firstWindow();
+  await restartedPage.locator('.conversation-workspace').waitFor();
+  assert.equal(await restartedPage.getByRole('dialog').count(), 0);
   const persisted = await restarted.evaluate(async ({ app }) => {
     const require = process.getBuiltinModule("node:module").createRequire(app.getAppPath() + "/package.json");
     const store = require(app.getAppPath() + "/app/store.js");
     return (await store.listProjects()).some(p => p.name === "Persisted smoke project");
   });
   assert.equal(persisted, true);
-  console.log("Restart persistence: OK");
+  console.log("Restart persistence and first-run guide: OK");
 } finally { await restarted.close(); }

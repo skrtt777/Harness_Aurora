@@ -27,7 +27,9 @@ const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude
  */
 export default function SettingsView({
   onDefaultsChanged,
+  onOpenGuide,
 }: {
+  onOpenGuide?: () => void;
   /** Mantém o seletor rápido da sidebar (próxima conversa) sincronizado sem esperar um recarregamento. */
   onDefaultsChanged?: (provider: string, teacher: string) => void;
 }) {
@@ -141,6 +143,11 @@ export default function SettingsView({
       </div>
 
       <div className="settings-body">
+        <div className="settings-card">
+          <h2>Primeiros passos</h2>
+          <p className="settings-hint">Como usar a Aurora, conectar Codex ou Claude e aproveitar suas memórias.</p>
+          <button onClick={onOpenGuide}>Abrir guia de boas-vindas</button>
+        </div>
         {error && <p role="alert" className="memory-form-error">{error}</p>}
         <div className="settings-card">
           <h2>Provedores</h2>

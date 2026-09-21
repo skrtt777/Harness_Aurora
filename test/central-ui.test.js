@@ -11,11 +11,12 @@ process.env.LOCAL_BASE_URL='http://127.0.0.1:1';
 process.env.CODEX_BIN=join(tmpdir(),'missing-central-codex.exe');
 process.env.CLAUDE_BIN=join(tmpdir(),'missing-central-claude.exe');
 const {createServer}=await import('../app/server.js');
-const {createMemory}=await import('../app/store.js');
+const {createMemory,setSetting}=await import('../app/store.js');
 const {centralStatus,pullCentral}=await import('../app/centralMemory.js');
 const executable=process.env.CHROMIUM_EXECUTABLE_PATH||(process.platform==='win32'&&existsSync('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':chromium.executablePath());
 const skip=!existsSync(executable)||!existsSync(new URL('../frontend/dist/index.html',import.meta.url));
 test('central UI reviews exact public copies, revokes pending sends and keeps responsive private and central layers',{skip,timeout:30000},async()=>{
+  await setSetting('onboarding_completed','true');
   await createMemory({title:'Conhecimento pessoal para revisar',content:'Use um botão nativo para reiniciar o contador.',tags:['contador']});
   await pullCentral({download:u=>readFile(new URL('../central-memories/'+u.split('/').at(-1),import.meta.url),'utf8')});
   const server=createServer({allowDev:false,centralSync:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));

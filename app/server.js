@@ -398,11 +398,16 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           communityManifestUrl: await resolveCommunityManifestUrl(process.env),
           communityManifestUrlIsDefault: !communityManifestUrl && !process.env.COMMUNITY_MANIFEST_URL,
           sandboxDir: sandboxDir || "",
+          onboardingCompleted: (await getSetting("onboarding_completed")) === "true",
         });
       }
       if (method === "PUT" && pathname === "/api/settings") {
         const body = await readJson(request);
         const values = {};
+        if (body.onboardingCompleted !== undefined) {
+          if (typeof body.onboardingCompleted !== "boolean") throw httpError(400, "Estado do guia inválido.");
+          values.onboarding_completed = String(body.onboardingCompleted);
+        }
         if (body.defaultProvider !== undefined) {
           if (!KNOWN_PROVIDERS.includes(body.defaultProvider)) throw httpError(400, "Provedor padrão inválido.");
           values.default_provider = body.defaultProvider;
@@ -438,7 +443,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           resolveCommunityManifestUrl(process.env),
           getSetting("sandbox_dir"),
         ]);
-        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir: sandboxDir || "" });
+        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir: sandboxDir || "", onboardingCompleted: (await getSetting("onboarding_completed")) === "true" });
       }
 
       // ---------- Local (Ollama) setup: makes the local model "just work" ----------
