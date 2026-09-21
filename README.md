@@ -1,4 +1,4 @@
-> Vers?o 0.1.20: guia de boas-vindas na primeira abertura, instru??es de uso e conex?o com Codex/Claude. [Notas da vers?o](docs/RELEASE_0.1.20.md) ? [Mem?ria central](docs/MEMORIA_CENTRAL.md) ? [Execu??o econ?mica](docs/EXECUCAO_ECONOMICA.md).
+> Vers?o 0.1.21: cat?logo Qwen3 ou superior e novo padr?o Qwen3.5 4B. [Notas da vers?o](docs/RELEASE_0.1.21.md) ? [Plano para PCs de 16 GB e SSD](docs/LOCAL_16GB.md) ? [Mem?ria central](docs/MEMORIA_CENTRAL.md).
 
 # Harness Aurora
 
@@ -12,11 +12,11 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.20.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.21.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 
-**Para usar IA local:** escolha o provedor **Local**. Na primeira utilização, o assistente de configuração instala/inicia o [Ollama](https://ollama.com) e baixa o modelo padrão `qwen2.5-coder:1.5b`. Essa preparação precisa de internet; os pesos não estão dentro do instalador. Depois do download, a inferência local funciona sem serviços de IA externos. O tempo de resposta depende do hardware.
+**Para usar IA local:** escolha o provedor **Local**. Na primeira utilização, o assistente de configuração instala/inicia o [Ollama](https://ollama.com) e baixa o modelo padrão `qwen3.5:4b`. Essa preparação precisa de internet; os pesos não estão dentro do instalador. Depois do download, a inferência local funciona sem serviços de IA externos. O tempo de resposta depende do hardware.
 
 **Codex e Claude são opcionais:** para usar esses provedores ou a correção por professor, instale e autentique o CLI correspondente na sua máquina. O aplicativo não inclui contas, assinaturas ou sessões autenticadas. O uso desses serviços segue as condições da sua conta.
 
@@ -73,7 +73,7 @@ Conversas aparecem na barra lateral, agrupadas por **projeto** (opcional) ou sol
 
 Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor na barra lateral, acima do "+ Nova conversa"). Codex e Claude seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
 
-O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen2.5-coder:1.5b`) — de graça, offline, sem gastar chamada de Codex/Claude. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
+O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen3.5:4b`) — de graça, offline, sem gastar chamada de Codex/Claude. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
 
 - Ao criar uma conversa **Local**, você também escolhe um **Professor** (Codex ou Claude), guardado em `conversations.teacherProvider`.
 - Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.

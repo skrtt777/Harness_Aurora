@@ -187,7 +187,7 @@ export default function SettingsView({
               ? `Pronto — usando "${localStatus.model}".`
               : "Ainda preparando ou não configurado — abra uma conversa Local para configurar automaticamente."}
           </p>
-          <p className="settings-hint">O modo automático usa a versão local estável. Versões treinadas só entram após aprovação nos testes.</p>
+          <p className="settings-hint">O padrão agora é Qwen3.5 4B. Seleções antigas de Qwen2 e dos experimentos Aurora 1,5B passam a usar esse padrão, sem apagar os arquivos antigos. Versões treinadas só entram após aprovação nos testes.</p>
           <button disabled={pullingModel || localStatus?.selection==='automatic'} onClick={()=>void pickModel('auto')}>Usar seleção automática</button>
           {pullingModel && <p className="settings-hint">Trocando modelo… ({modelStage})</p>}
           <details><summary>Escolha manual avançada</summary>

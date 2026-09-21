@@ -206,7 +206,7 @@ test("real UI: navigation races, drafts, errors, settings and opaque executable 
 
     await page.getByRole("button", { name: /Configurações/ }).click();
     await page.getByText('Escolha manual avançada', {exact:true}).click();
-    const custom = page.getByPlaceholder("ou nome de outro modelo do Ollama…");
+    const custom = page.getByRole('textbox', { name: 'Modelo avançado do Ollama', exact: true });
     await custom.fill("qwen:custom-test"); assert.equal(await custom.inputValue(), "qwen:custom-test");
 
     const html = `<html><body><script>(async()=>{let parentReadable=false,apiReadable=false,bridge=false;try{parentReadable=Boolean(parent.document.body)}catch{}try{bridge=Boolean(parent.harness)}catch{}try{const r=await fetch('/api/projects');apiReadable=r.ok}catch{}document.body.textContent=JSON.stringify({parentReadable,apiReadable,bridge});})();</script></body></html>`;

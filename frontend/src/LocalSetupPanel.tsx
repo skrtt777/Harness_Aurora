@@ -155,8 +155,9 @@ export function ModelPicker({
 }) {
   return (
     <div className="model-picker">
+      <p className="settings-hint">Catálogo Qwen3 ou superior. Os tamanhos indicam download, não consumo total de memória. RAM sugerida é uma estimativa; contexto, outros aplicativos e GPU influenciam. Para menos memória, comece pelo 0,8B ou 2B.</p>
       {models.map((m) => (
-        <button disabled={disabled} key={m.id} onClick={() => onPick(m.id)} title={`Recomendado: ${m.recommendedRamGb} GB de RAM`}>
+        <button disabled={disabled} key={m.id} onClick={() => onPick(m.id)} title={`Estimativa inicial: computador com ${m.recommendedRamGb} GB de RAM; desempenho ainda depende do hardware`}>
           {m.label} <small>{m.size}</small>
         </button>
       ))}
@@ -168,7 +169,8 @@ export function ModelPicker({
       >
         <input
           disabled={disabled}
-          placeholder="ou nome de outro modelo do Ollama…"
+          placeholder="Modelo avançado do Ollama (ex.: qwen3.5:4b)…"
+          aria-label="Modelo avançado do Ollama"
           value={customModel}
           onChange={(e) => setCustomModel(e.target.value)}
         />

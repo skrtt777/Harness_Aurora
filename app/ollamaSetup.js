@@ -12,18 +12,24 @@ import {automaticLocalModel} from './localModelRelease.js';
 // exists before the app is useful. Power users can override via LOCAL_MODEL
 // (wins over everything, for packaging/dev) or by picking one of
 // CURATED_MODELS in the UI, which is stored via setSetting/local_model.
-export const DEFAULT_LOCAL_MODEL = "qwen2.5-coder:1.5b";
+export const DEFAULT_LOCAL_MODEL = "qwen3.5:4b";
 
 // Shown as a "trocar modelo" picker for users who want a stronger model and
 // know they have the RAM for it. Sizes are the approximate download size of
-// the quantized weights Ollama pulls, not RAM usage (roughly the same order
-// of magnitude for these).
+// the quantized weights Ollama pulls, not RAM usage. RAM figures are initial
+// planning targets, not measured compatibility guarantees on those machines.
 export const CURATED_MODELS = [
-  { id: "qwen2.5-coder:1.5b", label: "Padrão — leve e rápido", size: "~1 GB", recommendedRamGb: 4 },
-  { id: "llama3.2:3b", label: "Equilibrado", size: "~2 GB", recommendedRamGb: 8 },
-  { id: "qwen2.5-coder:7b", label: "Mais forte — melhor em código", size: "~4.7 GB", recommendedRamGb: 16 },
-  { id: "llama3.1:8b", label: "Mais forte — uso geral", size: "~4.7 GB", recommendedRamGb: 16 },
+  { id: "qwen3.5:0.8b", label: "Qwen3.5 0,8B — mínimo", size: "~1 GB", recommendedRamGb: 8 },
+  { id: "qwen3.5:2b", label: "Qwen3.5 2B — leve", size: "~2.7 GB", recommendedRamGb: 8 },
+  { id: "qwen3.5:4b", label: "Qwen3.5 4B — padrão", size: "~3.4 GB", recommendedRamGb: 16 },
+  { id: "qwen3.5:9b", label: "Qwen3.5 9B — mais memória", size: "~6.6 GB", recommendedRamGb: 16 },
+  { id: "qwen3-coder:30b", label: "Qwen3-Coder 30B — avançado", size: "~19 GB", recommendedRamGb: 32 },
 ];
+
+export function isRetiredLocalModel(model) {
+  const name = String(model || '').toLowerCase().split('/').at(-1);
+  return /^qwen(?:1|2)(?:[.:-]|$)/.test(name) || /^aurora-(?:local|control):1\.5b-v[12](?:-|$)/.test(name);
+}
 
 function defaultBaseUrl(env) {
   return env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
@@ -38,13 +44,15 @@ function defaultBaseUrl(env) {
 export async function resolveLocalModel(env = process.env) {
   if (env.LOCAL_MODEL) return env.LOCAL_MODEL;
   const stored = await getSetting("local_model");
-  if(stored && stored!=='auto')return stored;
-  return await automaticLocalModel(env) || DEFAULT_LOCAL_MODEL;
+  if(stored && stored!=='auto')return isRetiredLocalModel(stored) ? DEFAULT_LOCAL_MODEL : stored;
+  const approved = await automaticLocalModel(env);
+  return approved && !isRetiredLocalModel(approved) ? approved : DEFAULT_LOCAL_MODEL;
 }
 
 export async function setLocalModel(model) {
   const trimmed = String(model || "").trim();
   if (!trimmed) throw new Error("Informe o nome do modelo.");
+  if (isRetiredLocalModel(trimmed)) throw new Error("Qwen1/Qwen2 e os experimentos Aurora 1,5B foram retirados. Escolha Qwen3 ou superior.");
   await setSetting("local_model", trimmed);
   return trimmed;
 }

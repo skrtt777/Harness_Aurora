@@ -34,7 +34,9 @@ export async function runLocal(prompt, env = process.env, externalSignal) {
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, prompt, stream: false, ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
+      body: JSON.stringify({ model, prompt, stream: false,
+        ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
+        ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
         num_ctx: Math.min(32768, Math.max(2048, Number(env.LOCAL_CONTEXT_TOKENS) || 8192)),
         num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
         ...(env.LOCAL_SEED !== undefined && Number.isInteger(Number(env.LOCAL_SEED)) ? {seed:Number(env.LOCAL_SEED)} : {}),
