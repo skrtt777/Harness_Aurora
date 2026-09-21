@@ -1,0 +1,10 @@
+import {createServer} from 'node:http';
+import {readFile} from 'node:fs/promises';
+import {join,resolve,sep,extname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const id=process.argv[2]||'memory-ab-2026-09-20';
+if(!/^[a-z0-9-]+$/.test(id))throw Error('Invalid experiment ID');
+const root=resolve(fileURLToPath(new URL('../../reports/',import.meta.url)),id);
+const types={'.html':'text/html; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.txt':'text/plain; charset=utf-8','.md':'text/plain; charset=utf-8','.csv':'text/csv; charset=utf-8'};
+const server=createServer(async(req,res)=>{try{if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);return res.end();}const path=decodeURIComponent(new URL(req.url,'http://127.0.0.1').pathname);const file=resolve(join(root,path==='/'?'dashboard.html':path.replace(/^\//,'')));if(!file.startsWith(root+sep)||!types[extname(file)]){res.writeHead(404);return res.end();}const body=await readFile(file);const headers={'content-type':types[extname(file)],'cache-control':'no-store','x-content-type-options':'nosniff'};if(file.includes(sep+'runs'+sep)&&extname(file)==='.html')headers['content-disposition']='attachment';res.writeHead(200,headers);res.end(req.method==='HEAD'?undefined:body);}catch{res.writeHead(404);res.end();}});
+server.listen(Number(process.env.BENCHMARK_PORT)||8790,'127.0.0.1',()=>console.log('Aurora benchmark: http://127.0.0.1:'+server.address().port));

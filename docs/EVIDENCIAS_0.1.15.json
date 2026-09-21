@@ -1,0 +1,43 @@
+{
+  "version": "0.1.15",
+  "date": "2026-09-20",
+  "checks": {
+    "backend_and_browser_tests": 190,
+    "frontend_memory_tests": 6,
+    "failures": 0,
+    "frontend_build": "passed"
+  },
+  "browser_manual": {
+    "viewport_desktop": "1440x900",
+    "viewport_mobile": "390x844",
+    "horizontal_overflow": false,
+    "html_preview_counter": [
+      "0",
+      "2",
+      "0"
+    ],
+    "source_view": "passed",
+    "download": "arquivo.html",
+    "new_response_auto_opens_panel": true,
+    "draft_clears_immediately": true,
+    "previous_versions_preserved": true
+  },
+  "local_model_correction": {
+    "model": "qwen2.5-coder:1.5b",
+    "requested": "Alterar soma de 1 para 2, preservar zerar",
+    "observed": "Botão Somar 2 produziu 2; zerar produziu 0",
+    "teacher_calls": 0
+  },
+  "scope": "Testado em banco de prévia separado; instalação anterior preservada.",
+  "screenshots": [
+    "app/data/chat-clean-welcome.png",
+    "app/data/chat-clean-artifacts.png",
+    "app/data/chat-clean-mobile.png"
+  ],
+  "package": {
+    "installer": "release/Harness Aurora Setup 0.1.15.exe",
+    "sha256": "FB34190CCFBEEEB6151E5A3C9CABF374EF629FACE57DD331A68D6A1C80FFC85A",
+    "size_bytes": 130219864,
+    "desktop_smoke": "Application started on port 8789 using isolated profile; health version and authenticated artifacts API passed; test app then stopped."
+  }
+}

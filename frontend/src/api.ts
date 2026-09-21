@@ -31,6 +31,18 @@ export type ChatMessage = {
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
 
+export type Artifact = {
+  id: string; messageId: string; name: string; language: string; previewable: boolean;
+  relativePath: string; createdAt: string; start: number; end: number;
+};
+export type OpenArtifact = Artifact & { content: string; filePath: string };
+export async function getArtifacts(conversationId: string): Promise<Artifact[]> {
+  return (await request<{ artifacts: Artifact[] }>(`/conversations/${conversationId}/artifacts`)).artifacts;
+}
+export function openArtifact(conversationId: string, id: string): Promise<OpenArtifact> {
+  return request(`/conversations/${conversationId}/artifacts/${id}/open`, { method: 'POST' });
+}
+
 export type MemoryScope = "global" | "project" | "conversation";
 export type MemoryKind = "manual" | "extracted" | "imported";
 export type MemoryRelationType = "belonging" | "thematic" | "derivation" | "correction";
@@ -196,6 +208,7 @@ export const updateSettings = (
 
 // ---------- Local model (Ollama) setup ----------
 export type LocalStatus = {
+  selection?: 'automatic' | 'manual' | 'environment';
   installed: boolean;
   running: boolean;
   modelReady: boolean;
@@ -227,6 +240,8 @@ export type LocalSetupEvent = {
 };
 
 export const getLocalStatus = () => request<LocalStatus>("/local/status");
+export type ModelExperiment = {model:string;baseModel:string;training:{trainableParameters:number;examples:number;seconds:number;changedTensors:number};decision:{passed:boolean;reason:string;gainPoints:number;tokenRatio:number;checks:{name:string;passed:boolean}[];baseline:{passed:number;total:number;tokens:number};candidate:{passed:number;total:number;tokens:number}};limitations:string[]};
+export const getModelExperiment = () => request<{experiment:ModelExperiment|null}>("/local/training").then(r=>r.experiment);
 export const getLocalModels = () => request<{ models: LocalModelOption[] }>("/local/models").then((r) => r.models);
 export const setLocalModel = (model: string) =>
   request<{ model: string }>("/local/model", { method: "PUT", body: JSON.stringify({ model }) });
@@ -348,3 +363,37 @@ export const getCommunityManifest = () =>
 export const getCommunityBundle = (file: string) => request<MemoryExportEnvelope>(`/community/bundles/${file}`);
 
 export const importMemories = (envelope: unknown) => request<{ imported: number; skipped: number; relationsCreated: number }>("/memories/import", { method: "POST", body: JSON.stringify(envelope) });
+
+
+export type SkillInfo = { id:string; name:string; description:string; source:string; enabled:boolean; hash:string; estimatedTokens:number;compatibility?:{status:string;reasons:string[]} };
+export type WorkflowStep = {id:number;title:string;instruction:string;acceptance:string;format:string;dependsOn:number[];status:string;attempts:number;artifact:string;artifactHash:string;evidence:string[];testsSource?:string;validation?:{status:string;limitation?:string;functional?:{passedCases:string[];totalCases:number}}};
+export type Workflow = {id:string;conversationId:string;goal:string;status:string;error?:string;acceptanceHash:string;teacherNotes?:string;teacherError?:string;steps:WorkflowStep[];budget:{maxCalls:number;maxTokens:number;maxDurationMs:number};stats:{localCalls:number;teacherCalls:number;inputTokens:number;outputTokens:number;estimatedTokens:number;elapsedMs:number;reuses:number}};
+export const listSkills=()=>request<{skills:SkillInfo[]}>('/skills').then(r=>r.skills);
+export const readSkill=(id:string)=>request<SkillInfo & {body:string;text:string;resources:string[]}>('/skills/'+encodeURIComponent(id));
+export const importSkill=(data:{content?:string;hermesPath?:string;skillId?:string})=>request<SkillInfo>('/skills/import',{method:'POST',body:JSON.stringify(data)});
+export const enableSkill=(id:string,enabled:boolean)=>request('/skills/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({enabled})});
+export const getHermesSkills=()=>request<{revision:string;skills:{name:string;path:string}[]}>('/skills/hermes');
+export const getRuntimePolicy=()=>request<{rules:Record<string,string>}>('/runtime-policy');
+export const listWorkflows=(id:string)=>request<{workflows:Workflow[]}>('/conversations/'+id+'/workflows').then(r=>r.workflows);
+export const createWorkflow=(id:string,goal:string,budget:Record<string,number>,baseWorkflowId?:string,functionalContracts?:unknown,knowledgeMode='none')=>request<Workflow>('/conversations/'+id+'/workflows',{method:'POST',body:JSON.stringify({goal,budget,baseWorkflowId,functionalContracts,knowledgeMode})});
+export const getWorkflow=(id:string)=>request<Workflow>('/workflows/'+id);
+export const runWorkflow=(id:string)=>request('/workflows/'+id+'/run',{method:'POST'});
+export const cancelWorkflow=(id:string)=>request('/workflows/'+id+'/cancel',{method:'POST'});
+export const reviewWorkflow=(id:string,data:{accepted:boolean;note:string;stepId?:number;artifactHash:string})=>request<Workflow>('/workflows/'+id+'/review',{method:'POST',body:JSON.stringify(data)});
+
+export const teachWorkflow=(id:string)=>request<Workflow>('/workflows/'+id+'/teach',{method:'POST'});
+
+export const readSkillResource=(id:string,resource:string)=>request<{text:string}>('/skills/'+encodeURIComponent(id)+'?resource='+encodeURIComponent(resource));
+
+export const recheckWorkflow=(id:string,stepId:number)=>request<Workflow>('/workflows/'+id+'/recheck',{method:'POST',body:JSON.stringify({stepId})});
+
+export type SkillCatalogResult={meta:{total:number;generatedAt:string;syncedAt:string}|null;total:number;page:number;limit:number;sources:{source:string;count:number}[];skills:{id:string;name:string;description:string;source:string;identifier:string;importable:boolean}[]};
+export const searchSkillCatalog=(q='',source='',page=0)=>request<SkillCatalogResult>('/skills/catalog?'+new URLSearchParams({q,source,page:String(page)}));
+export const syncSkillCatalog=()=>request('/skills/catalog/sync',{method:'POST'});
+export const importCatalogSkill=(id:string)=>request<SkillInfo>('/skills/catalog/'+id+'/import',{method:'POST'});
+export type EngineKnowledge={id:string;status:string;title:string;goal:string;old:string;fixed:string;evidence:{checks:number;workflowId:string}[];scope:{projectId?:string;conversationId?:string}};
+export type EngineMetrics={attempted:number;passedContracts:number;humanAccepted:number;measuredTokens:number;estimatedTokens:number;tokensPerPassed:number|null;elapsedMs:number;references:number;reuses:number};
+export type EngineEvaluation={id:string;model:string;seeds:number[];taskCount:number;scope:string;arms:{name:string;runs:number;passed:number;tokens:number;elapsedMs:number;calls:number;repairCalls:number;completeUsage:boolean}[]};
+export const getEngineSummary=()=>request<{version:string;knowledge:EngineKnowledge[];metrics:EngineMetrics}>('/engine/summary');
+export const getEngineEvaluation=()=>request<{evaluation:EngineEvaluation|null}>('/engine/evaluation').then(r=>r.evaluation);
+export const reviewEngineKnowledge=(id:string,accepted:boolean)=>request('/engine/knowledge/'+id+'/review',{method:'POST',body:JSON.stringify({accepted})});

@@ -1,0 +1,17 @@
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {resolve,join} from 'node:path';
+import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
+const mode=process.argv[2];if(!['control','candidate'].includes(mode))throw Error('Use control or candidate');
+const root=resolve('models/local-training'),run=join(root,'aurora-lora-v1');
+const weights=join(root,mode+'-q4_k_m.gguf');
+const name=mode==='control'?'aurora-control:1.5b-v1':'aurora-local:1.5b-v1';
+const template=JSON.parse(await readFile('reports/model-training-v1/baseline-model.json')).template;
+const license=await readFile(join(root,'base/LICENSE'),'utf8');
+const modelfile=join(root,mode+'.Modelfile');
+await writeFile(modelfile,`FROM "${weights.replaceAll('\\','/')}"\nTEMPLATE """${template}"""\nLICENSE """${license}"""\n`);
+const code=await new Promise((resolve,reject)=>{const child=spawn('ollama',['create',name,'-f',modelfile],{windowsHide:true,stdio:'inherit'});child.on('error',reject);child.on('exit',resolve);});
+if(code!==0)throw Error('Model import failed '+code);
+const tags=await fetch('http://127.0.0.1:11434/api/tags').then(r=>r.json());const model=tags.models.find(m=>m.name===name);if(!model)throw Error('Imported model missing');
+await writeFile(join(root,mode+'-registration.json'),JSON.stringify({createdAt:new Date().toISOString(),mode,weights,model,templateHash:createHash('sha256').update(template).digest('hex')},null,2));
+console.log(JSON.stringify(model));

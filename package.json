@@ -1,14 +1,14 @@
 {
   "name": "ai-harness",
   "productName": "Harness Aurora",
-  "version": "0.1.13",
+  "version": "0.1.17",
   "private": true,
   "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
     "start": "node app/server.js",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
     "check": "node --check app/server.js",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
@@ -32,10 +32,14 @@
       "!app/data/**",
       "electron/**/*",
       "frontend/dist/**/*",
+      "reports/engine-evaluation-latest.json",
       "package.json"
     ],
     "icon": "electron/icon.png",
-    "asarUnpack": ["app/ocrWorker.mjs", "node_modules/**/*"],
+    "asarUnpack": [
+      "app/ocrWorker.mjs",
+      "node_modules/**/*"
+    ],
     "win": {
       "target": "nsis"
     },
@@ -59,7 +63,8 @@
     "eslint-scope": "^9.1.2",
     "globals": "^17.12.0",
     "playwright": "^1.63.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

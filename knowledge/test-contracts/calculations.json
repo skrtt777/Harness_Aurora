@@ -1,0 +1,127 @@
+[
+  {
+    "step": 0,
+    "contract": {
+      "version": 1,
+      "cases": [
+        {
+          "id": "total",
+          "name": "Totais e margem sobre receita",
+          "actions": [
+            {
+              "op": "assertNumber",
+              "selector": "#revenue",
+              "expected": 350,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#cost",
+              "expected": 220,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#profit",
+              "expected": 130,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#margin",
+              "expected": 37.14,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            }
+          ]
+        },
+        {
+          "id": "region",
+          "name": "Recalcular com filtro e restaurar",
+          "actions": [
+            {
+              "op": "select",
+              "selector": "#region",
+              "value": "Sul"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#revenue",
+              "expected": 150,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#cost",
+              "expected": 80,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#profit",
+              "expected": 70,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#margin",
+              "expected": 46.67,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "select",
+              "selector": "#region",
+              "value": "all"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#revenue",
+              "expected": 350,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            }
+          ]
+        },
+        {
+          "id": "empty",
+          "name": "Evitar divisão por zero",
+          "actions": [
+            {
+              "op": "select",
+              "selector": "#region",
+              "value": "Vazio"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#revenue",
+              "expected": 0,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#profit",
+              "expected": 0,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            },
+            {
+              "op": "assertNumber",
+              "selector": "#margin",
+              "expected": 0,
+              "tolerance": 0.01,
+              "locale": "pt-BR"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -1,8 +1,10 @@
+> Versão 0.1.17: interface Aurora, arquivos ao lado do chat, skills sob demanda, execução por etapas e validação funcional. [Notas da versão](docs/RELEASE_0.1.17.md) · [Chat e arquivos](docs/CHAT_E_ARQUIVOS.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
+
 # Harness Aurora
 
 Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos, memória real (não apenas visual) por conversa/projeto/geral, e um atlas de memória em WebGL 3D como aba secundária/experimental. Empacotado como app desktop (Electron) — instala, abre e atualiza como um programa comum, sem terminal.
 
-## Arquitetura atual (2026-09-16)
+## Arquitetura atual
 
 - **Backend** (`app/`): servidor HTTP nativo do Node + **SQLite** via `node:sqlite` (embutido no próprio Node, sem dependência nativa pra compilar) em `app/data/harness.db` (ou em `%APPDATA%\Harness Aurora\` quando rodando pelo app instalado). Persiste projetos, conversas, mensagens e memórias.
 - **Frontend** (`frontend/`): React + Vite. `AppShell.tsx` é a casca principal: `Sidebar.tsx` (projetos/conversas, estilo ChatGPT), `ChatView.tsx` (conversa), `MemoryView.tsx` (aba **Memória**, unificada). `NeuralAtlas.tsx` é o visualizador de grafo de memória, compartilhado entre duas abas via uma prop `variant`: **Atlas 3D (beta)** (`variant="real"`, só memória real, nunca dado sintético) e **Teste** (`variant="test"`, sandbox sintético, nunca toca a memória real) — ver seções próprias abaixo.
@@ -10,11 +12,17 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador (`Harness Aurora Setup.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.17.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 
-**Pré-requisito que continua existindo:** pelo menos um dos dois CLIs instalado e autenticado — [Codex CLI](https://github.com/openai/codex) (`codex login`) e/ou [Claude Code CLI](https://claude.com/claude-code) (`claude` já autenticado). São ferramentas externas, não dá pra embutir a sessão autenticada de outra pessoa dentro do instalador. Se o provedor escolhido pra uma conversa não estiver disponível, o app avisa e o chat não responde até isso ser resolvido; o resto da interface funciona normalmente. Um terceiro provedor, **Local (Ollama)**, é opcional: só aparece disponível se o [Ollama](https://ollama.com) estiver instalado e rodando na própria máquina.
+**Para usar IA local:** escolha o provedor **Local**. Na primeira utilização, o assistente de configuração instala/inicia o [Ollama](https://ollama.com) e baixa o modelo padrão `qwen2.5-coder:1.5b`. Essa preparação precisa de internet; os pesos não estão dentro do instalador. Depois do download, a inferência local funciona sem serviços de IA externos. O tempo de resposta depende do hardware.
+
+**Codex e Claude são opcionais:** para usar esses provedores ou a correção por professor, instale e autentique o CLI correspondente na sua máquina. O aplicativo não inclui contas, assinaturas ou sessões autenticadas. O uso desses serviços segue as condições da sua conta.
+
+Skills externas precisam ser sincronizadas em **Ferramentas → Skills e regras**, importadas para revisão e ativadas individualmente. A biblioteca de jogos autoral está em [knowledge/jogos-v1.json](knowledge/jogos-v1.json), para importação manual na aba Memória. Uma instalação nova começa sem as conversas, memórias pessoais ou resultados de treinamento da máquina de desenvolvimento.
+
+Os modelos Aurora experimentais ainda não superaram os critérios de qualidade e não são distribuídos nem selecionados como padrão. Os resultados estão documentados em [Modelo local v2](docs/MODELO_LOCAL_V2.md).
 
 Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente — o histórico e a memória ficam em `%APPDATA%\Harness Aurora\` e não são apagados pelo desinstalador (apague essa pasta manualmente se quiser começar do zero).
 
@@ -26,10 +34,10 @@ Um atalho de teclado global (funciona com o foco em qualquer outro programa) abr
 
 ## Para desenvolvedor
 
-Requisitos: Node.js 22.5+ (traz `node:sqlite` embutido) e Codex CLI e/ou Claude Code CLI autenticados no terminal. [Ollama](https://ollama.com) é opcional, só necessário para usar o provedor Local.
+Requisitos: Node.js 24 (versão usada na validação), npm e pelo menos um provedor configurado: Ollama para IA local ou CLI autenticado de Codex/Claude.
 
 ```powershell
-npm install
+npm ci
 npm --prefix frontend ci
 ```
 
@@ -71,7 +79,7 @@ O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://olla
 - Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.
 - Essas memórias de ensino são salvas em escopo **projeto** (se a conversa tiver projeto) ou **geral** — de propósito diferente da extração automática normal (que salva na própria conversa): o objetivo é que o modelo local acerte de primeira em **conversas futuras diferentes**, não só na mesma conversa. Validado de ponta a ponta: um erro corrigido numa conversa passou a ser citado em `memoryAccess` e respondido corretamente pelo modelo local numa conversa **nova**, sem precisar de correção de novo.
 - **Conversas locais nunca chamam o professor num turno normal.** A extração automática de memória (que existe para Codex/Claude) é pulada inteiramente quando `provider === "local"` — só o clique em "Corrigir" gasta uma chamada real de Codex/Claude. Isso é de propósito: gastar token em toda mensagem anularia o ganho de usar um modelo local de graça.
-- **O modelo local se revisa sozinho antes de responder** (`app/localRefine.js`, sempre com compute local/grátis, nunca Codex/Claude): quando a resposta parece código, três checagens tentam achar um problema antes do usuário ver a resposta — sintaxe (`node --check`), um heurístico para variáveis `const` reatribuídas, e (`app/jsSandbox.js`) executar o código de verdade num sandbox `node:vm` com um `THREE`/DOM falso e permissivo, que só deixa passar chamadas a classes de addon (`OrbitControls`, `GLTFLoader`, etc.) se a própria resposta importou aquele addon — reproduzindo a fronteira real do Three.js sem modelar a API inteira. Se algum problema for encontrado, o modelo local tenta de novo sozinho (até 2 vezes); depois, uma última chamada revisa a resposta contra as memórias relevantes e qualquer problema ainda pendente, adotando a revisão só se ela continuar sendo código de verdade e não reintroduzir o mesmo problema.
+- **Revisão local econômica:** respostas com HTML passam por análise estática de JavaScript. Erros detectados permitem até duas tentativas locais com o artefato anterior e o diagnóstico; revisão completa sem erro conhecido fica desativada por padrão. A execução por etapas acrescenta evidências persistidas e teste de inicialização do HTML no navegador isolado. Validação funcional permanece distinta de sintaxe e inicialização.
 - **Progresso real e cancelamento**: como esse pipeline pode levar minutos, o indicador de "pensando…" mostra a etapa de verdade ("Gerando resposta…", "Corrigindo um erro encontrado no código…", "Revisando a resposta…"), consultada via `GET /api/conversations/:id/pending`, e um botão "✕ Cancelar" (`POST /api/conversations/:id/cancel`) interrompe a chamada ao Ollama na hora, sem esperar o timeout.
 - **Correções também podem ensinar um esqueleto de código reutilizável**, não só regras em texto: ao usar "Corrigir", o professor pode gravar uma memória marcada como `template` com um boilerplate correto (setup de cena/câmera/loop) para o modelo local adaptar da próxima vez em vez de reescrever tudo do zero — `buildPrompt` renderiza essas memórias como bloco de código à parte das regras normais.
 - **Contador de economia real** ("💰 X% de economia" na barra lateral): calculado a partir das mensagens já salvas, sem contador separado — turno local sem correção = 100% de economia (0 chamadas pagas vs. as 2 que Codex/Claude custariam), turno corrigido = 50% (1 chamada paga, já que a correção inclui a extração de memória).

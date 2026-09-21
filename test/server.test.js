@@ -467,7 +467,7 @@ test("refineLocalAnswer rejects a self-review revision that reintroduces a probl
   await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
   try {
     const clean = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nlet score = 0;\nscore++;\n</script>\n```" };
-    const refined = await refineLocalAnswer({
+    const refined = await refineLocalAnswer({ selfReview: true,
       task: "crie um jogo",
       result: clean,
       memories: [{ title: "Regra", content: "Seja conciso.", tags: [] }],
@@ -500,7 +500,7 @@ test("refineLocalAnswer runs a self-review pass against relevant memories and ad
       status: 200,
       text: "```html\n<script type=\"module\">\nconst cor = 0xff0000;\n</script>\n```",
     };
-    const refined = await refineLocalAnswer({
+    const refined = await refineLocalAnswer({ selfReview: true,
       task: "crie um cubo azul",
       result: initial,
       memories: [{ title: "Cor pedida", content: "Use exatamente a cor pedida pelo usuário.", tags: [] }],
@@ -530,7 +530,7 @@ test("refineLocalAnswer discards a self-review reply that dropped the code (keep
       status: 200,
       text: "```html\n<script type=\"module\">\nconst x = 1;\n</script>\n```",
     };
-    const refined = await refineLocalAnswer({
+    const refined = await refineLocalAnswer({ selfReview: true,
       task: "crie um jogo",
       result: initial,
       memories: [{ title: "Regra", content: "Seja conciso.", tags: [] }],
@@ -565,7 +565,7 @@ test("refineLocalAnswer gives a persistent problem one more free self-review cha
   await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
   try {
     const broken = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" };
-    const refined = await refineLocalAnswer({
+    const refined = await refineLocalAnswer({ selfReview: true,
       task: "crie um jogo",
       result: broken,
       memories: [],

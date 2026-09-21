@@ -1,5 +1,7 @@
 import { runLocal } from "./local.js";
-import { runCodeInSandbox, parseJavaScript, constReassignments } from "./jsSandbox.js";
+import { diagnoseLocalArtifact, diagnosticText, artifactFingerprint, applyLocalEdits, repairContext } from "./localDiagnostics.js";
+import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
+import { parseJavaScript, constReassignments } from "./jsSandbox.js";
 
 function looksLikeCode(text) {
   return /<script[^>]*>/i.test(text || "") || /```html/i.test(text || "");
@@ -66,86 +68,57 @@ export function buildSelfReviewPrompt(task, answer, memories, knownProblem = nul
     .join("\n");
 }
 
-/**
- * Refines a local model's answer using only the local model itself (zero
- * extra Codex/Claude cost): a syntax-check-and-retry pass for generated code,
- * then a self-review pass against the same memories that were already in
- * context. Skipped entirely for plain answers that don't look like code, to
- * keep normal chat turns fast.
- */
-async function describeCodeProblems(text) {
-  const js = extractModuleScript(text);
-  if (!js || !js.trim()) return null;
-
-  const syntax = await checkJsModuleSyntax(text);
-  if (syntax.checked && !syntax.valid) {
-    return `Erro de sintaxe JavaScript: ${syntax.error}`;
+// Each retry has a distinct strategy. Never silently replace a better artifact.
+export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage, selfReview = false, call = runLocal }) {
+  const calls=[localCallRecord(result)],events=[];
+  let current=result;
+  const finish=(value=current)=>{
+    const telemetry={...summarizeLocalCalls(calls),events};
+    return {...value,usage:telemetry.completeUsage?telemetry.knownUsage:null,telemetry,diagnostics:diagnoseLocalArtifact(value.text)};
+  };
+  const cancelled=()=>finish({ok:false,status:499,cancelled:true,error:'Mensagem cancelada.'});
+  if(signal?.aborted)return cancelled();
+  if(!result.ok || !looksLikeCode(result.text))return result;
+  let diagnostics=diagnoseLocalArtifact(current.text);
+  let lastFailure='';
+  if(!diagnostics.issues.length&&!selfReview)return result;
+  const seen=new Set([artifactFingerprint(current.text)]);
+  for(let attempt=0;attempt<2 && diagnostics.issues.length;attempt++){
+    if(signal?.aborted)return cancelled();
+    // Complete HTML uses exact, guarded edits. Legacy script-only answers keep
+    // the full-answer protocol, with a more specific second repair request.
+    const edits=/<html[\s>]/i.test(current.text);
+    const protocol=edits
+      ? 'Retorne SOMENTE JSON {"edits":[{"before":"trecho literal único do HTML","after":"trecho corrigido"}]}. No máximo 3 edições. Preserve tudo fora dos trechos. Não repita o HTML inteiro.'
+      : 'Gere a resposta completa novamente em um único bloco HTML, corrigindo o problema.';
+    const prompt=[attempt?'A tentativa anterior não resolveu a falha. Faça uma alteração verificável no alvo indicado.':'Corrija apenas as falhas verificadas a seguir.',lastFailure&&`Tentativa rejeitada: ${lastFailure}`,`Tarefa original:\n${task}`,`Diagnóstico:\n${diagnosticText(diagnostics)}`,`Artefato anterior${edits?' (somente trechos relevantes; restante preservado)':''}:\n${edits?repairContext(current.text,diagnostics):current.text}`,protocol].filter(Boolean).join('\n\n');
+    if(prompt.length>24000){events.push({reason:'context_budget',attempt:attempt+1});break;}
+    onStage?.('Corrigindo um erro encontrado no código…');
+    const retryEnv={...env};delete retryEnv.LOCAL_OUTPUT_SCHEMA;delete retryEnv.LOCAL_OUTPUT_FORMAT;
+    if(edits)retryEnv.LOCAL_OUTPUT_FORMAT='json';
+    const retried=await call(prompt,retryEnv,signal);
+    calls.push(localCallRecord(retried,edits?'repair_edits':'repair_full'));
+    if(!retried.ok){events.push({reason:'call_failed',attempt:attempt+1});break;}
+    if(retried.truncated){events.push({reason:'truncated',attempt:attempt+1});break;}
+    const applied=edits?applyLocalEdits(current.text,retried.text):{ok:looksLikeCode(retried.text),text:retried.text,reason:'not_code'};
+    if(!applied.ok){events.push({reason:applied.reason,attempt:attempt+1});lastFailure=applied.reason+'. Copie before literalmente de um único trecho fornecido e preserve os IDs existentes.';continue;}
+    const fingerprint=artifactFingerprint(applied.text);
+    if(seen.has(fingerprint)){events.push({reason:'no_change',attempt:attempt+1});lastFailure='O artefato ficou idêntico a uma versão já testada e a falha continua.';continue;}
+    seen.add(fingerprint);
+    const next=diagnoseLocalArtifact(applied.text);
+    const originalIssues=new Set(diagnostics.issues.map(i=>i.code+':'+i.target));
+    if(next.issues.some(i=>!originalIssues.has(i.code+':'+i.target))){events.push({reason:'static_regression',attempt:attempt+1});lastFailure=diagnosticText(next);continue;}
+    if(next.issues.length>=diagnostics.issues.length){events.push({reason:'no_diagnostic_progress',attempt:attempt+1});lastFailure='A alteração não eliminou as falhas verificadas: '+diagnosticText(next);continue;}
+    current={...retried,text:applied.text};diagnostics=next;events.push({reason:'static_progress',attempt:attempt+1});
   }
-
-  const offenders = findConstReassignments(js);
-  if (offenders.length > 0) {
-    return `Estas variaveis foram declaradas com "const" mas reatribuidas depois, o que quebra em tempo de execucao com "Assignment to constant variable": ${offenders.join(", ")}. Troque a declaracao dessas variaveis especificas para "let".`;
-  }
-
-  // Static diagnostics only: generated code is never evaluated in Node.
-  const sandbox = runCodeInSandbox(js, text);
-  if (sandbox.checked && sandbox.crashed) {
-    return `A análise estática encontrou um possível erro: ${sandbox.error}`;
-  }
-
-  return null;
-}
-
-// Extra local-only retries beyond the first answer, always free (Ollama),
-// bounded because the same weak model that made a mistake sometimes makes
-// the same class of mistake again on the very next attempt.
-const MAX_FIX_ATTEMPTS = 2;
-
-export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage }) {
-  const cancelled = () => ({ ok: false, status: 499, cancelled: true, error: "Mensagem cancelada." });
-  if (signal?.aborted) return cancelled();
-  if (!result.ok || !looksLikeCode(result.text)) return result;
-
-  let current = result;
-
-  for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS && !signal?.aborted; attempt++) {
-    const problem = await describeCodeProblems(current.text);
-    if (!problem) break;
-    onStage?.(
-      attempt === 0
-        ? "Corrigindo um erro encontrado no código…"
-        : `Corrigindo um erro encontrado no código (tentativa ${attempt + 1})…`,
-    );
-    const retryPrompt = `${task}\n\nSua resposta anterior tinha um problema:\n${problem}\n\nGere a resposta completa novamente (o HTML completo, em um unico bloco de codigo), corrigindo esse problema.`;
-    const retried = await runLocal(retryPrompt, env, signal);
-    if (!retried.ok || !retried.text.trim() || !looksLikeCode(retried.text)) break;
-    current = retried;
-  }
-
-  if (signal?.aborted) return cancelled();
-
-  // The loop above never re-checks the very last retry it produced (it just
-  // ran out of budget after setting `current`) — check once more, for free,
-  // so a lingering problem is at least handed to the self-review pass below
-  // instead of shipping an unverified answer silently.
-  const remainingProblem = await describeCodeProblems(current.text);
-
-  if (memories.length > 0 || remainingProblem) {
-    onStage?.("Revisando a resposta antes de entregar…");
-    const reviewPrompt = buildSelfReviewPrompt(task, current.text, memories, remainingProblem);
-    const reviewed = await runLocal(reviewPrompt, env, signal);
-    // A weak local model sometimes ignores the "repeat the same answer or
-    // give a corrected one" instruction and writes prose *about* the review
-    // instead (e.g. "verifiquei e está tudo certo"), silently discarding the
-    // actual code — or reintroduces exactly the bug the retries above just
-    // fixed while rewriting. Only adopt the revision if it still looks like
-    // code AND doesn't reintroduce a detectable problem; otherwise the
-    // already-checked pre-review answer is safer to keep.
-    if (reviewed.ok && reviewed.text.trim() && looksLikeCode(reviewed.text)) {
-      const reviewedProblem = await describeCodeProblems(reviewed.text);
-      if (!reviewedProblem) current = reviewed;
+  if(signal?.aborted)return cancelled();
+  if(selfReview && (memories.length||diagnostics.issues.length)){
+    const prompt=buildSelfReviewPrompt(task,current.text,memories,diagnosticText(diagnostics)||null);
+    if(prompt.length<=24000){
+      const reviewed=await call(prompt,env,signal);calls.push(localCallRecord(reviewed,'self_review'));
+      if(reviewed.ok&&!reviewed.truncated&&looksLikeCode(reviewed.text)&&!diagnoseLocalArtifact(reviewed.text).issues.length)current=reviewed;
+      else events.push({reason:'review_rejected'});
     }
   }
-
-  return signal?.aborted ? cancelled() : current;
+  return signal?.aborted?cancelled():finish();
 }

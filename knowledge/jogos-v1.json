@@ -1,0 +1,1742 @@
+{
+  "format": "harness-aurora-memories",
+  "version": 1,
+  "pack": "aurora-jogos-v1",
+  "curatedAt": "2026-09-20",
+  "memories": [
+    {
+      "id": "jogos-root",
+      "scope": "global",
+      "title": "Jogos — índice de conhecimento consultável",
+      "content": "Biblioteca inicial de desenvolvimento de jogos: planejamento, arquitetura, movimento, mecânicas, mundo e IA, apresentação, dados, testes e motores. Consulte o tema específico da tarefa; não carregue todas as notas nem confunda orientação com experiência validada. Para um jogo novo, defina objetivo e controles, faça uma versão pequena jogável, teste e evolua. Esta biblioteca não cobre todo o domínio e deve crescer com correções comprovadas.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "desenvolvimento",
+        "game",
+        "gamedev",
+        "criar",
+        "jogo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [],
+      "relationTypes": {}
+    },
+    {
+      "id": "jogos-planejamento",
+      "scope": "global",
+      "title": "Jogos — Planejamento e economia",
+      "content": "Escopo, protótipo, critérios, reutilização e limites do Harness. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "planejamento"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-planejamento-brief",
+      "scope": "global",
+      "title": "Definir o jogo antes de programar",
+      "content": "Quando começar um jogo, registre plataforma, gênero, controles, ação principal, vitória, derrota e formato de entrega. Se faltarem detalhes não essenciais, escolha um protótipo pequeno e declare a escolha. Teste: alguém consegue explicar o que fazer e como ganhar em duas frases. Evite inventar requisitos extensos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "escopo",
+        "requisitos",
+        "genero",
+        "plataforma",
+        "objetivo",
+        "criar",
+        "fazer",
+        "jogo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging"
+      }
+    },
+    {
+      "id": "jogos-planejamento-vertical",
+      "scope": "global",
+      "title": "Protótipo jogável com começo e fim",
+      "content": "Faça primeiro uma fatia jogável: iniciar, executar uma mecânica, receber feedback, ganhar ou perder e reiniciar. Use formas simples enquanto valida a diversão. Teste uma partida completa antes de adicionar fases, loja, skins ou efeitos. Um menu bonito sem ação funcional ainda não é um protótipo jogável.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "prototipo",
+        "vertical",
+        "slice",
+        "mvp",
+        "prioridade"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento",
+        "jogos-qualidade-e2e"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging",
+        "jogos-qualidade-e2e": "thematic"
+      }
+    },
+    {
+      "id": "jogos-planejamento-todo",
+      "scope": "global",
+      "title": "TODO por etapas com testes e dependências",
+      "content": "Divida a entrega em etapas pequenas, cada uma com entrada, saída e teste observável: base, controles, regras, apresentação, empacotamento. Termine e verifique a etapa atual antes de avançar nas dependentes. Registre pendências fora do caminho crítico. Se o teste falhar, corrija a causa e repita o mesmo teste.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "todo",
+        "lista",
+        "tarefas",
+        "etapas",
+        "validacao",
+        "dependencias"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento",
+        "jogos-qualidade-regression"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging",
+        "jogos-qualidade-regression": "thematic"
+      }
+    },
+    {
+      "id": "jogos-planejamento-reuse",
+      "scope": "global",
+      "title": "Reutilizar uma solução sem replanejar tudo",
+      "content": "Antes de gerar um jogo, procure um projeto ou procedimento compatível com gênero, plataforma e requisitos. Reutilize apenas partes adequadas; compare diferenças explicitamente. Mantenha um resumo de decisões e abra somente o código necessário para a mudança. Teste o comportamento alterado e um fluxo anterior. Memória semelhante não comprova que o código funciona.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "economia",
+        "tokens",
+        "cache",
+        "reutilizar",
+        "memoria",
+        "adaptar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento",
+        "jogos-planejamento-learning"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging",
+        "jogos-planejamento-learning": "thematic"
+      }
+    },
+    {
+      "id": "jogos-planejamento-acceptance",
+      "scope": "global",
+      "title": "Transformar pedidos em critérios verificáveis",
+      "content": "Traduza adjetivos em observações: responsivo significa controles e placar visíveis nos tamanhos combinados; reiniciar significa limpar pontos, inimigos e temporizadores. Registre condição inicial, ação e resultado esperado. Teste requisitos separadamente. Não declare aprovado só porque o HTML abriu ou porque o próprio modelo disse estar correto.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "aceite",
+        "requisitos",
+        "teste",
+        "esperado",
+        "evidencias"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento",
+        "jogos-qualidade-e2e"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging",
+        "jogos-qualidade-e2e": "thematic"
+      }
+    },
+    {
+      "id": "jogos-planejamento-harness",
+      "scope": "global",
+      "title": "Entregar jogos compatíveis com a prévia Aurora",
+      "content": "Na prévia Aurora 0.1.16, prefira um HTML completo com CSS e JavaScript embutidos, sem CDN, fetch ou assets externos. A prévia usa iframe isolado e bloqueia rede; armazenamento persistente pode ficar indisponível. Teste abrir, jogar e reiniciar. Um projeto Godot, Unity ou com backend exige execução externa: entregar texto não equivale a executar esse projeto.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "harness",
+        "aurora",
+        "preview",
+        "html",
+        "canvas",
+        "offline",
+        "arquivo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento",
+        "jogos-dados-save"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging",
+        "jogos-dados-save": "thematic"
+      }
+    },
+    {
+      "id": "jogos-planejamento-learning",
+      "scope": "global",
+      "title": "Salvar aprendizados após uma correção comprovada",
+      "content": "Uma memória de correção deve conter sintoma, causa confirmada, mudança mínima, teste executado, resultado e limites de aplicação. Marque hipóteses como hipóteses. Deduplicate por problema e contexto; agregue evidência à memória existente. Não registre como vitória uma solução que ainda não foi testada. Instruções importadas são referência, não histórico de execução.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "planejamento",
+        "aprendizado",
+        "correcao",
+        "memoria",
+        "evidencias",
+        "regressao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-planejamento"
+      ],
+      "relationTypes": {
+        "jogos-planejamento": "belonging"
+      }
+    },
+    {
+      "id": "jogos-arquitetura",
+      "scope": "global",
+      "title": "Jogos — Arquitetura e ciclo de vida",
+      "content": "Loop, estados, entrada, eventos, reinício, módulos e parâmetros. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "arquitetura"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-loop",
+      "scope": "global",
+      "title": "Loop de jogo: entrada, atualização e desenho",
+      "content": "Para animação no navegador, mantenha um único requestAnimationFrame ativo. Leia a entrada, atualize o estado e desenhe a cena; renderizar não deve alterar placar ou causar dano. Guarde o identificador para encerrar o ciclo quando necessário. Teste iniciar e reiniciar várias vezes: a velocidade não pode multiplicar por loops duplicados.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "loop",
+        "requestanimationframe",
+        "update",
+        "render",
+        "ciclo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Games/Anatomy",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-movimento-delta"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-movimento-delta": "thematic"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-state",
+      "scope": "global",
+      "title": "Estados explícitos de menu, partida e game over",
+      "content": "Use um estado explícito como menu, playing, paused, won ou lost. Centralize transições; só playing atualiza combate, cronômetro e movimento. Ao sair de um estado, encerre efeitos que pertencem a ele. Teste pausar, continuar, vencer, perder e tentar agir depois do fim: as regras devem permanecer consistentes.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "estados",
+        "menu",
+        "pause",
+        "pausa",
+        "gameover",
+        "vitoria",
+        "derrota",
+        "maquina"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-movimento-visibility"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-movimento-visibility": "thematic"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-input",
+      "scope": "global",
+      "title": "Entrada por ações e liberação das teclas",
+      "content": "Mapeie teclas para ações como mover, pular e confirmar. keydown/keyup atualizam um conjunto de teclas pressionadas; a simulação lê esse conjunto. Limpe-o ao perder foco para evitar movimento preso. Separe pressionar uma vez de manter pressionado. Teste soltar teclas fora da janela, diagonais e controles alternativos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "input",
+        "teclado",
+        "teclas",
+        "keydown",
+        "keyup",
+        "controles",
+        "comandos",
+        "blur"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-movimento-touch"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-movimento-touch": "thematic"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-reset",
+      "scope": "global",
+      "title": "Reiniciar sem estado antigo nem eventos duplicados",
+      "content": "Crie o estado inicial em uma função e restaure jogador, vida, pontos, entidades, timers, câmera e filas de entrada. Registre listeners uma vez; não os recrie a cada partida. Teste jogar, morrer e reiniciar cinco vezes. O contador deve voltar ao início e um clique deve produzir apenas uma ação.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "reiniciar",
+        "reset",
+        "restart",
+        "listeners",
+        "timers",
+        "pontuacao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-qualidade-regression"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-qualidade-regression": "thematic"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-events",
+      "scope": "global",
+      "title": "Eventos de domínio e dependências claras",
+      "content": "Separe regra de apresentação: um evento de dano atualiza vida e comunica feedback; o desenho apenas representa o estado. Prefira chamadas diretas em protótipos pequenos e eventos quando houver vários consumidores. Remova assinaturas ao destruir cenas. Teste emitir um evento uma vez e conferir que cada consumidor reage uma vez.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "eventos",
+        "acoplamento",
+        "observador",
+        "sinais"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-motores-signals"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-motores-signals": "thematic"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-modules",
+      "scope": "global",
+      "title": "Separar lógica testável de desenho e efeitos",
+      "content": "Mantenha cálculos de colisão, pontuação e vitória independentes de DOM, áudio e renderização. Passe estado e entradas por argumentos; evite variáveis globais espalhadas. Para protótipo HTML, funções bem delimitadas já bastam. Teste regras com dados pequenos sem precisar abrir a cena inteira.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "modulos",
+        "funcoes",
+        "puras",
+        "estado",
+        "renderizacao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging"
+      }
+    },
+    {
+      "id": "jogos-arquitetura-config",
+      "scope": "global",
+      "title": "Parâmetros centralizados para balancear",
+      "content": "Agrupe velocidades, dano, duração, limite de entidades e cores em configuração legível com unidades explícitas. Separe configuração de estado mutável. Evite números mágicos repetidos. Teste um parâmetro por vez e registre a mudança observada; não ajuste simultaneamente dificuldade, controles e recompensa sem medir cada efeito.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "arquitetura",
+        "configuracao",
+        "balanceamento",
+        "constantes",
+        "velocidade",
+        "dano",
+        "dificuldade"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-arquitetura",
+        "jogos-mecanicas-progression"
+      ],
+      "relationTypes": {
+        "jogos-arquitetura": "belonging",
+        "jogos-mecanicas-progression": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento",
+      "scope": "global",
+      "title": "Jogos — Movimento, física e controles",
+      "content": "Tempo, vetores, colisão, salto, toque e foco da janela. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "movimento"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-movimento-delta",
+      "scope": "global",
+      "title": "Movimento independente de FPS com delta time",
+      "content": "Em movimento simples use posição += velocidade * dt, com dt em segundos. Converta timestamps em milissegundos uma única vez. Após pausas longas, limite o salto temporal conforme o projeto ou reinicie a referência de tempo. Teste percorrer a mesma distância simulada em 30, 60 e 120 passos por segundo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "delta",
+        "dt",
+        "tempo",
+        "fps",
+        "velocidade"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Games/Anatomy",
+      "relations": [
+        "jogos-movimento",
+        "jogos-movimento-fixed"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging",
+        "jogos-movimento-fixed": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento-fixed",
+      "scope": "global",
+      "title": "Passo fixo para simulação física estável",
+      "content": "Para física consistente, acumule tempo real e avance em passos fixos; desenhe separadamente, podendo interpolar estados. Limite passos por quadro e escolha uma política explícita para excesso de atraso. Teste travadas temporárias sem espiral de atualizações. Passo fixo ajuda a estabilidade, mas não garante determinismo entre plataformas.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "fisica",
+        "timestep",
+        "passo",
+        "fixo",
+        "acumulador",
+        "interpolacao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://gafferongames.com/post/fix_your_timestep/",
+      "relations": [
+        "jogos-movimento"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging"
+      }
+    },
+    {
+      "id": "jogos-movimento-vectors",
+      "scope": "global",
+      "title": "Vetores, normalização e movimento diagonal",
+      "content": "Represente direção por dx,dy. Se o comprimento for maior que zero, divida ambos por esse comprimento antes de multiplicar pela velocidade desejada. Não normalize o vetor zero. Teste diagonal e movimento horizontal durante o mesmo intervalo: a distância deve ser equivalente quando essa for a regra do jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "vetor",
+        "normalizar",
+        "diagonal",
+        "velocidade",
+        "direcao",
+        "matematica"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-movimento",
+        "jogos-mundo-camera"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging",
+        "jogos-mundo-camera": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento-aabb",
+      "scope": "global",
+      "title": "Colisão AABB entre retângulos",
+      "content": "Para caixas sem rotação, há sobreposição quando os intervalos X e Y se cruzam. Escolha se tocar a borda conta como colisão; use desigualdades coerentes. Detecção não resolve penetração: trate isso separadamente. Teste caixas separadas, sobrepostas, contidas, apenas encostadas e em coordenadas negativas.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "colisao",
+        "collision",
+        "aabb",
+        "retangulo",
+        "sobreposicao",
+        "hitbox"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Games/Techniques/2D_collision_detection",
+      "relations": [
+        "jogos-movimento",
+        "jogos-mecanicas-projectiles"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging",
+        "jogos-mecanicas-projectiles": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento-jump",
+      "scope": "global",
+      "title": "Plataforma: gravidade, pulo e chão",
+      "content": "Integre velocidade vertical com gravidade e só permita pulo conforme a regra de chão ou saltos restantes. Resolva colisões por eixo e detecte pouso vindo de cima. Coyote time e buffer de pulo são melhorias opcionais, com janelas curtas configuráveis. Teste teto, quina, borda, queda e reinício sem pulo infinito.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "plataforma",
+        "gravidade",
+        "pulo",
+        "salto",
+        "grounded",
+        "coyote",
+        "buffer"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-movimento",
+        "jogos-movimento-aabb"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging",
+        "jogos-movimento-aabb": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento-touch",
+      "scope": "global",
+      "title": "Controles de toque com Pointer Events",
+      "content": "Use Pointer Events para unificar mouse e toque. Em arrastes, capture o ponteiro quando apropriado e trate pointerup e pointercancel; converta coordenadas da tela para a área do jogo. Defina touch-action apenas na superfície interativa. Teste soltar fora do botão, dois dedos e redimensionar a tela.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "toque",
+        "mobile",
+        "touch",
+        "pointer",
+        "eventos",
+        "celular",
+        "arrastar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events",
+      "relations": [
+        "jogos-movimento",
+        "jogos-apresentacao-responsive"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging",
+        "jogos-apresentacao-responsive": "thematic"
+      }
+    },
+    {
+      "id": "jogos-movimento-visibility",
+      "scope": "global",
+      "title": "Pausar corretamente quando a aba fica oculta",
+      "content": "Observe visibilitychange e document.hidden para suspender a simulação quando a política do jogo exigir. Ao retomar, descarte o tempo acumulado indevido e limpe entradas antigas. Navegadores podem reduzir callbacks em segundo plano. Teste alternar abas e retornar: o jogador não deve teleportar nem receber vários danos instantâneos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "movimento",
+        "aba",
+        "foco",
+        "visibilitychange",
+        "hidden",
+        "pausa",
+        "retomar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API",
+      "relations": [
+        "jogos-movimento"
+      ],
+      "relationTypes": {
+        "jogos-movimento": "belonging"
+      }
+    },
+    {
+      "id": "jogos-mecanicas",
+      "scope": "global",
+      "title": "Jogos — Mecânicas e gêneros",
+      "content": "Combate, projéteis, pontuação, Pong, Snake, puzzles e progressão. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "mecanicas"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-damage",
+      "scope": "global",
+      "title": "Dano, invulnerabilidade e morte única",
+      "content": "Centralize aplicarDano: rejeite alvos mortos, respeite intervalo de invulnerabilidade e limite vida a zero. Ao morrer, execute a transição uma vez. Controle dano por evento ou tempo, não por cada frame de sobreposição. Teste contato prolongado e dois impactos no mesmo instante sem morte duplicada nem vida negativa.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "dano",
+        "vida",
+        "combate",
+        "invulnerabilidade",
+        "inimigo",
+        "hit"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-arquitetura-state"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-arquitetura-state": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-projectiles",
+      "scope": "global",
+      "title": "Projéteis rápidos e colisão contínua",
+      "content": "Dê ao projétil direção, velocidade, tempo de vida e proprietário. Considere o segmento entre posição anterior e atual para alvos que podem ser atravessados num frame; testar só a posição final pode falhar. Desative ao acertar ou expirar. Teste alvos finos, alta velocidade e tiro sobre o próprio emissor.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "projetil",
+        "tiro",
+        "bala",
+        "tunneling",
+        "atravessar",
+        "colisao",
+        "segmento"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-dados-pool"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-dados-pool": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-score",
+      "scope": "global",
+      "title": "Pontuação, cronômetro e fim de partida",
+      "content": "Atualize pontos no evento correspondente, não no desenho nem repetidamente enquanto houver contato. Mantenha tempo restante em estado e congele após o fim. Defina prioridade para vitória e derrota simultâneas. Teste uma coleta contar uma vez, o tempo chegar a zero e o reinício restaurar o placar.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "placar",
+        "pontuacao",
+        "pontos",
+        "tempo",
+        "cronometro",
+        "vitoria"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-arquitetura-reset"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-arquitetura-reset": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-pong",
+      "scope": "global",
+      "title": "Receita de Pong com rodada completa",
+      "content": "Implemente duas raquetes, bola, paredes superior/inferior, placar e saque. Após rebater, coloque a bola fora da raquete para evitar inversões repetidas. O ponto reinicia a rodada, não cria outro loop. Teste rebote nas quinas, velocidade máxima, ponto para cada lado e reinício da partida.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "pong",
+        "raquete",
+        "bola",
+        "rebater",
+        "saque"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-movimento-aabb"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-movimento-aabb": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-snake",
+      "scope": "global",
+      "title": "Receita de Snake em grade discreta",
+      "content": "Mova uma célula por tick, com corpo como lista de células. Impeça inversão direta, limite mudanças de direção por tick e sorteie comida somente em células livres. Considere que a cauda sai da célula no mesmo tick quando não há crescimento. Teste parede, próprio corpo, última célula livre e vitória ao preencher a grade.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "snake",
+        "cobrinha",
+        "cobra",
+        "grade",
+        "comida",
+        "cauda"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-mundo-spawn"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-mundo-spawn": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-puzzle",
+      "scope": "global",
+      "title": "Puzzle ou jogo da memória com estados consistentes",
+      "content": "Separe embaralhar, revelar, comparar e bloquear ações durante uma resolução. Em pares de cartas, não aceite a mesma carta como duas escolhas; pares resolvidos não voltam a contar. Timers devem ser cancelados ao reiniciar. Teste cliques rápidos, reinício durante uma animação e conclusão sem cartas impossíveis.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "puzzle",
+        "cartas",
+        "memoria",
+        "pares",
+        "tabuleiro",
+        "embaralhar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas",
+        "jogos-arquitetura-state"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging",
+        "jogos-arquitetura-state": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mecanicas-progression",
+      "scope": "global",
+      "title": "Progressão de dificuldade mensurável",
+      "content": "Escolha uma variável de dificuldade por ciclo: quantidade, velocidade, tempo de resposta ou padrão. Defina teto, intervalo mínimo de reação e forma de recuperação. Não aumente tudo simultaneamente. Teste a primeira experiência e a fase mais difícil planejada; crescimento infinito precisa de limites de processamento.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mecanicas",
+        "dificuldade",
+        "progressao",
+        "spawn",
+        "ondas",
+        "balanceamento"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mecanicas"
+      ],
+      "relationTypes": {
+        "jogos-mecanicas": "belonging"
+      }
+    },
+    {
+      "id": "jogos-mundo",
+      "scope": "global",
+      "title": "Jogos — Mundo, câmera e inteligência de inimigos",
+      "content": "Coordenadas, mapas, navegação, estados, geração e checkpoints. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "mundo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-mundo-camera",
+      "scope": "global",
+      "title": "Coordenadas de mundo, câmera e tela",
+      "content": "Mantenha entidades em coordenadas de mundo. Para desenhar, subtraia a posição da câmera e aplique escala; para clicar, use a transformação inversa. Limite a câmera ao mapa quando apropriado. Teste arrastar a câmera sem mudar a colisão e selecionar o mesmo objeto antes e depois do zoom.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "camera",
+        "tela",
+        "viewport",
+        "coordenadas",
+        "zoom"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mundo",
+        "jogos-apresentacao-dpi"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-apresentacao-dpi": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mundo-tiles",
+      "scope": "global",
+      "title": "Tilemaps com camadas visuais e colisão separadas",
+      "content": "Represente o mapa como células e índices de tiles, com tamanho de célula conhecido. Separe decoração de bloqueios e desenhe apenas a região necessária. Converta coordenadas de mundo em índices de grade cuidadosamente. Teste limites do mapa e pisos decorativos que não devem bloquear movimento.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "tilemap",
+        "tile",
+        "mapa",
+        "grade",
+        "camada",
+        "colisao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Games/Techniques/Tilemaps",
+      "relations": [
+        "jogos-mundo",
+        "jogos-mundo-astar"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-mundo-astar": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mundo-astar",
+      "scope": "global",
+      "title": "Navegação A* com custos e heurística coerentes",
+      "content": "Modele células transitáveis como grafo. A* prioriza custo percorrido mais estimativa até o objetivo; a heurística deve respeitar as regras de movimento e custos. Em grade ortogonal uniforme, distância Manhattan é uma escolha usual. Teste destino inacessível, origem igual ao destino e obstáculos; não assuma que sempre existe caminho.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "astar",
+        "a",
+        "estrela",
+        "pathfinding",
+        "caminho",
+        "navegacao",
+        "inimigo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://www.redblobgames.com/pathfinding/a-star/introduction.html",
+      "relations": [
+        "jogos-mundo"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging"
+      }
+    },
+    {
+      "id": "jogos-mundo-enemy",
+      "scope": "global",
+      "title": "Inimigos com patrulha, perseguição e ataque",
+      "content": "Use estados patrulha, alerta, perseguição, ataque e retorno, com condições explícitas de entrada e saída. Separe detectar alvo de causar dano. Evite recalcular caminho a cada frame sem necessidade. Teste perder o alvo, encontrar parede e sair do alcance durante um ataque.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "ia",
+        "inimigo",
+        "patrulha",
+        "perseguir",
+        "atacar",
+        "estados",
+        "npc"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mundo",
+        "jogos-mundo-astar"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-mundo-astar": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mundo-procedural",
+      "scope": "global",
+      "title": "Geração procedural reproduzível e verificável",
+      "content": "Use um gerador com semente quando precisar repetir mapas e bugs. Separe gerar de validar: caminho entre início e objetivo, espaço de spawn, recursos obrigatórios e limites de dificuldade. Limite tentativas e tenha uma opção válida de reserva. Teste um conjunto de sementes e registre as que quebram invariantes.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "procedural",
+        "semente",
+        "seed",
+        "aleatorio",
+        "geracao",
+        "mapa"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mundo",
+        "jogos-qualidade-e2e"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-qualidade-e2e": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mundo-spawn",
+      "scope": "global",
+      "title": "Spawn justo e limites de entidades",
+      "content": "Valide região permitida, distância do jogador, colisões e limite de entidades antes de criar inimigos ou itens. Quando não houver posição válida, adie ou use um fallback explícito; nunca tente infinitamente. Teste mapa lotado, jogador na borda e ondas longas sem acumulação ilimitada.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "spawn",
+        "inimigos",
+        "surgimento",
+        "limite",
+        "entidades",
+        "onda"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mundo",
+        "jogos-dados-profile"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-dados-profile": "thematic"
+      }
+    },
+    {
+      "id": "jogos-mundo-checkpoint",
+      "scope": "global",
+      "title": "Checkpoints e retorno após derrota",
+      "content": "Defina quais dados persistem no checkpoint: fase, posição segura, inventário e objetivos. Ao morrer, restaure esse recorte e recrie estados temporários. Verifique que a posição de retorno não está em dano contínuo ou fora do mapa. Teste morrer repetidamente e retornar após alterar a fase.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "mundo",
+        "checkpoint",
+        "respawn",
+        "fase",
+        "salvar",
+        "reaparecer"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-mundo",
+        "jogos-dados-save"
+      ],
+      "relationTypes": {
+        "jogos-mundo": "belonging",
+        "jogos-dados-save": "thematic"
+      }
+    },
+    {
+      "id": "jogos-apresentacao",
+      "scope": "global",
+      "title": "Jogos — Visual, interface, áudio e acessibilidade",
+      "content": "Legibilidade, sprites, feedback, telas pequenas, DPI e som. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "apresentacao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-visual",
+      "scope": "global",
+      "title": "Hierarquia visual e leitura do jogo",
+      "content": "Diferencie jogador, ameaça, recompensa e fundo por silhueta e contraste, além de cor. Limite estilos e mantenha controles e HUD legíveis durante a ação. Teste em escala pequena e tons de cinza. Melhorar o visual não deve esconder hitboxes importantes nem competir com sinais de perigo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "visual",
+        "design",
+        "contraste",
+        "silhueta",
+        "paleta",
+        "interface",
+        "hud"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-apresentacao",
+        "jogos-apresentacao-accessibility"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging",
+        "jogos-apresentacao-accessibility": "thematic"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-sprites",
+      "scope": "global",
+      "title": "Animação de sprites baseada em tempo",
+      "content": "Separe animação do estado de movimento: cada clipe tem quadros, duração e repetição. Avance por tempo decorrido, não por quantidade de renders. Ao trocar estado, defina se o clipe reinicia. Teste movimento, idle, dano e morte em taxas de atualização diferentes sem saltos de imagem.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "sprite",
+        "animacao",
+        "spritesheet",
+        "quadros",
+        "atlas",
+        "textura"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-apresentacao",
+        "jogos-movimento-delta"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging",
+        "jogos-movimento-delta": "thematic"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-feedback",
+      "scope": "global",
+      "title": "Feedback de ação sem alterar as regras",
+      "content": "Ao acertar, sinalize com animação breve, som ou partículas; esses efeitos não devem decidir dano nem pontuação. Ofereça redução de movimento e limite tremor de câmera. Teste desligar todos os efeitos: a partida deve continuar funcional e os eventos essenciais ainda precisam ser compreensíveis.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "feedback",
+        "particulas",
+        "efeito",
+        "camera",
+        "shake",
+        "impacto"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-apresentacao",
+        "jogos-apresentacao-audio"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging",
+        "jogos-apresentacao-audio": "thematic"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-responsive",
+      "scope": "global",
+      "title": "Layout responsivo de jogo e HUD",
+      "content": "Escolha resolução lógica e regra de adaptação: escala com barras, área expandida ou layout reorganizado. Recalcule área de desenho e coordenadas de entrada ao redimensionar. Proteja placar, botões e mensagens finais. Teste orientação retrato/paisagem e telas pequenas sem esconder ações indispensáveis.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "responsivo",
+        "celular",
+        "viewport",
+        "resize",
+        "proporcao",
+        "hud"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-apresentacao",
+        "jogos-apresentacao-dpi"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging",
+        "jogos-apresentacao-dpi": "thematic"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-dpi",
+      "scope": "global",
+      "title": "Canvas nítido com devicePixelRatio",
+      "content": "Separe tamanho CSS de resolução interna do canvas. Ajuste o buffer pelo devicePixelRatio e a transformação do contexto para desenhar em unidades lógicas. Redefina a transformação ao redimensionar, evitando acumular escala. DPR alto custa mais pixels; pode ser limitado por desempenho. Teste cliques e texto após resize.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "canvas",
+        "dpi",
+        "retina",
+        "borrado",
+        "nitidez",
+        "resolucao",
+        "pixels"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio",
+      "relations": [
+        "jogos-apresentacao"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-audio",
+      "scope": "global",
+      "title": "Áudio iniciado por interação e controle de volume",
+      "content": "Inicialize ou retome AudioContext a partir de uma ação do usuário para lidar com bloqueios de reprodução automática. Centralize volume e mute; evite sons ilimitados sobrepostos. Teste primeira interação, pausa, retorno e jogo sem áudio. Falha ao tocar um som não pode interromper as regras da partida.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "audio",
+        "som",
+        "musica",
+        "audiocontext",
+        "autoplay",
+        "mute",
+        "volume"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Best_practices",
+      "relations": [
+        "jogos-apresentacao"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging"
+      }
+    },
+    {
+      "id": "jogos-apresentacao-accessibility",
+      "scope": "global",
+      "title": "Acessibilidade dos controles e informações",
+      "content": "Permita teclado nas ações essenciais, indique foco visível e descreva controles. Não dependa só de cor ou som para transmitir informação. Ofereça pausa, volume e redução de movimento quando aplicável. Teste navegar sem mouse e distinguir perigo de recompensa sem áudio; não anuncie acessibilidade completa sem avaliação específica.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "apresentacao",
+        "acessibilidade",
+        "teclado",
+        "daltonismo",
+        "foco",
+        "movimento",
+        "legendas"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-apresentacao"
+      ],
+      "relationTypes": {
+        "jogos-apresentacao": "belonging"
+      }
+    },
+    {
+      "id": "jogos-dados",
+      "scope": "global",
+      "title": "Jogos — Dados, desempenho e persistência",
+      "content": "Saves, validação, migração, medição, pooling e limpeza. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "dados"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-dados-save",
+      "scope": "global",
+      "title": "Salvar progresso sem depender do armazenamento",
+      "content": "Para saves pequenos no navegador, serialize apenas dados e trate falhas de acesso ou cota de localStorage. Um iframe de origem opaca pode impedir armazenamento. Tenha comportamento sem persistência e avise quando salvar não for possível. Teste reload, dado ausente e ambiente bloqueado sem travar o jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "save",
+        "salvar",
+        "progresso",
+        "localstorage",
+        "persistencia",
+        "recorde"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage",
+      "relations": [
+        "jogos-dados",
+        "jogos-dados-schema"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging",
+        "jogos-dados-schema": "thematic"
+      }
+    },
+    {
+      "id": "jogos-dados-schema",
+      "scope": "global",
+      "title": "Esquema versionado e recuperação de save inválido",
+      "content": "Inclua versão no save, valide tipos e limites na leitura e migre versões conhecidas explicitamente. Dados inválidos devem gerar recuperação controlada ou novo estado, preservando a cópia antiga quando viável. Teste JSON incompleto, campos desconhecidos e números extremos. Não carregue funções ou código de um arquivo de save.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "schema",
+        "versao",
+        "migracao",
+        "save",
+        "json",
+        "corrompido"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-dados"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging"
+      }
+    },
+    {
+      "id": "jogos-dados-data",
+      "scope": "global",
+      "title": "Catálogos de itens e níveis em dados",
+      "content": "Separe definições de itens e fases do estado em execução. Use IDs estáveis e valide referências, duplicatas e valores obrigatórios. Funções interpretam os dados; conteúdo não deve executar código arbitrário. Teste remover um item do catálogo mantendo um save antigo e defina a política para a referência ausente.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "json",
+        "itens",
+        "niveis",
+        "catalogo",
+        "configuracao",
+        "inventario"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-dados",
+        "jogos-dados-schema"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging",
+        "jogos-dados-schema": "thematic"
+      }
+    },
+    {
+      "id": "jogos-dados-profile",
+      "scope": "global",
+      "title": "Medir gargalos antes de otimizar",
+      "content": "Meça tempo de atualização, desenho, quantidade de entidades e uso de memória numa cena representativa. Compare antes/depois da mudança, no mesmo dispositivo e cenário. Otimize primeiro o maior custo comprovado. Uma média alta de FPS não revela picos: observe também quadros lentos e estabilidade em sessões longas.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "performance",
+        "desempenho",
+        "fps",
+        "frame",
+        "profiler",
+        "gargalo"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-dados",
+        "jogos-dados-canvas"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging",
+        "jogos-dados-canvas": "thematic"
+      }
+    },
+    {
+      "id": "jogos-dados-canvas",
+      "scope": "global",
+      "title": "Reduzir trabalho repetido no Canvas",
+      "content": "Se medições mostrarem custo no desenho, pré-renderize elementos repetidos ou estáticos e reutilize superfícies; evite recalcular efeitos caros sem mudança visual. Agrupar desenho e reduzir alterações de estado pode ajudar. Teste o resultado visual e o custo após resize, pois caches podem ficar inválidos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "canvas",
+        "otimizar",
+        "desenho",
+        "cache",
+        "offscreen",
+        "camadas"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Optimizing_canvas",
+      "relations": [
+        "jogos-dados"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging"
+      }
+    },
+    {
+      "id": "jogos-dados-pool",
+      "scope": "global",
+      "title": "Reutilização de projéteis e partículas com pool",
+      "content": "Use pool quando criação e destruição frequentes forem um gargalo medido. Ao reutilizar, restaure posição, velocidade, vida, callbacks e flags. Defina capacidade e comportamento quando o pool estiver cheio. Teste reutilizar a mesma instância muitas vezes sem dano, eventos ou efeitos da vida anterior.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "pool",
+        "pooling",
+        "reciclar",
+        "projeteis",
+        "particulas",
+        "alocacao",
+        "memoria"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.unity.com/en-us/engine/6000.0/manual/scripting/optimization/performance-optimizing-code-managed-memory/reusable-code",
+      "relations": [
+        "jogos-dados",
+        "jogos-dados-cleanup"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging",
+        "jogos-dados-cleanup": "thematic"
+      }
+    },
+    {
+      "id": "jogos-dados-cleanup",
+      "scope": "global",
+      "title": "Limpeza de cenas, timers e recursos",
+      "content": "Ao encerrar uma cena, remova listeners próprios, cancele timers, pare áudio e libere recursos gráficos quando exigido pelo motor. Separe recursos compartilhados dos exclusivos para não liberar algo ainda usado. Teste entrar e sair de uma fase repetidamente sem crescimento contínuo de handlers e objetos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "dados",
+        "cleanup",
+        "dispose",
+        "listener",
+        "vazamento",
+        "memoria",
+        "timer",
+        "destruir"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-dados"
+      ],
+      "relationTypes": {
+        "jogos-dados": "belonging"
+      }
+    },
+    {
+      "id": "jogos-qualidade",
+      "scope": "global",
+      "title": "Jogos — Testes, depuração e entrega",
+      "content": "Sintaxe, execução, fluxo completo, regressão, erros e publicação. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "qualidade"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-qualidade-syntax",
+      "scope": "global",
+      "title": "Verificação estática antes da execução",
+      "content": "Primeiro confira sintaxe, estrutura dos arquivos, IDs de elementos e contratos entre funções. Parser detecta erros de linguagem, não valida diversão ou regras. Depois execute. Teste incluir deliberadamente uma referência inexistente numa cópia de teste para confirmar que o mecanismo de diagnóstico realmente detecta falhas.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "sintaxe",
+        "parser",
+        "javascript",
+        "json",
+        "lint",
+        "erro",
+        "referencias"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade",
+        "jogos-qualidade-smoke"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging",
+        "jogos-qualidade-smoke": "thematic"
+      }
+    },
+    {
+      "id": "jogos-qualidade-smoke",
+      "scope": "global",
+      "title": "Teste de inicialização não é teste completo",
+      "content": "Abra o artefato no ambiente de destino e capture erros de console e exceções. Verifique que a cena inicial existe e aceita uma ação básica. Uma inicialização sem erro é só um smoke test. Ainda é necessário verificar regras, derrota, vitória e reinício; não marque o projeto completo apenas porque renderizou.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "smoke",
+        "inicializacao",
+        "console",
+        "runtime",
+        "tela",
+        "branca"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging"
+      }
+    },
+    {
+      "id": "jogos-qualidade-e2e",
+      "scope": "global",
+      "title": "Roteiro funcional de uma partida completa",
+      "content": "Execute: abrir, iniciar, mover, interagir, pontuar, receber dano, pausar, retomar, terminar e reiniciar. Para cada ação anote estado esperado e observado. Se houver aleatoriedade, use semente ou fixture controlada. Teste também uma ação inválida. Salve evidência do resultado, não só a lista de passos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "e2e",
+        "teste",
+        "funcional",
+        "jogar",
+        "vencer",
+        "perder",
+        "reiniciar",
+        "validar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging"
+      }
+    },
+    {
+      "id": "jogos-qualidade-debug",
+      "scope": "global",
+      "title": "Depurar com reprodução mínima e evidência",
+      "content": "Registre passos de reprodução, estado inicial, erro e última alteração. Reduza o caso até isolar o subsistema responsável. Corrija uma hipótese por vez e compare antes/depois. Use logs curtos de estado e transição, não dumps de todo o projeto. Teste novamente o caso original após limpar qualquer instrumentação temporária.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "bug",
+        "depurar",
+        "debugging",
+        "erro",
+        "causa",
+        "stacktrace",
+        "reproduzir"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade",
+        "jogos-qualidade-regression"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging",
+        "jogos-qualidade-regression": "thematic"
+      }
+    },
+    {
+      "id": "jogos-qualidade-regression",
+      "scope": "global",
+      "title": "Correção mínima com teste de regressão",
+      "content": "Antes de corrigir, defina um caso que falha por causa do defeito. Faça a menor mudança que resolve a causa, então repita esse caso e um fluxo vizinho relevante. Preserve o teste quando ele protege comportamento importante. Registre como não verificado o que não pôde ser executado; não transforme expectativa em evidência.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "regressao",
+        "correcao",
+        "patch",
+        "preservar",
+        "comportamento",
+        "teste"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging"
+      }
+    },
+    {
+      "id": "jogos-qualidade-assets",
+      "scope": "global",
+      "title": "Assets rastreáveis e caminhos portáveis",
+      "content": "Registre origem, permissão de uso aplicável e atribuição necessária de cada recurso externo; prefira recursos próprios quando não houver autorização clara. Padronize nomes e teste diferenças de maiúsculas/minúsculas. Para prévia offline, embuta ou substitua recursos externos. Valide carregamento com rede desativada e pacote em outra pasta.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "assets",
+        "imagens",
+        "fontes",
+        "audio",
+        "licenca",
+        "caminhos",
+        "recurso"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade",
+        "jogos-planejamento-harness"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging",
+        "jogos-planejamento-harness": "thematic"
+      }
+    },
+    {
+      "id": "jogos-qualidade-delivery",
+      "scope": "global",
+      "title": "Entrega reproduzível com limites explícitos",
+      "content": "Entregue os arquivos completos e instruções curtas de execução, controles, versão do ambiente e testes realmente feitos. Liste dependências e limitações conhecidas. Abra a cópia entregue, não apenas a pasta de desenvolvimento. Para mudanças, mantenha a versão anterior e descreva o comportamento alterado. Não afirme que foi publicado ou executado sem evidência.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "qualidade",
+        "entrega",
+        "build",
+        "exportar",
+        "pacote",
+        "readme",
+        "publicar"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-qualidade",
+        "jogos-motores-export"
+      ],
+      "relationTypes": {
+        "jogos-qualidade": "belonging",
+        "jogos-motores-export": "thematic"
+      }
+    },
+    {
+      "id": "jogos-motores",
+      "scope": "global",
+      "title": "Jogos — Motores, 3D e rede",
+      "content": "Fundamentos de Godot, Unity, física 3D, multiplayer e exportação. Este nó organiza procedimentos detalhados relacionados. Recupere somente os tópicos exigidos pelo pedido e transforme suas verificações em testes do projeto atual. Nenhuma nota desta coleção, por si só, comprova a execução de um jogo.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "jogos",
+        "motores"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Orientação autoral de engenharia e validação.",
+      "relations": [
+        "jogos-root"
+      ],
+      "relationTypes": {
+        "jogos-root": "belonging"
+      }
+    },
+    {
+      "id": "jogos-motores-godot",
+      "scope": "global",
+      "title": "Godot: composição de nós e cenas",
+      "content": "No Godot, componha comportamentos com árvores de nós e transforme conjuntos reutilizáveis em cenas. Um personagem pode reunir corpo, sprite, câmera e forma de colisão. Defina a cena principal e confira a versão instalada antes de escrever APIs específicas. Teste a cena isolada e depois a execução do projeto.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "godot",
+        "gdscript",
+        "nodes",
+        "scenes",
+        "nos",
+        "cenas",
+        "motor",
+        "engine"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.godotengine.org/en/stable/getting_started/step_by_step/nodes_and_scenes.html",
+      "relations": [
+        "jogos-motores",
+        "jogos-motores-character",
+        "jogos-motores-signals"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging",
+        "jogos-motores-character": "thematic",
+        "jogos-motores-signals": "thematic"
+      }
+    },
+    {
+      "id": "jogos-motores-signals",
+      "scope": "global",
+      "title": "Godot: sinais para comunicação entre cenas",
+      "content": "Emita sinais para comunicar fatos como vida alterada ou item coletado, permitindo que HUD e áudio reajam sem acoplamento desnecessário. Conecte cada consumidor uma vez e gerencie seu ciclo de vida. Teste uma coleta produzir um único sinal e sair da cena sem chamadas a objetos removidos.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "godot",
+        "signal",
+        "sinais",
+        "eventos",
+        "interface",
+        "vida",
+        "hud"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.godotengine.org/en/stable/getting_started/step_by_step/signals.html",
+      "relations": [
+        "jogos-motores"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging"
+      }
+    },
+    {
+      "id": "jogos-motores-character",
+      "scope": "global",
+      "title": "Godot: CharacterBody e movimento controlado",
+      "content": "Use CharacterBody para personagens controlados por código e configure formas e máscaras de colisão. Atualize movimento no ciclo de física apropriado à versão e consulte a assinatura de move_and_slide; não misture exemplos de Godot 3 e 4. Teste chão, paredes, inclinações e movimento em velocidades diferentes.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "godot",
+        "characterbody2d",
+        "characterbody3d",
+        "move_and_slide",
+        "fisica"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.godotengine.org/en/stable/tutorials/physics/using_character_body_2d.html",
+      "relations": [
+        "jogos-motores"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging"
+      }
+    },
+    {
+      "id": "jogos-motores-unity",
+      "scope": "global",
+      "title": "Unity: pool com estado restaurado e versão fixada",
+      "content": "Fixe a versão do Unity e dos pacotes do projeto antes de copiar APIs. UnityEngine.Pool oferece reutilização de objetos; configure criação, obtenção, devolução e destruição conforme a API instalada. Limpe estado, eventos e efeitos ao devolver instâncias. Teste reutilização e limite do pool em um build, não apenas no Editor.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "unity",
+        "csharp",
+        "objectpool",
+        "gameobject",
+        "prefab",
+        "motor"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.unity.com/en-us/engine/6000.0/manual/scripting/optimization/performance-optimizing-code-managed-memory/reusable-code",
+      "relations": [
+        "jogos-motores",
+        "jogos-dados-pool"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging",
+        "jogos-dados-pool": "thematic"
+      }
+    },
+    {
+      "id": "jogos-motores-collision3d",
+      "scope": "global",
+      "title": "3D: volumes de colisão e custo de precisão",
+      "content": "Use volumes simples, como caixas e esferas, quando forem adequados ao comportamento esperado. Separe fase ampla de candidatos da verificação precisa; caixas alinhadas aos eixos podem ficar imprecisas para objetos girados. Teste escala, rotação e objetos rápidos. Não use a complexidade visual da malha como exigência automática da colisão.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "3d",
+        "colisao",
+        "esfera",
+        "aabb",
+        "bounding",
+        "box",
+        "raycast"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://developer.mozilla.org/en-US/docs/Games/Techniques/3D_collision_detection",
+      "relations": [
+        "jogos-motores",
+        "jogos-movimento-fixed"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging",
+        "jogos-movimento-fixed": "thematic"
+      }
+    },
+    {
+      "id": "jogos-motores-multiplayer",
+      "scope": "global",
+      "title": "Multiplayer: autoridade, validação e desconexão",
+      "content": "Em partidas competitivas, atribua ao servidor as decisões autoritativas relevantes e valide ações recebidas. Não confie em vida ou placar enviados pelo cliente. Planeje latência, entrada tardia e desconexão. No Godot, confirme configuração de autoridade e RPC na versão utilizada. Teste dois clientes reais com atraso; uma simulação local única não valida a rede.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "multiplayer",
+        "rede",
+        "servidor",
+        "autoridade",
+        "rpc",
+        "online",
+        "sincronizacao"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.godotengine.org/en/stable/tutorials/networking/high_level_multiplayer.html",
+      "relations": [
+        "jogos-motores",
+        "jogos-dados-schema"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging",
+        "jogos-dados-schema": "thematic"
+      }
+    },
+    {
+      "id": "jogos-motores-export",
+      "scope": "global",
+      "title": "Exportação de motor e validação no destino",
+      "content": "No Godot, configure um preset de exportação e os templates compatíveis antes de gerar o pacote. Exporte para a plataforma escolhida e teste o resultado com seus recursos incluídos. Outros motores têm requisitos próprios. Um script solto não é um jogo exportado; informe quando editor, SDK ou ferramenta necessária não estiver disponível.",
+      "tags": [
+        "biblioteca-jogos-v1",
+        "motores",
+        "godot",
+        "unity",
+        "exportacao",
+        "build",
+        "plataforma",
+        "executavel",
+        "templates"
+      ],
+      "source": "Aurora Jogos v1 · curadoria técnica, 2026-09-20; procedimento de referência, não execução comprovada. Referências: https://docs.godotengine.org/en/stable/tutorials/export/exporting_projects.html",
+      "relations": [
+        "jogos-motores"
+      ],
+      "relationTypes": {
+        "jogos-motores": "belonging"
+      }
+    }
+  ]
+}

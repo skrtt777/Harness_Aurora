@@ -3,5 +3,6 @@ import { createRoot } from 'react-dom/client';
 import AppShell from './AppShell';
 import './styles.css';
 import './history.css';
+import './conversation.css';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><AppShell /></React.StrictMode>);

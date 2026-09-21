@@ -94,6 +94,7 @@ let initialization = null;
 function migrateSchema(db) {
   const messageColumns = db.prepare("PRAGMA table_info(messages)").all();
   if (!messageColumns.some(c => c.name === "memory_status")) db.exec("ALTER TABLE messages ADD COLUMN memory_status TEXT NOT NULL DEFAULT 'none'");
+  if (!messageColumns.some(c => c.name === "execution")) db.exec("ALTER TABLE messages ADD COLUMN execution TEXT");
   if (!messageColumns.some(c => c.name === "correction_of")) db.exec("ALTER TABLE messages ADD COLUMN correction_of TEXT REFERENCES messages(id) ON DELETE SET NULL");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_message_correction ON messages(correction_of) WHERE correction_of IS NOT NULL");
   const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all();

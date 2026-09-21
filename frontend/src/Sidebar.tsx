@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent" | "skills";
 
 type Props = {
   projects: Project[];
@@ -153,15 +153,13 @@ export default function Sidebar({
   }, [filtered]);
 
   return (
-    <aside className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
+    <aside id="app-sidebar" className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="app-logo">
-        <span>◈</span>
-        <div>
-          <strong>AURORA</strong>
-          <small>HARNESS</small>
-        </div>
+        <img src="/brand/aurora-wordmark.png" alt="Aurora" width="1942" height="809" draggable={false} />
       </div>
 
+      <details className="sidebar-model-settings">
+        <summary>Modelo <span className="model-selection"><span className="provider-name">{newConversationProvider === 'local' ? 'Local' : newConversationProvider === 'claude' ? 'Claude' : 'Codex'}</span><span aria-hidden="true">⌄</span></span></summary>
       {providers.length > 1 && (
         <div className="provider-picker" role="group" aria-label="Provedor da próxima conversa">
           {providers.map((p) => (
@@ -171,20 +169,21 @@ export default function Sidebar({
               onClick={() => onSelectNewConversationProvider(p.id)}
               title={`Novas conversas vão usar ${p.name}`}
             >
-              {p.name}
+              <span className="provider-name">{p.name}</span>
             </button>
           ))}
         </div>
       )}
       {newConversationProvider === "local" && (
         <label className="teacher-picker">
-          Professor
+          Assistente para revisões
           <select value={newConversationTeacher} onChange={(e) => onSelectNewConversationTeacher(e.target.value)}>
             <option value="codex">Codex</option>
             <option value="claude">Claude</option>
           </select>
         </label>
       )}
+      </details>
       <button className="new-conversation" onClick={() => onNewConversation(null)}>
         ＋ Nova conversa
       </button>
@@ -297,6 +296,7 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
+        <details className="sidebar-tools"><summary>Ferramentas <span>⌄</span></summary>
         <button className={`rail-link ${activeView === "memory" ? "active" : ""}`} onClick={() => onSelectView("memory")}>
           ⌁ <span>Memória</span>
           <b>{memoryCount.toLocaleString("pt-BR")}</b>
@@ -311,9 +311,7 @@ export default function Sidebar({
         <button className={`rail-link ${activeView === "browser-agent" ? "active" : ""}`} onClick={() => onSelectView("browser-agent")}>
           🖱 <span>Agente do navegador</span>
         </button>
-        <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
-          ⚙ <span>Configurações</span>
-        </button>
+        <button className={activeView === "skills" ? "active" : ""} onClick={() => onSelectView("skills")}><span>Skills e regras</span></button>
         {savings && savings.localTurns > 0 && (
           <div
             className="savings-indicator"
@@ -323,6 +321,10 @@ export default function Sidebar({
           </div>
         )}
         {appVersion && <div className="sidebar-version">v{appVersion}</div>}
+        </details>
+        <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
+          ⚙ <span>Configurações</span>
+        </button>
       </div>
     </aside>
   );

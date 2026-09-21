@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
 import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
+import { taskProfile, queryTerms, referenceCompatibility, selectiveContext } from './contextSelection.js';
 
 const now = () => new Date().toISOString();
 const parseJsonArray = (value) => {
@@ -42,6 +43,7 @@ function mapMessage(row) {
     provider: row.provider || undefined,
     memoryAccess: parseJsonArray(row.memory_access),
     memoryCreated: parseJsonArray(row.memory_created),
+    execution: row.execution ? JSON.parse(row.execution) : null,
     createdAt: row.created_at,
   };
 }
@@ -211,7 +213,7 @@ export async function deleteConversation(id) {
 
 // ---------- Messages ----------
 
-export async function addMessage({ conversationId, role, content, provider, memoryAccess = [], memoryCreated = [], memoryStatus = "none", correctionOf = null }) {
+export async function addMessage({ conversationId, role, content, provider, memoryAccess = [], memoryCreated = [], memoryStatus = "none", correctionOf = null, execution = null }) {
   const db = await getDb();
   const id = randomUUID();
   const ts = now();
@@ -219,6 +221,7 @@ export async function addMessage({ conversationId, role, content, provider, memo
     `INSERT INTO messages (id, conversation_id, role, content, provider, memory_access, memory_created, created_at, memory_status, correction_of)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, conversationId, role, content, provider || null, JSON.stringify(memoryAccess), JSON.stringify(memoryCreated), ts, memoryStatus, correctionOf);
+  if(execution)db.prepare('UPDATE messages SET execution=? WHERE id=?').run(JSON.stringify(execution),id);
   await touchConversation(conversationId);
   return mapMessage(db.prepare("SELECT * FROM messages WHERE id = ?").get(id));
 }
@@ -416,8 +419,11 @@ const pendingEmbeddings = new Set();
  */
 export async function selectRelevantMemories(input, { conversationId, projectId } = {}, limit = 12, env = process.env, signal) {
   const db = await getDb();
-  const queryTokens = tokenize(input);
-  const queryEmbedding = await embedText(input, env, signal);
+  const profile = taskProfile(input);
+  const selective=selectiveContext(env);
+  const queryTokens = selective ? new Set(profile.terms) : tokenize(input);
+  if ((selective&&!queryTokens.size) || limit <= 0) return [];
+  const queryEmbedding = await embedText(selective?profile.query:input, env, signal);
   const pools = [
     { scope: "conversation", weight: 1.6, rows: conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ?").all(conversationId) : [] },
     { scope: "project", weight: 1.3, rows: projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ?").all(projectId) : [] },
@@ -435,18 +441,29 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
   for (const pool of pools) {
     for (const row of pool.rows) {
       const memory = mapMemory(row);
-      const overlap = scoreMemory(memory, queryTokens);
+      const compatibility = selective?referenceCompatibility(profile,memory):{compatible:true,reason:'legacy'};
+      if (!compatibility.compatible) continue;
+      const headline = new Set(queryTerms(memory.title+' '+memory.tags.filter(t=>!t.startsWith('biblioteca-')).join(' ')));
+      const words = new Set(queryTerms(memory.content));
+      const titleMatches = [...queryTokens].filter(w=>headline.has(w));
+      const overlap = [...queryTokens].filter(w=>words.has(w)).length;
+      if(selective&&compatibility.reason==='cross_domain' && titleMatches.length<2) continue;
       let semantic = 0;
+      let similarity = null;
       if (queryEmbedding && row.embedding && row.embedding_model === resolveEmbeddingModel(env)) {
         const memoryEmbedding = decodeEmbedding(row.embedding);
-        const similarity = memoryEmbedding ? cosineSimilarity(queryEmbedding, memoryEmbedding) : 0;
+        similarity = memoryEmbedding ? cosineSimilarity(queryEmbedding, memoryEmbedding) : 0;
         if (similarity >= SEMANTIC_THRESHOLD) semantic = similarity * SEMANTIC_SCALE;
       }
-      scored.push({ memory, score: (overlap + semantic) * pool.weight + pool.weight * 0.01 });
+      if (selective&&!titleMatches.length && !(similarity >= 0.65) && overlap < 3) continue;
+      const score = selective?(titleMatches.length * 2 + overlap * 0.3 + semantic) * pool.weight:(scoreMemory(memory,queryTokens)+semantic)*pool.weight+pool.weight*0.01;
+      scored.push({ memory:{...memory,retrieval:{score,similarity,titleMatches,contentMatches:overlap,reason:compatibility.reason}}, score });
     }
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit).map((s) => s.memory);
+  if(!selective)return scored.slice(0,limit).map(s=>s.memory);
+  const seen = new Set();
+  return scored.filter(({memory})=>{const key=memory.content.trim().replace(/\s+/g,' ').toLowerCase();if(seen.has(key))return false;seen.add(key);return true;}).slice(0, Math.min(limit,3)).map((s) => s.memory);
 }
 
 /**

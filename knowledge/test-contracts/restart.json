@@ -1,0 +1,61 @@
+[
+  {
+    "step": 0,
+    "contract": {
+      "version": 1,
+      "cases": [
+        {
+          "id": "restart",
+          "name": "Reiniciar e jogar novamente",
+          "actions": [
+            {
+              "op": "assertText",
+              "selector": "#points",
+              "expected": "0"
+            },
+            {
+              "op": "click",
+              "selector": "#hit"
+            },
+            {
+              "op": "click",
+              "selector": "#hit"
+            },
+            {
+              "op": "assertText",
+              "selector": "#points",
+              "expected": "2"
+            },
+            {
+              "op": "click",
+              "selector": "#reset"
+            },
+            {
+              "op": "assertText",
+              "selector": "#points",
+              "expected": "0"
+            },
+            {
+              "op": "click",
+              "selector": "#hit"
+            },
+            {
+              "op": "assertText",
+              "selector": "#points",
+              "expected": "1"
+            },
+            {
+              "op": "click",
+              "selector": "#reset"
+            },
+            {
+              "op": "assertText",
+              "selector": "#points",
+              "expected": "0"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -6,3 +6,16 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/.test-build/
 release/
+.venv-training/
+models/local-training/
+tmp/
+output/
+reports/*
+!reports/engine-evaluation-latest.json
+__pycache__/
+*.pyc
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal

@@ -34,7 +34,7 @@ function formatBytes(n?: number) {
  * its own, so a lay user never has to open a terminal. Also exposes a
  * "trocar modelo" control for people who do want to pick a stronger model.
  */
-export default function LocalSetupPanel({ active }: { active: boolean }) {
+export default function LocalSetupPanel({ active, compact = false }: { active: boolean; compact?: boolean }) {
   const [status, setStatus] = useState<LocalStatus | null>(null);
   const [event, setEvent] = useState<LocalSetupEvent | null>(null);
   const [running, setRunning] = useState(false);
@@ -77,6 +77,7 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
   }, [active]);
 
   if (!active) return null;
+  if (compact && !status && !running && !event) return null;
 
   const applyModel = async (model: string) => {
     if (!model.trim() || running) return;
@@ -90,11 +91,12 @@ export default function LocalSetupPanel({ active }: { active: boolean }) {
   };
 
   if (status?.ready && !running) {
+    if (compact) return null;
     return (
       <div className="local-setup-panel ready">
         <span>✓ Modelo local pronto ({status.model})</span>
         <button className="link-button" onClick={() => setShowModelPicker((v) => !v)}>
-          Trocar modelo
+          Opções avançadas
         </button>
         {showModelPicker && (
           <ModelPicker models={models} customModel={customModel} setCustomModel={setCustomModel} onPick={applyModel} />

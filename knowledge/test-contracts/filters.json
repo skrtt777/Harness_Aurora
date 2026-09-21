@@ -1,0 +1,92 @@
+[
+  {
+    "step": 0,
+    "contract": {
+      "version": 1,
+      "cases": [
+        {
+          "id": "category",
+          "name": "Categoria e retorno ao total",
+          "actions": [
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 3
+            },
+            {
+              "op": "select",
+              "selector": "#category",
+              "value": "B"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 1
+            },
+            {
+              "op": "assertText",
+              "selector": "#items li",
+              "expected": "Branco"
+            },
+            {
+              "op": "select",
+              "selector": "#category",
+              "value": "all"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 3
+            }
+          ]
+        },
+        {
+          "id": "combined",
+          "name": "Combinar filtros e estado vazio",
+          "actions": [
+            {
+              "op": "select",
+              "selector": "#category",
+              "value": "A"
+            },
+            {
+              "op": "fill",
+              "selector": "#search",
+              "value": "az"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 1
+            },
+            {
+              "op": "assertText",
+              "selector": "#items li",
+              "expected": "Azul"
+            },
+            {
+              "op": "fill",
+              "selector": "#search",
+              "value": "branco"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 0
+            },
+            {
+              "op": "fill",
+              "selector": "#search",
+              "value": ""
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 2
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -1,6 +1,8 @@
 import "./config.js";
 import http from "node:http";
 import { randomBytes } from "node:crypto";
+import {engineSummary,reviewEngineKnowledge} from './evidenceEngine.js';
+import {localExperiment} from './localModelRelease.js';
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { importMemories } from "./memoryImport.js";
@@ -46,6 +48,8 @@ import {
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
 import { refineLocalAnswer } from "./localRefine.js";
+import { localCallRecord, summarizeLocalCalls } from './localTelemetry.js';
+import { diagnoseLocalArtifact } from './localDiagnostics.js';
 import {
   fetchCommunityManifest,
   fetchCommunityBundle,
@@ -55,6 +59,12 @@ import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTur
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
 import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
+import { extractArtifacts, listArtifacts, materializeArtifact } from './artifacts.js';
+
+import { compactContext, rules, DEFAULT_BUDGET } from './economy.js';
+import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill } from './skills.js';
+import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, findReusableWorkflow, recheckWorkflow } from './workflows.js';
+import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from './skillCatalog.js';
 
 const KNOWN_PROVIDERS = ["codex", "claude", "local"];
 
@@ -131,7 +141,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       await updateConversation(conversationId, { title });
     }
 
-    const providerLabel =
+    let providerLabel =
       conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
 
     // Keep ownership through retrieval, generation, refinement and persistence.
@@ -140,24 +150,30 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       conversationId,
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
-    const prompt = buildPrompt({
+    const promptArgs = {
       input: trimmed,
       history,
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-    });
+    };
+    const localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, scope:{conversationId,projectId:conversation.projectId},limit: contextLimit || 12000 }) : null;
+    const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
 
     let result;
     try {
       if (conversation.provider === "local") {
-        result = await runLocal(prompt, env, controller.signal);
+        const reused = await findReusableWorkflow({conversation,goal:trimmed,memories:relevant.slice(0,8),instructions:project?.instructions || ''});
+        if(reused) {
+          providerLabel='Local (reutilizado)';
+          result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
+        } else result = await runLocal(prompt, env, controller.signal);
         // For local conversations, spend a little extra free Ollama compute
         // (never Codex/Claude) trying to catch mistakes before the user sees
         // them: a syntax-check-and-retry pass for generated code, then a
         // self-review pass against the same memories already selected above.
-        result = await refineLocalAnswer({
-          task: prompt,
+        if (!reused) result = await refineLocalAnswer({
+          task: trimmed,
           result,
           memories: relevant,
           env,
@@ -170,7 +186,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     } catch (error) {
       result = { ok: false, status: 502, error: error.message };
     }
-    if (controller.signal.aborted) result = { ok: false, status: 499, error: "Mensagem cancelada." };
+    if(conversation.provider === 'local') {
+      result.telemetry ||= summarizeLocalCalls(result.reusedFrom ? [] : [localCallRecord(result)]);
+      result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:result.diagnostics||diagnoseLocalArtifact(result.text),context:localContext?{memoryIds:localContext.memoryIds,memoryChars:localContext.memoryChars,skills:localContext.skills,selectionVersion:localContext.selectionVersion}:null};
+    }
+    if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {
       const cancelled = Boolean(controller?.signal.aborted);
@@ -178,6 +198,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         conversationId,
         role: "assistant",
         content: cancelled ? "Mensagem cancelada." : result.error,
+        execution: result.execution,
         provider: "Sistema",
       });
       return { ok: false, status: result.status, error: result.error, message: errorMessage, cancelled };
@@ -193,9 +214,10 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       conversationId,
       role: "assistant",
       content: result.text,
+      execution: result.execution,
       provider: providerLabel,
       memoryStatus: conversation.provider === "local" ? "none" : "pending",
-      memoryAccess: relevant.map((m) => m.id),
+      memoryAccess: localContext ? localContext.memoryIds : relevant.map((m) => m.id),
       memoryCreated: memoryCreated.map((m) => m.id),
     });
 
@@ -219,9 +241,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memoryAccess: relevant,
       memoryCreated,
       usage: result.usage,
+      execution: result.execution,
       threadId: result.threadId,
     };
-  } finally { endTurn(conversationId, controller); }
+  } catch(error) { return {ok:false,status:error.status||500,error:error.message}; }
+  finally { endTurn(conversationId, controller); }
 }
 
 function sendJson(response, status, payload) {
@@ -251,6 +275,8 @@ async function serveStatic(response, pathname) {
       ".css": "text/css; charset=utf-8",
       ".js": "text/javascript; charset=utf-8",
       ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".gif": "image/gif",
       ".json": "application/json; charset=utf-8",
     };
     response.writeHead(200, { "content-type": types[extname(safePath)] || "application/octet-stream" });
@@ -270,6 +296,64 @@ export function createServer({ allowDev = !process.versions.electron } = {}) {
       const method = request.method;
       authorize(request, url, apiToken, allowDev);
       if (method === "GET" && pathname === "/api/session") return sendJson(response, 200, { token: apiToken });
+
+      const artifactsMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/artifacts(?:\/([^/]+)\/open)?$/);
+      if (artifactsMatch) {
+        const [, conversationId, artifactId] = artifactsMatch;
+        const conversation = await getConversationWithMessages(conversationId);
+        if (!conversation) return sendJson(response, 404, { error: 'Conversa não encontrada.' });
+        if (!artifactId && method === 'GET') return sendJson(response, 200, { artifacts: listArtifacts(conversation.messages) });
+        if (artifactId && method === 'POST') {
+          const artifact = conversation.messages.flatMap(extractArtifacts).find(item => item.id === artifactId);
+          if (!artifact) return sendJson(response, 404, { error: 'Arquivo não encontrado nesta conversa.' });
+          return sendJson(response, 200, await materializeArtifact(conversationId, artifact));
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/runtime-policy') return sendJson(response, 200, { rules, budget: DEFAULT_BUDGET });
+      if(method==='GET'&&pathname==='/api/engine/summary')return sendJson(response,200,await engineSummary());
+      if(method==='GET'&&pathname==='/api/engine/evaluation'){
+        const evaluation=await readFile(new URL('../reports/engine-evaluation-latest.json',import.meta.url),'utf8').then(JSON.parse).catch(()=>null);
+        return sendJson(response,200,{evaluation});
+      }
+      const engineReview=pathname.match(/^\/api\/engine\/knowledge\/([a-f0-9]{64})\/review$/);
+      if(method==='POST'&&engineReview)return sendJson(response,200,await reviewEngineKnowledge(engineReview[1],(await readJson(request)).accepted));
+      if (method === 'GET' && pathname === '/api/skills') return sendJson(response, 200, { skills: await listSkills() });
+      if (method === 'GET' && pathname === '/api/skills/catalog') return sendJson(response,200,await searchSkillCatalog({query:url.searchParams.get('q')||'',source:url.searchParams.get('source')||'',page:Number(url.searchParams.get('page')||0)}));
+      if (method === 'POST' && pathname === '/api/skills/catalog/sync') return sendJson(response,200,await syncSkillCatalog());
+      const catalogImport=pathname.match(/^\/api\/skills\/catalog\/([a-f0-9]{64})\/import$/);
+      if (method === 'POST' && catalogImport) return sendJson(response,201,await importCatalogSkill(catalogImport[1]));
+      if (method === 'GET' && pathname === '/api/skills/hermes') return sendJson(response, 200, await hermesCatalogue());
+      if (method === 'POST' && pathname === '/api/skills/import') {
+        const body = await readJson(request);
+        const skill = body.hermesPath ? await importHermesSkill(body.hermesPath) : body.skillId ? await importSkill((await readSkill(body.skillId)).text, 'Cópia local') : await importSkill(body.content);
+        return sendJson(response, 201, skill);
+      }
+      const skillMatch = pathname.match(/^\/api\/skills\/([^/]+)$/);
+      if (skillMatch && method === 'GET') return sendJson(response, 200, await readSkill(decodeURIComponent(skillMatch[1]), url.searchParams.get('resource')));
+      if (skillMatch && method === 'PATCH') { const body = await readJson(request); return sendJson(response, 200, await enableSkill(decodeURIComponent(skillMatch[1]), body.enabled)); }
+      const workflowsMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/workflows$/);
+      if (workflowsMatch && method === 'GET') return sendJson(response, 200, { workflows: await listWorkflows(workflowsMatch[1]) });
+      if (workflowsMatch && method === 'POST') {
+        const body = await readJson(request);
+        return sendJson(response, 201, await createWorkflow({ conversationId:workflowsMatch[1], goal:body.goal, budget:body.budget, baseWorkflowId:body.baseWorkflowId, functionalContracts:body.functionalContracts,knowledgeMode:body.knowledgeMode }));
+      }
+      const workflowMatch = pathname.match(/^\/api\/workflows\/([^/]+)(?:\/(run|review|cancel|teach|recheck))?$/);
+      if (workflowMatch) {
+        const [, id, action] = workflowMatch;
+        const job = await getWorkflow(id);
+        if (!action && method === 'GET') return sendJson(response, 200, { ...job, acceptanceHash:acceptanceHash(job) });
+        if (action === 'recheck' && method === 'POST') return sendJson(response,200,await recheckWorkflow(id,(await readJson(request)).stepId));
+        if (action === 'teach' && method === 'POST') return sendJson(response, 200, await teachWorkflow(id));
+        if (action === 'cancel' && method === 'POST') return sendJson(response, 200, cancelWorkflow(id));
+        if (action === 'review' && method === 'POST') return sendJson(response, 200, await reviewWorkflow(id, await readJson(request)));
+        if (action === 'run' && method === 'POST') {
+          if (isWorkflowActive(id)) throw httpError(409, 'Execução já está em andamento.');
+          void runWorkflow(id).catch(error => console.warn('Execução interrompida:', error.message));
+          return sendJson(response, 202, { id, started:true });
+        }
+      }
+
       // ---------- Health ----------
       if (method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, { ok: true, version: appVersion, provider: buildProviderConfig() });
@@ -346,6 +430,9 @@ export function createServer({ allowDev = !process.versions.electron } = {}) {
       }
       if (method === "GET" && pathname === "/api/local/models") {
         return sendJson(response, 200, { models: CURATED_MODELS });
+      }
+      if (method === "GET" && pathname === "/api/local/training") {
+        return sendJson(response, 200, {experiment:await localExperiment()});
       }
       if (method === "PUT" && pathname === "/api/local/model") {
         const body = await readJson(request);

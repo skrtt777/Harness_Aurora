@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getSetting, setSetting } from "./store.js";
+import {automaticLocalModel} from './localModelRelease.js';
 
 // A small model that runs acceptably on a CPU-only laptop is the point of
 // this whole feature: the user should never have to know a model name
@@ -37,7 +38,8 @@ function defaultBaseUrl(env) {
 export async function resolveLocalModel(env = process.env) {
   if (env.LOCAL_MODEL) return env.LOCAL_MODEL;
   const stored = await getSetting("local_model");
-  return stored || DEFAULT_LOCAL_MODEL;
+  if(stored && stored!=='auto')return stored;
+  return await automaticLocalModel(env) || DEFAULT_LOCAL_MODEL;
 }
 
 export async function setLocalModel(model) {
@@ -272,7 +274,9 @@ export async function getLocalStatus(env = process.env) {
   const running = await isServerUp(baseUrl);
   const installed = running || (await isOllamaInstalled(env));
   const modelReady = running && (await isModelPulled(baseUrl, model));
-  return { installed, running, modelReady, model, platform: process.platform, ready: running && modelReady };
+  const stored=await getSetting('local_model');
+  const selection=env.LOCAL_MODEL?'environment':stored&&stored!=='auto'?'manual':'automatic';
+  return { installed, running, modelReady, model, selection, platform: process.platform, ready: running && modelReady };
 }
 
 /**

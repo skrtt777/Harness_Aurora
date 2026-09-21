@@ -1,327 +1,172 @@
-import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ConversationWithMessages, Project } from "./api";
-import { openExternalUrl, runSandbox } from "./api";
-import LocalSetupPanel from "./LocalSetupPanel";
-
-/**
- * A quick, client-side "does this look worth offering a Executar button
- * for" check — deliberately looser than the backend's real extraction
- * (app/sandboxCode.js), which is the one that actually decides what gets
- * saved and run. This only decides whether to show the button at all, so a
- * false positive here just means a button that reports "nenhum código
- * executável" when clicked, not a wrong preview.
- */
-function looksRunnable(content: string) {
-  return /```html|```(?:javascript|js)\b|<html[\s>]|<script(?![^>]*\bsrc=)[^>]*>/i.test(content || "");
-}
-
-function SandboxPanel({ conversationId, messageId }: { conversationId: string; messageId: string }) {
-  const [state, setState] = useState<"idle" | "running" | "error">("idle");
-  const [error, setError] = useState("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [filePath, setFilePath] = useState<string | null>(null);
-
-  const execute = async () => {
-    setState("running");
-    setError("");
-    try {
-      const result = await runSandbox(conversationId, messageId);
-      setPreviewUrl(`${result.previewUrl}?t=${Date.now()}`);
-      setFilePath(result.filePath);
-      setState("idle");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao executar o código.");
-      setState("error");
-    }
-  };
-
-  return (
-    <div className="sandbox-panel">
-      <div className="sandbox-actions">
-        <button onClick={execute} disabled={state === "running"}>
-          {state === "running" ? "Executando…" : previewUrl ? "▶ Executar de novo" : "▶ Executar"}
-        </button>
-        {previewUrl && (
-          <button className="link-button" onClick={() => openExternalUrl(`${window.location.origin}${previewUrl}`)}>
-            Abrir no navegador
-          </button>
-        )}
-      </div>
-      {error && <p className="memory-form-error">{error}</p>}
-      {filePath && <small className="sandbox-filepath">Salvo em: {filePath}</small>}
-      {previewUrl && (
-        <iframe
-          className="sandbox-preview"
-          src={previewUrl}
-          title="Preview do código executado"
-          sandbox="allow-scripts allow-pointer-lock"
-        />
-      )}
-    </div>
-  );
-}
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getArtifacts, type Artifact, type ChatMessage, type ConversationWithMessages, type Project } from './api';
+import LocalSetupPanel from './LocalSetupPanel';
+import WorkflowPanel from './WorkflowPanel';
+import ArtifactPanel from './ArtifactPanel';
+import Markdown from './Markdown';
 
 type Props = {
-  conversation: ConversationWithMessages | null;
-  project: Project | null;
-  loading: boolean;
-  sending: boolean;
-  pendingStage: string | null;
-  lastMemoryCreatedCount: number;
-  onSend: (message: string) => Promise<boolean>;
-  onCancel: () => void;
-  onCorrect: (messageId: string, note: string) => Promise<void>;
-  onRenameTitle: (title: string) => void;
+  conversation: ConversationWithMessages | null; project: Project | null; loading: boolean;
+  sending: boolean; pendingStage: string | null; lastMemoryCreatedCount: number;
+  onSend: (message: string) => Promise<boolean>; onCancel: () => void;
+  onCorrect: (messageId: string, note: string) => Promise<void>; onRenameTitle: (title: string) => void;
 };
 
-function MessageBubble({
-  message,
-  conversationId,
-  providerLabel,
-  correctable,
-  onCorrect,
-}: {
-  message: ChatMessage;
-  conversationId: string;
-  providerLabel: string;
-  correctable: boolean;
-  onCorrect: (messageId: string, note: string) => Promise<void>;
+function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect }: {
+  message: ChatMessage; artifacts: Artifact[]; onOpen: (id: string) => void;
+  correctable: boolean; teacher: string; onCorrect: Props['onCorrect'];
 }) {
-  const isUser = message.role === "user";
-  const isSystem = message.provider === "Sistema";
-  const isCorrection = (message.provider || "").includes("corrigindo");
-  const [correcting, setCorrecting] = useState(false);
-  const [note, setNote] = useState("");
-  const [sendingCorrection, setSendingCorrection] = useState(false);
-  const [correctionError, setCorrectionError] = useState("");
-
-  const submitCorrection = async () => {
-    setSendingCorrection(true);
-    setCorrectionError("");
-    try {
-      await onCorrect(message.id, note.trim());
-      setCorrecting(false);
-      setNote("");
-    } catch (err) {
-      setCorrectionError(
-        err instanceof Error ? err.message : "Não foi possível corrigir essa resposta. Tente de novo.",
-      );
-    } finally {
-      setSendingCorrection(false);
-    }
-  };
-
-  return (
-    <div className={`chat-message ${message.role} ${isSystem ? "system" : ""}`}>
-      <div className="chat-avatar">{isUser ? "EU" : "✦"}</div>
-      <div className="chat-bubble-wrap">
-        <div className="chat-meta">
-          {isUser ? "VOCÊ" : message.provider || providerLabel} · {new Date(message.createdAt).toLocaleString("pt-BR")}
-        </div>
-        <div className="chat-content">{message.content}</div>
-        {message.memoryStatus === "pending" && <small>Extraindo memórias em segundo plano…</small>}
-        {["failed", "interrupted"].includes(message.memoryStatus || "") && <small>Resposta salva; a extração automática de memória não foi concluída.</small>}
-        {!isUser && !isSystem && looksRunnable(message.content) && (
-          <SandboxPanel conversationId={conversationId} messageId={message.id} />
-        )}
-        {!isUser && (message.memoryAccess.length > 0 || message.memoryCreated.length > 0) && (
-          <div className="memory-footnote">
-            {message.memoryAccess.length > 0 && (
-              <span className="memory-chip" title="Memórias lidas para gerar esta resposta">
-                📖 {message.memoryAccess.length} memória{message.memoryAccess.length > 1 ? "s" : ""} usada
-                {message.memoryAccess.length > 1 ? "s" : ""}
-              </span>
-            )}
-            {message.memoryCreated.length > 0 && (
-              <span className="memory-chip new" title="Novas memórias salvas a partir desta troca">
-                ✦ {message.memoryCreated.length} nova{message.memoryCreated.length > 1 ? "s" : ""} salva
-                {message.memoryCreated.length > 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-        )}
-        {!isUser && correctable && !isSystem && !isCorrection && (
-          <div className="correct-box">
-            {correcting ? (
-              <>
-                <textarea
-                  autoFocus
-                  rows={2}
-                  placeholder="O que estava errado? (opcional)"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  disabled={sendingCorrection}
-                />
-                <div className="correct-actions">
-                  <button onClick={() => setCorrecting(false)} disabled={sendingCorrection}>
-                    Cancelar
-                  </button>
-                  <button className="primary" onClick={submitCorrection} disabled={sendingCorrection}>
-                    {sendingCorrection ? "Corrigindo…" : "Enviar correção"}
-                  </button>
-                </div>
-                {sendingCorrection && (
-                  <small className="correct-hint">O professor (Codex/Claude) está revisando — pode levar até 1 minuto.</small>
-                )}
-                {correctionError && <p className="memory-form-error">{correctionError}</p>}
-              </>
-            ) : (
-              <button className="correct-toggle" onClick={() => setCorrecting(true)}>
-                🔧 Corrigir
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+  const [review, setReview] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const isUser = message.role === 'user';
+  const parts = [];
+  let offset = 0;
+  for (const artifact of artifacts) {
+    if (artifact.start > offset) parts.push(<Markdown key={`text-${offset}`}>{message.content.slice(offset, artifact.start)}</Markdown>);
+    parts.push(<button className="artifact-card" key={artifact.id} onClick={() => onOpen(artifact.id)}>
+      <span className="file-symbol">◇</span><span><strong>{artifact.name}</strong><small>{artifact.previewable ? 'Abrir visualização' : 'Abrir arquivo'}</small></span><span aria-hidden="true">↗</span>
+    </button>);
+    offset = artifact.end;
+  }
+  if (offset < message.content.length) parts.push(<Markdown key={`text-${offset}`}>{message.content.slice(offset)}</Markdown>);
+  return <article className={`chat-message ${isUser ? 'user' : 'assistant'} ${message.provider === 'Sistema' ? 'system' : ''}`} aria-label={isUser ? 'Você' : 'Aurora'}>
+    {!isUser && <div className="chat-avatar" aria-hidden="true"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="" width="1254" height="1254" draggable={false} /></div>}
+    <div className="chat-bubble-wrap">
+      <div className="chat-content">{isUser ? message.content : parts}</div>
+      {!isUser && <div className="message-actions">
+        <button onClick={async () => {
+          try { await navigator.clipboard.writeText(message.content); setFeedback('Resposta copiada'); }
+          catch { setFeedback('Não foi possível copiar.'); }
+        }}>Copiar</button>
+        {correctable && <button onClick={() => setReview(value => !value)}>Revisar com <span className="provider-name">{teacher}</span></button>}
+        <details><summary>Detalhes</summary><p><span className="provider-name">{message.provider || 'Aurora'}</span> · {new Date(message.createdAt).toLocaleString('pt-BR')}</p>
+          <p>{message.memoryAccess.length} memórias consultadas · {message.memoryCreated.length} criadas</p>
+          {message.memoryStatus === 'pending' && <p>Salvando aprendizados…</p>}
+          {['failed', 'interrupted'].includes(message.memoryStatus || '') && <p>Os aprendizados desta resposta não foram salvos.</p>}
+        </details>
+      </div>}
+      {review && <form className="review-form" onSubmit={async event => {
+        event.preventDefault(); setBusy(true); setFeedback('');
+        try { await onCorrect(message.id, note); setReview(false); setNote(''); }
+        catch (error) { setFeedback(error instanceof Error ? error.message : 'Falha ao revisar.'); }
+        finally { setBusy(false); }
+      }}><label>O que precisa melhorar?<textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Descreva o ajuste que você precisa" disabled={busy} /></label>
+        <small>Esta revisão usa {teacher}. Para ajustar com a IA atual, escreva no chat.</small>
+        <div><button type="button" disabled={busy} onClick={() => setReview(false)}>Cancelar</button><button disabled={busy}>{busy ? 'Revisando…' : 'Pedir revisão'}</button></div>
+      </form>}
+      {feedback && <small role="status">{feedback}</small>}
     </div>
-  );
+  </article>;
 }
 
 const drafts = new Map<string, string>();
-
-export default function ChatView({
-  conversation,
-  project,
-  loading,
-  sending,
-  pendingStage,
-  onSend,
-  onCancel,
-  onCorrect,
-  onRenameTitle,
-}: Props) {
-  const [draftsState, setDraftsState] = useState(() => new Map(drafts));
-  const draftId = conversation?.id || "";
-  const draft = draftsState.get(draftId) || "";
-  const setDraft = (value: string, id = draftId) => { drafts.set(id, value); setDraftsState(new Map(drafts)); };
+export default function ChatView({ conversation, project, loading, sending, pendingStage, onSend, onCancel, onCorrect, onRenameTitle }: Props) {
+  const [draftState, setDraftState] = useState(() => new Map(drafts));
+  const draftId = conversation?.id || '';
+  const draft = draftState.get(draftId) || '';
+  const setDraft = (value: string, id = draftId) => { drafts.set(id, value); setDraftState(new Map(drafts)); };
+  const [panel, setPanel] = useState<'files' | 'tools' | null>(null);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [fileError, setFileError] = useState('');
+  const [fileRetry, setFileRetry] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(conversation?.title || "");
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const filesButton = useRef<HTMLButtonElement>(null);
+  const knownArtifacts = useRef<{ conversationId: string; ids: Set<string> } | null>(null);
+  const closePanel = useCallback(() => { setPanel(null); filesButton.current?.focus(); }, []);
+  const artifactSignature = useMemo(() => conversation?.messages.filter(m => m.role === 'assistant').map(m => m.id).join('|') || '', [conversation?.messages]);
 
   useEffect(() => {
-    setTitleDraft(conversation?.title || "");
-  }, [conversation?.id, conversation?.title]);
-
+    setPanel(null); setArtifacts([]); setSelectedId(null); setFileError(''); setEditingTitle(false); setComposerExpanded(false);
+    setTitleDraft(conversation?.title || ''); knownArtifacts.current = null;
+  }, [conversation?.id]);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [conversation?.messages.length, sending]);
-
-  if (!conversation) {
-    return (
-      <section className="chat-page chat-empty-state">
-        <div className="chat-empty">
-          <div className="empty-glyph">✦</div>
-          <h1>Comece uma nova conversa</h1>
-          <p>Escolha “Nova conversa” na barra lateral ou selecione uma conversa existente.</p>
-        </div>
-      </section>
-    );
-  }
-
-  const send = async () => {
-    const message = draft.trim();
-    if (!message || sending) return;
+    if (!conversation) return;
+    let stale = false;
     const id = conversation.id;
-    if (await onSend(message)) setDraft("", id);
+    getArtifacts(id).then(files => {
+      if (stale) return;
+      setArtifacts(files); setFileError('');
+      const previous = knownArtifacts.current;
+      const fresh = previous?.conversationId === id ? files.filter(file => !previous.ids.has(file.id)) : [];
+      if (fresh.length) { setSelectedId(fresh[fresh.length - 1].id); setPanel('files'); }
+      knownArtifacts.current = { conversationId: id, ids: new Set(files.map(file => file.id)) };
+    }).catch(error => { if (!stale) setFileError(error.message); });
+    return () => { stale = true; };
+  }, [conversation?.id, artifactSignature, fileRetry]);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [conversation?.messages.length, sending, artifacts.length]);
+  useEffect(() => {
+    const input = textareaRef.current;
+    if (!input) return;
+    const resize = () => {
+      input.style.height = composerExpanded ? '100%' : 'auto';
+      if (!composerExpanded) input.style.height = `${Math.min(window.innerHeight * .52, input.scrollHeight)}px`;
+    };
+    resize();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (input.clientWidth !== width) { width = input.clientWidth; resize(); }
+    });
+    observer.observe(input);
+    window.addEventListener('resize', resize);
+    return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
+  }, [draft, composerExpanded, conversation?.id]);
+  if (!conversation) return <section className="chat-page chat-empty-state"><h1>{loading ? 'Abrindo conversa…' : 'Vamos criar algo?'}</h1><p>{!loading && 'Abra uma nova conversa para começar.'}</p></section>;
+
+  const openFile = (id: string) => { setSelectedId(id); setPanel('files'); };
+  const send = async () => {
+    const message = draft.trim(); if (!message || sending) return;
+    const id = conversation.id; setDraft('', id); setComposerExpanded(false);
+    const ok = await onSend(message);
+    if (!ok && !drafts.get(id)) setDraft(message, id);
+    textareaRef.current?.focus();
   };
-
-  const providerLabel =
-    conversation.provider === "claude" ? "Claude" : conversation.provider === "local" ? "Local" : "Codex";
-  const correctable = conversation.provider === "local";
-
-  return (
+  const provider = conversation.provider === 'local' ? 'Local' : conversation.provider === 'claude' ? 'Claude' : 'Codex';
+  return <div className={`conversation-workspace ${panel ? 'with-panel' : ''} ${composerExpanded ? 'composer-expanded' : ''}`}>
     <section className="chat-page">
-      <div className="chat-page-head">
-        <div>
-          {project && <div className="project-badge">◈ {project.name}</div>}
-          {editingTitle ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onRenameTitle(titleDraft.trim() || conversation.title);
-                setEditingTitle(false);
-              }}
-            >
-              <input
-                autoFocus
-                className="title-input"
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onBlur={() => {
-                  onRenameTitle(titleDraft.trim() || conversation.title);
-                  setEditingTitle(false);
-                }}
-              />
-            </form>
-          ) : (
-            <h1 onClick={() => setEditingTitle(true)} title="Clique para renomear">
-              {conversation.title}
-            </h1>
-          )}
-          <p>Memória própria desta conversa · lida e atualizada a cada resposta</p>
+      <header className="chat-page-head">
+        <div className="conversation-heading">
+          {project && <span className="conversation-project">{project.name}</span>}
+          {editingTitle ? <form onSubmit={event => { event.preventDefault(); onRenameTitle(titleDraft.trim() || conversation.title); setEditingTitle(false); }}>
+            <input autoFocus aria-label="Título da conversa" className="title-input" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setEditingTitle(false); }} onBlur={() => setEditingTitle(false)} />
+          </form> : <button className="conversation-title" onClick={() => { setTitleDraft(conversation.title); setEditingTitle(true); }} title="Renomear conversa">{conversation.title}</button>}
+          <span className="conversation-provider provider-name">{provider}</span>
         </div>
-      </div>
-
-      <LocalSetupPanel active={conversation.provider === "local"} />
-
+        <div className="conversation-controls">
+          <button ref={filesButton} className="quiet-button" aria-expanded={panel === 'files'} onClick={() => {
+            if (panel === 'files') closePanel(); else { setSelectedId(selectedId || artifacts.at(-1)?.id || null); setPanel('files'); }
+          }}>Arquivos{artifacts.length > 0 && <span className="file-count">{artifacts.length}</span>}</button>
+          <button className="quiet-button" aria-label="Ajustes da conversa" title="Ajustes da conversa" aria-expanded={panel === 'tools'} onClick={() => setPanel(panel === 'tools' ? null : 'tools')}>•••</button>
+        </div>
+      </header>
+      <LocalSetupPanel active={conversation.provider === 'local'} compact />
       <div className="chat-messages" ref={scrollRef}>
-        {conversation.messages.length ? (
-          conversation.messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              conversationId={conversation.id}
-              providerLabel={providerLabel}
-              correctable={correctable && m.provider === "Local" && !conversation.messages.some(c => c.correctionOf === m.id)}
-              onCorrect={onCorrect}
-            />
-          ))
-        ) : (
-          <div className="chat-empty">
-            Comece uma nova conversa com o {providerLabel}.
-            <br />
-            <small>O histórico e a memória desta conversa serão salvos automaticamente.</small>
-          </div>
-        )}
-        {sending && (
-          <div className="chat-message assistant pending">
-            <div className="chat-avatar">✦</div>
-            <div className="chat-bubble-wrap">
-              <div className="chat-meta">{providerLabel.toUpperCase()} · {pendingStage || "pensando…"}</div>
-              <div className="chat-content typing-dots">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-          </div>
-        )}
+        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><h1>O que vamos criar?</h1><p>Conte sua ideia. A Aurora ajuda a dar forma a ela.</p>
+          <div className="starter-prompts">{['Criar um jogo', 'Montar um dashboard', 'Explorar uma ideia'].map(label => <button key={label} onClick={() => { setDraft(label === 'Criar um jogo' ? 'Crie um jogo em HTML que ' : label === 'Montar um dashboard' ? 'Crie um dashboard para ' : 'Quero explorar uma ideia: '); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
+        </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
+          correctable={!sending && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
+        {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response" aria-hidden="true"><span className="typing-dots"><span /><span /><span /></span></div></div>}
       </div>
-
-      <div className="chat-composer">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="Escreva uma mensagem…"
-          rows={2}
-          disabled={loading || sending}
-        />
-        {sending ? (
-          <button className="cancel-send" onClick={onCancel}>
-            ✕ Cancelar
-          </button>
-        ) : (
-          <button onClick={send} disabled={loading || !draft.trim()}>
-            Enviar ↗
-          </button>
-        )}
-      </div>
+      <div className="composer-area"><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+        <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+          if (event.key === 'Escape' && composerExpanded) { event.preventDefault(); setComposerExpanded(false); }
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
+        }} disabled={loading} />
+        {sending ? <button type="button" className="cancel-send" aria-label="Parar resposta" title="Parar resposta" onClick={onCancel}>■</button> : <button type="submit" aria-label="Enviar mensagem" title="Enviar mensagem" disabled={loading || !draft.trim()}>↑</button>}
+      </form><div className="composer-footer"><p className="composer-hint">Enter para enviar · Shift + Enter para uma nova linha</p><button type="button" className="composer-expand" aria-expanded={composerExpanded} onClick={() => { setComposerExpanded(value => !value); textareaRef.current?.focus(); }}>{composerExpanded ? '↙ Recolher campo' : '↗ Ampliar campo'}</button></div></div>
     </section>
-  );
+    {panel === 'files' && <div className="artifact-panel-wrap">{fileError && <p role="alert" className="artifact-error">{fileError}<button onClick={() => setFileRetry(x => x + 1)}>Tentar novamente</button></p>}<ArtifactPanel conversationId={conversation.id} artifacts={artifacts} selectedId={selectedId} onSelect={setSelectedId} onClose={closePanel} /></div>}
+    {panel === 'tools' && <aside className="conversation-tools" aria-label="Ajustes da conversa"><header className="artifact-heading"><strong>Ajustes da conversa</strong><button className="quiet-button" onClick={closePanel} aria-label="Fechar ajustes">✕</button></header>
+      <p>Modelo atual: <span className="provider-name">{provider}</span></p><LocalSetupPanel active={conversation.provider === 'local'} />
+      {conversation.provider === 'local' && <WorkflowPanel key={conversation.id} conversationId={conversation.id} />}
+    </aside>}
+  </div>;
 }

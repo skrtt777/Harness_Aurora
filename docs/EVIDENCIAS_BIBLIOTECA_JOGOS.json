@@ -1,0 +1,63 @@
+{
+  "pack": "aurora-jogos-v1",
+  "date": "2026-09-20",
+  "newMemories": 73,
+  "relations": 117,
+  "installedTotal": 77,
+  "previewTotal": 73,
+  "existingMemoriesPreserved": true,
+  "deduplication": "73 skipped, 0 added, 0 relations on second import in both databases",
+  "indexedInPreview": {
+    "total": 73,
+    "indexed": 73
+  },
+  "retrievalChecks": [
+    {
+      "expected": "Colisão AABB entre retângulos",
+      "rank": 1,
+      "memoryCount": 12,
+      "promptChars": 6096
+    },
+    {
+      "expected": "Reiniciar sem estado antigo nem eventos duplicados",
+      "rank": 1,
+      "memoryCount": 12,
+      "promptChars": 6200
+    },
+    {
+      "expected": "Áudio iniciado por interação e controle de volume",
+      "rank": 1,
+      "memoryCount": 12,
+      "promptChars": 6790
+    },
+    {
+      "expected": "Godot: CharacterBody e movimento controlado",
+      "rank": 1,
+      "memoryCount": 12,
+      "promptChars": 6786
+    },
+    {
+      "expected": "Movimento independente de FPS com delta time",
+      "rank": 1,
+      "memoryCount": 12,
+      "promptChars": 6162
+    }
+  ],
+  "localModel": "qwen2.5-coder:1.5b",
+  "localFollowup": {
+    "answer": "1. Jogador, vida, pontos, entidades, timers, câmera e filas de entrada.\n2. Teste jogar, morrer e reiniciar cinco vezes.",
+    "targetMemoryIncluded": true,
+    "usage": {
+      "input_tokens": 1529,
+      "output_tokens": 39
+    }
+  },
+  "limits": [
+    "Knowledge records, not model-weight training.",
+    "First broad local question produced a generic answer; targeted followup retrieved and summarized the relevant memory.",
+    "No claim that the model can autonomously implement every procedure.",
+    "Atlas grouping uses global scope; topics are explicit linked nodes and tags."
+  ],
+  "sourcesIn": "knowledge/jogos-v1.json, per-record source",
+  "screenshot": "app/data/game-knowledge/atlas-real-jogos.png"
+}

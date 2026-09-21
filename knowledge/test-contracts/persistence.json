@@ -1,0 +1,59 @@
+[
+  {
+    "step": 0,
+    "contract": {
+      "version": 1,
+      "cases": [
+        {
+          "id": "persist",
+          "name": "Restaurar tarefa depois de recarregar",
+          "actions": [
+            {
+              "op": "fill",
+              "selector": "#task",
+              "value": "Estudar <b>hoje</b>"
+            },
+            {
+              "op": "click",
+              "selector": "#add"
+            },
+            {
+              "op": "assertText",
+              "selector": "#items li",
+              "expected": "Estudar <b>hoje</b>"
+            },
+            {
+              "op": "reload"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 1
+            },
+            {
+              "op": "assertText",
+              "selector": "#items li",
+              "expected": "Estudar <b>hoje</b>"
+            },
+            {
+              "op": "assertCount",
+              "selector": "#items b",
+              "expected": 0
+            }
+          ]
+        },
+        {
+          "id": "isolation",
+          "name": "Outra sessão começa vazia",
+          "actions": [
+            {
+              "op": "assertCount",
+              "selector": "#items li",
+              "expected": 0
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

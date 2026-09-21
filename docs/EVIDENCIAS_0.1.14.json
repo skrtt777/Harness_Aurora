@@ -1,0 +1,61 @@
+{
+  "version": "0.1.14",
+  "recordedAt": "2026-09-20T20:02:33.417952+00:00",
+  "backendTests": {
+    "passed": 185,
+    "failed": 0
+  },
+  "memoryTests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "latestWorkflowTests": {
+    "passed": 18,
+    "failed": 0
+  },
+  "realLocalTest": {
+    "model": "qwen2.5-coder:1.5b",
+    "goal": "Entregue em uma única etapa um HTML sem dependências com contador visível iniciando em 0, botão Somar (+1) e Zerar (0). Critério: duas somas mostram 2 e zerar mostra 0.",
+    "stats": {
+      "localCalls": 1,
+      "teacherCalls": 0,
+      "inputTokens": 659,
+      "outputTokens": 284,
+      "estimatedTokens": 0,
+      "chargedTokens": 943,
+      "elapsedMs": 1818,
+      "reuses": 1
+    },
+    "observed": {
+      "initial": 0,
+      "afterTwoAdds": 2,
+      "afterReset": 0
+    },
+    "accepted": {
+      "at": "2026-09-20T20:00:57.088Z",
+      "note": "Teste funcional executado no preview: valor inicial 0, dois cliques no botão + resultam em 2; botão 0 reinicia para 0. Aceite funcional deste exemplo; os rótulos são + e 0.",
+      "kind": "human",
+      "hash": "86fc5ba0bc35140dbefd02cbf467c72f5a155bd4b7f6fb43649b131f8be6763c"
+    },
+    "chatReuseObserved": true
+  },
+  "limitationsObserved": [
+    "Earlier request requiring id valor was not obeyed after two local attempts; it was not approved.",
+    "Functional buttons in the accepted example use labels + and 0.",
+    "HTML initialization checks do not prove business semantics."
+  ],
+  "hermesCatalogue": {
+    "revision": "a7462e0f665a5f00ef9c27dd1742ecfe37827329",
+    "importTest": "systematic-debugging imported inactive"
+  },
+  "packagedSmoke": {
+    "version": "0.1.14",
+    "bundledSkills": 4,
+    "isolatedProfile": true
+  },
+  "installer": {
+    "file": "release/Harness Aurora Setup 0.1.14.exe",
+    "sha256": "42274a535135bf66b67993fea6407dbed9fe44934c6aef7f7be51ba3335cb7c9",
+    "authenticode": "NotSigned"
+  }
+}

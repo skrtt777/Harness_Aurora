@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
+import SkillsView from "./SkillsView";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import NeuralAtlas from "./NeuralAtlas";
@@ -28,7 +29,7 @@ import {
   type SavingsStats,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent" | "skills";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -213,6 +214,11 @@ export default function AppShell() {
       if (!id || busyRef.current.has(id)) return false;
       busyRef.current.add(id); setBusyIds(new Set(busyRef.current));
       setOperationError("");
+      const temporaryId = `pending-${Date.now()}`;
+      setActiveConversation(c => c?.id === id ? { ...c, messages: [...c.messages, {
+        id: temporaryId, conversationId: id, role: 'user', content: message,
+        memoryAccess: [], memoryCreated: [], createdAt: new Date().toISOString(),
+      }] } : c);
       try {
         const result = await apiSendMessage(id, message);
         const [refreshedConversation] = await Promise.all([
@@ -225,6 +231,7 @@ export default function AppShell() {
         setOperationError(error instanceof Error ? error.message : "Falha ao enviar.");
         return false;
       } finally {
+        setActiveConversation(c => c?.id === id ? { ...c, messages: c.messages.filter(m => m.id !== temporaryId) } : c);
         busyRef.current.delete(id); setBusyIds(new Set(busyRef.current));
         if (selectedRef.current === id) setPendingStage(null);
       }
@@ -315,11 +322,9 @@ export default function AppShell() {
 
   return (
     <div className="app-shell">
-      {!sidebarOpen && (
-        <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Abrir menu">
-          ☰
-        </button>
-      )}
+      <button className="menu-toggle" onClick={() => setSidebarOpen(open => !open)} aria-label={sidebarOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={sidebarOpen} aria-controls="app-sidebar">
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
       <Sidebar
         projects={projects}
@@ -338,6 +343,7 @@ export default function AppShell() {
           setSidebarOpen(false);
         }}
         onSelectConversation={(id) => {
+          if(id!==activeConversationId){setActiveConversation(null);setLoadingConversation(true);}
           setActiveConversationId(id);
           setView("chat");
           setSidebarOpen(false);
@@ -380,6 +386,7 @@ export default function AppShell() {
           />
         )}
         {view === "browser-agent" && <BrowserAgentView />}
+        {view === "skills" && <SkillsView />}
       </main>
     </div>
   );

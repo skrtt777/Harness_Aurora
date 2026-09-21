@@ -14,6 +14,7 @@ import {
   type Settings,
 } from "./api";
 import { ModelPicker } from "./LocalSetupPanel";
+import ModelTrainingPanel from './ModelTrainingPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 
@@ -173,13 +174,16 @@ export default function SettingsView({
         </div>
 
         <div className="settings-card">
-          <h2>Modelo local (Ollama)</h2>
+          <h2>IA local</h2>
           <p className="settings-hint">
             {localStatus?.ready
               ? `Pronto — usando "${localStatus.model}".`
               : "Ainda preparando ou não configurado — abra uma conversa Local para configurar automaticamente."}
           </p>
+          <p className="settings-hint">O modo automático usa a versão local estável. Versões treinadas só entram após aprovação nos testes.</p>
+          <button disabled={pullingModel || localStatus?.selection==='automatic'} onClick={()=>void pickModel('auto')}>Usar seleção automática</button>
           {pullingModel && <p className="settings-hint">Trocando modelo… ({modelStage})</p>}
+          <details><summary>Escolha manual avançada</summary>
           <ModelPicker
             models={models}
             customModel={customModel}
@@ -187,6 +191,8 @@ export default function SettingsView({
             onPick={pickModel}
             disabled={pullingModel}
           />
+          </details>
+          <ModelTrainingPanel />
         </div>
 
         <div className="settings-card">
