@@ -23,6 +23,7 @@ jobs:
       - run: npm --prefix frontend ci
       - run: npx playwright install chromium
       - run: npm run check
+      - run: node scripts/central-memory/validate.mjs
       - run: npm run frontend:build
       - run: npm test
       - run: npm run test:memory

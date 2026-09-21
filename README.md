@@ -1,4 +1,4 @@
-> Versão 0.1.18: Atlas visual atualizado com as cores e logos da Aurora, incluindo mapa 3D, lista e fluxograma. [Notas da versão](docs/RELEASE_0.1.18.md) · [Chat e arquivos](docs/CHAT_E_ARQUIVOS.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
+> Versão 0.1.19: memória central pública revisada, sincronização a cada 6 horas e compartilhamento de cópias aprovadas pelo usuário. [Notas da versão](docs/RELEASE_0.1.19.md) · [Memória central](docs/MEMORIA_CENTRAL.md) · [Execução econômica](docs/EXECUCAO_ECONOMICA.md).
 
 # Harness Aurora
 
@@ -12,7 +12,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.18.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.19.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 
@@ -94,7 +94,10 @@ A memória tem três escopos: **geral** (`global`), **por projeto** (`project`) 
 - **Relações reais:** a extração automática também propõe relações entre a memória nova e memórias já existentes (`belonging`/`thematic`/`derivation`/`correction`) — é o que alimenta as conexões do Atlas 3D e do Fluxograma.
 - **Aba Memória unificada:** reúne todas as memórias (de todas as conversas e projetos, mais a geral) em um único lugar, com filtro por escopo/origem e busca.
 - **Exportar/Importar:** os botões "↓ Exportar"/"↑ Importar" na aba Memória levam a memória (com relações) pra um arquivo JSON e de volta — útil pra backup ou pra levar o conhecimento acumulado de uma instalação pra outra. Ao importar, memórias de projeto/conversa cujo projeto/conversa não existe na instalação de destino caem automaticamente pra escopo geral em vez de falhar.
-- **Memória compartilhada pela comunidade (só puxar, nunca enviar):** o botão "🌐 Comunidade" na aba Memória busca pacotes de memórias já revisadas do repositório público deste projeto (`community-memories/` no GitHub, mesmo formato do export/import manual) e permite importar com um clique. Nenhuma memória sua é enviada a lugar nenhum automaticamente — essa é uma via de mão única, de propósito, dado que memórias podem conter informação pessoal/de projeto. A URL do manifesto é configurável via `COMMUNITY_MANIFEST_URL`.
+- **Memória central compartilhada:** em **Memória → Memória central**, ative o recebimento e escolha o intervalo (6 horas por padrão). Referências revisadas ficam em cache local, entram na busca por relevância e aparecem em um grupo separado no Atlas. O aplicativo precisa estar aberto para sincronizar; retoma na próxima abertura.
+- **Contribuições públicas opcionais:** use **Compartilhar cópia**, edite e revise título/conteúdo/tags e aprove explicitamente. Com o envio ativado e sua conta autenticada no GitHub CLI, o ciclo envia somente essas cópias como issues. Um mantenedor revisa e incorpora o pacote via PR antes da distribuição. Nenhuma credencial central é incluída no app; não há coleta automática de chats privados. [Uso, privacidade e limites](docs/MEMORIA_CENTRAL.md).
+- **Memória pessoal de todos os chats:** a tela reúne sua coleção local. A consulta a memórias de outras conversas/projetos pode ser ativada separadamente; não publica nada na central. Contexto específico do chat tem prioridade sobre referências genéricas.
+- **Pacotes manuais da comunidade:** o botão "🌐 Comunidade" continua baixando pacotes de `community-memories/`; esse fluxo de importação não envia dados. Seu manifesto segue configurável por `COMMUNITY_MANIFEST_URL` e é separado da central revisada em `central-memories/`.
 
 ## Validação rápida
 

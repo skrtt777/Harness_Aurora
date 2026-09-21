@@ -1,4 +1,20 @@
 /* Conversation-first workspace. Loaded after the legacy feature styles. */
+/* Central memory keeps public references separate from the user's private collection. */
+.central-memory { margin: 0 24px 24px; color: #d8e1f4; }
+.memory-levels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+.memory-levels article { padding:16px; border:1px solid #3b4561; border-radius:12px; background:linear-gradient(120deg,#1a2b38,#282139); }
+.memory-levels b { display:block; color:#bfe9ff; font-size:13px; }.memory-levels span { display:block; margin-top:8px; font-size:12px; color:#b0bed7; line-height:1.5; }
+.central-memory > details { border:1px solid #36425c; border-radius:12px; background:#171d2b; padding:18px; }
+.central-memory summary { cursor:pointer; font-weight:600; }.central-memory p { font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.central-memory small { display:block; color:#b1bdd6; line-height:1.6; font-size:12px; margin:8px 0; }.central-memory a { color:#9bdcff; }
+.central-memory button,.memory-row-foot button { border:1px solid #516383; border-radius:8px; background:#29354b; color:#e0eaff; padding:8px 12px; font-size:12px; }
+.central-options { display:grid; gap:12px; margin:18px 0; }.central-memory label { font-size:13px; line-height:1.6; }.central-options label,.central-consent { display:flex; align-items:flex-start; gap:9px; }
+.central-memory input:not([type=checkbox]),.central-memory textarea { background:#111725; border:1px solid #455676; color:#e5edff; border-radius:7px; padding:9px; max-width:100%; }
+.central-memory input[type=checkbox] { accent-color:#aa9ef7; flex-shrink:0; margin-top:4px; }.central-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:18px 0; }.central-actions label { display:grid; gap:5px; }.central-actions input { width:100px; }
+.central-draft { margin:22px 0; padding:18px; border:1px solid #796297; border-radius:12px; background:#211c30; }.central-draft > label:not(.central-consent) { display:grid; gap:6px; margin:12px 0; }.central-draft pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#111421; padding:12px; max-height:300px; overflow:auto; font-size:12px; }.central-draft button { margin:10px 10px 0 0; }
+.central-contribution { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:12px; padding:12px 0; border-bottom:1px solid #36425c; }.central-contribution small { flex-basis:100%; }
+.central-library { max-height:420px; overflow:auto; margin-top:16px; }.central-library details { padding:12px 0; border-bottom:1px solid #36425c; }.central-memory [role=alert] { color:#ffb6c6; }.personal-memory-heading { margin:0 24px 18px; font-size:18px; }
+@media(max-width:700px) { .memory-levels { grid-template-columns:1fr; }.central-memory { margin:0 12px 18px; }.central-memory > details,.central-draft { padding:12px; } }
 :root { color: #e8edf5; background: #14171f; color-scheme: dark; --aurora-cyan: #75eaff; --aurora-violet: #c5a0ff; --aurora-gradient: linear-gradient(110deg, #75eaff 0%, #96c7ff 48%, #d49bff 100%); }
 .app-shell:not(.atlas-takeover) { grid-template-columns: 236px minmax(0, 1fr); background: #14171f; min-height: 0; }
 .app-sidebar { background: #101219; border-color: #242936; padding: 20px 18px 16px; }

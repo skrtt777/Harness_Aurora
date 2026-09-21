@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
+import { centralConfig, relevantCentralMemories } from './centralMemory.js';
 import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 import { taskProfile, queryTerms, referenceCompatibility, selectiveContext } from './contextSelection.js';
 
@@ -424,15 +425,19 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
   const queryTokens = selective ? new Set(profile.terms) : tokenize(input);
   if ((selective&&!queryTokens.size) || limit <= 0) return [];
   const queryEmbedding = await embedText(selective?profile.query:input, env, signal);
+  const central = await centralConfig();
+  const shared = central.downloadEnabled ? await relevantCentralMemories(selective ? profile.query : input) : [];
   const pools = [
     { scope: "conversation", weight: 1.6, rows: conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ?").all(conversationId) : [] },
     { scope: "project", weight: 1.3, rows: projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ?").all(projectId) : [] },
     { scope: "global", weight: 1, rows: db.prepare("SELECT * FROM memories WHERE scope = 'global'").all() },
+    { scope: 'personal', weight: 0.8, rows: central.crossChatEnabled ? db.prepare("SELECT * FROM memories WHERE scope='conversation' AND conversation_id != ?").all(conversationId || '') : [] },
+    { scope: 'central', weight: 0.65, rows: shared.map(m => ({ id:m.id, scope:'central', title:m.title, content:m.content, tags:JSON.stringify(m.tags), kind:'imported', source:m.source, created_at:m.createdAt, updated_at:m.updatedAt })) },
   ];
   const scored = [];
   if (queryEmbedding) {
     // Incrementally repair legacy/missing vectors without delaying this search.
-    for (const row of pools.flatMap(p => p.rows).filter(r => !r.embedding || r.embedding_model !== resolveEmbeddingModel(env)).slice(0, 5)) {
+    for (const row of pools.filter(p => p.scope !== 'central').flatMap(p => p.rows).filter(r => !r.embedding || r.embedding_model !== resolveEmbeddingModel(env)).slice(0, 5)) {
       if (pendingEmbeddings.has(row.id)) continue;
       pendingEmbeddings.add(row.id);
       void attachEmbedding(db, row.id, embeddingInputFor(mapMemory(row)), env).finally(() => pendingEmbeddings.delete(row.id));
@@ -447,6 +452,8 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
       const words = new Set(queryTerms(memory.content));
       const titleMatches = [...queryTokens].filter(w=>headline.has(w));
       const overlap = [...queryTokens].filter(w=>words.has(w)).length;
+      // Remote and cross-chat references must match the request even in legacy mode.
+      if (['central','personal'].includes(pool.scope) && !titleMatches.length && overlap < 2) continue;
       if(selective&&compatibility.reason==='cross_domain' && titleMatches.length<2) continue;
       let semantic = 0;
       let similarity = null;

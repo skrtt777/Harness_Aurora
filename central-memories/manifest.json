@@ -1,0 +1,13 @@
+{
+  "format": "aurora-central-manifest",
+  "version": 1,
+  "revision": "0c320fa2d635df401bbdf07bd9be45f93b5cfc6e6b8dcb8fe2bcf7db310626d0",
+  "bundles": [
+    {
+      "id": "threejs-base",
+      "file": "threejs-base.json",
+      "sha256": "972358b2e9f13e8b40e384790cc411e3d8976069af65ffc1820968fdd71165f2",
+      "count": 16
+    }
+  ]
+}

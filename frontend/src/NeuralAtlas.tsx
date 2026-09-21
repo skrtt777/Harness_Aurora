@@ -12,11 +12,12 @@ import {
   type MemoryScope,
 } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
-import { listConversations, listMemories, listProjects } from "./api";
+import { listConversations, listMemories, listProjects, getCentralMemories } from "./api";
 
 const MemoryScene = lazy(() => import("./MemoryScene"));
 const MemoryFlow = lazy(() => import("./MemoryFlow"));
 const scopeLabels: Record<MemoryScope, string> = {
+  central: "Central compartilhada",
   general: "Geral",
   project: "Projeto / pasta",
   conversation: "Conversa",
@@ -49,8 +50,8 @@ function initialMemories() {
  * the demo collection.
  */
 async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
-  const [entries, projects, conversations] = await Promise.all([listMemories(), listProjects(), listConversations()]);
-  if (!entries.length) return [];
+  const [entries, projects, conversations, shared] = await Promise.all([listMemories(), listProjects(), listConversations(), getCentralMemories('',500)]);
+  if (!entries.length && !shared.length) return [];
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const conversationById = new Map(conversations.map((c) => [c.id, c]));
   const mapped: Memory[] = entries.map((entry) => {
@@ -72,6 +73,7 @@ async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
       relationTypes: entry.relationTypes ?? {},
     };
   });
+  mapped.push(...shared.map((m):Memory=>({id:m.id,title:m.title,content:m.content,tags:m.tags,scope:'central',kind:'context',source:m.source,date:new Date(m.updatedAt).toLocaleDateString('pt-BR'),position:[0,0,0],relations:[],relationTypes:{}})));
   return layoutMemories(mapped, new Set(mapped.map((m) => m.id)));
 }
 
@@ -263,7 +265,7 @@ export default function NeuralAtlas({ variant }: Props) {
           {variant === "real" ? (
             <div className={`atlas-disclaimer ${connected ? "connected" : ""}`}>
               {connected
-                ? "Suas memórias e conexões reais, organizadas para explorar."
+                ? "Suas memórias e conexões reais. A central aparece em grupo separado (até 500 referências do cache)."
                 : "Ainda não há memória real gerada. Converse no chat para começar a criá-la, ou visite a aba Teste para experimentar com dados sintéticos."}
             </div>
           ) : (

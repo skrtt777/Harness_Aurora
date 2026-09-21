@@ -1,0 +1,2 @@
+# Central bundles are content-addressed; preserve identical bytes on Windows and GitHub.
+central-memories/*.json text eol=lf

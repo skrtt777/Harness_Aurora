@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {existsSync,mkdtempSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {chromium} from 'playwright';
+process.env.HARNESS_DB_FILE=join(mkdtempSync(join(tmpdir(),'aurora-central-ui-')),'test.db');
+process.env.EMBEDDINGS_ENABLED='false';
+process.env.LOCAL_BASE_URL='http://127.0.0.1:1';
+process.env.CODEX_BIN=join(tmpdir(),'missing-central-codex.exe');
+process.env.CLAUDE_BIN=join(tmpdir(),'missing-central-claude.exe');
+const {createServer}=await import('../app/server.js');
+const {createMemory}=await import('../app/store.js');
+const {centralStatus,pullCentral}=await import('../app/centralMemory.js');
+const executable=process.env.CHROMIUM_EXECUTABLE_PATH||(process.platform==='win32'&&existsSync('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':chromium.executablePath());
+const skip=!existsSync(executable)||!existsSync(new URL('../frontend/dist/index.html',import.meta.url));
+test('central UI reviews exact public copies, revokes pending sends and keeps responsive private and central layers',{skip,timeout:30000},async()=>{
+  await createMemory({title:'Conhecimento pessoal para revisar',content:'Use um botão nativo para reiniciar o contador.',tags:['contador']});
+  await pullCentral({download:u=>readFile(new URL('../central-memories/'+u.split('/').at(-1),import.meta.url),'utf8')});
+  const server=createServer({allowDev:false,centralSync:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try {
+    const page=await browser.newPage({viewport:{width:1440,height:900}});await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.locator('.sidebar-tools > summary').click();await page.getByRole('button',{name:/⌁ Memória/}).click();
+    await page.getByRole('button',{name:'Compartilhar cópia',exact:true}).click();
+    await page.getByLabel('Intervalo de sincronização em horas').waitFor();assert.equal(await page.getByLabel('Intervalo de sincronização em horas').inputValue(),'6');
+    assert.equal(await page.getByLabel('Receber e consultar memórias da central').isChecked(),false);
+    await page.getByLabel('Enviar somente as cópias que eu revisar e aprovar para publicação').check();
+    await page.getByLabel('Conteúdo público').fill('Contato privado: cliente@example.com');await page.getByRole('button',{name:'Conferir prévia',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'dados privados'}).waitFor();assert.equal((await centralStatus()).contributions.length,0);
+    await page.getByLabel('Conteúdo público').fill('Use um botão nativo para reiniciar o contador.');await page.getByRole('button',{name:'Conferir prévia',exact:true}).click();
+    const approve=page.getByRole('button',{name:'Aprovar e colocar na fila',exact:true});await approve.waitFor();assert.equal(await approve.isDisabled(),true);
+    await page.getByLabel('Revisei esta cópia, tenho autorização para compartilhá-la e autorizo sua publicação pública no GitHub.').check();
+    await page.getByLabel('Título público').fill('Título revisado');assert.equal(await approve.count(),0);
+    await page.getByRole('button',{name:'Conferir prévia',exact:true}).click();await page.getByLabel('Revisei esta cópia, tenho autorização para compartilhá-la e autorizo sua publicação pública no GitHub.').check();await approve.click();
+    await page.getByText('Aguardando sincronização',{exact:true}).waitFor();assert.equal((await centralStatus()).contributions[0].status,'queued');
+    await page.getByLabel('Enviar somente as cópias que eu revisar e aprovar para publicação').uncheck();await page.getByText('Envio cancelado',{exact:true}).waitFor();
+    await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    assert.equal((await centralStatus()).config.shareEnabled,false);
+    await page.setViewportSize({width:1440,height:900});await page.getByRole('button',{name:/Atlas 3D/}).click();
+    await page.getByRole('button',{name:/Central compartilhada/}).waitFor();
+    await page.getByRole('button',{name:'☷ Lista',exact:true}).click();await page.getByLabel('Filtrar escopo').selectOption('central');
+    await page.waitForFunction(()=>document.querySelectorAll('.list-row').length===16);assert.equal(await page.locator('.list-row').filter({hasText:'Conhecimento pessoal para revisar'}).count(),0);
+  } finally {await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

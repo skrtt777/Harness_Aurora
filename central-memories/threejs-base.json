@@ -1,0 +1,171 @@
+{
+  "format": "aurora-central-bundle",
+  "version": 1,
+  "memories": [
+    {
+      "id": "11a54e57485660ea314603732a451b2e567d34327ce5c28b25ed0575b58418ae",
+      "title": "Three.js: arquivo HTML unico sem build",
+      "content": "Para rodar Three.js num unico arquivo HTML (sem npm/bundler), use um unico <script type=\"module\"> contendo import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js' seguido de todo o codigo do jogo/cena. Nunca separe em um script module vazio e um script comum tentando acessar THREE como variavel global — isso nao funciona.",
+      "tags": [
+        "html",
+        "modules",
+        "setup",
+        "threejs"
+      ]
+    },
+    {
+      "id": "daaf4a1c066c0c25c588eb62a6f244c2585658d7fef121a27e6a6db9f0f58b74",
+      "title": "Three.js: os 3 objetos basicos de toda cena",
+      "content": "Toda cena Three.js precisa de 3 coisas: uma THREE.Scene (container dos objetos), uma THREE.PerspectiveCamera(fov, aspect, near, far) posicionada com camera.position.set(x,y,z) (e geralmente camera.lookAt(0,0,0)), e um THREE.WebGLRenderer com renderer.setSize(width, height) e document.body.appendChild(renderer.domElement).",
+      "tags": [
+        "camera",
+        "renderer",
+        "scene",
+        "threejs"
+      ]
+    },
+    {
+      "id": "02aa63a06561ef60c2b13da7b04f346e1384f8dff92515a0ebdcbf9bf60f452f",
+      "title": "Three.js: camera sem posicao = tela preta",
+      "content": "Uma THREE.PerspectiveCamera nasce em (0,0,0) — se ficar no mesmo ponto dos objetos da cena, nada sera visivel. Sempre defina camera.position.set(x,y,z) (e idealmente camera.lookAt(0,0,0)) logo apos criar a camera.",
+      "tags": [
+        "camera",
+        "debug",
+        "threejs"
+      ]
+    },
+    {
+      "id": "06f99cb5844561014d563fdc1499e600d86888f1e1a4aaaa408decf0fa0e92c2",
+      "title": "Three.js: geometria + material = mesh",
+      "content": "Um objeto visivel e sempre new THREE.Mesh(geometry, material). Geometrias comuns: BoxGeometry(w,h,d), SphereGeometry(raio, segmentos, segmentos), PlaneGeometry(w,h), ConeGeometry(raio, altura, segmentos). Depois de criar, sempre scene.add(mesh).",
+      "tags": [
+        "geometry",
+        "material",
+        "mesh",
+        "threejs"
+      ]
+    },
+    {
+      "id": "36bf8e35f8eed12075d2eaf8369287a4b8340f68e66efb3b77f79250397faf8b",
+      "title": "Three.js: MeshBasicMaterial nao reage a luz",
+      "content": "MeshBasicMaterial({color}) sempre aparece com a cor solida, ignora luzes da cena (bom pra prototipar rapido). MeshStandardMaterial e MeshPhongMaterial reagem a luz e ficam pretos/invisiveis se a cena nao tiver nenhuma luz adicionada — nesse caso adicione pelo menos new THREE.AmbientLight(0xffffff, 0.5) e new THREE.DirectionalLight(0xffffff, 1).",
+      "tags": [
+        "light",
+        "material",
+        "threejs"
+      ]
+    },
+    {
+      "id": "6dfad85455c6b5c40ba4db3431582d8df87d7544e1f90b6899e871a56ecc4dfc",
+      "title": "Three.js: loop de animacao correto",
+      "content": "O loop de renderizacao deve usar requestAnimationFrame recursivamente: function animate(){ requestAnimationFrame(animate); /* atualizar posicoes aqui */ renderer.render(scene, camera); } e chamar animate() uma vez no final do script. Sem isso a cena so aparece um frame estatico.",
+      "tags": [
+        "animation",
+        "gameloop",
+        "threejs"
+      ]
+    },
+    {
+      "id": "3f84c8b645fc9644abb1dc3c402d003750ab5425343574bafd6299279b5e9ac3",
+      "title": "Three.js: movimento independente de FPS com Clock",
+      "content": "Para jogos, use const clock = new THREE.Clock() e dentro do loop de animacao const delta = clock.getDelta() (segundos desde o ultimo frame). Multiplique toda velocidade por delta para o jogo nao ficar mais rapido ou lento dependendo da taxa de quadros do computador.",
+      "tags": [
+        "delta",
+        "gameloop",
+        "threejs"
+      ]
+    },
+    {
+      "id": "dfee1f2a2bce37c28159c30ea1f70cdbde517be514a4616ade19cd6284c9a978",
+      "title": "Three.js: registre o teclado uma unica vez, fora do loop",
+      "content": "Guarde o estado das teclas num objeto: const keys = {}; window.addEventListener('keydown', e => keys[e.key] = true); window.addEventListener('keyup', e => keys[e.key] = false); Registre esses listeners UMA VEZ, fora da funcao animate — registrar dentro do loop de animacao cria milhares de listeners duplicados por segundo.",
+      "tags": [
+        "input",
+        "keyboard",
+        "threejs"
+      ]
+    },
+    {
+      "id": "0fe4c5f4b9aa39ab30606706a9f9a5e28844ddecf63651d0e9864cb996176999",
+      "title": "Three.js: redimensionar janela",
+      "content": "Sempre escute window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }) senao a cena distorce ou fica cortada quando a janela do navegador muda de tamanho.",
+      "tags": [
+        "camera",
+        "resize",
+        "threejs"
+      ]
+    },
+    {
+      "id": "022f9fa7ead9c594463e31de7e9ee9d207eff1771844d3e5b51f20a0839a85c5",
+      "title": "Three.js: colisao simples por distancia",
+      "content": "Para detectar colisao entre dois objetos simples num jogo, calcule a distancia entre as posicoes: mesh1.position.distanceTo(mesh2.position) < (raio1 + raio2). Nao precisa de fisica complexa para jogos simples.",
+      "tags": [
+        "collision",
+        "game",
+        "threejs"
+      ]
+    },
+    {
+      "id": "1e6dd6d548896a0aff660db7f4e104334075e739383cc548da656966ce1a6889",
+      "title": "Three.js: gerar obstaculos continuamente (padrao comum de jogo)",
+      "content": "Para um jogo de 'desviar de objetos': crie um array de meshes, adicione um novo obstaculo periodicamente (com um temporizador acumulado por delta, nao so uma vez no inicio) na borda da tela, e a cada frame mova-o (obstaculo.position -= velocidade * delta) e remova da scene e do array quando sair da tela.",
+      "tags": [
+        "game",
+        "obstacles",
+        "threejs"
+      ]
+    },
+    {
+      "id": "5203c57148eea2328a5090475413630354f0689b4216c317d643c32e557b4e38",
+      "title": "Three.js: mostrar pontuacao/texto na tela",
+      "content": "Three.js nao desenha texto HTML nativamente dentro da cena 3D. Para mostrar pontuacao/instrucoes, crie um elemento HTML comum (ex: <div id='score'> posicionado com CSS position:fixed por cima do canvas) e atualize seu textContent via JavaScript normal, fora da cena 3D. A variavel de pontuacao precisa ser de fato incrementada (score++ dentro do loop) — declarar e nunca mudar nao e suficiente.",
+      "tags": [
+        "score",
+        "threejs",
+        "ui"
+      ]
+    },
+    {
+      "id": "5f5b072ac422d2daf71707e39289a741c9f65f18a26386367d740de0d125e379",
+      "title": "Three.js: erro comum - cena preta ou nada aparece",
+      "content": "Se a pagina abre mas nao aparece nada: confira 1) se renderer.domElement foi de fato adicionado ao document.body, 2) se a camera esta posicionada longe o suficiente dos objetos, 3) se existe pelo menos uma luz quando o material precisa de luz, 4) se animate()/renderer.render foi chamado.",
+      "tags": [
+        "debug",
+        "erro",
+        "threejs"
+      ]
+    },
+    {
+      "id": "e1859170420045e5d94dd33368712e15eb7dbf6595d5a6765d462ca147bad465",
+      "title": "Three.js: addon sem import trava o script inteiro",
+      "content": "Classes como OrbitControls, GLTFLoader, FBXLoader e EffectComposer NAO fazem parte do build principal do Three.js — vivem em arquivos de addon separados. Usar uma delas (ex: new THREE.OrbitControls(...)) sem importar o addon correspondente lanca um erro em runtime que interrompe TODO o script antes mesmo do loop de animacao comecar, entao nada e renderizado. Se o pedido nao exigir controle de camera orbital, o mais seguro e simplesmente nao usar OrbitControls.",
+      "tags": [
+        "erro",
+        "import",
+        "orbitcontrols",
+        "threejs"
+      ]
+    },
+    {
+      "id": "3d1a02abf71c04ffce951fd92eb381255522b603b1dbed700da0cc6a6fe65e30",
+      "title": "JavaScript: nao reatribua variavel const",
+      "content": "Se uma variavel vai ser alterada depois (contador, placar, posicao reatribuida por completo, etc), declare com let, nunca com const. Reatribuir uma variavel const (ex: const score = 0; depois score++;) e sintaticamente valido mas lanca TypeError em tempo de execucao (Assignment to constant variable). Tambem declare e inicialize variaveis ANTES da funcao que as usa ser chamada, nao depois (evita erro de 'usada antes de declarada').",
+      "tags": [
+        "const",
+        "erro",
+        "javascript",
+        "let"
+      ]
+    },
+    {
+      "id": "90e8ae09ada9f0a10627cfc9cf552d3aa39d80d8d92e5c85b453d314711a9545",
+      "title": "Checklist de mecanicas em jogos simples pedidos pelo usuario",
+      "content": "Ao criar um jogo, implemente explicitamente TODAS as mecanicas pedidas: controle de input real (nao movimento automatico sem tecla), deteccao de colisao por distancia, uma variavel de pontuacao que de fato incrementa no loop, spawn continuo de obstaculos (nao so uma vez), e as cores/teclas EXATAS pedidas pelo usuario (nao substitua por outra cor/tecla parecida).",
+      "tags": [
+        "checklist",
+        "game-dev",
+        "requirements"
+      ]
+    }
+  ]
+}

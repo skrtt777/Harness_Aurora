@@ -1,4 +1,4 @@
-export type MemoryScope = "general" | "project" | "conversation";
+export type MemoryScope = "central" | "general" | "project" | "conversation";
 export type MemoryKind = "context" | "demo";
 export type RelationType =
   | "belonging"
@@ -29,7 +29,7 @@ export const palette = [
   "#a5b4fc",
   "#38bdf8",
 ];
-export const groupKey = (memory: Memory) => memory.project || "Contexto geral";
+export const groupKey = (memory: Memory) => memory.scope === 'central' ? 'Central compartilhada' : memory.project || "Contexto geral";
 export function hash(value: string) {
   let h = 2166136261;
   for (const c of value) h = Math.imul(h ^ c.charCodeAt(0), 16777619);

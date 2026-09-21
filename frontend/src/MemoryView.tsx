@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import CentralMemoryPanel from './CentralMemoryPanel';
 import {
   createMemory,
   importMemories,
@@ -172,12 +173,14 @@ function MemoryRow({
   conversationName,
   onDeleted,
   onUpdated,
+  onShare,
 }: {
   memory: MemoryEntry;
   projectName?: string;
   conversationName?: string;
   onDeleted: () => void;
   onUpdated: () => void;
+  onShare: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(memory.content);
@@ -233,6 +236,7 @@ function MemoryRow({
         <p>{memory.content}</p>
       )}
       <div className="memory-row-foot">
+        <button onClick={onShare}>Compartilhar cópia</button>
         {(projectName || conversationName) && <span>{projectName || conversationName}</span>}
         {memory.tags.map((t) => (
           <em key={t}>#{t}</em>
@@ -244,6 +248,7 @@ function MemoryRow({
 }
 
 export default function MemoryView({ projects, conversations, onMemoriesChanged }: Props) {
+  const [shareDraft, setShareDraft] = useState<MemoryEntry|null>(null);
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [stats, setStats] = useState<MemoryStat[]>([]);
   const [scope, setScope] = useState<"all" | MemoryScope>("all");
@@ -358,10 +363,12 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           <h1>
             Tudo que a IA <span>lembra</span>
           </h1>
-          <p>Memória real, lida a cada resposta — não uma demonstração visual.</p>
+          <p>Central compartilhada, contexto de cada chat e sua coleção pessoal. Somente referências relevantes entram nas respostas.</p>
         </div>
       </div>
 
+      <CentralMemoryPanel draft={shareDraft} onCloseDraft={()=>setShareDraft(null)} />
+      <h2 className="personal-memory-heading">Memória pessoal · todos os chats</h2>
       <div className="memory-stats">
         <div className="card stat">
           <div className="stat-label">Total</div>
@@ -425,8 +432,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
       {communityOpen && (
         <div className="community-panel">
           <p className="community-hint">
-            Memórias revisadas, compartilhadas por quem usa o Harness Aurora. Só baixa e importa — nada seu é
-            enviado a lugar nenhum.
+            Pacotes de importação manual. Este botão apenas baixa; o envio público é controlado separadamente na memória central e exige aprovação de cada cópia.
           </p>
           {communityError && <p className="memory-import-status">{communityError}</p>}
           {communityBundles === null && !communityError && <p className="sidebar-empty">Buscando…</p>}
@@ -468,6 +474,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
               catch (e) { setImportStatus(e instanceof Error ? e.message : "Falha ao excluir memória."); }
             }}
             onUpdated={afterChange}
+            onShare={()=>setShareDraft(memory)}
           />
         ))}
       </div>

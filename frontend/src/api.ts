@@ -362,6 +362,18 @@ export const getCommunityManifest = () =>
   request<{ bundles: CommunityBundleInfo[] }>("/community/manifest").then((r) => r.bundles);
 export const getCommunityBundle = (file: string) => request<MemoryExportEnvelope>(`/community/bundles/${file}`);
 
+export type PublicMemory = { title:string; content:string; tags:string[] };
+export type CentralConfig = { downloadEnabled:boolean; shareEnabled:boolean; crossChatEnabled:boolean; intervalHours:number };
+export type CentralStatus = { config:CentralConfig; repo:string; count:number; state:{ nextAt?:string; lastSuccessAt?:string; downloadedAt?:string; error?:string|null; changedBundles?:number }; contributions:{id:string;memory:PublicMemory;status:string;createdAt:string;issueUrl?:string;error?:string}[] };
+export const getCentralStatus = () => request<CentralStatus>('/central/status');
+export const setCentralConfig = (patch:Partial<CentralConfig>) => request<CentralStatus>('/central/config',{method:'PATCH',body:JSON.stringify(patch)});
+export const syncCentralMemory = () => request<CentralStatus>('/central/sync',{method:'POST',body:'{}'});
+export const getCentralMemories = (query='',limit=100) => request<{memories:(PublicMemory&{id:string;source:string;updatedAt:string})[]}>(`/central/memories?query=${encodeURIComponent(query)}&limit=${limit}`).then(r=>r.memories);
+export const checkCentralGitHub = () => request<{login:string}>('/central/github',{method:'POST',body:'{}'});
+export const previewCentralContribution = (memory:PublicMemory) => request<{id:string;memory:PublicMemory}>('/central/preview',{method:'POST',body:JSON.stringify(memory)});
+export const approveCentralContribution = (memory:PublicMemory,expectedId:string,consent:boolean) => request<CentralStatus>('/central/contributions',{method:'POST',body:JSON.stringify({memory,expectedId,consent})});
+export const cancelCentralContribution = (id:string) => request<CentralStatus>(`/central/contributions/${id}/cancel`,{method:'POST',body:'{}'});
+
 export const importMemories = (envelope: unknown) => request<{ imported: number; skipped: number; relationsCreated: number }>("/memories/import", { method: "POST", body: JSON.stringify(envelope) });
 
 
