@@ -14,7 +14,9 @@ O disco armazena os pesos; CPU/GPU precisam acessar os dados em memória para ca
 
 Usar CPU libera VRAM, mas ainda exige RAM. Descarregar o modelo ocioso libera memória entre pedidos, não reduz o pico durante a geração. Quantização dos pesos e do cache, contexto menor e menos concorrência atuam em partes diferentes desse consumo.
 
-Um modelo de 300 GB em SSD não é a meta padrão para computadores com 16 GB. A prioridade é concluir tarefas corretamente com modelos de poucos GB. Um executor de pesos por SSD permanece experimento separado e não foi implementado nesta etapa.
+Um modelo de 300 GB em SSD não é a meta padrão para computadores com 16 GB. A prioridade é concluir tarefas corretamente com modelos de poucos GB. Foi compilado um executor experimental de Qwen3-Coder MoE por SSD, separado da distribuição do app. O limite medido é do processo, não do cache total do sistema. [Protocolo, scripts e limites da avaliação](QWEN3_MOE_BENCHMARK.md).
+
+**Atualização de 22/09/2026:** a primeira campanha (20–50% de 16 GiB) não aprovou nenhuma tarefa por estourar o prazo — o executor só usava paginação padrão do SO, sem nenhuma das mitigações do próprio patch. Uma segunda rodada testou `--expert-prefetch` (leitura antecipada do patch Swap-MoE) combinado com lote de prefill maior: no teto de 50% (8 GiB), 17 de 24 tarefas passaram (mediana de 93,7 s por tarefa, dentro do prazo de 180 s), perto da qualidade obtida com GPU sem teto (18–23 de 24). No teto de 30% (4,8 GiB), o mesmo ajuste aprovou 10 de 24, mas com um padrão novo: as primeiras ~9 tarefas passam bem e depois a sessão degrada, batendo o prazo repetidamente — sugere acúmulo de pressão de memória ao longo de uma sessão longa do servidor sob teto apertado, ainda não diagnosticado a fundo. Isso não confirma funcionamento num PC físico de 16 GB (o teste roda numa máquina com 31,8 GiB reais, só o working-set do processo é limitado). Detalhes e números completos em [resultados](QWEN3_MOE_RESULTS.md).
 
 ## Próximas etapas propostas, ainda não implementadas
 
@@ -28,13 +30,13 @@ Se as partes obrigatórias não couberem, escolher um modelo/contexto menor. Nã
 
 A seleção inicial entre 20%, 30%, 40% e 50% deve comparar tarefas iguais, com execução fria e quente, concorrência fixa e medições da memória total. Após escolher 30%, a execução normal não deve aumentar o limite sem uma escolha explícita; sob pressão do sistema deve reduzir o cache, pausar ou oferecer modelo menor. No Ollama atual, esse alvo não é um teto de memória aplicado.
 
-Referências para a investigação: [LLM in a Flash, Apple](https://machinelearning.apple.com/research/efficient-large-language) e [Swap-MoE](https://github.com/ek15072809/Swap-MoE). O segundo é um projeto externo experimental que altera llama.cpp; suas alegações de limite e desempenho precisam de reprodução. Não foi instalado ou incorporado. A opção de fixar roteamento pode alterar a qualidade e não faz parte do caminho inicial proposto.
+Referências para a investigação: [LLM in a Flash, Apple](https://machinelearning.apple.com/research/efficient-large-language) e [Swap-MoE](https://github.com/ek15072809/Swap-MoE). O segundo foi compilado em uma cópia isolada de llama.cpp para a avaliação; continua fora do instalador do Aurora. Suas alegações de memória não equivalem a um teto global medido no Windows. A opção de fixar roteamento pode alterar a qualidade e não foi utilizada.
 
 1. Perfil econômico com orçamento de RAM, contexto e saída; impedir truncamento silencioso ao reduzir contexto.
 2. Fila única de geração e descarregamento por ociosidade. Não encerrar modelos usados por outros aplicativos.
 3. Quantização de cache e distribuição CPU/GPU somente em runtimes compatíveis, com avaliação de qualidade. Configurações globais do Ollama exigem cuidado por afetarem outros clientes.
 4. Cache de resultados validados e busca seletiva de memórias em SSD, ampliando os mecanismos existentes.
-5. Backend experimental para MoE com cache de especialistas, leituras antecipadas e limite de residência; validar com pesos reais antes de prometer economia.
+5. Backend experimental para MoE com cache de especialistas, leituras antecipadas e limite de residência; validar com pesos reais antes de prometer economia. **Leituras antecipadas (`--expert-prefetch`) validadas com pesos reais em 22/09/2026** (ver atualização acima); cache de especialistas por orçamento de bytes (`--expert-cache-size`) e retenção explícita dos mais recentes (`--expert-keep-recent`) foram testados mas não ajudaram no teto de 50% e ainda não foram avaliados nos tetos mais apertados. Falta diagnosticar a degradação observada em sessões longas a 30% antes de considerar isso pronto para qualquer perfil do app.
 
 ## Critérios de avaliação
 
