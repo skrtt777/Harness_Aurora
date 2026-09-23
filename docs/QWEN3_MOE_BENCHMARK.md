@@ -73,6 +73,12 @@ Resultado do diagnóstico: `b512-pf` (lote 512 + `--expert-prefetch`) isolado j�
 
 `scripts/benchmark/ssd-evaluate.mjs` ganhou perfis "tuned" (`moe-50-tuned-b512-pf`, `moe-30-tuned-b512-pf`, `moe-20-tuned-b512-pf`) que herdam `batch`/`expertPrefetch`/`expertKeepRecent`/`expertCacheSizeMib` do próprio objeto de perfil, sem alterar os perfis originais `moe-20/30/40/50` (que continuam disponíveis para referência do baseline). Como a lista de perfis muda o `definitions` congelado do manifesto, cada campanha "tuned" precisou de um `SSD_REPORT_DIR` novo (`reports/ssd-moe-v2` para 50%, `reports/ssd-moe-v3` para 30%/20%) — os diretórios `ssd-moe-v1`/`v2`/`v3` continuam intactos e comparáveis lado a lado.
 
+## Diagnóstico rodada 3: reinício periódico contra a degradação de sessão longa (22-23/09/2026)
+
+A telemetria (`samples.jsonl`) já coletada na rodada 2 mostrou a causa da degradação em 30%/20%: a memória `private` do processo cresce quase linearmente com o número de chamadas HTTP (~80-90 MiB/chamada com `--expert-streaming`, ~32 MiB/chamada sem — medido também no perfil `old-30` da rodada 1), independente do teto de RAM. Como o `rss` é travado pelo Windows, esse crescimento consome o mesmo orçamento fixo reservado para páginas de especialistas.
+
+`scripts/benchmark/ssd-evaluate.mjs` ganhou um campo de perfil `restartEveryTasks: N`, que reinicia o `llama-server` (processo novo, memória privada de volta a zero) a cada N tarefas dentro da mesma campanha, sempre reaquecendo com as mesmas duas sondas usadas no início da campanha (`warmup()`, extraído para função reutilizável) antes de retomar tarefas reais. Uma primeira tentativa reiniciando a cada tarefa **sem** reaquecer descartou também o backbone denso residente (pesos de atenção/roteador, necessários todo token independente do roteamento de especialistas) e piorou tudo para 0/24 — recarregá-lo do zero não cabe no orçamento de 120 s por chamada em 30%. Ver [resultados](QWEN3_MOE_RESULTS.md) para os números completos e a comparação entre `restartEveryTasks` 1, 2 e 4.
+
 ## Fontes e versões
 
 - llama.cpp `f5e85d43a048f3d5adefb4c5e29867d8077fba62`, [repositório](https://github.com/ggml-org/llama.cpp).

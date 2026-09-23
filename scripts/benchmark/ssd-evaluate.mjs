@@ -17,7 +17,19 @@ const profiles=[{id:'old-30',model:'qwen25-coder-15b',percent:30},
  // at 30% (4.8 GiB) in a 4-domain calibration sample before being promoted to a full campaign here.
  {id:'moe-50-tuned-b512-pf',model:'qwen3-coder-30b',percent:50,batch:512,expertPrefetch:true},
  {id:'moe-30-tuned-b512-pf',model:'qwen3-coder-30b',percent:30,batch:512,expertPrefetch:true},
- {id:'moe-20-tuned-b512-pf',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true}];
+ {id:'moe-20-tuned-b512-pf',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true},
+ // Diagnosed root cause of the 30%/20% within-session degradation above: the llama-server process's
+ // private (non-file-backed) memory grows near-linearly with call count under --expert-streaming
+ // (~80-90 MiB/call vs ~32 MiB/call without it), independent of the RAM cap; since rss is hard-capped,
+ // that growth silently eats into the same fixed budget that would otherwise cache expert pages.
+ // restartEveryTasks periodically relaunches llama-server (fresh process, private memory back near
+ // zero, re-primed with the same probes as startup) to bound how much of that leak can accumulate
+ // before it starts crowding out expert pages. A first attempt restarting before every single task
+ // measured 0/24 (worse than no restart): it also discarded the resident dense backbone every time,
+ // and re-priming it from cold within the 120s call budget didn't fit under the 30% cap either.
+ {id:'moe-30-tuned-restart4',model:'qwen3-coder-30b',percent:30,batch:512,expertPrefetch:true,restartEveryTasks:4},
+ {id:'moe-20-tuned-restart2',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2},
+ {id:'moe-20-tuned-restart1',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:1}];
 const sources=['scripts/benchmark/ssd-evaluate.mjs','scripts/benchmark/ssd-monitor.py',
  'scripts/training/heldout-v2.mjs','scripts/training/curriculum.mjs','scripts/training/browser-check.mjs',
  ...(await readdir('app')).filter(f=>f.endsWith('.js')).map(f=>'app/'+f),
@@ -75,6 +87,15 @@ async function generate(prompt,settings={},externalSignal){
  }catch(error){return {ok:false,status:502,error:error.message,partial:answer,metrics:{startedAt:start,finishedAt:Date.now(),wallMs:Date.now()-start,firstTokenMs,partialOutputTokens:generatedTokens,model:profile.model}};}
  finally{clearTimeout(timer);}
 }
+async function launchServer(configFile){
+ const startedAt=Date.now();
+ const proc=spawn(resolve('.venv-training/Scripts/python.exe'),[resolve('scripts/benchmark/ssd-monitor.py'),configFile],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+ proc.stdout.on('data',x=>process.stdout.write(x));proc.stderr.on('data',x=>process.stderr.write(x));
+ let ready=false;while(Date.now()-startedAt<300000){if(proc.exitCode!==null)throw Error('Server supervisor exited '+proc.exitCode);try{ready=(await fetch(base+'/health',{signal:AbortSignal.timeout(2000)})).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,500));}
+ if(!ready)throw Error('Server startup timeout');
+ return {proc,startupMs:Date.now()-startedAt};
+}
+async function stopServer(proc){if(proc&&proc.exitCode===null){proc.stdin.end('stop\n');await new Promise(r=>proc.once('exit',r));}}
 try{
  const refs=[];for(const t of heldout){const validation=await checker.check(t);refs.push({id:t.id,validation});if(validation.status!=='passed')throw Error('Reference failed '+t.id);}
  await writeFile(join(out,'references.json'),JSON.stringify(refs,null,2));
@@ -87,17 +108,19 @@ try{
   ...(profile.expertCacheSizeMib?['--expert-cache-size',String(profile.expertCacheSizeMib)]:[]),
   ...(profile.expertPrefetch?['--expert-prefetch']:[])];
  const configFile=join(out,'launch.json');await writeFile(configFile,JSON.stringify({directory:out,capBytes,physicalDisk:'PhysicalDrive4',command},null,2));
- const startup=Date.now();
- supervisor=spawn(resolve('.venv-training/Scripts/python.exe'),[resolve('scripts/benchmark/ssd-monitor.py'),configFile],{windowsHide:true,stdio:['pipe','pipe','pipe']});
- supervisor.stdout.on('data',x=>process.stdout.write(x));supervisor.stderr.on('data',x=>process.stderr.write(x));
- let ready=false;while(Date.now()-startup<300000){if(supervisor.exitCode!==null)throw Error('Server supervisor exited '+supervisor.exitCode);try{ready=(await fetch(base+'/health',{signal:AbortSignal.timeout(2000)})).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,500));}
- if(!ready)throw Error('Server startup timeout');
- await writeFile(join(out,'startup.json'),JSON.stringify({startupMs:Date.now()-startup,readyAt:Date.now(),props:await fetch(base+'/props').then(r=>r.json())},null,2));
- const probes=[];for(const state of ['process-cold','warm']){const response=await generate('Responda somente o número: quanto é 38 + 25?',{LOCAL_MAX_OUTPUT_TOKENS:'128'});probes.push({state,response});}
- await writeFile(join(out,'probes.json'),JSON.stringify(probes,null,2));
- const records=[];
+ let launch=await launchServer(configFile);supervisor=launch.proc;
+ await writeFile(join(out,'startup.json'),JSON.stringify({startupMs:launch.startupMs,readyAt:Date.now(),props:await fetch(base+'/props').then(r=>r.json())},null,2));
+ async function warmup(){const probes=[];for(const state of ['process-cold','warm']){const response=await generate('Responda somente o número: quanto é 38 + 25?',{LOCAL_MAX_OUTPUT_TOKENS:'128'});probes.push({state,response});}return probes;}
+ await writeFile(join(out,'probes.json'),JSON.stringify(await warmup(),null,2));
+ const records=[];let sinceRestart=0;
  for(const seed of definitions.seeds)for(const t of heldout){
   const file=join(out,'runs',`${t.id}-${seed}.json`);try{records.push(await read(file));continue;}catch(e){if(e.code!=='ENOENT')throw e;}
+  // A full restart drops the resident dense backbone (attention/router weights every token needs,
+  // regardless of routing) along with the leaked private memory, so a bare restart before every task
+  // made things worse (measured: 0/24, every call timing out) - the dense backbone must be re-primed
+  // with the same warmup() probes before resuming real tasks on a freshly restarted server.
+  if(profile.restartEveryTasks&&sinceRestart>=profile.restartEveryTasks){await stopServer(supervisor);launch=await launchServer(configFile);supervisor=launch.proc;await warmup();sinceRestart=0;}
+  sinceRestart++;
   const env={...process.env,LOCAL_SEED:String(seed)},c=await createConversation({provider:'local',title:`SSD ${profile.id}/${t.id}/${seed}`});
   let job=await createWorkflow({conversationId:c.id,goal:t.goal,functionalContracts:[{step:0,contract:t.contract}],knowledgeMode:'none',budget:definitions.budget,env});
   await runWorkflow(job.id,{env,call:()=>{throw Error('Unexpected planner call');}});
@@ -113,5 +136,5 @@ try{
  const summary={profile,completedAt:new Date().toISOString(),passed:records.filter(r=>r.passed).length,total:records.length,firstPassed:records.filter(r=>r.firstPassed).length,retentionPassed:checks.filter(c=>c.passed).length,retention:checks};
  await writeFile(join(out,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }finally{
- await checker.close();if(supervisor&&supervisor.exitCode===null){supervisor.stdin.end('stop\n');await new Promise(r=>supervisor.once('exit',r));}
+ await checker.close();await stopServer(supervisor);
 }

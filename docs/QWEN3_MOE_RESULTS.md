@@ -62,16 +62,42 @@ Próximos passos sugeridos, nesta ordem: (1) diagnosticar a degradação de sess
 
 Evidências: `reports/ssd-moe-v2/` (perfil 50% tuned), `reports/ssd-moe-v3/` (perfis 30%/20% tuned), `reports/ssd-moe-calibration-v2/` (diagnóstico exploratório).
 
+## Rodada 3: causa raiz da degradação de sessão longa e mitigação por reinício (22-23/09/2026)
+
+Diagnóstico direto na telemetria já coletada da rodada 2 (`samples.jsonl` de cada perfil): a memória `private` do processo (não mapeada em arquivo, portanto não removível pela paginação normal) cresce de forma quase linear com o **número de chamadas HTTP**, não com o tempo nem com o teto de RAM — por volta de **80-90 MiB por chamada** com `--expert-streaming` ativo, contra **~32 MiB/chamada** no modelo denso antigo sem MoE (medido também no baseline `old-30` da rodada 1). Como o `rss` fica travado no teto pelo Windows, esse crescimento consome silenciosamente o mesmo orçamento fixo que sobraria para páginas de especialistas — por isso a sessão degrada progressivamente, e mais rápido quanto menor o teto (o mesmo volume de memória "perdida" representa uma fração maior de um orçamento menor).
+
+Mitigação testada: reiniciar o `llama-server` periodicamente durante a campanha, para zerar essa memória antes que ela aperte o orçamento. Uma primeira tentativa reiniciando **antes de cada tarefa, sem reaquecer** o processo novo, foi *pior* que não fazer nada (0/24, toda chamada estourando o prazo) — o reinício também descarta o backbone denso residente (pesos de atenção/roteador que todo token precisa, independente de qual especialista é escolhido), e recarregá-lo do zero dentro do orçamento de 120 s por chamada não coube no teto de 30%. A correção foi reintroduzir as mesmas duas sondas de aquecimento (`warmup()`) logo depois de cada reinício, e espaçar os reinícios (não a cada tarefa, a cada N tarefas) para não pagar o custo de reaquecimento com tanta frequência.
+
+| Perfil | Mitigação | Aprovações | Tarefas por prazo |
+|---|---|---:|---:|
+| 30% | prefetch + lote 512 (rodada 2, sem reinício) | 10/24 (41,7%) | 11/24 |
+| 30% | + reinício a cada 4 tarefas, com reaquecimento | **18/24 (75,0%)** | **0/24** |
+| 20% | prefetch + lote 512 (rodada 2, sem reinício) | 8/24 (33,3%) | 15/24 |
+| 20% | + reinício a cada 2 tarefas, com reaquecimento | 13/24 (54,2%) | 7/24 |
+| 20% | + reinício a cada 1 tarefa, com reaquecimento | 13/24 (54,2%) | 6/24 |
+| 20%/30% | reinício a cada tarefa **sem** reaquecimento (tentativa descartada) | 0/24 | 24/24 |
+
+No teto de 30%, o resultado com reinício (75,0%) **iguala** a aprovação da qualidade sem teto de RAM/GPU (18/24 pelo contrato original) e elimina os estouros de prazo por completo — as falhas restantes são todas funcionais (mesma categoria de falso negativo do avaliador já observada em `break-even`), não mais de tempo. No teto de 20% o ganho é real (33,3%→54,2%) mas atinge um platô: reiniciar a cada tarefa não melhora sobre reiniciar a cada duas, indicando que ali o footprint fixo (pesos densos + KV) já consome quase todo o orçamento de 3,2 GiB mesmo a partir de um processo recém-reiniciado — sobra pouco espaço de sobra para especialistas independentemente de quão frequente o reinício seja.
+
+**Conclusão da rodada 3:** a hipótese do usuário (rodar Qwen3-Coder 30B com pouca RAM usando SSD) está confirmada como viável no orçamento de 30% da RAM (o valor que o próprio usuário havia proposto em `docs/LOCAL_16GB.md`), com qualidade equivalente à execução sem restrição de memória. A 20% ainda funciona bem mais da metade das vezes, mas não iguala a qualidade irrestrita nesse teto mais apertado.
+
+Implementação: `scripts/benchmark/ssd-evaluate.mjs` ganhou `launchServer()`/`stopServer()` reutilizáveis e um campo de perfil `restartEveryTasks` que reinicia e reaquece o servidor a cada N tarefas dentro da mesma campanha, sem invalidar a reprodutibilidade (cada combinação de perfis testada gerou seu próprio `SSD_REPORT_DIR`: `reports/ssd-moe-v4` guarda a tentativa descartada sem reaquecimento, como registro honesto de um caminho que não funcionou; `reports/ssd-moe-v5` guarda os reinícios com reaquecimento em 30%/20%; `reports/ssd-moe-v6` guarda o reinício a cada tarefa em 20%).
+
+Próximos passos sugeridos: (1) calibrar `restartEveryTasks` de forma mais fina por teto (ex.: testar 3 e 5 em 30%, já que 4 funcionou bem mas não foi comparado a vizinhos); (2) investigar se `--expert-cache-size`/`--expert-keep-recent`, ainda não testados em conjunto com o reinício periódico, abrem mais espaço no teto de 20%; (3) confirmar se o próprio leak de ~80-90 MiB/chamada é um bug do patch Swap-MoE (relatável ao upstream) ou um comportamento inerente de `--expert-streaming`; (4) validar em hardware físico real de 16 GB e 8 GB antes de qualquer promoção ao app.
+
 ## Decisão e entregáveis
 
 O padrão do aplicativo permanece inalterado. O executor MoE/SSD foi compilado e testado isoladamente, fora do instalador. Não houve treinamento, alteração dos pesos ou remoção de especialistas.
 
-Prioridades atualizadas após a rodada 2: diagnosticar a degradação de sessão longa nos tetos de 20–30% (ver seção acima); corrigir falsos negativos do avaliador (ex.: `break-even` falhando por leitura de campo, não por lógica incorreta — observado em ambas as rodadas); validar memória total e energia em máquinas físicas de 16 GB antes de promover qualquer perfil para o público geral.
+Prioridades atualizadas após a rodada 3: calibrar `restartEveryTasks` mais fino e testar `--expert-cache-size`/`--expert-keep-recent` junto do reinício periódico para tentar melhorar o platô de 20%; corrigir falsos negativos do avaliador (ex.: `break-even` falhando por leitura de campo, não por lógica incorreta — observado em todas as rodadas); validar memória total e energia em máquinas físicas de 16 GB antes de promover qualquer perfil para o público geral.
 
 - Painel local rodada 1 (baseline, sem mitigações): `reports/ssd-moe-v1/dashboard.html`, também servido em `http://127.0.0.1:18796` (`SSD_REPORT_DIR` padrão).
 - Painel rodada 2, perfil 50% tuned: `reports/ssd-moe-v2/dashboard.html` (`SSD_REPORT_DIR=reports/ssd-moe-v2`).
-- Painel rodada 2, perfis 30%/20% tuned: `reports/ssd-moe-v3/dashboard.html` (`SSD_REPORT_DIR=reports/ssd-moe-v3`).
-- Dados e respostas: `reports/ssd-moe-v1`, `ssd-moe-v2`, `ssd-moe-v3`, `ssd-quality-control-v1`, `ssd-semantic-review-v1`, `ssd-moe-calibration-v1` (rodada 1) e `ssd-moe-calibration-v2` (rodada 2).
+- Painel rodada 2, perfis 30%/20% tuned sem reinício: `reports/ssd-moe-v3/dashboard.html` (`SSD_REPORT_DIR=reports/ssd-moe-v3`).
+- Painel rodada 3, tentativa de reinício por tarefa sem reaquecimento (descartada): `reports/ssd-moe-v4/dashboard.html`.
+- Painel rodada 3, reinício com reaquecimento em 30%/20%: `reports/ssd-moe-v5/dashboard.html`.
+- Painel rodada 3, reinício a cada tarefa em 20%: `reports/ssd-moe-v6/dashboard.html`.
+- Dados e respostas: `reports/ssd-moe-v1` a `ssd-moe-v6`, `ssd-quality-control-v1`, `ssd-semantic-review-v1`, `ssd-moe-calibration-v1` (rodada 1) e `ssd-moe-calibration-v2` (rodada 2).
 - PDF: `output/pdf/Aurora_Qwen3_MoE_RAM_SSD.pdf`, gerado por `scripts/build-ssd-benchmark-report.py`.
 - Energia: tarifa editável de **R$ 1,00/kWh**; potência não medida. O painel pede uma hipótese de watts. O PDF usa 100 W somente como exemplo de cálculo, não como custo real.
 
