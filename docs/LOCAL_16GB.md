@@ -40,6 +40,8 @@ Referências para a investigação: [LLM in a Flash, Apple](https://machinelearn
 
 O que funcionou de verdade em 20% (23/09/2026): **quantizar o cache KV** (`-ctk/-ctv q8_0` + `-fa on`, Flash Attention) em vez de mexer na política de especialistas — reduz o cache KV para metade do tamanho em f16, liberando espaço no orçamento fixo. Levou o platô de 13/24 (54,2%) para **15/24 (62,5%)** na campanha completa de 20%. Quantização mais agressiva (`q4_0`, um quarto do tamanho) pareceu ainda melhor numa amostra pequena (4/4) mas **piorou** na campanha completa (10/24) — a perda de precisão custa mais do que o espaço extra libera. `q8_0` é o ponto de equilíbrio recomendado até agora.
 
+Tentativas de acelerar tokens/segundo (mesma data): *speculative decoding* por n-grama e mais threads de CPU (16 em vez de 8) pareciam ajudar numa amostra pequena, mas **pioraram** os dois na campanha completa de 24 tarefas — o segundo caiu de 62,5% para 29,2% de aprovação. Nenhum dos dois é recomendado; `q8_0` + 8 threads + reinício periódico continua sendo a melhor configuração conhecida. Detalhes na rodada 6 de [resultados](QWEN3_MOE_RESULTS.md).
+
 ## Critérios de avaliação
 
 Testar máquinas reais com 8 e 16 GB, SSD SATA e NVMe, sem GPU dedicada. Limitar memória ou desabilitar GPU em um i9/4090 é um ensaio controlado, não representa um notebook comum.

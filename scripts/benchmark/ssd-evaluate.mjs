@@ -39,7 +39,15 @@ const profiles=[{id:'old-30',model:'qwen25-coder-15b',percent:30},
  {id:'moe-20-tuned-restart2-ctk8',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q8_0',flashAttn:true},
  // q4_0 KV cache (~1/4 the f16 size) freed enough extra headroom in the calibration sample to pass
  // 4/4, including break-even (never passed before at 20% in any prior config) - worth the full campaign.
- {id:'moe-20-tuned-restart2-ctk4',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q4_0',flashAttn:true}];
+ {id:'moe-20-tuned-restart2-ctk4',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q4_0',flashAttn:true},
+ // Throughput round: n-gram speculative decoding (--spec-type ngram-simple, default and shorter
+ // n=4/m=16) tested in calibration and made things worse both ways - low draft-acceptance on freshly
+ // generated HTML/JS (not repetitive enough) means the verification overhead isn't paid back. Not
+ // promoted to a full campaign. More CPU threads (16 instead of 8, on a 24-thread i9-14900K) didn't
+ // change decode tok/s (confirms decode is I/O-bound, not compute-bound) but cut wall time ~15-20%
+ // across all 4 calibration-sample tasks at 30%, consistent with prefill (compute-bound, batch=512)
+ // benefiting - worth the full campaign combined with the best-known q8_0 KV config.
+ {id:'moe-20-tuned-restart2-ctk8-t16',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q8_0',flashAttn:true,threads:16}];
 const sources=['scripts/benchmark/ssd-evaluate.mjs','scripts/benchmark/ssd-monitor.py',
  'scripts/training/heldout-v2.mjs','scripts/training/curriculum.mjs','scripts/training/browser-check.mjs',
  ...(await readdir('app')).filter(f=>f.endsWith('.js')).map(f=>'app/'+f),
@@ -112,7 +120,7 @@ try{
  const capBytes=Math.floor(16*1024**3*profile.percent/100/4096)*4096;
  const batch=profile.batch??128;
  const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve(`tmp/ssd-models/${profile.model}.gguf`),
-  '--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c',String(profile.ctx??8192),'-np','1','-b',String(batch),'-ub',String(batch),'--no-warmup',
+  '--host','127.0.0.1','--port','18795','-ngl','0','-t',String(profile.threads??8),'-tb',String(profile.threads??8),'-c',String(profile.ctx??8192),'-np','1','-b',String(batch),'-ub',String(batch),'--no-warmup',
   ...(profile.id.startsWith('moe')?['--expert-streaming']:[]),
   ...(profile.expertKeepRecent?['--expert-keep-recent',String(profile.expertKeepRecent)]:[]),
   ...(profile.expertCacheSizeMib?['--expert-cache-size',String(profile.expertCacheSizeMib)]:[]),

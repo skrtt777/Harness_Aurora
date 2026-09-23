@@ -124,6 +124,18 @@ Evidências: `reports/ssd-moe-v7/` (q8_0), `reports/ssd-moe-v8/` (q4_0), `report
 
 Próximos passos sugeridos: (1) testar `q8_0` também em 30% (já perto do teto de qualidade, mas pode reduzir a frequência necessária de reinício, ganho de eficiência mesmo sem melhorar aprovação); (2) revisitar contexto reduzido combinado com `q8_0` numa campanha completa (não só na amostra curta); (3) validar em hardware físico real antes de qualquer promoção ao app.
 
+## Rodada 6: tokens por segundo (23/09/2026)
+
+Depois de esgotar as alavancas óbvias de redução de recurso, a investigação virou para velocidade de geração (tokens/s) e uso de CPU, mantendo `q8_0` (melhor config conhecida em 20%) como base. Três tentativas, todas calibradas primeiro numa amostra de 4 tarefas antes de qualquer campanha completa — e duas delas enganaram na amostra pequena, confirmando outra vez que 4 casos não bastam para prever o comportamento de uma sessão de 24 tarefas com reinícios.
+
+**Speculative decoding por n-grama** (`--spec-type ngram-simple`, mecanismo nativo do llama.cpp, sem modelo auxiliar — verifica vários tokens rascunhados num único forward pass). Hipótese: como o gargalo é I/O por forward pass, menos forward passes por token de saída deveria ajudar, especialmente em código/HTML com estrutura repetitiva. Resultado: com o tamanho de n-grama padrão (n=12), quase não disparou (`draft_n_accepted` 12/204 numa tarefa, nulo nas outras três). Com n-grama menor (n=4, m=16), disparou em todas as tarefas mas com taxa de aceitação baixa (6,6%–35,8%) — o custo de verificar rascunhos errados superou o ganho dos poucos acertos. Tokens/s caiu em ambos os casos (3,3–3,9 contra ~4,8–4,9 sem a flag). HTML/JS gerado do zero não repete o suficiente para esse mecanismo compensar. Descartado, não promovido a campanha completa.
+
+**Mais threads** (`-t/-tb 16`, contra 8 hoje, numa i9-14900K de 24 threads). Na amostra de calibração em 30% (processo fresco, sem reinício), o tempo total caiu ~15–20% de forma consistente nas 4 tarefas, sem mudar o tokens/s de decode (confirma que o decode é limitado por I/O, não por CPU — a queda de tempo total provavelmente veio do prefill, que é limitado por CPU). Promovido à campanha completa de 24 tarefas em 20% (combinado com `q8_0` + reinício a cada 2): **piorou muito** — 7/24 (29,2%), 15/24 por prazo, contra 15/24 (62,5%) com 8 threads. Mais threads por reinício provavelmente aumenta a contenção de memória durante os 12 reinícios de uma campanha de 24 tarefas (cada reinício recarrega o processo do zero com mais threads competindo pelo mesmo teto de 3,2 GiB), piorando exatamente o tipo de thrashing que o reinício periódico foi desenhado para evitar. Revertido para 8 threads.
+
+**Conclusão da rodada:** nenhuma das duas tentativas de tokens/s se sustentou na campanha completa — ambas pareciam promissoras na amostra pequena de calibração e pioraram quando testadas nas 24 tarefas com reinícios. A configuração recomendada continua sendo `q8_0` + 8 threads + reinício periódico (15/24 em 20%, 18/24 em 30%). Isso sugere que qualquer otimização de tokens/s daqui para frente exige testar direto numa campanha completa, não confiar em amostras de 4 tarefas — o próprio padrão de reinício periódico interage com essas otimizações de forma não óbvia.
+
+Evidências: `reports/ssd-moe-calibration-v2/b512-pf-ctk8-ngram-p30`, `b512-pf-ctk8-ngram4-p30`, `b512-pf-ctk8-t16-p30` (amostras); `reports/ssd-moe-v9/` (campanha completa com 16 threads, descartada).
+
 ## Decisão e entregáveis
 
 O padrão do aplicativo permanece inalterado. O executor MoE/SSD foi compilado e testado isoladamente, fora do instalador. Não houve treinamento, alteração dos pesos ou remoção de especialistas.

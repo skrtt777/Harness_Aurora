@@ -28,6 +28,22 @@ const presets={
  'b512-pf-ctx6144':{batch:512,prefetch:true,ctx:6144},
  'b512-pf-ctx6144-ctk8':{batch:512,prefetch:true,ctx:6144,kvQuant:'q8_0',flashAttn:true},
  'b512-pf-ctk4':{batch:512,prefetch:true,kvQuant:'q4_0',flashAttn:true},
+ // Throughput round: n-gram speculative decoding (llama.cpp's built-in "prompt lookup" style
+ // mechanism, no separate draft model needed) verifies several drafted tokens per forward pass
+ // instead of one. Since our bottleneck is expert-page I/O per forward pass (not compute), fewer
+ // forward passes per output token should cut wall time directly - especially for our code/HTML
+ // task domain, which has repetitive structure (indentation, closing tags, boilerplate) that
+ // n-gram lookup is specifically good at predicting. Best config so far (q8_0 KV) kept as base.
+ 'b512-pf-ctk8-ngram':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true,specType:'ngram-simple'},
+ // Default n-gram lookup (n=12) barely triggered (draft_n_accepted 12/204 on one task, inactive on
+ // the other three) - a 12-token exact repeat is rare in freshly generated HTML/JS. Shorter lookup
+ // should match more often (short repeated tokens like indentation, tag closers, punctuation runs).
+ 'b512-pf-ctk8-ngram4':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true,specType:'ngram-simple',ngramN:4,ngramM:16},
+ // n-gram speculative decoding made things worse both ways (default n=12: barely triggers; n=4/m=16:
+ // triggers but low acceptance on fresh HTML/JS, so verification overhead outweighs any hit) - dropped.
+ // Next lever: more CPU threads, in case any of the per-token compute (not just expert-page I/O) is
+ // thread-starved at -t/-tb 8 on this 24-thread i9-14900K.
+ 'b512-pf-ctk8-t16':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true,threads:16},
 };
 const presetId=process.argv[2];
 if(!presets[presetId])throw Error('Select '+Object.keys(presets).join('|'));
@@ -36,12 +52,15 @@ const percent=Number(process.env.SSD_CALIBRATE_PERCENT||50);
 const root=resolve('reports/ssd-moe-calibration-v2',percent===50?presetId:`${presetId}-p${percent}`),base='http://127.0.0.1:18795';
 await mkdir(root,{recursive:true});
 const sha=x=>createHash('sha256').update(x).digest('hex');
-const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve('tmp/ssd-models/qwen3-coder-30b.gguf'),'--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c',String(preset.ctx??8192),'-np','1','-b',String(preset.batch),'-ub',String(preset.batch),'--no-warmup','--expert-streaming',
+const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve('tmp/ssd-models/qwen3-coder-30b.gguf'),'--host','127.0.0.1','--port','18795','-ngl','0','-t',String(preset.threads??8),'-tb',String(preset.threads??8),'-c',String(preset.ctx??8192),'-np','1','-b',String(preset.batch),'-ub',String(preset.batch),'--no-warmup','--expert-streaming',
  ...(preset.keepRecent?['--expert-keep-recent',String(preset.keepRecent)]:[]),
  ...(preset.cacheSizeMib?['--expert-cache-size',String(preset.cacheSizeMib)]:[]),
  ...(preset.prefetch?['--expert-prefetch']:[]),
  ...(preset.kvQuant?['-ctk',preset.kvQuant,'-ctv',preset.kvQuant]:[]),
- ...(preset.flashAttn?['-fa','on']:[])];
+ ...(preset.flashAttn?['-fa','on']:[]),
+ ...(preset.specType?['--spec-type',preset.specType]:[]),
+ ...(preset.ngramN?['--spec-ngram-simple-size-n',String(preset.ngramN)]:[]),
+ ...(preset.ngramM?['--spec-ngram-simple-size-m',String(preset.ngramM)]:[])];
 const config={directory:root,capBytes:Math.floor(16*1024**3*percent/100/4096)*4096,physicalDisk:'PhysicalDrive4',command};
 await writeFile(join(root,'manifest.json'),JSON.stringify({createdAt:new Date().toISOString(),presetId,preset,percent,config,sourceHash:sha(await readFile('scripts/benchmark/ssd-calibrate.mjs')),scope:'Diagnostic round 2: Swap-MoE mitigation flags untested in the v1 baseline (--expert-keep-recent, --expert-prefetch, --expert-cache-size), combined with the batch=512 prefill win from v1 calibration. First attempts only, one case per domain (jogo/pagina/app/bi) reused from moe-50 v1 runs; not a full quality comparison. Same temperature, seed, tokens, context and process cap as v1. OS cache uncontrolled. cacheSizeMib in the cs preset is a rough first guess, not derived from a measured fixed-memory breakdown; that preset is a fallback only if keep-recent proves insufficient.'},null,2),{flag:'wx'});
 await writeFile(join(root,'launch.json'),JSON.stringify(config,null,2));
