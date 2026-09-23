@@ -29,7 +29,17 @@ const profiles=[{id:'old-30',model:'qwen25-coder-15b',percent:30},
  // and re-priming it from cold within the 120s call budget didn't fit under the 30% cap either.
  {id:'moe-30-tuned-restart4',model:'qwen3-coder-30b',percent:30,batch:512,expertPrefetch:true,restartEveryTasks:4},
  {id:'moe-20-tuned-restart2',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2},
- {id:'moe-20-tuned-restart1',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:1}];
+ {id:'moe-20-tuned-restart1',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:1},
+ // Resource-reduction round: quantized KV cache (K/V both q8_0, ~half the f16 size, requires Flash
+ // Attention) instead of eviction-policy tuning. Calibration sample at 20% (fresh process, no restart)
+ // showed a real gain: first token 15-18s vs 20-25s with prefetch alone, more time-budget headroom on
+ // every task. Reducing -c from 8192 to 6144 on top of that showed no further gain in that same short
+ // sample (the extra headroom likely only matters over a longer restart-spaced session), so kept at
+ // default context here to avoid the truncation risk flagged in ssd-calibrate.mjs's ctx6144 presets.
+ {id:'moe-20-tuned-restart2-ctk8',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q8_0',flashAttn:true},
+ // q4_0 KV cache (~1/4 the f16 size) freed enough extra headroom in the calibration sample to pass
+ // 4/4, including break-even (never passed before at 20% in any prior config) - worth the full campaign.
+ {id:'moe-20-tuned-restart2-ctk4',model:'qwen3-coder-30b',percent:20,batch:512,expertPrefetch:true,restartEveryTasks:2,kvQuant:'q4_0',flashAttn:true}];
 const sources=['scripts/benchmark/ssd-evaluate.mjs','scripts/benchmark/ssd-monitor.py',
  'scripts/training/heldout-v2.mjs','scripts/training/curriculum.mjs','scripts/training/browser-check.mjs',
  ...(await readdir('app')).filter(f=>f.endsWith('.js')).map(f=>'app/'+f),
@@ -102,11 +112,13 @@ try{
  const capBytes=Math.floor(16*1024**3*profile.percent/100/4096)*4096;
  const batch=profile.batch??128;
  const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve(`tmp/ssd-models/${profile.model}.gguf`),
-  '--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c','8192','-np','1','-b',String(batch),'-ub',String(batch),'--no-warmup',
+  '--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c',String(profile.ctx??8192),'-np','1','-b',String(batch),'-ub',String(batch),'--no-warmup',
   ...(profile.id.startsWith('moe')?['--expert-streaming']:[]),
   ...(profile.expertKeepRecent?['--expert-keep-recent',String(profile.expertKeepRecent)]:[]),
   ...(profile.expertCacheSizeMib?['--expert-cache-size',String(profile.expertCacheSizeMib)]:[]),
-  ...(profile.expertPrefetch?['--expert-prefetch']:[])];
+  ...(profile.expertPrefetch?['--expert-prefetch']:[]),
+  ...(profile.kvQuant?['-ctk',profile.kvQuant,'-ctv',profile.kvQuant]:[]),
+  ...(profile.flashAttn?['-fa','on']:[])];
  const configFile=join(out,'launch.json');await writeFile(configFile,JSON.stringify({directory:out,capBytes,physicalDisk:'PhysicalDrive4',command},null,2));
  let launch=await launchServer(configFile);supervisor=launch.proc;
  await writeFile(join(out,'startup.json'),JSON.stringify({startupMs:launch.startupMs,readyAt:Date.now(),props:await fetch(base+'/props').then(r=>r.json())},null,2));

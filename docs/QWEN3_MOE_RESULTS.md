@@ -91,7 +91,38 @@ Resultado: **ambos pioraram em relação a só `--expert-prefetch` sozinho** (qu
 
 **Conclusão:** nenhuma das duas flags de eviction do Swap-MoE ajuda a destravar o platô de 20% — o gargalo ali não é falta de uma política de evicção melhor, é a falta de espaço físico no orçamento de 3,2 GiB para o footprint fixo (pesos densos + KV) mesmo com o processo recém-reiniciado. Item descartado da lista de próximos passos.
 
-Próximos passos sugeridos: (1) calibrar `restartEveryTasks` de forma mais fina por teto (ex.: testar 3 e 5 em 30%, já que 4 funcionou bem mas não foi comparado a vizinhos); (2) confirmar se o próprio leak de ~80-90 MiB/chamada é um bug do patch Swap-MoE (relatável ao upstream) ou um comportamento inerente de `--expert-streaming`; (3) reduzir o contexto (`-c`, hoje fixo em 8192) para liberar mais orçamento em 20%, já que o KV cache faz parte do footprint fixo que está espremendo o teto; (4) validar em hardware físico real de 16 GB e 8 GB antes de qualquer promoção ao app.
+Próximos passos sugeridos: (1) calibrar `restartEveryTasks` de forma mais fina por teto (ex.: testar 3 e 5 em 30%, já que 4 funcionou bem mas não foi comparado a vizinhos); (2) confirmar se o próprio leak de ~80-90 MiB/chamada é um bug do patch Swap-MoE (relatável ao upstream) ou um comportamento inerente de `--expert-streaming`; (3) validar em hardware físico real de 16 GB e 8 GB antes de qualquer promoção ao app.
+
+## Rodada 5: quantização do cache KV (23/09/2026)
+
+Testado o item de eficiência de recurso mais direto disponível: em vez de tunar política de evicção de especialistas (já descartado na rodada 4), reduzir o tamanho fixo do cache KV em si, via `-ctk`/`-ctv` (tipos suportados pelo build: `f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1`) e `-fa on` (Flash Attention, necessário para tipos de KV além de f16/bf16). Com contexto 8192, GQA (4 kv-heads, head_dim 128, 48 camadas), o cache KV em f16 é ~768 MiB — praticamente todo o "piso fixo" de ~1 GiB de memória privada medido no início de uma sessão fresca em 20% (rodada 3).
+
+Calibração exploratória em 20% (4 tarefas de amostra, 1 tentativa, processo fresco, sem reinício):
+
+| Config | Amostra (4 tarefas) | 1º token |
+|---|---|---|
+| prefetch sozinho (rodada 2) | 3/4 | 20-25 s |
+| + `-ctk/-ctv q8_0` + `-fa on` | 4/4* | 15-18 s |
+| + contexto 6144 (em cima do q8_0) | 4/4* | 15-17 s (sem ganho adicional sobre só q8_0) |
+| + `-ctk/-ctv q4_0` + `-fa on` | **4/4**, incluindo `break-even` (nunca tinha passado em 20%) | 17-23 s |
+
+*mesma tarefa `break-even` que falha desde a rodada 2 continuou falhando com q8_0.
+
+Reduzir o contexto de 8192 para 6144 não trouxe ganho adicional mensurável nesta amostra curta — a folga extra provavelmente só importa numa sessão longa com vários reinícios, não testado isoladamente.
+
+**Campanha completa (24 tarefas), perfil restart-a-cada-2 + KV quantizado, teto 20%:**
+
+| KV cache | Aprovações | Timeouts |
+|---|---:|---:|
+| f16 (rodada 3, sem quantização) | 13/24 (54,2%) | 7/24 |
+| **q8_0** | **15/24 (62,5%)** | 5/24 |
+| q4_0 | 10/24 (41,7%) | 7/24 |
+
+`q8_0` melhorou de verdade o platô de 20% (54,2%→62,5%). `q4_0`, que parecia melhor ainda na amostra pequena (4/4, inclusive acertando `break-even` pela primeira vez), **piorou** na campanha completa de 24 tarefas — pior até que não quantizar nada. Isso é uma lição importante sobre confiar em amostras pequenas: a precisão mais baixa do q4_0 provavelmente degrada a qualidade da saída em tarefas/sementes fora da amostra de calibração, e esse custo supera o espaço de RAM que a quantização mais agressiva libera. `q8_0` fica como o melhor ponto de equilíbrio encontrado até agora para o teto de 20%.
+
+Evidências: `reports/ssd-moe-v7/` (q8_0), `reports/ssd-moe-v8/` (q4_0), `reports/ssd-moe-calibration-v2/b512-pf-ctk8-p20`, `b512-pf-ctx6144-ctk8-p20`, `b512-pf-ctk4-p20`.
+
+Próximos passos sugeridos: (1) testar `q8_0` também em 30% (já perto do teto de qualidade, mas pode reduzir a frequência necessária de reinício, ganho de eficiência mesmo sem melhorar aprovação); (2) revisitar contexto reduzido combinado com `q8_0` numa campanha completa (não só na amostra curta); (3) validar em hardware físico real antes de qualquer promoção ao app.
 
 ## Decisão e entregáveis
 

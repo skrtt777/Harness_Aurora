@@ -19,6 +19,15 @@ const presets={
  // Smaller budget for tighter caps: fresh-process private memory alone is ~1 GiB at 20% (3.2 GiB
  // cap) before any request, so 2048 MiB would claim nearly the whole remaining budget by itself.
  'b512-cs512-pf':{batch:512,cacheSizeMib:512,prefetch:true},
+ // Resource-reduction round: shrink the fixed footprint (KV cache) instead of tuning eviction policy.
+ // KV cache ~= 2(K+V) x 48 layers x ctx x 4 kv_heads x 128 head_dim x bytes/elem: ~768 MiB at ctx=8192/f16,
+ // observed to roughly match the ~1 GiB fixed "private" floor measured at process start (rodada 3/4).
+ // ctx=6144 keeps >=4600 tokens of headroom for the harness's own maxInputChars:12000 (~3000-4000 tok)
+ // + up to 1536 output tokens, so it shouldn't truncate; ctx=4096 would risk it on a long retry prompt.
+ 'b512-pf-ctk8':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true},
+ 'b512-pf-ctx6144':{batch:512,prefetch:true,ctx:6144},
+ 'b512-pf-ctx6144-ctk8':{batch:512,prefetch:true,ctx:6144,kvQuant:'q8_0',flashAttn:true},
+ 'b512-pf-ctk4':{batch:512,prefetch:true,kvQuant:'q4_0',flashAttn:true},
 };
 const presetId=process.argv[2];
 if(!presets[presetId])throw Error('Select '+Object.keys(presets).join('|'));
@@ -27,10 +36,12 @@ const percent=Number(process.env.SSD_CALIBRATE_PERCENT||50);
 const root=resolve('reports/ssd-moe-calibration-v2',percent===50?presetId:`${presetId}-p${percent}`),base='http://127.0.0.1:18795';
 await mkdir(root,{recursive:true});
 const sha=x=>createHash('sha256').update(x).digest('hex');
-const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve('tmp/ssd-models/qwen3-coder-30b.gguf'),'--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c','8192','-np','1','-b',String(preset.batch),'-ub',String(preset.batch),'--no-warmup','--expert-streaming',
+const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',resolve('tmp/ssd-models/qwen3-coder-30b.gguf'),'--host','127.0.0.1','--port','18795','-ngl','0','-t','8','-tb','8','-c',String(preset.ctx??8192),'-np','1','-b',String(preset.batch),'-ub',String(preset.batch),'--no-warmup','--expert-streaming',
  ...(preset.keepRecent?['--expert-keep-recent',String(preset.keepRecent)]:[]),
  ...(preset.cacheSizeMib?['--expert-cache-size',String(preset.cacheSizeMib)]:[]),
- ...(preset.prefetch?['--expert-prefetch']:[])];
+ ...(preset.prefetch?['--expert-prefetch']:[]),
+ ...(preset.kvQuant?['-ctk',preset.kvQuant,'-ctv',preset.kvQuant]:[]),
+ ...(preset.flashAttn?['-fa','on']:[])];
 const config={directory:root,capBytes:Math.floor(16*1024**3*percent/100/4096)*4096,physicalDisk:'PhysicalDrive4',command};
 await writeFile(join(root,'manifest.json'),JSON.stringify({createdAt:new Date().toISOString(),presetId,preset,percent,config,sourceHash:sha(await readFile('scripts/benchmark/ssd-calibrate.mjs')),scope:'Diagnostic round 2: Swap-MoE mitigation flags untested in the v1 baseline (--expert-keep-recent, --expert-prefetch, --expert-cache-size), combined with the batch=512 prefill win from v1 calibration. First attempts only, one case per domain (jogo/pagina/app/bi) reused from moe-50 v1 runs; not a full quality comparison. Same temperature, seed, tokens, context and process cap as v1. OS cache uncontrolled. cacheSizeMib in the cs preset is a rough first guess, not derived from a measured fixed-memory breakdown; that preset is a fallback only if keep-recent proves insufficient.'},null,2),{flag:'wx'});
 await writeFile(join(root,'launch.json'),JSON.stringify(config,null,2));
