@@ -16,6 +16,9 @@ const presets={
  'b512-kr8-pf':{batch:512,keepRecent:8,prefetch:true},
  'b512-kr16-pf':{batch:512,keepRecent:16,prefetch:true},
  'b512-cs-pf':{batch:512,cacheSizeMib:2048,prefetch:true},
+ // Smaller budget for tighter caps: fresh-process private memory alone is ~1 GiB at 20% (3.2 GiB
+ // cap) before any request, so 2048 MiB would claim nearly the whole remaining budget by itself.
+ 'b512-cs512-pf':{batch:512,cacheSizeMib:512,prefetch:true},
 };
 const presetId=process.argv[2];
 if(!presets[presetId])throw Error('Select '+Object.keys(presets).join('|'));
