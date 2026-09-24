@@ -400,8 +400,8 @@ export const readSkillResource=(id:string,resource:string)=>request<{text:string
 
 export const recheckWorkflow=(id:string,stepId:number)=>request<Workflow>('/workflows/'+id+'/recheck',{method:'POST',body:JSON.stringify({stepId})});
 
-export type SkillCatalogResult={meta:{total:number;generatedAt:string;syncedAt:string}|null;total:number;page:number;limit:number;sources:{source:string;count:number}[];skills:{id:string;name:string;description:string;source:string;identifier:string;importable:boolean}[]};
-export const searchSkillCatalog=(q='',source='',page=0)=>request<SkillCatalogResult>('/skills/catalog?'+new URLSearchParams({q,source,page:String(page)}));
+export type SkillCatalogResult={meta:{total:number;generatedAt:string;syncedAt:string}|null;total:number;overallTotal:number;restrictedToCurated:boolean;page:number;limit:number;sources:{source:string;count:number;curated:boolean}[];skills:{id:string;name:string;description:string;source:string;identifier:string;importable:boolean}[]};
+export const searchSkillCatalog=(q='',source='',page=0,includeAll=false)=>request<SkillCatalogResult>('/skills/catalog?'+new URLSearchParams({q,source,page:String(page),...(includeAll?{all:'1'}:{})}));
 export const syncSkillCatalog=()=>request('/skills/catalog/sync',{method:'POST'});
 export const importCatalogSkill=(id:string)=>request<SkillInfo>('/skills/catalog/'+id+'/import',{method:'POST'});
 export type EngineKnowledge={id:string;status:string;title:string;goal:string;old:string;fixed:string;evidence:{checks:number;workflowId:string}[];scope:{projectId?:string;conversationId?:string}};

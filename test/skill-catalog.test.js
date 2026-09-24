@@ -30,9 +30,24 @@ test('catalogue is metadata only, searchable offline, paginated and atomically r
   await assert.rejects(searchSkillCatalog({page:-1}));
 });
 
+test('default browsing hides bulk unmoderated sources; explicit source or a search term still reaches them',async()=>{
+  const curated=entry('official','official/curated',{name:'curated-one'});
+  const bulk=entry('clawhub','clawhub/bulk',{name:'bulk-one',description:'zebrabulk unmoderated entry'});
+  await replaceCatalog(payload([curated,bulk]));
+  const browse=await searchSkillCatalog();
+  assert.equal(browse.total,1);assert.equal(browse.skills[0].name,'curated-one');
+  assert.equal(browse.restrictedToCurated,true);assert.equal(browse.overallTotal,2);
+  assert.deepEqual(browse.sources.find(s=>s.source==='official'),{source:'official',count:1,curated:true});
+  assert.deepEqual(browse.sources.find(s=>s.source==='clawhub'),{source:'clawhub',count:1,curated:false});
+  const bySource=await searchSkillCatalog({source:'clawhub'});
+  assert.equal(bySource.total,1);assert.equal(bySource.restrictedToCurated,false);assert.equal(bySource.skills[0].name,'bulk-one');
+  const bySearch=await searchSkillCatalog({query:'zebrabulk'});
+  assert.equal(bySearch.total,1);assert.equal(bySearch.restrictedToCurated,false);assert.equal(bySearch.skills[0].name,'bulk-one');
+});
+
 test('GitHub import pins a revision, is inactive and deduplicates without loading catalogue into context',async()=>{
   await replaceCatalog(payload([entry('skills.sh','skills-sh/sample/skills/catalog-probe',{path:'catalog-probe'})]));
-  const id=(await searchSkillCatalog()).skills[0].id,urls=[];
+  const id=(await searchSkillCatalog({source:'skills.sh'})).skills[0].id,urls=[];
   const fetcher=async(url,opts)=>{
     urls.push(url);assert.equal(opts.redirect,'error');
     if(url.startsWith('https://api.github.com/'))return json({sha,tree:[{type:'blob',path:'skills/catalog-probe/SKILL.md'}]});

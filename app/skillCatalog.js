@@ -5,6 +5,11 @@ import { httpError } from './httpSecurity.js';
 export const CATALOG_URL = 'https://hermes-agent.nousresearch.com/docs/api/skills-index.json';
 // Canonical destination of the documentation site's redirect; arbitrary redirects stay disabled.
 const CATALOG_DOWNLOAD_URL = 'https://nousresearch.github.io/hermes-agent/docs/api/skills-index.json';
+// clawhub and skills.sh are unmoderated bulk mirrors (76k + 20k entries, ~98% of the index,
+// many non-Latin-script or off-topic) that drown out the small curated sources when browsing
+// with no search term. Default browsing (no query, no explicit source) sticks to the curated
+// set; picking a source explicitly, or typing a search, still reaches the full index.
+export const CURATED_CATALOG_SOURCES = ['official', 'github', 'lobehub', 'browse-sh'];
 const repoPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const safePath = p => typeof p === 'string' && p.length < 600 && /^[A-Za-z0-9_./-]+$/.test(p) && !p.split('/').some(s=>!s || s==='.' || s==='..');
 const short = (v,n) => typeof v==='string' ? v.slice(0,n) : '';
@@ -48,16 +53,20 @@ export async function syncSkillCatalog({fetcher=fetch}={}) {
   syncing=(async()=>replaceCatalog(JSON.parse(await catalogRemoteText(CATALOG_DOWNLOAD_URL,128*1024*1024,fetcher))))();
   try{return await syncing;}finally{syncing=null;}
 }
-export async function searchSkillCatalog({query='',source='',page=0,limit=30}={}) {
+export async function searchSkillCatalog({query='',source='',page=0,limit=30,includeAll=false}={}) {
   if(typeof query!=='string'||query.length>160||typeof source!=='string'||source.length>80||!Number.isInteger(page)||page<0||page>10000||!Number.isInteger(limit)||limit<1||limit>50)throw httpError(400,'Busca de skills inválida.');
   const db=await ready(),meta=db.prepare('SELECT document FROM skill_catalog_meta WHERE id=1').get();
   const words=(query.match(/[\p{L}\p{N}_]+/gu)||[]).slice(0,8),args=[],where=[];
   if(words.length){where.push('skill_catalog_fts MATCH ?');args.push(words.map(w=>'"'+w+'"*').join(' AND '));}
+  const restrictedToCurated=!source&&!words.length&&!includeAll;
   if(source){where.push('c.source=?');args.push(source);}
+  else if(restrictedToCurated){where.push('c.source IN ('+CURATED_CATALOG_SOURCES.map(()=>'?').join(',')+')');args.push(...CURATED_CATALOG_SOURCES);}
   const from='FROM skill_catalog c '+(words.length?'JOIN skill_catalog_fts ON skill_catalog_fts.id=c.id ':'')+(where.length?'WHERE '+where.join(' AND '):'');
   const total=db.prepare('SELECT count(*) n '+from).get(...args).n;
   const skills=db.prepare('SELECT c.* '+from+' ORDER BY '+(words.length?'bm25(skill_catalog_fts,0,8,1,2),':'')+'c.name,c.id LIMIT ? OFFSET ?').all(...args,limit,page*limit).map(row=>({...row,importable:['official','github','skills.sh','clawhub','browse-sh','lobehub'].includes(row.source)}));
-  return {meta:meta?JSON.parse(meta.document):null,total,page,limit,skills,sources:db.prepare('SELECT source,count(*) count FROM skill_catalog GROUP BY source ORDER BY count DESC').all()};
+  const overallTotal=db.prepare('SELECT count(*) n FROM skill_catalog').get().n;
+  return {meta:meta?JSON.parse(meta.document):null,total,overallTotal,restrictedToCurated,page,limit,skills,
+    sources:db.prepare('SELECT source,count(*) count FROM skill_catalog GROUP BY source ORDER BY count DESC').all().map(s=>({...s,curated:CURATED_CATALOG_SOURCES.includes(s.source)}))};
 }
 async function githubSkill(repo,path,name,fetcher) {
   if(!repoPattern.test(repo)||!safePath(path))throw httpError(400,'Repositório ou caminho inválido na origem.');

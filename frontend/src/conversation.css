@@ -209,9 +209,14 @@
 .skills-view button { border: 1px solid #44516b; border-radius: 8px; background: #262f42; color: #dbeaff; padding: 9px 12px; }
 .catalog-grid { margin: 16px 0; }
 .catalog-grid article { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.catalog-grid h3 { overflow-wrap: anywhere; margin: 0; }
-.catalog-grid article p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 auto; }
+.catalog-grid h3 { overflow-wrap: anywhere; margin: 0; font-size: 15px; font-weight: 650; color: #f2f5ff; }
+.catalog-grid article p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 auto; font-size: 13px; line-height: 1.5; color: #a7b0c6; }
 .catalog-grid article button { align-self: flex-start; margin-top: 8px; }
+.source-badge { display: inline-block; width: fit-content; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; padding: 3px 8px; border-radius: 100px; }
+.source-badge.source-curated { background: rgba(37,197,133,.14); color: #4fd39c; }
+.source-badge.source-bulk { background: rgba(217,89,38,.14); color: #f0a06e; }
+.skills-hub-notice { margin: 0 0 16px; padding: 10px 14px; border: 1px solid #4a3a24; border-radius: 8px; background: rgba(217,89,38,.08); color: #d9c1a3; font-size: 13px; line-height: 1.5; }
+.skills-view button.link-button { background: none; border: none; padding: 0; color: #79c6ff; text-decoration: underline; cursor: pointer; font: inherit; }
 .catalog-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 12px; }
 .skill-review small { overflow-wrap: anywhere; }
 .engine-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:18px 0; }

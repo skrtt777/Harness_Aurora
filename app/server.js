@@ -336,7 +336,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       const engineReview=pathname.match(/^\/api\/engine\/knowledge\/([a-f0-9]{64})\/review$/);
       if(method==='POST'&&engineReview)return sendJson(response,200,await reviewEngineKnowledge(engineReview[1],(await readJson(request)).accepted));
       if (method === 'GET' && pathname === '/api/skills') return sendJson(response, 200, { skills: await listSkills() });
-      if (method === 'GET' && pathname === '/api/skills/catalog') return sendJson(response,200,await searchSkillCatalog({query:url.searchParams.get('q')||'',source:url.searchParams.get('source')||'',page:Number(url.searchParams.get('page')||0)}));
+      if (method === 'GET' && pathname === '/api/skills/catalog') return sendJson(response,200,await searchSkillCatalog({query:url.searchParams.get('q')||'',source:url.searchParams.get('source')||'',page:Number(url.searchParams.get('page')||0),includeAll:url.searchParams.get('all')==='1'}));
       if (method === 'POST' && pathname === '/api/skills/catalog/sync') return sendJson(response,200,await syncSkillCatalog());
       const catalogImport=pathname.match(/^\/api\/skills\/catalog\/([a-f0-9]{64})\/import$/);
       if (method === 'POST' && catalogImport) return sendJson(response,201,await importCatalogSkill(catalogImport[1]));

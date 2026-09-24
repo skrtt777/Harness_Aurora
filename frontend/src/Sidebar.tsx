@@ -311,7 +311,9 @@ export default function Sidebar({
         <button className={`rail-link ${activeView === "browser-agent" ? "active" : ""}`} onClick={() => onSelectView("browser-agent")}>
           🖱 <span>Agente do navegador</span>
         </button>
-        <button className={activeView === "skills" ? "active" : ""} onClick={() => onSelectView("skills")}><span>Skills e regras</span></button>
+        <button className={`rail-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
+          🧩 <span>Skills e regras</span>
+        </button>
         {savings && savings.localTurns > 0 && (
           <div
             className="savings-indicator"
