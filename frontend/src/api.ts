@@ -353,6 +353,38 @@ export async function pickFolder(): Promise<string | null> {
   return harness.pickFolder();
 }
 
+// ---------- Auto-update (electron-updater via GitHub Releases; Electron only) ----------
+export type UpdateStatus =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "up-to-date"; checkedAt?: string }
+  | { status: "downloading"; version?: string; percent?: number }
+  | { status: "ready"; version?: string }
+  | { status: "error"; message?: string };
+export type UpdateState = UpdateStatus & { packaged: boolean; currentVersion: string };
+type HarnessUpdater = {
+  getUpdateState?: () => Promise<UpdateState>;
+  checkForUpdates?: () => Promise<UpdateState>;
+  installUpdate?: () => Promise<boolean>;
+  onUpdateStatus?: (callback: (status: UpdateStatus) => void) => () => void;
+};
+const harnessUpdater = () => (window as unknown as { harness?: HarnessUpdater }).harness;
+
+/** Null outside Electron (dev mode in a browser, tests) — caller hides the update UI entirely. */
+export async function getUpdateState(): Promise<UpdateState | null> {
+  return (await harnessUpdater()?.getUpdateState?.()) ?? null;
+}
+export async function checkForUpdates(): Promise<UpdateState | null> {
+  return (await harnessUpdater()?.checkForUpdates?.()) ?? null;
+}
+export async function installUpdate(): Promise<boolean> {
+  return (await harnessUpdater()?.installUpdate?.()) ?? false;
+}
+/** Subscribes to live progress; returns an unsubscribe function (no-op outside Electron). */
+export function subscribeUpdateStatus(callback: (status: UpdateStatus) => void): () => void {
+  return harnessUpdater()?.onUpdateStatus?.(callback) ?? (() => {});
+}
+
 // ---------- Community memories (pull-only) ----------
 export type CommunityBundleInfo = { id: string; file: string; title: string; description: string; tags: string[] };
 export type MemoryExportEnvelope = {

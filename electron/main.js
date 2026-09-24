@@ -190,6 +190,47 @@ ipcMain.handle("dialog:pick-folder", async (event) => {
   return result.filePaths[0];
 });
 
+// Auto-update (via GitHub Releases — see build.publish in package.json).
+// Previously this was one checkForUpdatesAndNotify() call at startup whose
+// failures were silently swallowed (no logging, no UI) — if it ever broke,
+// nobody would know, and the only feedback the user ever got was a native
+// OS toast on success, easy to miss and gone before Configurações could
+// show anything useful. This keeps a running `updaterState` the renderer
+// can always read (updater:state) plus live events (updater:status), and a
+// manual updater:check the Settings screen can trigger itself.
+let updaterState = { status: "idle" };
+function setUpdaterState(next) {
+  updaterState = next;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updater:status", updaterState);
+}
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = false;
+autoUpdater.logger = console;
+autoUpdater.on("checking-for-update", () => setUpdaterState({ status: "checking" }));
+autoUpdater.on("update-available", (info) => setUpdaterState({ status: "downloading", version: info.version, percent: 0 }));
+autoUpdater.on("update-not-available", () => setUpdaterState({ status: "up-to-date", checkedAt: new Date().toISOString() }));
+autoUpdater.on("download-progress", (progress) => setUpdaterState({ status: "downloading", percent: Math.round(progress.percent) }));
+autoUpdater.on("update-downloaded", (info) => setUpdaterState({ status: "ready", version: info.version }));
+autoUpdater.on("error", (error) => setUpdaterState({ status: "error", message: error?.message || "Falha ao verificar atualizações." }));
+
+ipcMain.handle("updater:state", (event) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
+  return { ...updaterState, packaged: app.isPackaged, currentVersion: app.getVersion() };
+});
+ipcMain.handle("updater:check", (event) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
+  if (!app.isPackaged) return { ...updaterState, packaged: false, currentVersion: app.getVersion() };
+  autoUpdater.checkForUpdates().catch((error) => setUpdaterState({ status: "error", message: error?.message || "Falha ao verificar atualizações." }));
+  return { ...updaterState, packaged: true, currentVersion: app.getVersion() };
+});
+ipcMain.handle("updater:install", (event) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
+  if (updaterState.status !== "ready") return false;
+  isQuitting = true;
+  autoUpdater.quitAndInstall();
+  return true;
+});
+
 if (hasSingleInstanceLock) {
   // A second launch attempt (e.g. the user double-clicking the shortcut
   // while the app is already running in the tray) shows/focuses the
@@ -230,8 +271,11 @@ if (hasSingleInstanceLock) {
     app.on("activate", () => showMainWindow(startUrl));
 
     if (app.isPackaged && !testing) {
-      autoUpdater.checkForUpdatesAndNotify().catch(() => {
-        // Sem internet ou sem release publicada ainda: não impede o uso do app.
+      autoUpdater.checkForUpdates().catch((error) => {
+        // Sem internet ou sem release publicada ainda: não impede o uso do
+        // app — mas agora fica registrado em updaterState (visível em
+        // Configurações) em vez de desaparecer sem deixar rastro.
+        setUpdaterState({ status: "error", message: error?.message || "Falha ao verificar atualizações." });
       });
     }
   });

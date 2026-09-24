@@ -2321,6 +2321,29 @@ button[aria-pressed="true"] {
   font-size: 10px;
   margin-top: 6px;
 }
+.settings-actions button.primary {
+  border-color: #2b827c;
+  background: #16332f;
+  color: #94ecdc;
+}
+.update-status.ready {
+  color: #94ecdc;
+}
+.update-status.error {
+  color: #ef829e;
+}
+.update-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: #101a24;
+  overflow: hidden;
+  margin: 8px 0 2px;
+}
+.update-progress-bar {
+  height: 100%;
+  background: #2b827c;
+  transition: width 0.25s ease;
+}
 .browser-agent-log h2 {
   display: flex;
   align-items: center;

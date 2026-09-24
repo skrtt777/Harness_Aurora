@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  checkForUpdates,
   getLocalModels,
   getLocalStatus,
   getProviders,
   getSettings,
+  getUpdateState,
+  installUpdate,
   pickFolder,
   setLocalModel,
+  subscribeUpdateStatus,
   updateSettings,
   watchLocalSetup,
   type LocalModelOption,
   type LocalStatus,
   type ProviderInfo,
   type Settings,
+  type UpdateState,
 } from "./api";
 import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
@@ -50,6 +55,7 @@ export default function SettingsView({
   const [sandboxDraft, setSandboxDraft] = useState("");
   const [sandboxSaved, setSandboxSaved] = useState(false);
   const [sandboxError, setSandboxError] = useState("");
+  const [update, setUpdate] = useState<UpdateState | null>(null);
 
   const refresh = () => {
     getSettings().then((s) => {
@@ -63,6 +69,18 @@ export default function SettingsView({
   };
 
   useEffect(refresh, []);
+
+  useEffect(() => {
+    // Reads whatever the startup check already found (it runs once at boot,
+    // before this screen exists) instead of only reacting to new events —
+    // otherwise "up to date"/"erro" from the automatic check would be
+    // invisible until the next one.
+    void getUpdateState().then((s) => s && setUpdate((prev) => prev ?? s));
+    return subscribeUpdateStatus((status) => setUpdate((prev) => (prev ? { ...prev, ...status } : null)));
+  }, []);
+
+  const runUpdateCheck = () => void checkForUpdates().then((s) => s && setUpdate(s));
+  const runInstall = () => void installUpdate();
 
   const isReady = (id: string) => {
     if (id === "local") return Boolean(localStatus?.ready);
@@ -150,6 +168,39 @@ export default function SettingsView({
           <button onClick={onOpenGuide}>Abrir guia de boas-vindas</button>
         </div>
         {error && <p role="alert" className="memory-form-error">{error}</p>}
+
+        {update && (
+          <div className="settings-card">
+            <h2>Atualizações</h2>
+            <p className="settings-hint">Versão instalada: v{update.currentVersion}. Atualiza sozinho a partir dos releases publicados no GitHub.</p>
+            {!update.packaged ? (
+              <p className="settings-hint">Atualização automática só funciona na versão instalada — este modo de desenvolvimento não verifica.</p>
+            ) : (
+              <>
+                <p className={`settings-hint update-status ${update.status}`}>
+                  {update.status === "idle" && "Ainda não verificado nesta sessão."}
+                  {update.status === "checking" && "Verificando…"}
+                  {update.status === "up-to-date" && "Você já está na versão mais recente."}
+                  {update.status === "downloading" && `Baixando a versão v${update.version || "nova"}… ${update.percent ?? 0}%`}
+                  {update.status === "ready" && `Versão v${update.version} pronta — reinicie para instalar.`}
+                  {update.status === "error" && (update.message || "Falha ao verificar atualizações.")}
+                </p>
+                {update.status === "downloading" && (
+                  <div className="update-progress"><div className="update-progress-bar" style={{ width: `${update.percent ?? 0}%` }} /></div>
+                )}
+                <div className="settings-actions">
+                  {update.status === "ready" ? (
+                    <button className="primary" onClick={runInstall}>Reiniciar e atualizar</button>
+                  ) : (
+                    <button onClick={runUpdateCheck} disabled={update.status === "checking" || update.status === "downloading"}>
+                      <Icon name="refresh" size={13} /> Verificar atualizações
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <div className="settings-card">
           <h2>Provedores</h2>
           <p className="settings-hint">Qual provedor uma nova conversa usa por padrão, e qual professor corrige o modelo local.</p>

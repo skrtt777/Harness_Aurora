@@ -12,4 +12,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("harness", {
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   pickFolder: () => ipcRenderer.invoke("dialog:pick-folder"),
+  getUpdateState: () => ipcRenderer.invoke("updater:state"),
+  checkForUpdates: () => ipcRenderer.invoke("updater:check"),
+  installUpdate: () => ipcRenderer.invoke("updater:install"),
+  onUpdateStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on("updater:status", handler);
+    return () => ipcRenderer.removeListener("updater:status", handler);
+  },
 });
