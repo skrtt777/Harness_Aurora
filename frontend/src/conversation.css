@@ -81,6 +81,8 @@
 .message-actions button:hover, .message-actions summary:hover { color: #d3c3ee; }
 .message-actions details p { font-size: 11px; margin: 6px 0; }
 .message-actions details[open] { flex-basis: 100%; }
+.used-skills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.skill-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 100px; background: rgba(121, 198, 255, .12); color: #9fd3ff; cursor: default; }
 .aurora-markdown > :first-child { margin-top: 0; }
 .aurora-markdown > :last-child { margin-bottom: 0; }
 .aurora-markdown p { margin: 0 0 14px; }

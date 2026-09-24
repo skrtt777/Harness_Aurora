@@ -16,6 +16,7 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type UsedSkill = { id: string; name: string; hash: string; partial: boolean };
 export type ChatMessage = {
   id: string;
   conversationId: string;
@@ -27,6 +28,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
+  execution?: { context?: { skills?: UsedSkill[] } | null } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };

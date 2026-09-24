@@ -41,6 +41,9 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
           catch { setFeedback('Não foi possível copiar.'); }
         }}>Copiar</button>
         {correctable && <button onClick={() => setReview(value => !value)}>Revisar com <span className="provider-name">{teacher}</span></button>}
+        {(message.execution?.context?.skills?.length ?? 0) > 0 && <span className="used-skills" aria-label="Skills usadas nesta resposta">
+          {message.execution!.context!.skills!.map(s => <span key={s.id} className="skill-chip" title={s.partial ? `Skill "${s.name}" — trecho relevante usado` : `Skill "${s.name}" — texto completo usado`}>🧩 {s.name}</span>)}
+        </span>}
         <details><summary>Detalhes</summary><p><span className="provider-name">{message.provider || 'Aurora'}</span> · {new Date(message.createdAt).toLocaleString('pt-BR')}</p>
           <p>{message.memoryAccess.length} memórias consultadas · {message.memoryCreated.length} criadas</p>
           {message.memoryStatus === 'pending' && <p>Salvando aprendizados…</p>}
