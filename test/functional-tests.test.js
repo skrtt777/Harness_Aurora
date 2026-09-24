@@ -33,6 +33,13 @@ test('contracts reject code, unknown operations, vacuous cases, duplicates and e
  assert.equal(parseDisplayedNumber('NaN'),null);
 });
 
+test('assertNumber and assertText read .value on input/textarea, not innerText (always empty there)',async()=>{
+ const html='<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Teste</title></head><body><input type="number" id="units" readonly><textarea id="note" readonly></textarea><script>document.getElementById("units").value=12;document.getElementById("note").value="ok";</script></body></html>';
+ const contract={version:1,cases:[{id:'c0',name:'Campos somente leitura',actions:[{op:'assertNumber',selector:'#units',expected:12},{op:'assertText',selector:'#note',expected:'ok'}]}]};
+ const result=await validateArtifact(html,'html',{contract});
+ assert.equal(result.status,'passed',JSON.stringify(result));
+});
+
 for(const fixture of functionalFixtures) test(`real browser: ${fixture.id} passes correct behavior and rejects controlled defect`,async()=>{
  const pass=await validateArtifact(fixture.good,'html',{contract:fixture.contract});
  assert.equal(pass.status,'passed',JSON.stringify(pass));

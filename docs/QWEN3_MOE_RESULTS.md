@@ -146,6 +146,27 @@ Segunda tentativa: `--chat-template-kwargs '{"enable_thinking":true}'`, a variá
 
 **Conclusão:** `Qwen3-Coder-30B-A3B-Instruct` não tem modo de raciocínio — diferente dos modelos híbridos "Instruct" do Qwen3.5 (que alternam entre pensar e responder direto), os modelos Coder são de resposta direta por desenho, sem alternância de raciocínio. Não é um problema de configuração nem de tuning: nenhuma flag do llama-server vai adicionar raciocínio a esse modelo. Para explorar essa frente de verdade seria preciso trocar de modelo (ex.: uma variante "Thinking" do Qwen3), o que está fora do escopo desta investigação de SSD/MoE (pesos, download e nova campanha de qualidade do zero).
 
+## Rodada 8: bug no avaliador causava reprovações e reparos falsos (23-24/09/2026)
+
+Investigando um pedido separado do usuário (fine-tuning para reduzir "reparos desnecessários" — respostas já corretas que o harness "corrige" à toa, desperdiçando ~16,7% dos tokens no controle de qualidade GPU), a causa raiz acabou não estando no modelo. Nos 5 casos documentados de reparo desnecessário em `reports/ssd-semantic-review-v1/moe.json`, todos têm `firstArtifactHash === finalArtifactHash` (o código nunca mudou) e `first.passed` (auditado) `=== true` — a primeira resposta já estava certa; o avaliador **original** só achava que não estava.
+
+Rastreado até `app/functionalTests.js`: `assertNumber`/`assertText` liam `locator.innerText()` para extrair o valor exibido. Em elementos `<input>`/`<textarea>` — o padrão natural para campos de saída somente-leitura em calculadoras, exatamente o domínio "bi" onde `break-even` vive — `innerText` é **sempre vazio** (o valor fica em `.value`, não em nós de texto filhos). Confirmado isoladamente com Playwright: `innerText()` retorna `""`, `inputValue()` retorna `"12"` corretamente, no mesmo `<input readonly>`. Corrigido: ler `.inputValue()` quando o elemento é `INPUT`/`TEXTAREA`, `innerText()` nos demais casos.
+
+Revalidação de respostas já salvas (sem gastar nenhuma chamada nova ao modelo) confirmou o alcance do bug: revalidando a **primeira tentativa** de cada tarefa da campanha `moe-30-tuned-restart4` (rodada 3, 18/24) contra o avaliador corrigido, 3 casos que tinham sido marcados como falha na primeira tentativa (`break-even` × 2 sementes, `bundle-price`/211) na verdade já estavam certos — e em todos os 3, o resultado **final** da tarefa (depois do reparo desnecessário) continuou reprovado. Ou seja, o bug não só desperdiçava tokens: a "correção" de algo que não estava quebrado, seguindo um feedback falso, convertia respostas certas em reprovações finais.
+
+Reexecutando as duas melhores campanhas conhecidas com o avaliador corrigido (mesmos pesos, mesma configuração, `SSD_REPORT_DIR=reports/ssd-moe-v10`):
+
+| Perfil | Antes (avaliador com bug) | Depois (avaliador corrigido) |
+|---|---:|---:|
+| 30%, reinício a cada 4 | 18/24 (75,0%) | **21/24 (87,5%)** |
+| 20%, reinício a cada 2 + KV q8_0 | 15/24 (62,5%) | **16/24 (66,7%)** |
+
+Em 30% o ganho foi todo de falsos negativos corrigidos (0 timeouts, igual antes) — supera até a referência de GPU sem teto medida na rodada 1 (75,0% pelo contrato original, embora aquela referência tenha sido medida com o avaliador **antigo**, então a comparação direta não é mais justa; valeria revalidar a referência de qualidade também). Em 20% o ganho foi menor porque ainda há 2 timeouts genuínos de memória (não relacionados a este bug) consumindo o orçamento de tarefas restantes.
+
+Adicionado teste de regressão em `test/functional-tests.test.js` cobrindo `assertNumber`/`assertText` contra `<input readonly>`/`<textarea readonly>`. Esse bug afeta o avaliador **de produção** do Aurora (`app/functionalTests.js` é código do app, não só do experimento de SSD) — qualquer conversa real do usuário que gere uma UI com campo de saída somente-leitura sofria o mesmo desperdício de correção falsa. É a correção de maior impacto desta investigação inteira, e não exigiu GPU nem fine-tuning.
+
+Próximos passos sugeridos: (1) revalidar o controle de qualidade GPU (`reports/ssd-quality-control-v1`) com o avaliador corrigido, para ter uma referência de comparação justa; (2) revisar se outros padrões de leitura de DOM (ex. `assertValue` já usa `inputValue`, correto) têm bugs semelhantes; (3) considerar se ainda vale a pena o fine-tuning do 30B para outro objetivo, agora que a causa original não se aplica.
+
 ## Decisão e entregáveis
 
 O padrão do aplicativo permanece inalterado. O executor MoE/SSD foi compilado e testado isoladamente, fora do instalador. Não houve treinamento, alteração dos pesos ou remoção de especialistas.

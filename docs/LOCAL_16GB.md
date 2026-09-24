@@ -44,6 +44,8 @@ Tentativas de acelerar tokens/segundo (mesma data): *speculative decoding* por n
 
 Sobre raciocínio ("thinking"): `Qwen3-Coder-30B-A3B-Instruct` **não tem modo de raciocínio** — confirmado testando `--chat-template-kwargs enable_thinking` direto contra `/apply-template` (prompt idêntico com `true` ou `false`, nunca abre um bloco `<think>`). Diferente dos modelos híbridos "Instruct" do Qwen3.5, os modelos Coder respondem direto por desenho. Nenhuma configuração vai adicionar raciocínio a esse modelo; só trocando por uma variante "Thinking" do Qwen3 seria possível explorar essa frente, o que está fora do escopo desta investigação. Rodada 7 de [resultados](QWEN3_MOE_RESULTS.md).
 
+**Correção de maior impacto (23-24/09/2026):** investigando um pedido de fine-tuning para reduzir "reparos desnecessários", a causa real não estava no modelo — estava no **avaliador de contratos do próprio Aurora** (`app/functionalTests.js`): `assertNumber`/`assertText` liam `innerText()`, que é sempre vazio em `<input>`/`<textarea>` (o valor fica em `.value`). Qualquer UI gerada com um campo de saída somente-leitura sofria reprovação falsa e "correção" desnecessária — em produção, não só no experimento de SSD. Corrigido lendo `.inputValue()` nesses elementos. Sem gastar GPU nem treino, isso levou os melhores resultados do executor MoE/SSD de 75% para **87,5%** em 30% de RAM, e de 62,5% para 66,7% em 20%. Rodada 8 de [resultados](QWEN3_MOE_RESULTS.md).
+
 ## Critérios de avaliação
 
 Testar máquinas reais com 8 e 16 GB, SSD SATA e NVMe, sem GPU dedicada. Limitar memória ou desabilitar GPU em um i9/4090 é um ensaio controlado, não representa um notebook comum.

@@ -116,7 +116,12 @@ export async function runFunctionalCases(browser, html, contract, { signal, time
                 else if (a.op === 'assertChecked') result.observed = await locator.isChecked({ timeout });
                 else if (a.op === 'assertValue') result.observed = await locator.inputValue({ timeout });
                 else {
-                  const text = textValue(await locator.innerText({ timeout }));
+                  // <input>/<textarea> carry their displayed value in .value, not as child text
+                  // nodes — innerText is always empty on them, which turned every readonly-input
+                  // number/text display (a common calculator-style output) into a false negative.
+                  const tag = await locator.evaluate(el => el.tagName);
+                  const raw = ['INPUT','TEXTAREA'].includes(tag) ? await locator.inputValue({ timeout }) : await locator.innerText({ timeout });
+                  const text = textValue(raw);
                   result.observed = a.op === 'assertNumber' ? parseDisplayedNumber(text, a.locale) : text;
                   if (a.op === 'assertNumber') result.displayed = clip(text);
                 }
