@@ -136,6 +136,16 @@ Depois de esgotar as alavancas óbvias de redução de recurso, a investigação
 
 Evidências: `reports/ssd-moe-calibration-v2/b512-pf-ctk8-ngram-p30`, `b512-pf-ctk8-ngram4-p30`, `b512-pf-ctk8-t16-p30` (amostras); `reports/ssd-moe-v9/` (campanha completa com 16 threads, descartada).
 
+## Rodada 7: raciocínio (23/09/2026)
+
+Testado se habilitar o modo de raciocínio ("thinking") do Qwen3 melhora a qualidade nas tarefas que falham por motivo funcional (não por timeout), como `break-even`. Nosso harness de benchmark chama `/apply-template` + `/completion` diretamente no llama-server — um caminho diferente do app em produção, que usa `LOCAL_THINK` via `/api/generate` do Ollama (`app/local.js`). Precisou de investigação própria para descobrir a alavanca certa nesse caminho.
+
+Primeira tentativa: `-rea on` (`--reasoning`, toggle de servidor). Resultado na amostra de 4 tarefas em 20%: 1/4 aprovada (contra 3/4 sem a flag), com 3 timeouts e primeiro token mais lento (25–35 s contra 15–18 s). Antes de concluir que "raciocínio piora", comparamos o texto de saída byte a byte com a mesma tarefa sem a flag: **idêntico**. Ou seja, `-rea` não tem efeito algum no caminho `/apply-template` + `/completion` (é um parâmetro da camada de parsing de chat, que este harness não usa) — a piora observada foi ruído de execução entre rodadas (cache de disco/OS não controlado, já documentado como limitação em todas as rodadas), não um custo real de raciocínio. Descartado como teste inválido, não como resultado negativo real.
+
+Segunda tentativa: `--chat-template-kwargs '{"enable_thinking":true}'`, a variável Jinja que os templates híbridos do Qwen3 checam para decidir se abrem um bloco `<think>`. Testado diretamente contra `/apply-template` (sem gastar uma campanha inteira): o prompt renderizado é **idêntico** com `enable_thinking:true` ou `:false`, e nunca contém uma tag `<think>` em nenhum dos dois casos.
+
+**Conclusão:** `Qwen3-Coder-30B-A3B-Instruct` não tem modo de raciocínio — diferente dos modelos híbridos "Instruct" do Qwen3.5 (que alternam entre pensar e responder direto), os modelos Coder são de resposta direta por desenho, sem alternância de raciocínio. Não é um problema de configuração nem de tuning: nenhuma flag do llama-server vai adicionar raciocínio a esse modelo. Para explorar essa frente de verdade seria preciso trocar de modelo (ex.: uma variante "Thinking" do Qwen3), o que está fora do escopo desta investigação de SSD/MoE (pesos, download e nova campanha de qualidade do zero).
+
 ## Decisão e entregáveis
 
 O padrão do aplicativo permanece inalterado. O executor MoE/SSD foi compilado e testado isoladamente, fora do instalador. Não houve treinamento, alteração dos pesos ou remoção de especialistas.

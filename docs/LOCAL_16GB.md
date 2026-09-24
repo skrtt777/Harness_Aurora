@@ -42,6 +42,8 @@ O que funcionou de verdade em 20% (23/09/2026): **quantizar o cache KV** (`-ctk/
 
 Tentativas de acelerar tokens/segundo (mesma data): *speculative decoding* por n-grama e mais threads de CPU (16 em vez de 8) pareciam ajudar numa amostra pequena, mas **pioraram** os dois na campanha completa de 24 tarefas — o segundo caiu de 62,5% para 29,2% de aprovação. Nenhum dos dois é recomendado; `q8_0` + 8 threads + reinício periódico continua sendo a melhor configuração conhecida. Detalhes na rodada 6 de [resultados](QWEN3_MOE_RESULTS.md).
 
+Sobre raciocínio ("thinking"): `Qwen3-Coder-30B-A3B-Instruct` **não tem modo de raciocínio** — confirmado testando `--chat-template-kwargs enable_thinking` direto contra `/apply-template` (prompt idêntico com `true` ou `false`, nunca abre um bloco `<think>`). Diferente dos modelos híbridos "Instruct" do Qwen3.5, os modelos Coder respondem direto por desenho. Nenhuma configuração vai adicionar raciocínio a esse modelo; só trocando por uma variante "Thinking" do Qwen3 seria possível explorar essa frente, o que está fora do escopo desta investigação. Rodada 7 de [resultados](QWEN3_MOE_RESULTS.md).
+
 ## Critérios de avaliação
 
 Testar máquinas reais com 8 e 16 GB, SSD SATA e NVMe, sem GPU dedicada. Limitar memória ou desabilitar GPU em um i9/4090 é um ensaio controlado, não representa um notebook comum.

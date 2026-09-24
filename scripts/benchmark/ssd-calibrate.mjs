@@ -44,6 +44,15 @@ const presets={
  // Next lever: more CPU threads, in case any of the per-token compute (not just expert-page I/O) is
  // thread-starved at -t/-tb 8 on this 24-thread i9-14900K.
  'b512-pf-ctk8-t16':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true,threads:16},
+ // Reasoning round, ruled out at the template level (no full campaign needed): -rea on (server-wide
+ // reasoning toggle) produced byte-identical output to no flag at all on a real task - it doesn't
+ // reach the raw /apply-template + /completion path this harness uses. Tried --chat-template-kwargs
+ // '{"enable_thinking":...}' next (the Jinja variable Qwen3's hybrid think/no-think models check) -
+ // confirmed via a direct /apply-template call that the rendered prompt is IDENTICAL whether true or
+ // false, and never contains a <think> tag either way. Qwen3-Coder-30B-A3B-Instruct (unlike the
+ // Qwen3.5 "Instruct" hybrid dense models) has no thinking mode at all - it's a direct-answer-only
+ // coding model by design. Not a tuning problem; no config here can add reasoning to this model.
+ 'b512-pf-ctk8-thinkkw':{batch:512,prefetch:true,kvQuant:'q8_0',flashAttn:true,chatTemplateKwargs:'{"enable_thinking":true}'},
 };
 const presetId=process.argv[2];
 if(!presets[presetId])throw Error('Select '+Object.keys(presets).join('|'));
@@ -60,7 +69,9 @@ const command=[resolve('tmp/llama-ssd/build/bin/Release/llama-server.exe'),'-m',
  ...(preset.flashAttn?['-fa','on']:[]),
  ...(preset.specType?['--spec-type',preset.specType]:[]),
  ...(preset.ngramN?['--spec-ngram-simple-size-n',String(preset.ngramN)]:[]),
- ...(preset.ngramM?['--spec-ngram-simple-size-m',String(preset.ngramM)]:[])];
+ ...(preset.ngramM?['--spec-ngram-simple-size-m',String(preset.ngramM)]:[]),
+ ...(preset.reasoning?['-rea',preset.reasoning]:[]),
+ ...(preset.chatTemplateKwargs?['--chat-template-kwargs',preset.chatTemplateKwargs]:[])];
 const config={directory:root,capBytes:Math.floor(16*1024**3*percent/100/4096)*4096,physicalDisk:'PhysicalDrive4',command};
 await writeFile(join(root,'manifest.json'),JSON.stringify({createdAt:new Date().toISOString(),presetId,preset,percent,config,sourceHash:sha(await readFile('scripts/benchmark/ssd-calibrate.mjs')),scope:'Diagnostic round 2: Swap-MoE mitigation flags untested in the v1 baseline (--expert-keep-recent, --expert-prefetch, --expert-cache-size), combined with the batch=512 prefill win from v1 calibration. First attempts only, one case per domain (jogo/pagina/app/bi) reused from moe-50 v1 runs; not a full quality comparison. Same temperature, seed, tokens, context and process cap as v1. OS cache uncontrolled. cacheSizeMib in the cs preset is a rough first guess, not derived from a measured fixed-memory breakdown; that preset is a fallback only if keep-recent proves insufficient.'},null,2),{flag:'wx'});
 await writeFile(join(root,'launch.json'),JSON.stringify(config,null,2));
