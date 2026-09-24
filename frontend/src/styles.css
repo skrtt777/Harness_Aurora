@@ -78,30 +78,44 @@ button[aria-pressed="true"] {
   align-items: center;
   margin: 0 9px 26px;
 }
-.logo > span {
+
+/* Flat brand lockup (BrandMark.tsx) — replaces the chromed/glowing PNG
+   wordmark everywhere: sidebar, Atlas 3D topbar, welcome guide. */
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #dce7ed;
+}
+.brand-mark-badge {
   display: grid;
   place-items: center;
-  width: 35px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   border: 1px solid #2b827c;
-  border-radius: 10px;
+  border-radius: 9px;
   color: #83f1d9;
-  font-size: 30px;
   background: #10322f;
 }
-.logo strong {
-  font-size: 16px;
-  letter-spacing: 0.2em;
+.brand-mark-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
   font-weight: 600;
-}
-.logo small {
-  display: block;
-  font-size: 8px;
   letter-spacing: 0.2em;
-  margin-top: 5px;
+  line-height: 1.3;
+}
+.brand-mark-text small {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
   color: #6b8a98;
 }
 .new-conversation {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   border: 1px solid #2a3b49;
   border-radius: 7px;
   background: #14202c;
@@ -220,6 +234,42 @@ button[aria-pressed="true"] {
 }
 .import-button input {
   display: none;
+}
+.memory-actions {
+  display: flex;
+  gap: 6px;
+}
+.memory-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #253847;
+  border-radius: 6px;
+  background: #101a24;
+  color: #9fb7c2;
+  padding: 7px 11px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.memory-action:hover {
+  border-color: #35594f;
+  color: #d6f6ef;
+}
+.memory-action.on {
+  background: #18312f;
+  color: #b4ebdd;
+  border-color: #36594f;
+}
+.memory-action input {
+  display: none;
+}
+.memory-tag {
+  border: 1px solid #22303c;
+  background: #101a24;
+  color: #8ba1af;
+  font-size: 9px;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 .main-panel {
   display: flex;
@@ -1172,29 +1222,6 @@ button[aria-pressed="true"] {
   gap: 12px;
   align-items: center;
   margin: 0 9px 20px;
-}
-.app-logo > span {
-  display: grid;
-  place-items: center;
-  width: 35px;
-  height: 38px;
-  border: 1px solid #2b827c;
-  border-radius: 10px;
-  color: #83f1d9;
-  font-size: 26px;
-  background: #10322f;
-}
-.app-logo strong {
-  font-size: 15px;
-  letter-spacing: 0.2em;
-  font-weight: 600;
-}
-.app-logo small {
-  display: block;
-  font-size: 8px;
-  letter-spacing: 0.2em;
-  margin-top: 5px;
-  color: #6b8a98;
 }
 .app-sidebar .new-conversation {
   margin-bottom: 14px;
@@ -2162,8 +2189,31 @@ button[aria-pressed="true"] {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 640px;
-  margin-top: 10px;
+  max-width: 680px;
+  margin: 10px auto 0;
+}
+/* Settings and Browser Agent share this simple header (no .titlebar
+   treatment) — it had no type scale of its own before, so its <h1> fell
+   back to the browser default and read out of step with the rest of the
+   app. */
+.settings-page > .chat-page-head {
+  display: block;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 34px 0 4px;
+}
+.settings-page > .chat-page-head h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #f0f6f9;
+}
+.settings-page > .chat-page-head p {
+  margin: 0;
+  color: #7f98a8;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .settings-card {
   border: 1px solid #22303c;
@@ -2247,12 +2297,23 @@ button[aria-pressed="true"] {
   margin-top: 8px;
 }
 .settings-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid #253847;
   border-radius: 6px;
   background: #101a24;
   color: #c2d7e2;
   padding: 6px 14px;
   font-size: 11px;
+}
+.settings-field > .path-field {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 11px;
+  color: #9fb7c2;
+}
+.settings-field > .path-field:focus {
+  color: #dce7ed;
 }
 .settings-saved {
   display: block;

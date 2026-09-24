@@ -7,7 +7,8 @@
 .welcome-guide button:hover:not(:disabled) { background: #2a354b; }
 .welcome-guide :focus-visible { outline: 2px solid #64e8fb; outline-offset: 3px; }
 .guide-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px 12px; }
-.guide-header img { width: 170px; height: 65px; object-fit: contain; }
+.guide-header .brand-mark-badge { width: 40px; height: 40px; border-radius: 11px; }
+.guide-header .brand-mark-text { font-size: 16px; }
 .guide-steps { display: flex; gap: 8px; padding: 0 28px 20px; border-bottom: 1px solid #30394d; }
 .guide-steps button { flex: 1; font-size: 12px; background: transparent; }
 .guide-steps span { margin-right: 8px; opacity: .65; }

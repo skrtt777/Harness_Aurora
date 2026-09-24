@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import CentralMemoryPanel from './CentralMemoryPanel';
+import Icon from './Icon';
 import {
   createMemory,
   importMemories,
@@ -74,7 +75,7 @@ function NewMemoryForm({
   if (!open) {
     return (
       <button className="new-conversation memory-add-toggle" onClick={() => setOpen(true)}>
-        ＋ Nova memória manual
+        <Icon name="plus" size={12} /> Nova memória manual
       </button>
     );
   }
@@ -202,7 +203,7 @@ function MemoryRow({
             setEditing((v) => !v);
           }}
         >
-          ✎
+          <Icon name="edit" size={13} />
         </button>
         <button
           aria-label="Excluir"
@@ -210,7 +211,7 @@ function MemoryRow({
             if (confirm("Excluir esta memória?")) onDeleted();
           }}
         >
-          ×
+          <Icon name="trash" size={13} />
         </button>
       </div>
       {editing ? (
@@ -239,7 +240,7 @@ function MemoryRow({
         <button onClick={onShare}>Compartilhar cópia</button>
         {(projectName || conversationName) && <span>{projectName || conversationName}</span>}
         {memory.tags.map((t) => (
-          <em key={t}>#{t}</em>
+          <span className="memory-tag" key={t}>#{t}</span>
         ))}
         <small>{new Date(memory.createdAt).toLocaleString("pt-BR")}</small>
       </div>
@@ -412,20 +413,22 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           </select>
         </label>
         <div className="search" style={{ flex: 1, maxWidth: 320 }}>
-          <span>⌕</span>
+          <Icon name="search" size={14} />
           <input placeholder="Pesquisar memórias…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <span className="result-count">{memories.length.toLocaleString("pt-BR")}</span>
-        <button className="export-button" onClick={() => downloadMemories(memories)} disabled={!memories.length}>
-          ↓ Exportar
-        </button>
-        <label className="import-button">
-          ↑ Importar
-          <input type="file" accept="application/json,.json" onChange={importFile} />
-        </label>
-        <button className="export-button" onClick={toggleCommunity}>
-          🌐 Comunidade
-        </button>
+        <div className="memory-actions">
+          <button className="memory-action" onClick={() => downloadMemories(memories)} disabled={!memories.length} title="Baixar como arquivo .json">
+            <Icon name="download" size={13} /> Exportar
+          </button>
+          <label className="memory-action">
+            <Icon name="upload" size={13} /> Importar
+            <input type="file" accept="application/json,.json" onChange={importFile} />
+          </label>
+          <button className={`memory-action ${communityOpen ? "on" : ""}`} onClick={toggleCommunity} title="Pacotes compartilhados pela comunidade">
+            <Icon name="globe" size={13} /> Comunidade
+          </button>
+        </div>
       </div>
       {importStatus && <p className="memory-import-status">{importStatus}</p>}
 

@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import SkillsView from "./SkillsView";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
-import NeuralAtlas from "./NeuralAtlas";
 import SettingsView from "./SettingsView";
 import WelcomeGuide from "./WelcomeGuide";
 import BrowserAgentView from "./BrowserAgentView";
+import BrandMark from "./BrandMark";
+
+// O bundle do Atlas 3D (Three.js + react-three-fiber) é o maior do app —
+// carregá-lo de olhos fechados penalizava quem só quer conversar. Fica em
+// chunk separado, baixado só quando a view "atlas"/"test" é realmente aberta.
+const NeuralAtlas = lazy(() => import("./NeuralAtlas"));
 import {
   cancelMessage as apiCancelMessage,
   correctMessage as apiCorrectMessage,
@@ -301,30 +306,21 @@ export default function AppShell() {
     );
   }
 
-  if (view === "atlas") {
+  if (view === "atlas" || view === "test") {
     return (
       <div className="app-shell atlas-takeover">
         <header className="atlas-topbar">
-        <button className="atlas-back" onClick={() => setView("chat")}>
-          ← Voltar para o chat
-        </button>
-        <img src="/brand/aurora-wordmark.png" alt="Aurora" />
+          <button className="atlas-back" onClick={() => setView("chat")}>
+            ← Voltar para o chat
+          </button>
+          <span className="atlas-topbar-title">
+            Atlas 3D <em>· {view === "atlas" ? "modo real" : "modo teste"}</em>
+          </span>
+          <BrandMark compact />
         </header>
-        <NeuralAtlas variant="real" />
-      </div>
-    );
-  }
-
-  if (view === "test") {
-    return (
-      <div className="app-shell atlas-takeover">
-        <header className="atlas-topbar">
-        <button className="atlas-back" onClick={() => setView("chat")}>
-          ← Voltar para o chat
-        </button>
-        <img src="/brand/aurora-wordmark.png" alt="Aurora" />
-        </header>
-        <NeuralAtlas variant="test" />
+        <Suspense fallback={<div className="atlas-loading">Carregando o Atlas 3D…</div>}>
+          <NeuralAtlas variant={view === "atlas" ? "real" : "test"} />
+        </Suspense>
       </div>
     );
   }

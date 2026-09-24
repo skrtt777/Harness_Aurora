@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
+import BrandMark from "./BrandMark";
+import Icon from "./Icon";
 
 type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent" | "skills";
 
@@ -81,7 +83,7 @@ function ConversationRow({
       </button>
       <div className="conv-actions">
         <button aria-label="Renomear conversa" onClick={() => setEditing(true)} title="Renomear">
-          ✎
+          <Icon name="edit" size={13} />
         </button>
         <button
           aria-label="Excluir conversa"
@@ -90,7 +92,7 @@ function ConversationRow({
           }}
           title="Excluir"
         >
-          ×
+          <Icon name="trash" size={13} />
         </button>
       </div>
     </div>
@@ -155,7 +157,7 @@ export default function Sidebar({
   return (
     <aside id="app-sidebar" className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="app-logo">
-        <img src="/brand/aurora-wordmark.png" alt="Aurora" width="1942" height="809" draggable={false} />
+        <BrandMark />
       </div>
 
       <details className="sidebar-model-settings">
@@ -185,11 +187,11 @@ export default function Sidebar({
       )}
       </details>
       <button className="new-conversation" onClick={() => onNewConversation(null)}>
-        ＋ Nova conversa
+        <Icon name="plus" size={13} /> Nova conversa
       </button>
 
       <div className="sidebar-search">
-        <span>⌕</span>
+        <Icon name="search" size={13} />
         <input placeholder="Buscar conversas…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar conversas" />
       </div>
 
@@ -217,7 +219,7 @@ export default function Sidebar({
               </form>
             ) : (
               <button className="mini-action" onClick={() => setCreatingProject(true)} aria-label="Novo projeto">
-                ＋
+                <Icon name="plus" size={12} />
               </button>
             )}
           </div>
@@ -239,7 +241,7 @@ export default function Sidebar({
                       onClick={() => onNewConversation(project.id)}
                       aria-label="Nova conversa neste projeto"
                     >
-                      ＋
+                      <Icon name="plus" size={12} />
                     </button>
                     <button
                       title="Renomear projeto"
@@ -249,7 +251,7 @@ export default function Sidebar({
                       }}
                       aria-label="Renomear projeto"
                     >
-                      ✎
+                      <Icon name="edit" size={12} />
                     </button>
                     <button
                       title="Excluir projeto"
@@ -259,7 +261,7 @@ export default function Sidebar({
                       }}
                       aria-label="Excluir projeto"
                     >
-                      ×
+                      <Icon name="trash" size={12} />
                     </button>
                   </div>
                 </div>
@@ -296,37 +298,36 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <details className="sidebar-tools"><summary>Ferramentas <span>⌄</span></summary>
+        <label className="sidebar-tools-label">Ferramentas</label>
         <button className={`rail-link ${activeView === "memory" ? "active" : ""}`} onClick={() => onSelectView("memory")}>
-          ⌁ <span>Memória</span>
+          <Icon name="memory" /> <span>Memória</span>
           <b>{memoryCount.toLocaleString("pt-BR")}</b>
         </button>
         <button className={`rail-link ${activeView === "atlas" ? "active" : ""}`} onClick={() => onSelectView("atlas")}>
-          ◈ <span>Atlas 3D</span>
+          <Icon name="atlas" /> <span>Atlas 3D</span>
           <b className="beta-tag">beta</b>
         </button>
         <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
-          ⚗ <span>Teste</span>
+          <Icon name="flask" /> <span>Teste</span>
         </button>
         <button className={`rail-link ${activeView === "browser-agent" ? "active" : ""}`} onClick={() => onSelectView("browser-agent")}>
-          🖱 <span>Agente do navegador</span>
+          <Icon name="cursor" /> <span>Agente do navegador</span>
         </button>
         <button className={`rail-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
-          🧩 <span>Skills e regras</span>
+          <Icon name="puzzle" /> <span>Skills e regras</span>
+        </button>
+        <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
+          <Icon name="gear" /> <span>Configurações</span>
         </button>
         {savings && savings.localTurns > 0 && (
           <div
             className="savings-indicator"
             title={`${savings.localTurns} resposta${savings.localTurns > 1 ? "s" : ""} do modelo local, ${savings.corrections} corrigida${savings.corrections === 1 ? "" : "s"} pelo professor. Comparado a mandar tudo direto pro Codex/Claude: ${savings.actualCalls} chamada${savings.actualCalls === 1 ? "" : "s"} paga${savings.actualCalls === 1 ? "" : "s"} em vez de ${savings.baselineCalls}.`}
           >
-            💰 {savings.savingsPercent}% de chamadas estimadas evitadas
+            <Icon name="coin" size={12} /> {savings.savingsPercent}% de chamadas estimadas evitadas
           </div>
         )}
         {appVersion && <div className="sidebar-version">v{appVersion}</div>}
-        </details>
-        <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
-          ⚙ <span>Configurações</span>
-        </button>
       </div>
     </aside>
   );

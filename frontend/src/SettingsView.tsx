@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
+import Icon from './Icon';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 
@@ -161,6 +162,7 @@ export default function SettingsView({
                   className={settings.defaultProvider === id ? "selected" : ""}
                   onClick={() => setDefaultProvider(id)}
                 >
+                  {settings.defaultProvider === id && <Icon name="check" size={12} />}
                   {PROVIDER_LABEL[id]}
                   <span className={`status-dot ${isReady(id) ? "ready" : "pending"}`} title={isReady(id) ? (id === "local" ? "Pronto" : "CLI encontrado; autenticação verificada ao conversar") : "Provedor não encontrado"} />
                 </button>
@@ -172,6 +174,7 @@ export default function SettingsView({
             <div className="settings-options">
               {["codex", "claude"].map((id) => (
                 <button key={id} className={settings.defaultTeacher === id ? "selected" : ""} onClick={() => setDefaultTeacher(id)}>
+                  {settings.defaultTeacher === id && <Icon name="check" size={12} />}
                   {PROVIDER_LABEL[id]}
                   <span className={`status-dot ${isReady(id) ? "ready" : "pending"}`} />
                 </button>
@@ -207,6 +210,7 @@ export default function SettingsView({
           <p className="settings-hint">De onde a aba Memória busca pacotes de memória compartilhados (botão "🌐 Comunidade").</p>
           <div className="settings-field">
             <input
+              className="path-field"
               value={manifestDraft}
               onChange={(e) => setManifestDraft(e.target.value)}
               placeholder="https://.../manifest.json"
@@ -231,12 +235,13 @@ export default function SettingsView({
           </p>
           <div className="settings-field">
             <input
+              className="path-field"
               value={sandboxDraft}
               onChange={(e) => setSandboxDraft(e.target.value)}
               placeholder="Ex.: C:\Users\você\Documents\Harness\Sandbox"
             />
             <div className="settings-actions">
-              <button onClick={chooseSandboxFolder}>Escolher pasta…</button>
+              <button onClick={chooseSandboxFolder}><Icon name="folder" size={13} /> Escolher pasta…</button>
               <button onClick={() => saveSandboxDir(sandboxDraft)}>Salvar</button>
             </div>
             {sandboxSaved && <small className="settings-saved">Salvo.</small>}

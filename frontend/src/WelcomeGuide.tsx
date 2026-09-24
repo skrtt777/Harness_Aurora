@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getProviders, openExternalUrl, updateSettings, type ProviderInfo } from './api';
+import BrandMark from './BrandMark';
+import Icon from './Icon';
 import './welcome.css';
 
 const steps = ['Boas-vindas', 'Como usar', 'Conectar uma IA', 'Memórias'];
@@ -42,7 +44,7 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
   }
   const detected = providers?.find(p => p.id === provider)?.configured;
   return <dialog ref={dialog} className="welcome-guide" aria-labelledby="guide-title" onCancel={e => { e.preventDefault(); void finish(); }}>
-    <header className="guide-header"><img src="/brand/aurora-wordmark.png" alt="Aurora" /><button disabled={saving} onClick={() => void finish()} aria-label="Fechar guia">✕</button></header>
+    <header className="guide-header"><BrandMark /><button disabled={saving} onClick={() => void finish()} aria-label="Fechar guia"><Icon name="close" size={14} /></button></header>
     <nav className="guide-steps" aria-label="Etapas do guia">{steps.map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{" "}{label}</button>)}</nav>
     <div className="guide-content" ref={content}>
       <p className="guide-eyebrow">SEU PRIMEIRO PASSO COM A AURORA · {step + 1} DE 4</p>
