@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getHealth, getProviders, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
+import { getHealth, getProviders, listConversations, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
 import BrandMark from "./BrandMark";
 import Icon from "./Icon";
 
@@ -21,6 +21,8 @@ type Props = {
   onNewConversation: (projectId?: string | null) => void;
   onNewProject: (name: string) => void;
   onRenameConversation: (id: string, title: string) => void;
+  onMoveConversation: (id: string, projectId: string | null) => void;
+  onArchiveConversation: (id: string, archived: boolean) => void;
   onDeleteConversation: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
   onDeleteProject: (id: string) => void;
@@ -41,18 +43,48 @@ function timeAgo(iso: string) {
 function ConversationRow({
   conversation,
   active,
+  projects,
   onSelect,
   onRename,
+  onMove,
+  onArchive,
   onDelete,
 }: {
   conversation: Conversation;
   active: boolean;
+  projects: Project[];
   onSelect: () => void;
   onRename: (title: string) => void;
+  onMove: (projectId: string | null) => void;
+  onArchive: (archived: boolean) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
+  if (moving) {
+    return (
+      <div className="conv-row editing">
+        <select
+          autoFocus
+          aria-label={`Mover "${conversation.title}" para outro projeto`}
+          defaultValue={conversation.projectId ?? ""}
+          onChange={(e) => {
+            onMove(e.target.value || null);
+            setMoving(false);
+          }}
+          onBlur={() => setMoving(false)}
+        >
+          <option value="">Sem projeto</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
   if (editing) {
     return (
       <form
@@ -85,6 +117,18 @@ function ConversationRow({
         <button aria-label="Renomear conversa" onClick={() => setEditing(true)} title="Renomear">
           <Icon name="edit" size={13} />
         </button>
+        <button aria-label="Mover para outro projeto" onClick={() => setMoving(true)} title="Mover para projeto">
+          <Icon name="folder" size={13} />
+        </button>
+        {conversation.archivedAt ? (
+          <button aria-label="Desarquivar conversa" onClick={() => onArchive(false)} title="Desarquivar">
+            <Icon name="unarchive" size={13} />
+          </button>
+        ) : (
+          <button aria-label="Arquivar conversa" onClick={() => onArchive(true)} title="Arquivar">
+            <Icon name="archive" size={13} />
+          </button>
+        )}
         <button
           aria-label="Excluir conversa"
           onClick={() => {
@@ -115,6 +159,8 @@ export default function Sidebar({
   onNewConversation,
   onNewProject,
   onRenameConversation,
+  onMoveConversation,
+  onArchiveConversation,
   onDeleteConversation,
   onRenameProject,
   onDeleteProject,
@@ -126,6 +172,23 @@ export default function Sidebar({
   const [projectDraft, setProjectDraft] = useState("");
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedList, setArchivedList] = useState<Conversation[] | null>(null);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+
+  useEffect(() => {
+    if (!archivedOpen) return;
+    setArchivedLoading(true);
+    listConversations(undefined, true)
+      .then(setArchivedList)
+      .catch(() => setArchivedList([]))
+      .finally(() => setArchivedLoading(false));
+  }, [archivedOpen]);
+
+  const handleArchiveToggle = (id: string, archived: boolean) => {
+    onArchiveConversation(id, archived);
+    if (!archived) setArchivedList((list) => list?.filter((c) => c.id !== id) ?? list);
+  };
 
   useEffect(() => {
     getHealth()
@@ -138,7 +201,8 @@ export default function Sidebar({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
+    const active = conversations.filter((c) => !c.archivedAt);
+    return q ? active.filter((c) => c.title.toLowerCase().includes(q)) : active;
   }, [conversations, query]);
 
   const byProject = useMemo(() => {
@@ -271,8 +335,11 @@ export default function Sidebar({
                       key={conversation.id}
                       conversation={conversation}
                       active={activeView === "chat" && conversation.id === activeConversationId}
+                      projects={projects}
                       onSelect={() => onSelectConversation(conversation.id)}
                       onRename={(title) => onRenameConversation(conversation.id, title)}
+                      onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
+                      onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
                       onDelete={() => onDeleteConversation(conversation.id)}
                     />
                   ))}
@@ -289,12 +356,37 @@ export default function Sidebar({
               key={conversation.id}
               conversation={conversation}
               active={activeView === "chat" && conversation.id === activeConversationId}
+              projects={projects}
               onSelect={() => onSelectConversation(conversation.id)}
               onRename={(title) => onRenameConversation(conversation.id, title)}
+              onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
+              onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
               onDelete={() => onDeleteConversation(conversation.id)}
             />
           ))}
         </div>
+
+        <details className="sidebar-block archived-block" onToggle={(e) => setArchivedOpen(e.currentTarget.open)}>
+          <summary>
+            Arquivadas <span aria-hidden="true">⌄</span>
+          </summary>
+          {archivedLoading && <p className="sidebar-empty">Carregando…</p>}
+          {!archivedLoading && archivedList?.length === 0 && <p className="sidebar-empty">Nenhuma conversa arquivada.</p>}
+          {!archivedLoading &&
+            archivedList?.map((conversation) => (
+              <ConversationRow
+                key={conversation.id}
+                conversation={conversation}
+                active={activeView === "chat" && conversation.id === activeConversationId}
+                projects={projects}
+                onSelect={() => onSelectConversation(conversation.id)}
+                onRename={(title) => onRenameConversation(conversation.id, title)}
+                onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
+                onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
+                onDelete={() => onDeleteConversation(conversation.id)}
+              />
+            ))}
+        </details>
       </nav>
 
       <div className="sidebar-bottom">

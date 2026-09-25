@@ -27,6 +27,7 @@ function mapConversation(row) {
     title: row.title,
     provider: row.provider,
     teacherProvider: row.teacher_provider || null,
+    archivedAt: row.archived_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -140,11 +141,12 @@ export async function deleteProject(id) {
 
 // ---------- Conversations ----------
 
-export async function listConversations({ projectId } = {}) {
+export async function listConversations({ projectId, archived = false } = {}) {
   const db = await getDb();
+  const archivedClause = archived ? "archived_at IS NOT NULL" : "archived_at IS NULL";
   const rows = projectId
-    ? db.prepare("SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC").all(projectId)
-    : db.prepare("SELECT * FROM conversations ORDER BY updated_at DESC").all();
+    ? db.prepare(`SELECT * FROM conversations WHERE project_id = ? AND ${archivedClause} ORDER BY updated_at DESC`).all(projectId)
+    : db.prepare(`SELECT * FROM conversations WHERE ${archivedClause} ORDER BY updated_at DESC`).all();
   return rows.map(mapConversation);
 }
 
@@ -192,9 +194,11 @@ export async function updateConversation(id, patch) {
   }
   const title = patch.title !== undefined ? String(patch.title).trim() || existing.title : existing.title;
   const projectId = patch.projectId !== undefined ? patch.projectId : existing.project_id;
-  db.prepare("UPDATE conversations SET title = ?, project_id = ?, updated_at = ? WHERE id = ?").run(
+  const archivedAt = patch.archived !== undefined ? (patch.archived ? now() : null) : existing.archived_at;
+  db.prepare("UPDATE conversations SET title = ?, project_id = ?, archived_at = ?, updated_at = ? WHERE id = ?").run(
     title,
     projectId,
+    archivedAt,
     now(),
     id,
   );

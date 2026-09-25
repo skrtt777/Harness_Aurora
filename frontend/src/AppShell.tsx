@@ -194,6 +194,27 @@ export default function AppShell() {
     [],
   );
 
+  const handleMoveConversation = useCallback(
+    async (id: string, projectId: string | null) => {
+      const updated = await apiUpdateConversation(id, { projectId });
+      setConversations((items) => items.map((c) => (c.id === id ? updated : c)));
+      setActiveConversation((c) => (c && c.id === id ? { ...c, projectId: updated.projectId } : c));
+    },
+    [],
+  );
+
+  const handleArchiveConversation = useCallback(
+    async (id: string, archived: boolean) => {
+      await apiUpdateConversation(id, { archived });
+      // Archiving/unarchiving moves the conversation in or out of the
+      // default (active-only) list — a full refetch is simpler and always
+      // correct here, unlike rename/move which just patch a field on a
+      // conversation that stays in the same list either way.
+      await refreshLists();
+    },
+    [refreshLists],
+  );
+
   const handleDeleteConversation = useCallback(
     async (id: string) => {
       await apiDeleteConversation(id);
@@ -359,6 +380,8 @@ export default function AppShell() {
         }}
         onNewProject={(...args) => { void handleNewProject(...args).catch(e => setOperationError(e.message)); }}
         onRenameConversation={(...args) => { void handleRenameConversation(...args).catch(e => setOperationError(e.message)); }}
+        onMoveConversation={(...args) => { void handleMoveConversation(...args).catch(e => setOperationError(e.message)); }}
+        onArchiveConversation={(...args) => { void handleArchiveConversation(...args).catch(e => setOperationError(e.message)); }}
         onDeleteConversation={(...args) => { void handleDeleteConversation(...args).catch(e => setOperationError(e.message)); }}
         onRenameProject={(...args) => { void handleRenameProject(...args).catch(e => setOperationError(e.message)); }}
         onDeleteProject={(...args) => { void handleDeleteProject(...args).catch(e => setOperationError(e.message)); }}

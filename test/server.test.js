@@ -699,6 +699,33 @@ test("projects and conversations can be created, listed and scoped", async () =>
   });
 });
 
+test("archiving a conversation hides it from the default list; un-archiving restores it", async () => {
+  await withServer(async (api) => {
+    // Scoped to a fresh project: the unfiltered list is shared DB state
+    // across this whole test file, so asserting its exact contents here
+    // would be flaky depending on what other tests ran first.
+    const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "Arquivamento" }) });
+    const active = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Ativa", projectId: project.body.id }) });
+    const toArchive = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Vai arquivar", projectId: project.body.id }) });
+
+    const archived = await api(`/api/conversations/${toArchive.body.id}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+    assert.equal(archived.status, 200);
+    assert.ok(archived.body.archivedAt);
+
+    const activeList = await api(`/api/conversations?projectId=${project.body.id}`);
+    assert.deepEqual(activeList.body.conversations.map((c) => c.id), [active.body.id]);
+
+    const archivedList = await api(`/api/conversations?projectId=${project.body.id}&archived=1`);
+    assert.deepEqual(archivedList.body.conversations.map((c) => c.id), [toArchive.body.id]);
+
+    const restored = await api(`/api/conversations/${toArchive.body.id}`, { method: "PATCH", body: JSON.stringify({ archived: false }) });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.archivedAt, null);
+    const activeAgain = await api(`/api/conversations?projectId=${project.body.id}`);
+    assert.equal(activeAgain.body.conversations.length, 2);
+  });
+});
+
 test("a missing conversation returns 404 instead of creating one implicitly", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/conversations/does-not-exist/messages", {

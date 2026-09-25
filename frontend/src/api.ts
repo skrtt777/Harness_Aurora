@@ -12,6 +12,7 @@ export type Conversation = {
   title: string;
   provider: string;
   teacherProvider: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -131,10 +132,13 @@ export const updateProject = (id: string, patch: Partial<Pick<Project, "name" | 
 export const deleteProject = (id: string) => request<{ ok: true }>(`/projects/${id}`, { method: "DELETE" });
 
 // ---------- Conversations ----------
-export const listConversations = (projectId?: string) =>
-  request<{ conversations: Conversation[] }>(`/conversations${projectId ? `?projectId=${projectId}` : ""}`).then(
-    (r) => r.conversations,
-  );
+export const listConversations = (projectId?: string, archived = false) => {
+  const params = new URLSearchParams();
+  if (projectId) params.set("projectId", projectId);
+  if (archived) params.set("archived", "1");
+  const qs = params.toString();
+  return request<{ conversations: Conversation[] }>(`/conversations${qs ? `?${qs}` : ""}`).then((r) => r.conversations);
+};
 export const createConversation = (data: {
   projectId?: string | null;
   title?: string;
@@ -142,7 +146,7 @@ export const createConversation = (data: {
   teacherProvider?: string;
 }) => request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(data) });
 export const getConversation = (id: string) => request<ConversationWithMessages>(`/conversations/${id}`);
-export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null }) =>
+export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null; archived?: boolean }) =>
   request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteConversation = (id: string) => request<{ ok: true }>(`/conversations/${id}`, { method: "DELETE" });
 export const sendMessage = (conversationId: string, message: string, contextLimit?: number) =>

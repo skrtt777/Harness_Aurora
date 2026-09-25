@@ -567,7 +567,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       // ---------- Conversations ----------
       if (method === "GET" && pathname === "/api/conversations") {
         const projectId = url.searchParams.get("projectId") || undefined;
-        return sendJson(response, 200, { conversations: await listConversations({ projectId }) });
+        const archived = url.searchParams.get("archived") === "1";
+        return sendJson(response, 200, { conversations: await listConversations({ projectId, archived }) });
       }
       if (method === "POST" && pathname === "/api/conversations") {
         const body = await readJson(request);

@@ -1311,6 +1311,23 @@ button[aria-pressed="true"] {
   color: #7893a3;
   margin: 0 6px 8px;
 }
+.archived-block > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: #7893a3;
+  margin: 0 6px 8px;
+}
+.archived-block > summary::-webkit-details-marker {
+  display: none;
+}
+.archived-block[open] > summary {
+  color: #9cb0be;
+}
 .sidebar-empty {
   color: #566779;
   font-size: 10px;
@@ -1469,7 +1486,8 @@ button[aria-pressed="true"] {
   background: #16232e;
   color: #dafaf0;
 }
-.conv-row.editing input {
+.conv-row.editing input,
+.conv-row.editing select {
   width: 100%;
   border: 1px solid #2b827c;
   border-radius: 5px;

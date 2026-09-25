@@ -101,6 +101,12 @@ function migrateSchema(db) {
   if (!conversationColumns.some((c) => c.name === "teacher_provider")) {
     db.exec("ALTER TABLE conversations ADD COLUMN teacher_provider TEXT");
   }
+  // Marco 6 (ROADMAP_MELHORIAS.md): arquivar em vez de só excluir. NULL =
+  // ativa (o estado de toda conversa existente); listConversations()
+  // exclui arquivadas por padrão.
+  if (!conversationColumns.some((c) => c.name === "archived_at")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN archived_at TEXT");
+  }
   // Marco 3 (ROADMAP_MELHORIAS.md): busca de memória por similaridade —
   // vetor de embedding por memória, calculado sob demanda via Ollama.
   // NULL em memórias existentes/sem Ollama disponível é o estado normal,
