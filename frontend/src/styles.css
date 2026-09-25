@@ -2280,6 +2280,30 @@ button[aria-pressed="true"] {
   flex-wrap: wrap;
   gap: 8px;
 }
+.settings-field-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.settings-field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #94b8c4;
+}
+.settings-field-inline input {
+  width: 110px;
+  background: #0c1821;
+  border: 1px solid #253847;
+  border-radius: 6px;
+  color: #dce7ed;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+}
 .settings-options button {
   display: flex;
   align-items: center;

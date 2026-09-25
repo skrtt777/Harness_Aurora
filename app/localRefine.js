@@ -69,7 +69,7 @@ export function buildSelfReviewPrompt(task, answer, memories, knownProblem = nul
 }
 
 // Each retry has a distinct strategy. Never silently replace a better artifact.
-export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage, selfReview = false, call = runLocal }) {
+export async function refineLocalAnswer({ task, result, memories = [], env = process.env, signal, onStage, selfReview = false, call = runLocal, maxAttempts = 2 }) {
   const calls=[localCallRecord(result)],events=[];
   let current=result;
   const finish=(value=current)=>{
@@ -83,7 +83,7 @@ export async function refineLocalAnswer({ task, result, memories = [], env = pro
   let lastFailure='';
   if(!diagnostics.issues.length&&!selfReview)return result;
   const seen=new Set([artifactFingerprint(current.text)]);
-  for(let attempt=0;attempt<2 && diagnostics.issues.length;attempt++){
+  for(let attempt=0;attempt<maxAttempts && diagnostics.issues.length;attempt++){
     if(signal?.aborted)return cancelled();
     // Complete HTML uses exact, guarded edits. Legacy script-only answers keep
     // the full-answer protocol, with a more specific second repair request.

@@ -211,10 +211,14 @@ export type Settings = {
   communityManifestUrl: string;
   communityManifestUrlIsDefault?: boolean;
   sandboxDir: string;
+  /** Quantas vezes o modelo local tenta corrigir sozinho um erro detectado antes de desistir (0–5, padrão 2). */
+  localMaxFixAttempts: number;
+  /** Tamanho da janela de contexto (num_ctx) enviada ao Ollama, em tokens (2048–32768, padrão 8192). */
+  localContextTokens: number;
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------

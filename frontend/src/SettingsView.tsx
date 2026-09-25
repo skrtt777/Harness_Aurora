@@ -56,12 +56,18 @@ export default function SettingsView({
   const [sandboxSaved, setSandboxSaved] = useState(false);
   const [sandboxError, setSandboxError] = useState("");
   const [update, setUpdate] = useState<UpdateState | null>(null);
+  const [maxFixAttemptsDraft, setMaxFixAttemptsDraft] = useState("2");
+  const [contextTokensDraft, setContextTokensDraft] = useState("8192");
+  const [tuningSaved, setTuningSaved] = useState(false);
+  const [tuningError, setTuningError] = useState("");
 
   const refresh = () => {
     getSettings().then((s) => {
       setSettingsState(s);
       setManifestDraft(s.communityManifestUrl);
       setSandboxDraft(s.sandboxDir);
+      setMaxFixAttemptsDraft(String(s.localMaxFixAttempts));
+      setContextTokensDraft(String(s.localContextTokens));
     }).catch(e => setError(e.message));
     getProviders().then(setProviders).catch(e => setError(e.message));
     getLocalStatus().then(setLocalStatus).catch(e => setError(e.message));
@@ -129,6 +135,30 @@ export default function SettingsView({
   const chooseSandboxFolder = async () => {
     const chosen = await pickFolder().catch(e => { setSandboxError(e.message); return null; });
     if (chosen) await saveSandboxDir(chosen);
+  };
+
+  const saveTuning = async () => {
+    setTuningError("");
+    const localMaxFixAttempts = Number(maxFixAttemptsDraft);
+    const localContextTokens = Number(contextTokensDraft);
+    if (!Number.isInteger(localMaxFixAttempts) || localMaxFixAttempts < 0 || localMaxFixAttempts > 5) {
+      setTuningError("Tentativas de correção deve ser um número inteiro entre 0 e 5.");
+      return;
+    }
+    if (!Number.isInteger(localContextTokens) || localContextTokens < 2048 || localContextTokens > 32768) {
+      setTuningError("Tamanho do contexto deve ser um número inteiro entre 2048 e 32768.");
+      return;
+    }
+    try {
+      const updated = await updateSettings({ localMaxFixAttempts, localContextTokens });
+      setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
+      setMaxFixAttemptsDraft(String(updated.localMaxFixAttempts));
+      setContextTokensDraft(String(updated.localContextTokens));
+      setTuningSaved(true);
+      setTimeout(() => setTuningSaved(false), 2000);
+    } catch (err) {
+      setTuningError(err instanceof Error ? err.message : "Falha ao salvar.");
+    }
   };
 
   const pickModel = async (model: string) => {
@@ -254,6 +284,29 @@ export default function SettingsView({
           />
           </details>
           <ModelTrainingPanel />
+        </div>
+
+        <div className="settings-card">
+          <h2>Desempenho do modelo local</h2>
+          <p className="settings-hint">
+            Tentativas de correção: quantas vezes o modelo tenta corrigir sozinho um erro detectado antes de desistir. Menos tentativas = mais rápido, porém menos robusto em hardware lento.
+          </p>
+          <div className="settings-field-row">
+            <label className="settings-field-inline">
+              Tentativas de correção
+              <input type="number" min={0} max={5} step={1} value={maxFixAttemptsDraft} onChange={(e) => setMaxFixAttemptsDraft(e.target.value)} />
+            </label>
+            <label className="settings-field-inline">
+              Contexto (tokens)
+              <input type="number" min={2048} max={32768} step={256} value={contextTokensDraft} onChange={(e) => setContextTokensDraft(e.target.value)} />
+            </label>
+          </div>
+          <p className="settings-hint">Contexto maior permite conversas/entregas mais longas, mas usa mais memória e processa mais devagar. Vale para modelos maiores (7b/8b) escolhidos na seleção manual.</p>
+          <div className="settings-actions">
+            <button onClick={saveTuning}>Salvar</button>
+          </div>
+          {tuningSaved && <small className="settings-saved">Salvo.</small>}
+          {tuningError && <p className="memory-form-error">{tuningError}</p>}
         </div>
 
         <div className="settings-card">

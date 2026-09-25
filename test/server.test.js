@@ -454,6 +454,32 @@ test("refineLocalAnswer loops up to MAX_FIX_ATTEMPTS when the first retry still 
   }
 });
 
+test("refineLocalAnswer's retry cap is configurable via maxAttempts, not hardcoded", async () => {
+  let retryCalls = 0;
+  const stub = http.createServer((req, res) => {
+    retryCalls += 1;
+    res.writeHead(200, { "content-type": "application/json" });
+    // Always broken the same way — with the default cap (2) this would
+    // still be retrying; maxAttempts:0 must skip the loop entirely.
+    res.end(JSON.stringify({ response: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" }));
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const broken = { ok: true, status: 200, text: "```html\n<script type=\"module\">\nconst score = 0;\nscore++;\n</script>\n```" };
+    const refined = await refineLocalAnswer({
+      task: "crie um jogo",
+      result: broken,
+      memories: [],
+      maxAttempts: 0,
+      env: { LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}` },
+    });
+    assert.equal(retryCalls, 0);
+    assert.match(refined.text, /const score = 0;/);
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
 test("refineLocalAnswer rejects a self-review revision that reintroduces a problem the retries already fixed", async () => {
   const stub = http.createServer((req, res) => {
     let body = "";
@@ -674,6 +700,31 @@ test("PUT /api/settings validates and persists the sandbox execution folder", as
 
     // Reset so later tests aren't affected by state this test left behind.
     await api("/api/settings", { method: "PUT", body: JSON.stringify({ sandboxDir: "" }) });
+  });
+});
+
+test("PUT /api/settings validates and persists the local model's fix-attempt cap and context size", async () => {
+  await withServer(async (api) => {
+    const defaults = await api("/api/settings");
+    assert.equal(defaults.body.localMaxFixAttempts, 2);
+    assert.equal(defaults.body.localContextTokens, 8192);
+
+    for (const body of [{ localMaxFixAttempts: -1 }, { localMaxFixAttempts: 6 }, { localMaxFixAttempts: 1.5 }, { localContextTokens: 1000 }, { localContextTokens: 99999 }]) {
+      const bad = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
+      assert.equal(bad.status, 400, JSON.stringify(body));
+    }
+
+    const ok = await api("/api/settings", { method: "PUT", body: JSON.stringify({ localMaxFixAttempts: 0, localContextTokens: 16384 }) });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.localMaxFixAttempts, 0);
+    assert.equal(ok.body.localContextTokens, 16384);
+
+    const refetched = await api("/api/settings");
+    assert.equal(refetched.body.localMaxFixAttempts, 0);
+    assert.equal(refetched.body.localContextTokens, 16384);
+
+    // Reset so later tests aren't affected by state this test left behind.
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ localMaxFixAttempts: 2, localContextTokens: 8192 }) });
   });
 });
 

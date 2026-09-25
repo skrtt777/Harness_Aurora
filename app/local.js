@@ -1,5 +1,11 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 
+// Shared with app/server.js (Settings) and app/localRefine.js — the single
+// source of truth for what "unconfigured" means for these two knobs.
+export const LOCAL_SETTINGS_DEFAULTS = { contextTokens: 8192, maxFixAttempts: 2 };
+export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
+export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
+
 export async function buildProviderConfig(env = process.env) {
   const model = await resolveLocalModel(env);
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
@@ -37,7 +43,7 @@ export async function runLocal(prompt, env = process.env, externalSignal) {
       body: JSON.stringify({ model, prompt, stream: false,
         ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
         ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
-        num_ctx: Math.min(32768, Math.max(2048, Number(env.LOCAL_CONTEXT_TOKENS) || 8192)),
+        num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
         num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
         ...(env.LOCAL_SEED !== undefined && Number.isInteger(Number(env.LOCAL_SEED)) ? {seed:Number(env.LOCAL_SEED)} : {}),
         ...(env.LOCAL_TEMPERATURE !== undefined && Number.isFinite(Number(env.LOCAL_TEMPERATURE)) ? {temperature:Math.min(2,Math.max(0,Number(env.LOCAL_TEMPERATURE)))} : {}),

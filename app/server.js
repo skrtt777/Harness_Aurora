@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
-import { buildProviderConfig as buildLocalProviderConfig, runLocal } from "./local.js";
+import { buildProviderConfig as buildLocalProviderConfig, runLocal, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import {
   CURATED_MODELS,
   getLocalStatus,
@@ -168,23 +168,36 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let result;
     try {
       if (conversation.provider === "local") {
+        // Settings (Central de Configurações) are the user-facing control for
+        // both knobs; an explicit env var (dev/test override, e.g. running
+        // from source) still wins over them. Resolved once and reused for the
+        // initial call and every retry/self-review call inside
+        // refineLocalAnswer, so a changed context size doesn't only apply to
+        // the first Ollama call of the turn.
+        const contextSetting = env.LOCAL_CONTEXT_TOKENS === undefined ? await getSetting("local_context_tokens") : undefined;
+        const localEnv = contextSetting ? { ...env, LOCAL_CONTEXT_TOKENS: contextSetting } : env;
         const reused = await findReusableWorkflow({conversation,goal:trimmed,memories:relevant.slice(0,8),instructions:project?.instructions || ''});
         if(reused) {
           providerLabel='Local (reutilizado)';
           result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
-        } else result = await runLocal(prompt, env, controller.signal);
+        } else result = await runLocal(prompt, localEnv, controller.signal);
         // For local conversations, spend a little extra free Ollama compute
         // (never Codex/Claude) trying to catch mistakes before the user sees
         // them: a syntax-check-and-retry pass for generated code, then a
         // self-review pass against the same memories already selected above.
-        if (!reused) result = await refineLocalAnswer({
-          task: trimmed,
-          result,
-          memories: relevant,
-          env,
-          signal: controller.signal,
-          onStage: (stage) => setStage(conversationId, stage),
-        });
+        if (!reused) {
+          const maxFixAttemptsSetting = await getSetting("local_max_fix_attempts");
+          const maxAttempts = maxFixAttemptsSetting !== null ? Number(maxFixAttemptsSetting) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts;
+          result = await refineLocalAnswer({
+            task: trimmed,
+            result,
+            memories: relevant,
+            env: localEnv,
+            maxAttempts,
+            signal: controller.signal,
+            onStage: (stage) => setStage(conversationId, stage),
+          });
+        }
       } else {
         result = await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env, controller.signal);
       }
@@ -388,11 +401,13 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       // narrow (known keys only) rather than exposing raw key/value CRUD,
       // so a stray key never leaks through this endpoint by accident.
       if (method === "GET" && pathname === "/api/settings") {
-        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir] = await Promise.all([
+        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir, localMaxFixAttempts, localContextTokens] = await Promise.all([
           getSetting("default_provider", "codex"),
           getSetting("default_teacher", "codex"),
           getSetting("community_manifest_url"),
           getSetting("sandbox_dir"),
+          getSetting("local_max_fix_attempts"),
+          getSetting("local_context_tokens"),
         ]);
         return sendJson(response, 200, {
           defaultProvider,
@@ -401,6 +416,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           communityManifestUrlIsDefault: !communityManifestUrl && !process.env.COMMUNITY_MANIFEST_URL,
           sandboxDir: sandboxDir || "",
           onboardingCompleted: (await getSetting("onboarding_completed")) === "true",
+          // Both fall back to the same defaults/clamps runLocal()/refineLocalAnswer()
+          // already apply when nothing is configured — see LOCAL_SETTINGS_DEFAULTS.
+          localMaxFixAttempts: localMaxFixAttempts !== null ? Number(localMaxFixAttempts) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts,
+          localContextTokens: localContextTokens !== null ? Number(localContextTokens) : LOCAL_SETTINGS_DEFAULTS.contextTokens,
         });
       }
       if (method === "PUT" && pathname === "/api/settings") {
@@ -432,6 +451,20 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (value && !/^(\/|[a-zA-Z]:[\\/])/.test(value)) throw httpError(400, "Informe uma pasta absoluta.");
           values.sandbox_dir = value;
         }
+        if (body.localMaxFixAttempts !== undefined) {
+          const value = Number(body.localMaxFixAttempts);
+          if (!Number.isInteger(value) || value < LOCAL_MAX_FIX_ATTEMPTS_RANGE.min || value > LOCAL_MAX_FIX_ATTEMPTS_RANGE.max) {
+            throw httpError(400, `Tentativas de correção devem ser um número inteiro entre ${LOCAL_MAX_FIX_ATTEMPTS_RANGE.min} e ${LOCAL_MAX_FIX_ATTEMPTS_RANGE.max}.`);
+          }
+          values.local_max_fix_attempts = value;
+        }
+        if (body.localContextTokens !== undefined) {
+          const value = Number(body.localContextTokens);
+          if (!Number.isInteger(value) || value < LOCAL_CONTEXT_TOKENS_RANGE.min || value > LOCAL_CONTEXT_TOKENS_RANGE.max) {
+            throw httpError(400, `Contexto local deve ser um número inteiro entre ${LOCAL_CONTEXT_TOKENS_RANGE.min} e ${LOCAL_CONTEXT_TOKENS_RANGE.max}.`);
+          }
+          values.local_context_tokens = value;
+        }
         const db = await getDb();
         db.exec("BEGIN IMMEDIATE");
         try {
@@ -439,13 +472,20 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           for (const [key, value] of Object.entries(values)) save.run(key, value, new Date().toISOString());
           db.exec("COMMIT");
         } catch (error) { db.exec("ROLLBACK"); throw error; }
-        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir] = await Promise.all([
+        const [defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir, localMaxFixAttempts, localContextTokens] = await Promise.all([
           getSetting("default_provider", "codex"),
           getSetting("default_teacher", "codex"),
           resolveCommunityManifestUrl(process.env),
           getSetting("sandbox_dir"),
+          getSetting("local_max_fix_attempts"),
+          getSetting("local_context_tokens"),
         ]);
-        return sendJson(response, 200, { defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir: sandboxDir || "", onboardingCompleted: (await getSetting("onboarding_completed")) === "true" });
+        return sendJson(response, 200, {
+          defaultProvider, defaultTeacher, communityManifestUrl, sandboxDir: sandboxDir || "",
+          onboardingCompleted: (await getSetting("onboarding_completed")) === "true",
+          localMaxFixAttempts: localMaxFixAttempts !== null ? Number(localMaxFixAttempts) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts,
+          localContextTokens: localContextTokens !== null ? Number(localContextTokens) : LOCAL_SETTINGS_DEFAULTS.contextTokens,
+        });
       }
 
       // ---------- Local (Ollama) setup: makes the local model "just work" ----------
