@@ -36,6 +36,7 @@
       "package.json"
     ],
     "icon": "electron/icon.png",
+    "artifactName": "Harness-Aurora-Setup-${version}.${ext}",
     "asarUnpack": [
       "app/ocrWorker.mjs",
       "node_modules/**/*"
