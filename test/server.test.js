@@ -726,6 +726,31 @@ test("archiving a conversation hides it from the default list; un-archiving rest
   });
 });
 
+test("conversation search matches message content, not just the title, and skips archived", async () => {
+  await withServer(async (api) => {
+    const byTitle = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Refatoração do carrinho" }) });
+    const byContent = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Nova conversa" }) });
+    const unrelated = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Nova conversa" }) });
+    // POST .../messages persists the user message even when the provider
+    // call itself fails (no CLI configured in tests) — same pattern the
+    // "a chat turn persists the user message" test above relies on.
+    await api(`/api/conversations/${byContent.body.id}/messages`, { method: "POST", body: JSON.stringify({ message: "Como implementar um carrinho de compras em React?" }) });
+    await api(`/api/conversations/${unrelated.body.id}/messages`, { method: "POST", body: JSON.stringify({ message: "Qual a capital da França?" }) });
+
+    const results = await api("/api/conversations/search?q=carrinho");
+    assert.equal(results.status, 200);
+    const ids = results.body.conversations.map((c) => c.id).sort();
+    assert.deepEqual(ids, [byContent.body.id, byTitle.body.id].sort());
+
+    await api(`/api/conversations/${byContent.body.id}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+    const afterArchive = await api("/api/conversations/search?q=carrinho");
+    assert.deepEqual(afterArchive.body.conversations.map((c) => c.id), [byTitle.body.id]);
+
+    const empty = await api("/api/conversations/search?q=");
+    assert.deepEqual(empty.body.conversations, []);
+  });
+});
+
 test("a missing conversation returns 404 instead of creating one implicitly", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/conversations/does-not-exist/messages", {

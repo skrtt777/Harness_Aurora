@@ -34,6 +34,7 @@ import {
   getMessage,
   addMessage,
   listConversations,
+  searchConversations,
   listMemories,
   listMessages,
   listProjects,
@@ -586,6 +587,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         } catch (error) {
           return sendJson(response, 400, { error: error.message });
         }
+      }
+      if (method === "GET" && pathname === "/api/conversations/search") {
+        const q = (url.searchParams.get("q") || "").trim();
+        return sendJson(response, 200, { conversations: q ? await searchConversations(q) : [] });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)$/);
       if (match) {

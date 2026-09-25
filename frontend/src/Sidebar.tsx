@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getHealth, getProviders, listConversations, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
+import { getHealth, getProviders, listConversations, searchConversations, type Conversation, type Project, type ProviderInfo, type SavingsStats } from "./api";
 import BrandMark from "./BrandMark";
 import Icon from "./Icon";
 
@@ -199,11 +199,33 @@ export default function Sidebar({
       .catch(() => setProviders([]));
   }, []);
 
+  // Instant client-side title match while the debounced server search (which
+  // also covers message content, not just titles) is still in flight —
+  // avoids a blank list flashing on every keystroke.
+  const [contentResults, setContentResults] = useState<{ query: string; conversations: Conversation[] } | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setContentResults(null);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      searchConversations(q)
+        .then((results) => { if (!stale) setContentResults({ query: q, conversations: results }); })
+        .catch(() => {});
+    }, 300);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [query]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const trimmed = query.trim();
     const active = conversations.filter((c) => !c.archivedAt);
-    return q ? active.filter((c) => c.title.toLowerCase().includes(q)) : active;
-  }, [conversations, query]);
+    if (!trimmed) return active;
+    if (contentResults?.query === trimmed) return contentResults.conversations;
+    const q = trimmed.toLowerCase();
+    return active.filter((c) => c.title.toLowerCase().includes(q));
+  }, [conversations, query, contentResults]);
 
   const byProject = useMemo(() => {
     const map = new Map<string, Conversation[]>();

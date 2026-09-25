@@ -132,6 +132,9 @@ export const updateProject = (id: string, patch: Partial<Pick<Project, "name" | 
 export const deleteProject = (id: string) => request<{ ok: true }>(`/projects/${id}`, { method: "DELETE" });
 
 // ---------- Conversations ----------
+/** Full-text search over conversation titles and message content (active conversations only). */
+export const searchConversations = (query: string) =>
+  request<{ conversations: Conversation[] }>(`/conversations/search?q=${encodeURIComponent(query)}`).then((r) => r.conversations);
 export const listConversations = (projectId?: string, archived = false) => {
   const params = new URLSearchParams();
   if (projectId) params.set("projectId", projectId);

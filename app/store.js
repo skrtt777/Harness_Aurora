@@ -150,6 +150,26 @@ export async function listConversations({ projectId, archived = false } = {}) {
   return rows.map(mapConversation);
 }
 
+// Marco 6 (ROADMAP_MELHORIAS.md): a busca da sidebar só olha o título, então
+// uma conversa com título genérico ("Nova conversa" truncado) é praticamente
+// impossível de reencontrar por assunto. Isto varre o conteúdo das
+// mensagens também — LIKE simples (case-insensitive via COLLATE NOCASE),
+// não é busca semântica.
+export async function searchConversations(query) {
+  const db = await getDb();
+  const like = `%${query}%`;
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT c.* FROM conversations c
+       LEFT JOIN messages m ON m.conversation_id = c.id
+       WHERE c.archived_at IS NULL AND (c.title LIKE ? COLLATE NOCASE OR m.content LIKE ? COLLATE NOCASE)
+       ORDER BY c.updated_at DESC
+       LIMIT 50`,
+    )
+    .all(like, like);
+  return rows.map(mapConversation);
+}
+
 export async function getConversation(id) {
   const db = await getDb();
   return mapConversation(db.prepare("SELECT * FROM conversations WHERE id = ?").get(id));
