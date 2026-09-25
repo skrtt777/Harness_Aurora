@@ -64,7 +64,6 @@ test('skills catalogue searches, paginates and reviews an inactive import on des
       await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify(imported)});
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.locator('.sidebar-tools > summary').click();
     await page.getByRole('button',{name:/Skills e regras/}).click();
     await page.locator('.catalog-grid article').first().waitFor();
     assert.equal(await page.locator('.catalog-grid article').count(),30);
@@ -86,7 +85,7 @@ test('skills catalogue searches, paginates and reviews an inactive import on des
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 
-test('long conversations and drafts use the available screen and expand inline without losing text', { skip, timeout:30000 }, async()=>{
+test('long conversations and drafts stay in a readable column, not full-bleed, and expand inline without losing text', { skip, timeout:30000 }, async()=>{
   const c=await createConversation({title:'Layout proporcional',provider:'codex'});
   const paragraph='Este texto comprido verifica o espaço disponível para escrever e ler mensagens na conversa. '.repeat(30);
   await addMessage({conversationId:c.id,role:'user',content:paragraph});
@@ -103,9 +102,13 @@ test('long conversations and drafts use the available screen and expand inline w
       user:document.querySelector('.chat-message.user .chat-bubble-wrap').clientWidth,
       composer:document.querySelector('.chat-composer').clientWidth,
     }));
-    assert.ok(geometry.message>geometry.page*.9,JSON.stringify(geometry));
-    assert.ok(geometry.user>geometry.page*.9,JSON.stringify(geometry));
-    assert.ok(geometry.composer>geometry.page*.9,JSON.stringify(geometry));
+    // At a wide 1920px viewport, the reading column caps at 900px instead of
+    // stretching edge-to-edge — a deliberate fix (see the UI/UX audit: long
+    // AI replies were unreadable at full viewport width). Still confirms
+    // it's using a real chunk of space, not collapsed.
+    assert.ok(geometry.message>700 && geometry.message<=902 && geometry.message<geometry.page*.9,JSON.stringify(geometry));
+    assert.ok(geometry.user>200 && geometry.user<=902,JSON.stringify(geometry));
+    assert.ok(geometry.composer>700 && geometry.composer<=902 && geometry.composer<geometry.page*.9,JSON.stringify(geometry));
     const draft=Array.from({length:40},(_,i)=>`Etapa ${i+1}: ${paragraph.slice(0,150)}`).join('\n');
     const input=page.getByRole('textbox',{name:'Mensagem para Aurora'});
     await input.fill(draft);
@@ -137,7 +140,6 @@ test("Atlas retains full viewport and real memories after the chat layout change
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.locator('.sidebar-tools > summary').click();
     await page.getByRole('button', { name: /Atlas 3D/ }).click();
     await page.waitForFunction(() => document.querySelector('.result-count')?.textContent?.trim() === '1 / 1');
     for (const width of [1440, 1100, 390]) {
@@ -153,8 +155,7 @@ test("Atlas retains full viewport and real memories after the chat layout change
     await page.getByRole('button', { name: '☷ Lista', exact: true }).click();
     await page.locator('.list-row', { hasText: 'Atlas layout regression' }).waitFor();
     await page.getByRole('button', { name: '← Voltar para o chat', exact: true }).click();
-    await page.locator('.sidebar-tools > summary').click();
-    await page.getByRole('button', { name: /⚗ Teste/ }).click();
+    await page.getByRole('button', { name: 'Teste', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.result-count')?.textContent?.trim() === '1.000 / 1.000');
     assert.ok((await page.locator('.scene-wrap').boundingBox()).width > 800);
     await page.getByRole('button', { name: '⌗ Fluxograma', exact: true }).click();

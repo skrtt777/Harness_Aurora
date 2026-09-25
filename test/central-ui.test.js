@@ -23,7 +23,7 @@ test('central UI reviews exact public copies, revokes pending sends and keeps re
   const browser=await chromium.launch({executablePath:executable,headless:true});
   try {
     const page=await browser.newPage({viewport:{width:1440,height:900}});await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.locator('.sidebar-tools > summary').click();await page.getByRole('button',{name:/⌁ Memória/}).click();
+    await page.getByRole('button',{name:/Memória/}).click();
     await page.getByRole('button',{name:'Compartilhar cópia',exact:true}).click();
     await page.getByLabel('Intervalo de sincronização em horas').waitFor();assert.equal(await page.getByLabel('Intervalo de sincronização em horas').inputValue(),'6');
     assert.equal(await page.getByLabel('Receber e consultar memórias da central').isChecked(),false);
