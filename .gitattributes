@@ -1,2 +1,5 @@
 # Central bundles are content-addressed; preserve identical bytes on Windows and GitHub.
 central-memories/*.json text eol=lf
+
+# Shell script — CRLF would break the shebang/sh execution on a fresh clone.
+scripts/git-hooks/pre-push text eol=lf
