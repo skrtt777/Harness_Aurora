@@ -751,6 +751,34 @@ test("conversation search matches message content, not just the title, and skips
   });
 });
 
+test("duplicating a conversation copies its messages without touching the original", async () => {
+  await withServer(async (api) => {
+    const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "Duplicação" }) });
+    const original = await api("/api/conversations", { method: "POST", body: JSON.stringify({ title: "Original", projectId: project.body.id }) });
+    await api(`/api/conversations/${original.body.id}/messages`, { method: "POST", body: JSON.stringify({ message: "Primeira pergunta" }) });
+
+    const duplicated = await api(`/api/conversations/${original.body.id}/duplicate`, { method: "POST" });
+    assert.equal(duplicated.status, 201);
+    assert.equal(duplicated.body.title, "Original (cópia)");
+    assert.equal(duplicated.body.projectId, project.body.id);
+    assert.notEqual(duplicated.body.id, original.body.id);
+
+    const duplicatedFull = await api(`/api/conversations/${duplicated.body.id}`);
+    const originalFull = await api(`/api/conversations/${original.body.id}`);
+    assert.equal(duplicatedFull.body.messages.length, originalFull.body.messages.length);
+    assert.equal(duplicatedFull.body.messages[0].content, originalFull.body.messages[0].content);
+    assert.notEqual(duplicatedFull.body.messages[0].id, originalFull.body.messages[0].id);
+
+    // Editing the copy must never touch the original.
+    await api(`/api/conversations/${duplicated.body.id}`, { method: "PATCH", body: JSON.stringify({ title: "Editada" }) });
+    const originalAfter = await api(`/api/conversations/${original.body.id}`);
+    assert.equal(originalAfter.body.title, "Original");
+
+    const missing = await api("/api/conversations/does-not-exist/duplicate", { method: "POST" });
+    assert.equal(missing.status, 404);
+  });
+});
+
 test("a missing conversation returns 404 instead of creating one implicitly", async () => {
   await withServer(async (api) => {
     const { status, body } = await api("/api/conversations/does-not-exist/messages", {

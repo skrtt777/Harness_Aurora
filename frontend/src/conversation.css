@@ -169,6 +169,11 @@
 .conversation-tools > p { padding: 0 20px; color: #aaa5b3; font-size: 12px; }
 .conversation-tools .workflow-panel { margin: 15px; max-height: none; }
 .conversation-tools .local-setup-panel { margin: 15px; }
+.export-conversation { margin: 15px; padding: 14px; border: 1px solid #30384a; border-radius: 10px; background: #14171f; }
+.export-conversation-label { margin: 0 0 10px; font-size: 11px; color: #aaa5b3; }
+.export-conversation-actions { display: flex; gap: 8px; }
+.export-conversation-actions button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #354456; border-radius: 7px; background: #1a202d; color: #dce8fa; padding: 8px 12px; font-size: 11px; }
+.export-conversation-actions button:hover { border-color: var(--aurora-cyan); background: #232c40; }
 .review-form { margin-top: 12px; padding: 15px; background: #26232d; border: 1px solid #4a4055; border-radius: 10px; font-size: 12px; }
 .review-form textarea { display: block; width: 100%; background: #1c1b21; border: 1px solid #50455b; color: #eee4f8; border-radius: 7px; padding: 10px; margin: 8px 0; min-height: 70px; }
 .review-form small { color: #a49aaa; }

@@ -4,12 +4,64 @@ import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
+import Icon from './Icon';
+
+// Marco 6 backlog (ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
+// só memórias — útil pra compartilhar um resultado sem abrir o app. Pura
+// client-side (a conversa com mensagens já está inteira na página), mesma
+// técnica de Blob+<a download> que MemoryView.tsx já usa pra memórias.
+function slugifyTitle(title: string) {
+  return (
+    title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'conversa'
+  );
+}
+function downloadBlob(content: string, filename: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const roleLabel: Record<ChatMessage['role'], string> = { user: 'Você', assistant: 'Aurora', system: 'Sistema' };
+function conversationToMarkdown(conversation: ConversationWithMessages) {
+  const lines = [`# ${conversation.title}`, '', `Provedor: ${conversation.provider} · Exportado em ${new Date().toLocaleString('pt-BR')}`, ''];
+  for (const m of conversation.messages) {
+    lines.push(`**${roleLabel[m.role]}**${m.provider ? ` (${m.provider})` : ''} — ${new Date(m.createdAt).toLocaleString('pt-BR')}`, '', m.content, '');
+  }
+  return lines.join('\n');
+}
+function conversationToJson(conversation: ConversationWithMessages) {
+  return JSON.stringify(
+    {
+      title: conversation.title,
+      provider: conversation.provider,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      messages: conversation.messages.map((m) => ({ role: m.role, provider: m.provider, content: m.content, createdAt: m.createdAt })),
+    },
+    null,
+    2,
+  );
+}
+function exportConversation(conversation: ConversationWithMessages, format: 'md' | 'json') {
+  const slug = slugifyTitle(conversation.title);
+  if (format === 'md') downloadBlob(conversationToMarkdown(conversation), `${slug}.md`, 'text/markdown');
+  else downloadBlob(conversationToJson(conversation), `${slug}.json`, 'application/json');
+}
 
 type Props = {
   conversation: ConversationWithMessages | null; project: Project | null; loading: boolean;
   sending: boolean; pendingStage: string | null; lastMemoryCreatedCount: number;
   onSend: (message: string) => Promise<boolean>; onCancel: () => void;
   onCorrect: (messageId: string, note: string) => Promise<void>; onRenameTitle: (title: string) => void;
+  onDuplicate: () => void;
 };
 
 function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect }: {
@@ -65,7 +117,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
 }
 
 const drafts = new Map<string, string>();
-export default function ChatView({ conversation, project, loading, sending, pendingStage, onSend, onCancel, onCorrect, onRenameTitle }: Props) {
+export default function ChatView({ conversation, project, loading, sending, pendingStage, onSend, onCancel, onCorrect, onRenameTitle, onDuplicate }: Props) {
   const [draftState, setDraftState] = useState(() => new Map(drafts));
   const draftId = conversation?.id || '';
   const draft = draftState.get(draftId) || '';
@@ -169,6 +221,19 @@ export default function ChatView({ conversation, project, loading, sending, pend
     {panel === 'files' && <div className="artifact-panel-wrap">{fileError && <p role="alert" className="artifact-error">{fileError}<button onClick={() => setFileRetry(x => x + 1)}>Tentar novamente</button></p>}<ArtifactPanel conversationId={conversation.id} artifacts={artifacts} selectedId={selectedId} onSelect={setSelectedId} onClose={closePanel} /></div>}
     {panel === 'tools' && <aside className="conversation-tools" aria-label="Ajustes da conversa"><header className="artifact-heading"><strong>Ajustes da conversa</strong><button className="quiet-button" onClick={closePanel} aria-label="Fechar ajustes">✕</button></header>
       <p>Modelo atual: <span className="provider-name">{provider}</span></p><LocalSetupPanel active={conversation.provider === 'local'} />
+      <div className="export-conversation">
+        <p className="export-conversation-label">Exportar esta conversa</p>
+        <div className="export-conversation-actions">
+          <button onClick={() => exportConversation(conversation, 'md')}><Icon name="download" size={13} /> Markdown</button>
+          <button onClick={() => exportConversation(conversation, 'json')}><Icon name="download" size={13} /> JSON</button>
+        </div>
+      </div>
+      <div className="export-conversation">
+        <p className="export-conversation-label">Recomeçar do zero, mantendo esta conversa como referência</p>
+        <div className="export-conversation-actions">
+          <button onClick={onDuplicate}><Icon name="copy" size={13} /> Duplicar conversa</button>
+        </div>
+      </div>
       {conversation.provider === 'local' && <WorkflowPanel key={conversation.id} conversationId={conversation.id} />}
     </aside>}
   </div>;

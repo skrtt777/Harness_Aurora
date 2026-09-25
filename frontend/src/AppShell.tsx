@@ -18,6 +18,7 @@ import {
   createConversation,
   createProject,
   deleteConversation as apiDeleteConversation,
+  duplicateConversation as apiDuplicateConversation,
   deleteProject as apiDeleteProject,
   getConversation,
   getMemoryStats,
@@ -202,6 +203,13 @@ export default function AppShell() {
     },
     [],
   );
+
+  const handleDuplicateConversation = useCallback(async (id: string) => {
+    const duplicated = await apiDuplicateConversation(id);
+    setConversations((items) => [duplicated, ...items]);
+    setActiveConversationId(duplicated.id);
+    setView("chat");
+  }, []);
 
   const handleArchiveConversation = useCallback(
     async (id: string, archived: boolean) => {
@@ -400,6 +408,7 @@ export default function AppShell() {
             onCancel={handleCancel}
             onCorrect={handleCorrect}
             onRenameTitle={(title) => { if (activeConversationId) void handleRenameConversation(activeConversationId, title).catch(e => setOperationError(e.message)); }}
+            onDuplicate={() => { if (activeConversationId) void handleDuplicateConversation(activeConversationId).catch(e => setOperationError(e.message)); }}
           />
         )}
         {view === "memory" && (

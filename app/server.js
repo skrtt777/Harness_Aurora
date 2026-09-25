@@ -35,6 +35,7 @@ import {
   addMessage,
   listConversations,
   searchConversations,
+  duplicateConversation,
   listMemories,
   listMessages,
   listProjects,
@@ -635,6 +636,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (match && method === "POST") {
         const [, id] = match;
         return sendJson(response, 200, { cancelled: cancelTurn(id) });
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/duplicate$/);
+      if (match && method === "POST") {
+        const [, id] = match;
+        const duplicated = await duplicateConversation(id);
+        return duplicated ? sendJson(response, 201, duplicated) : sendJson(response, 404, { error: "Conversa não encontrada." });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/correct$/);
       if (match && method === "POST") {

@@ -230,6 +230,37 @@ export async function touchConversation(id) {
   db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now(), id);
 }
 
+// Backlog item (ROADMAP_MELHORIAS.md): "tentar de novo do zero" mantendo o
+// histórico anterior intacto como referência — copia a conversa inteira
+// (mensagens incluídas) para uma nova, sem tocar na original. Timestamps
+// das mensagens são preservados (é uma cópia do histórico, não turnos
+// novos); memory_access/memory_created/memory_status voltam ao estado
+// inicial porque a duplicata não passou de fato pela extração de memória —
+// só a conversa original passou. correction_of é remapeado para o id da
+// mensagem duplicada correspondente, nunca para o id original.
+export async function duplicateConversation(id) {
+  const db = await getDb();
+  const original = db.prepare("SELECT * FROM conversations WHERE id = ?").get(id);
+  if (!original) return null;
+  const messages = db.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC").all(id);
+  const newId = randomUUID();
+  const ts = now();
+  db.prepare(
+    "INSERT INTO conversations (id, project_id, title, provider, teacher_provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(newId, original.project_id, `${original.title} (cópia)`, original.provider, original.teacher_provider, ts, ts);
+  const idMap = new Map();
+  const insert = db.prepare(
+    `INSERT INTO messages (id, conversation_id, role, content, provider, memory_access, memory_created, created_at, memory_status, correction_of, execution)
+     VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, 'none', ?, ?)`,
+  );
+  for (const m of messages) {
+    const newMessageId = randomUUID();
+    insert.run(newMessageId, newId, m.role, m.content, m.provider, m.created_at, m.correction_of ? idMap.get(m.correction_of) || null : null, m.execution);
+    idMap.set(m.id, newMessageId);
+  }
+  return getConversation(newId);
+}
+
 export async function deleteConversation(id) {
   const db = await getDb();
   const info = db.prepare("DELETE FROM conversations WHERE id = ?").run(id);

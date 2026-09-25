@@ -152,6 +152,7 @@ export const getConversation = (id: string) => request<ConversationWithMessages>
 export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null; archived?: boolean }) =>
   request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteConversation = (id: string) => request<{ ok: true }>(`/conversations/${id}`, { method: "DELETE" });
+export const duplicateConversation = (id: string) => request<Conversation>(`/conversations/${id}/duplicate`, { method: "POST" });
 export const sendMessage = (conversationId: string, message: string, contextLimit?: number) =>
   request<ChatTurnResult>(`/conversations/${conversationId}/messages`, {
     method: "POST",
