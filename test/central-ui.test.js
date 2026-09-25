@@ -40,7 +40,12 @@ test('central UI reviews exact public copies, revokes pending sends and keeps re
     await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.equal((await centralStatus()).config.shareEnabled,false);
     await page.setViewportSize({width:1440,height:900});await page.getByRole('button',{name:/Atlas 3D/}).click();
-    await page.getByRole('button',{name:/Central compartilhada/}).waitFor();
+    // Scoped to the rail (not getByRole/name, which also matches the 3D
+    // scene's floating .cluster-label showing the same text+count) — both
+    // are real, simultaneously-visible elements once Atlas 3D's lazily
+    // loaded chunk finishes mounting, so a name-only query is ambiguous by
+    // design, not flaky.
+    await page.locator('button.rail-link', { hasText: 'Central compartilhada' }).waitFor();
     await page.getByRole('button',{name:'☷ Lista',exact:true}).click();await page.getByLabel('Filtrar escopo').selectOption('central');
     await page.waitForFunction(()=>document.querySelectorAll('.list-row').length===16);assert.equal(await page.locator('.list-row').filter({hasText:'Conhecimento pessoal para revisar'}).count(),0);
   } finally {await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}

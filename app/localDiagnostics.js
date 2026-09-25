@@ -31,12 +31,19 @@ export function repairContext(source, diagnostics) {
   const selected=[...targets].map(i=>scripts[i]?.[0]).filter(Boolean);
   return selected.length?selected.join('\n\n'):source;
 }
-export function applyLocalEdits(original, response) {
-  let value;try{value=JSON.parse(String(response).trim().replace(/^```(?:json)?\s*\n/,'').replace(/\n```\s*$/,''));}catch{return {ok:false,reason:'invalid_edit_json'};}
-  if(!Array.isArray(value.edits)||value.edits.length<1||value.edits.length>3)return {ok:false,reason:'invalid_edit_count'};
+/**
+ * Same exact-literal-substring edit contract as applyLocalEdits, but takes
+ * an already-parsed edits array — shared by refineLocalAnswer's local
+ * self-correction (via applyLocalEdits below, response is a raw JSON
+ * string) and correction.js's teacher correction (response is parsed once
+ * alongside the answer/memories/template fields, so re-stringifying just
+ * to re-parse here would be silly).
+ */
+export function applyEdits(original, edits) {
+  if(!Array.isArray(edits)||edits.length<1||edits.length>3)return {ok:false,reason:'invalid_edit_count'};
   // Resolve all targets against the original; overlapping edits are rejected.
   const patches=[];
-  for(const e of value.edits){if(typeof e.before!=='string'||typeof e.after!=='string'||!e.before.trim()||e.before.length>6000||e.after.length>6000||e.before===e.after)return {ok:false,reason:'invalid_edit'};const start=original.indexOf(e.before);if(start<0||original.indexOf(e.before,start+1)!==-1)return {ok:false,reason:'ambiguous_or_missing_target'};patches.push({start,end:start+e.before.length,after:e.after});}
+  for(const e of edits){if(typeof e.before!=='string'||typeof e.after!=='string'||!e.before.trim()||e.before.length>6000||e.after.length>6000||e.before===e.after)return {ok:false,reason:'invalid_edit'};const start=original.indexOf(e.before);if(start<0||original.indexOf(e.before,start+1)!==-1)return {ok:false,reason:'ambiguous_or_missing_target'};patches.push({start,end:start+e.before.length,after:e.after});}
   patches.sort((a,b)=>a.start-b.start);
   if(patches.some((p,i)=>i>0&&p.start<patches[i-1].end))return {ok:false,reason:'overlapping_edits'};
   let text=original;for(const p of patches.reverse())text=text.slice(0,p.start)+p.after+text.slice(p.end);
@@ -45,4 +52,8 @@ export function applyLocalEdits(original, response) {
   if(ids(original).some(id=>!nextIds.has(id)))return {ok:false,reason:'removed_dom_interface'};
   if(/<html[\s>]/i.test(original)&&(!/<html[\s>]/i.test(text)||!/<\/html>/i.test(text)))return {ok:false,reason:'incomplete_document'};
   return {ok:true,text};
+}
+export function applyLocalEdits(original, response) {
+  let value;try{value=JSON.parse(String(response).trim().replace(/^```(?:json)?\s*\n/,'').replace(/\n```\s*$/,''));}catch{return {ok:false,reason:'invalid_edit_json'};}
+  return applyEdits(original,value.edits);
 }

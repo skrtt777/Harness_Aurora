@@ -222,6 +222,39 @@ test("correction response parser tolerates malformed output instead of throwing"
   assert.deepEqual(parseCorrectionResponse("não é json"), { answer: "", memories: [], template: null });
 });
 
+test("correction prompt asks for edits (not a full rewrite) when the wrong answer is a complete HTML document", () => {
+  const html = "<html><body><button id=\"inc\">Somar</button></body></html>";
+  const prompt = buildCorrectionPrompt("Crie um contador", html, null);
+  assert.match(prompt, /"edits"/);
+  assert.doesNotMatch(prompt, /"answer": "resposta corrigida/);
+  assert.match(prompt, /reescreva o documento inteiro/);
+});
+
+test("correction prompt still asks for a full rewrite on a plain-text wrong answer (nothing to patch)", () => {
+  const prompt = buildCorrectionPrompt("Como somo dois números?", "print(1, 2)", null);
+  assert.match(prompt, /"answer": "resposta corrigida/);
+  assert.doesNotMatch(prompt, /"edits"/);
+});
+
+test("correction response parser applies edits against the wrong answer instead of requiring a full rewrite", () => {
+  const wrongAnswer = "<html><body><button id=\"inc\">Somar</button><p id=\"total\">0</p></body></html>";
+  const raw = JSON.stringify({
+    edits: [{ before: "<p id=\"total\">0</p>", after: "<p id=\"total\">1</p>" }],
+    memories: [{ title: "Contador", content: "Atualize o texto do elemento ao clicar.", tags: ["contador"] }],
+    template: null,
+  });
+  const parsed = parseCorrectionResponse(raw, wrongAnswer);
+  assert.equal(parsed.answer, "<html><body><button id=\"inc\">Somar</button><p id=\"total\">1</p></body></html>");
+  assert.equal(parsed.memories[0].title, "Contador");
+});
+
+test("correction response parser rejects edits whose target can't be resolved, instead of guessing", () => {
+  const wrongAnswer = "<html><body><p id=\"total\">0</p></body></html>";
+  const raw = JSON.stringify({ edits: [{ before: "texto que não existe na resposta", after: "x" }], memories: [], template: null });
+  const parsed = parseCorrectionResponse(raw, wrongAnswer);
+  assert.equal(parsed.answer, "");
+});
+
 test("checkJsModuleSyntax flags a real syntax error in the generated code", async () => {
   const html = "```html\n<script type=\"module\">\nconst x = (1, 2;\n</script>\n```";
   const result = await checkJsModuleSyntax(html);

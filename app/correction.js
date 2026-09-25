@@ -1,15 +1,33 @@
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
+import { applyEdits } from "./localDiagnostics.js";
 
 const DEFAULT_CORRECTION_TIMEOUT_MS = 60_000;
 
+// A full HTML document is the case worth patching instead of rewriting — the
+// same threshold refineLocalAnswer() already uses for its own local-only
+// retry loop (see app/localRefine.js). A plain-text/conversational wrong
+// answer has no artifact to diff against, so it stays full-rewrite: there's
+// nothing to save there, and forcing edits onto prose would be brittle for
+// no benefit.
+function isPatchableArtifact(wrongAnswer) {
+  return /<html[\s>]/i.test(wrongAnswer || "");
+}
+
 export function buildCorrectionPrompt(question, wrongAnswer, note) {
+  const patchable = isPatchableArtifact(wrongAnswer);
+  const answerField = patchable
+    ? '"edits": [{"before": "trecho literal único e exato da resposta errada", "after": "trecho corrigido"}]'
+    : '"answer": "resposta corrigida e completa para o usuário"';
   return [
     "Um modelo de IA local e pequeno respondeu errado ou incompleto a uma pergunta.",
     "Você é o professor: corrija a resposta para o usuário e, principalmente, ensine o modelo pequeno a acertar perguntas parecidas no futuro.",
     "",
     "Responda SOMENTE com um objeto JSON válido, sem markdown e sem texto fora do objeto, no formato:",
-    '{"answer": "resposta corrigida e completa para o usuário", "memories": [{"title": "título curto", "content": "regra ou fato objetivo (uma frase) que ajudaria um modelo pequeno a acertar perguntas parecidas", "tags": ["1 a 3 palavras-chave em minúsculas"]}], "template": {"title": "título curto", "content": "esqueleto de código reutilizável", "tags": ["1 a 3 palavras-chave"]} ou null}',
+    `{${answerField}, "memories": [{"title": "título curto", "content": "regra ou fato objetivo (uma frase) que ajudaria um modelo pequeno a acertar perguntas parecidas", "tags": ["1 a 3 palavras-chave em minúsculas"]}], "template": {"title": "título curto", "content": "esqueleto de código reutilizável", "tags": ["1 a 3 palavras-chave"]} ou null}`,
+    patchable
+      ? 'A resposta errada é um documento HTML completo — NÃO reescreva o documento inteiro. Em "edits", no máximo 3 edições, cada "before" um trecho literal único (copie exatamente, incluindo espaços) que existe na resposta errada, e "after" só o trecho corrigido. Preserve tudo fora dos trechos editados, incluindo todos os atributos id existentes.'
+      : "",
     'No máximo 3 itens em "memories". Cada memória deve ser uma regra ou fato reutilizável — não um resumo desta troca.',
     '"template" é OPCIONAL: inclua só quando a tarefa envolve gerar um artefato de código estruturado (ex: um jogo, uma página) e vale a pena guardar um ESQUELETO/BOILERPLATE correto e reutilizável (setup de cena/câmera/loop de animação, sem a mecânica específica deste pedido) para o modelo pequeno adaptar da próxima vez em vez de reescrever tudo do zero. Se não fizer sentido, responda "template": null.',
     "",
@@ -21,11 +39,21 @@ export function buildCorrectionPrompt(question, wrongAnswer, note) {
     .join("\n");
 }
 
-export function parseCorrectionResponse(text) {
+/**
+ * `wrongAnswer` is required to resolve `edits` against when the teacher used
+ * the patch protocol — undefined/omitted (e.g. existing callers/tests that
+ * only care about memories) just means an edits-based response can't be
+ * applied, same as any other malformed response.
+ */
+export function parseCorrectionResponse(text, wrongAnswer) {
   const match = String(text || "").match(/\{[\s\S]*\}/);
   try {
     const parsed = JSON.parse(match ? match[0] : text);
-    const answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
+    let answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
+    if (!answer && Array.isArray(parsed?.edits) && wrongAnswer) {
+      const applied = applyEdits(wrongAnswer, parsed.edits);
+      if (applied.ok) answer = applied.text;
+    }
     const memories = Array.isArray(parsed.memories)
       ? parsed.memories
           .filter((m) => m && typeof m.content === "string" && m.content.trim())
@@ -64,7 +92,7 @@ export async function correctLocalAnswer({ question, wrongAnswer, note, teacherP
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,
   }, signal);
   if (!result.ok) return { ok: false, error: result.error };
-  const parsed = parseCorrectionResponse(result.text);
+  const parsed = parseCorrectionResponse(result.text, wrongAnswer);
   if (!parsed.answer) return { ok: false, error: "O professor retornou uma correção vazia ou inválida." };
   return { ok: true, ...parsed };
 }
