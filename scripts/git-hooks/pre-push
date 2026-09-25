@@ -1,0 +1,24 @@
+#!/bin/sh
+# Installed by `npm run prepare` (scripts/install-git-hooks.mjs), which runs
+# automatically after `npm install`. GitHub Actions is blocked on this
+# project's account (billing issue, ticket open, unresolved) — no CI runs on
+# push right now, so this is the only thing standing between a broken commit
+# and the remote until that's sorted out. Skip once with `git push --no-verify`
+# when you really need to (e.g. pushing a WIP branch), but treat that as the
+# exception, not the habit.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] node --check app/server.js"
+npm run check --silent
+
+echo "[pre-push] build do frontend (tsc + vite)"
+npm run frontend:build --silent
+
+echo "[pre-push] suite do backend (node --test)"
+npm test --silent
+
+echo "[pre-push] suite da memoria visual"
+npm run test:memory --silent
+
+echo "[pre-push] tudo passou."

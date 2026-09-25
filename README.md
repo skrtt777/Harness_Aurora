@@ -110,6 +110,8 @@ npm run frontend:build
 
 Na interface, valide: criação e reabertura de conversas, pesquisa/filtros, envio de mensagem real (com Codex autenticado) e memória extraída aparecendo na aba Memória.
 
+Essas quatro checagens rodam sozinhas antes de qualquer `git push` (hook instalado por `npm install` via `scripts/install-git-hooks.mjs` — ver `scripts/git-hooks/pre-push`). Isso existe porque o GitHub Actions deste projeto está bloqueado por cobrança na conta, então não há CI rodando no push; pule uma vez com `git push --no-verify` só quando for mesmo necessário.
+
 ## Atlas 3D (beta) — só memória real, sem dados sintéticos
 
 O Atlas 3D é uma aba separada (não é mais a tela inicial). Ele mostra **só a memória real do backend** (mesmos dados da aba Memória) — se ainda não houver memória nenhuma, mostra um aviso pra você conversar no chat primeiro, sem cair pra dados fabricados. Use "↻ Sincronizar memória real" na barra lateral pra recarregar sob demanda. As relações entre memórias reais vêm da extração automática do backend (`app/memoryExtractor.js`, tabela `memory_relations`) — só a posição no espaço continua sendo fabricada, já que não existe posição 3D persistida. Um terceiro modo, "⌗ Fluxograma", mostra o mesmo grafo em 2D (layout hierárquico via `dagre`) como alternativa mais simples à cena 3D.
