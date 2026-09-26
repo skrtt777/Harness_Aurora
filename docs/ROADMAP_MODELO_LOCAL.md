@@ -211,18 +211,20 @@ mudar o dataset, então ainda não sabemos se a receita é o problema.
       (3/6), mas a recuperação não é determinística por tarefa (`faq`
       recuperou na rodada 1, não na 2; `stock`/`tasks` resistem nas duas).
       Detalhe completo em `docs/PROACTIVE_DISTILLATION_ROUND2_2026-09-26.md`.
-- [x] **B.2** — Decidido **não importar automaticamente** para o banco real
-      ainda. Motivo: o banco real do app instalado não é
-      `app/data/harness.db` deste repositório (esse arquivo não existe
-      neste ambiente) — é resolvido pelo processo principal do Electron
-      para o diretório de dados do usuário, que pode estar em uso pelo app
-      real agora. Escrever direto num SQLite potencialmente aberto por
-      outro processo é um risco real de corrupção, diferente de tudo mais
-      feito nesta campanha (sempre em bancos de benchmark descartáveis).
-      Deixada uma lista curada de 10 memórias de boa qualidade (deduplicada
-      das duas rodadas) em `docs/PROACTIVE_DISTILLATION_ROUND2_2026-09-26.md`
-      para importação manual pelo usuário, ou por mim com o caminho real do
-      `harness.db` e o app fechado.
+- [x] **B.2** — **Importado.** Localizado o banco real em
+      `C:\Users\lucas\AppData\Roaming\Harness Aurora\harness.db` (Electron
+      resolve o `userData` pelo `productName`, "Harness Aurora" —
+      não é o `app/data/harness.db` deste repositório, que nem existe neste
+      ambiente). Confirmado WAL + `busy_timeout` em `app/db.js`, seguro para
+      escrita concorrente com o app aberto. Com confirmação explícita do
+      usuário (a ação foi bloqueada uma vez pelo classificador de
+      permissões do Claude Code por tocar em "recurso compartilhado", e só
+      prosseguiu depois do "pode seguir com a importação"), as 10 memórias
+      curadas de `docs/PROACTIVE_DISTILLATION_ROUND2_2026-09-26.md` foram
+      importadas como memórias globais via `scripts/benchmark/import-distilled-memories.mjs`
+      (reusa `createMemory()` de `app/store.js`, a mesma função da API
+      real). Confirmado: 10/10 salvas, app continuou respondendo
+      normalmente depois.
 - [x] **B.3** — Novo candidato de KERNEL.md testado nos dois extremos
       (`llama3.2:3b` e `qwen3.5:4b`), diferente do candidato revertido:
       em vez de reforçar "confira casos de borda" (que causou a regressão
@@ -240,11 +242,10 @@ mudar o dataset, então ainda não sabemos se a receita é o problema.
       genérica. `KERNEL.md` permanece sem alteração. Detalhe completo em
       `docs/KERNEL_AB_SELECT_2026-09-26.md`.
 
-**Fase B concluída** (B.1, B.2 e B.3 todos resolvidos, mesmo que B.2 tenha
-ficado como uma pendência explícita do usuário — ver acima). Único item em
-aberto no roadmap agora é a Fase C, que não deve começar sozinha (exige
-escopo técnico ainda não definido: scripts de treino compatíveis com MoE e
-estratégia de hardware).
+**Fase B concluída** (B.1, B.2 e B.3 todos resolvidos — B.2 inclusive já
+importado no banco real). Único item em aberto no roadmap agora é a Fase C,
+que não deve começar sozinha (exige escopo técnico ainda não definido:
+scripts de treino compatíveis com MoE e estratégia de hardware).
 - [ ] **C** — Revisitar a decisão sobre o Qwen3-Coder 30B, só depois de a
       Fase B avançar, com escopo técnico definido (scripts MoE, hardware).
 
