@@ -128,24 +128,31 @@ testadas isoladamente:
   destilação: recuperação de 50% das falhas) — são os dois únicos
   mecanismos desta sessão com evidência positiva concreta até agora.
 
-## 4. Como deve ficar (objetivo final)
+## 4. Como ficou (decisão tomada em 26/09)
 
-Um destes dois desfechos, decidido com evidência, não por desistência nem
-por otimismo:
+Havia dois desfechos possíveis, a decidir com evidência, não por desistência
+nem por otimismo. **Decisão tomada: desfecho (B).**
 
-- **(A)** Um modelo local com fine-tuning que bate a base sem treino e o
-  controle de conversão num teste blind novo, de forma consistente — só
-  então é promovido a padrão; **ou**
-- **(B)** Uma conclusão documentada e definitiva de que fine-tuning LoRA
-  neste modelo de 1.5B não compensa o esforço frente a prompt de
-  sistema + memória/destilação, e o investimento futuro vai todo para esses
-  dois mecanismos (que já têm ganho comprovado), deixando fine-tuning
-  arquivado até haver uma mudança maior disponível (outro modelo base, mais
-  hardware, ou infraestrutura de treino nova).
+- (A) — descartado. Um modelo local com fine-tuning que bata a base sem
+  treino e o controle de conversão de forma consistente. Quatro rodadas
+  (v1 rank16/3 épocas/200 ex.; v2 rank8/2 épocas/256 ex.; v3 mesma
+  receita/288 ex.; rank16 sobre o dataset da v3) tentaram isso e nenhuma
+  chegou perto — a v3 (mais dados) e o rank16 (mais capacidade) pioraram em
+  vez de melhorar, com a mesma assinatura de overfitting (perda de
+  treino cai, tarefa real piora) se repetindo em receitas diferentes.
+- **(B) — adotado.** Fine-tuning LoRA neste modelo de 1.5B, com a
+  infraestrutura e o dataset atuais, **não compensa o esforço** frente a
+  prompt de sistema + memória/destilação, que já têm ganho real
+  comprovado nesta sessão. **Fine-tuning fica arquivado por ora** — não
+  descartado para sempre, só fora do investimento ativo até que uma
+  mudança maior esteja disponível (outro modelo base, mais hardware, ou
+  uma reformulação da receita de treino que não seja só mexer em
+  rank/lr/épocas/dataset, que já foram as quatro variáveis tentadas).
+  Todo o investimento ativo agora vai para a Fase B (destilação + KERNEL).
 
-O caminho do Qwen3-Coder 30B só volta a ser considerado depois de (A) ou (B)
-estarem resolvidos — não faz sentido escalar pra um modelo 20x maior antes
-de entender por que o pequeno não melhora com o método atual.
+O caminho do Qwen3-Coder 30B permanece fora de escopo enquanto a Fase B não
+avançar — não faz sentido escalar pra um modelo 20x maior tendo abandonado
+o ajuste fino no pequeno por falta de resultado, não por falta de tentativa.
 
 ## 5. Roadmap adiante, por fase
 
@@ -190,27 +197,43 @@ mudar o dataset, então ainda não sabemos se a receita é o problema.
         época bateu o controle.** Capacidade do adaptador está descartada
         como causa isolada, assim como tamanho do dataset já tinha sido
         descartado pela v3.
-- [ ] **A.2** — Se A.1 não ajudar: variar taxa de aprendizado e/ou número de
-      épocas, mesmo dataset. **Status:** A.1 não ajudou (ver acima). Duas
-      famílias de receita já tentadas sobre o mesmo dataset (rank 8 e rank
-      16) sem superar o controle, e as duas mostram o mesmo padrão: mais
-      treino = perda cai, tarefa real piora. Isso já é evidência de
-      overfitting estrutural, não de uma variável de receita isolada
-      faltando ajustar — variar lr/épocas tende a repetir o mesmo padrão.
-      Recomendação: pular A.2 e ir direto para A.3 (concluir desfecho B),
-      salvo decisão do usuário em contrário.
-- [ ] **A.3** — Aplicar o critério de parada: se nada em A.1/A.2 superar o
-      controle, escrever a conclusão definitiva (desfecho B da seção 4) e
-      arquivar fine-tuning LoRA por ora.
+- [x] **A.2** — Pulado, por decisão explícita do usuário em 26/09. A.1 já
+      mostrou o mesmo padrão de overfitting em duas receitas diferentes
+      (rank 8 e rank 16); variar lr/épocas tenderia a repetir o resultado,
+      e o custo (GPU, tempo) não se justificava mais.
+- [x] **A.3** — **Desfecho B confirmado e fechado em 26/09.** Ver seção 4.
+      Fine-tuning LoRA arquivado por ora. Nenhum novo experimento de
+      fine-tuning deve começar sem antes reabrir esta decisão
+      explicitamente com o usuário, citando o que mudou desde então
+      (modelo base, hardware ou infraestrutura de treino).
 - [ ] **B.1** — Segunda rodada de destilação proativa (validar
-      repetibilidade do efeito de 50% de recuperação).
+      repetibilidade do efeito de 50% de recuperação). **Próximo item
+      ativo.**
 - [ ] **B.2** — Decidir e, se aprovado, executar a importação de memórias
       destiladas para o banco real do usuário.
 - [ ] **B.3** — Próximo candidato de KERNEL.md, testado obrigatoriamente nos
       dois extremos antes de qualquer adoção.
-- [ ] **C** — Revisitar a decisão sobre o Qwen3-Coder 30B, só depois de A e
-      B, com escopo técnico definido (scripts MoE, hardware).
+- [ ] **C** — Revisitar a decisão sobre o Qwen3-Coder 30B, só depois de a
+      Fase B avançar, com escopo técnico definido (scripts MoE, hardware).
 
 Vamos seguir esta lista nesta ordem. Cada item, ao ser concluído, ganha um
 doc próprio (como já é costume neste projeto) e este arquivo é atualizado
 marcando o item como feito, com um resumo de uma linha do resultado.
+
+## 7. Encerramento do ciclo de fine-tuning LoRA (resumo executivo)
+
+Quatro rodadas, quatro receitas diferentes, mesma conclusão: o modelo base
+de 1.5B, com o dataset e a infraestrutura de treino atuais, não melhora com
+LoRA — em três das quatro rodadas o resultado ficou **pior** que não treinar
+nada. Nem mais dados (v3) nem mais capacidade de adaptador (rank16)
+resolveram; ambos pioraram, com sinal claro de overfitting. Não há mais
+combinação óbvia de rank/lr/épocas/dataset a tentar que não repita esse
+padrão — por isso a decisão de arquivar, não de continuar tentando
+variações da mesma receita indefinidamente.
+
+O trabalho realizado (dataset verificado por navegador, scripts de treino,
+avaliação com controle de conversão e teste blind, harness de seleção de
+checkpoint) fica preservado e reutilizável — se um dia houver motivo real
+para retomar (outro modelo base, mais VRAM, ou uma técnica diferente de
+adaptação, não só outro valor de hiperparâmetro), o ponto de partida técnico
+já existe e não precisa ser reconstruído do zero.
