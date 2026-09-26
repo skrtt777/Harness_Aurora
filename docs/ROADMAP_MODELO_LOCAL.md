@@ -206,13 +206,45 @@ mudar o dataset, então ainda não sabemos se a receita é o problema.
       fine-tuning deve começar sem antes reabrir esta decisão
       explicitamente com o usuário, citando o que mudou desde então
       (modelo base, hardware ou infraestrutura de treino).
-- [ ] **B.1** — Segunda rodada de destilação proativa (validar
-      repetibilidade do efeito de 50% de recuperação). **Próximo item
-      ativo.**
-- [ ] **B.2** — Decidir e, se aprovado, executar a importação de memórias
-      destiladas para o banco real do usuário.
-- [ ] **B.3** — Próximo candidato de KERNEL.md, testado obrigatoriamente nos
-      dois extremos antes de qualquer adoção.
+- [x] **B.1** — Segunda rodada de destilação proativa, 26/09. **O efeito
+      agregado se repetiu**: 3/6 recuperadas com memória, igual à rodada 1
+      (3/6), mas a recuperação não é determinística por tarefa (`faq`
+      recuperou na rodada 1, não na 2; `stock`/`tasks` resistem nas duas).
+      Detalhe completo em `docs/PROACTIVE_DISTILLATION_ROUND2_2026-09-26.md`.
+- [x] **B.2** — Decidido **não importar automaticamente** para o banco real
+      ainda. Motivo: o banco real do app instalado não é
+      `app/data/harness.db` deste repositório (esse arquivo não existe
+      neste ambiente) — é resolvido pelo processo principal do Electron
+      para o diretório de dados do usuário, que pode estar em uso pelo app
+      real agora. Escrever direto num SQLite potencialmente aberto por
+      outro processo é um risco real de corrupção, diferente de tudo mais
+      feito nesta campanha (sempre em bancos de benchmark descartáveis).
+      Deixada uma lista curada de 10 memórias de boa qualidade (deduplicada
+      das duas rodadas) em `docs/PROACTIVE_DISTILLATION_ROUND2_2026-09-26.md`
+      para importação manual pelo usuário, ou por mim com o caminho real do
+      `harness.db` e o app fechado.
+- [x] **B.3** — Novo candidato de KERNEL.md testado nos dois extremos
+      (`llama3.2:3b` e `qwen3.5:4b`), diferente do candidato revertido:
+      em vez de reforçar "confira casos de borda" (que causou a regressão
+      revertida), instrui de forma mecânica que um `<select>` com estado
+      inicial declarado precisa do atributo `selected` explícito — mesma
+      lição do item 8 da lista curada de B.2, chegando pelo caminho
+      independente da destilação. **Não adotado**: o total empatou nos dois
+      modelos (2/24 e 13/24, sem mudança), mas por tarefa isso escondia uma
+      troca — ganho real em `board` (0/2→2/2) e regressão parcial em
+      `weighted` (2/2→1/2) no modelo padrão, que se cancelavam no agregado.
+      `weighted` já tinha regredido com o candidato genérico revertido;
+      agora regride de novo, mais fraco, com um candidato bem mais
+      específico — indício de que essa tarefa é sensível a qualquer menção
+      de seleção/estado inicial no prompt de sistema, não só à formulação
+      genérica. `KERNEL.md` permanece sem alteração. Detalhe completo em
+      `docs/KERNEL_AB_SELECT_2026-09-26.md`.
+
+**Fase B concluída** (B.1, B.2 e B.3 todos resolvidos, mesmo que B.2 tenha
+ficado como uma pendência explícita do usuário — ver acima). Único item em
+aberto no roadmap agora é a Fase C, que não deve começar sozinha (exige
+escopo técnico ainda não definido: scripts de treino compatíveis com MoE e
+estratégia de hardware).
 - [ ] **C** — Revisitar a decisão sobre o Qwen3-Coder 30B, só depois de a
       Fase B avançar, com escopo técnico definido (scripts MoE, hardware).
 
