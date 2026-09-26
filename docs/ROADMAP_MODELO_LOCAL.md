@@ -175,11 +175,30 @@ mudar o dataset, então ainda não sabemos se a receita é o problema.
 
 ## 6. Lista de tarefas (nesta ordem)
 
-- [ ] **A.1** — Treinar uma variação de rank (ex.: rank 16, alpha 32) sobre
-      o dataset-v3 já existente, mesma taxa/épocas da v2/v3. Avaliar no
-      conjunto de desenvolvimento (24 tarefas já observadas).
+- [x] **A.1** — Treinada a variação de rank (rank 16, alpha 32, dobrado vs.
+      o rank 8 da v2/v3) sobre o MESMO dataset-v3, mesma taxa/épocas.
+      Resultado no dev set (24 tarefas já observadas), comparado ao
+      controle não treinado (3/24, retenção 4/4) e à v3-e1 (4/24, retenção
+      2/4):
+      - rank16-e1: **3/24, retenção 3/4** — empatou com o controle, não
+        superou.
+      - rank16-e2: **1/24, retenção 3/4** — piorou com mais treino.
+      - A perda de desenvolvimento caiu mais que na v3 (0,84→0,50 vs.
+        0,84→0,62), mas o desempenho real caiu junto — mesma assinatura de
+        overfitting já vista na v1 (rank 16, perda quase zero, pior
+        resultado). **Dobrar a capacidade do LoRA não resolveu; nenhuma
+        época bateu o controle.** Capacidade do adaptador está descartada
+        como causa isolada, assim como tamanho do dataset já tinha sido
+        descartado pela v3.
 - [ ] **A.2** — Se A.1 não ajudar: variar taxa de aprendizado e/ou número de
-      épocas, mesmo dataset.
+      épocas, mesmo dataset. **Status:** A.1 não ajudou (ver acima). Duas
+      famílias de receita já tentadas sobre o mesmo dataset (rank 8 e rank
+      16) sem superar o controle, e as duas mostram o mesmo padrão: mais
+      treino = perda cai, tarefa real piora. Isso já é evidência de
+      overfitting estrutural, não de uma variável de receita isolada
+      faltando ajustar — variar lr/épocas tende a repetir o mesmo padrão.
+      Recomendação: pular A.2 e ir direto para A.3 (concluir desfecho B),
+      salvo decisão do usuário em contrário.
 - [ ] **A.3** — Aplicar o critério de parada: se nada em A.1/A.2 superar o
       controle, escrever a conclusão definitiva (desfecho B da seção 4) e
       arquivar fine-tuning LoRA por ora.
