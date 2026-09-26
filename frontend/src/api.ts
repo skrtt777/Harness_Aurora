@@ -300,46 +300,9 @@ export function watchLocalSetup(onEvent: (event: LocalSetupEvent) => void): () =
   return () => controller.abort();
 }
 
-// ---------- Browser agent (controle de navegador via OCR + modelo local) ----------
-export type BrowserAgentStep = {
-  stage:
-    | "preparing-browser"
-    | "downloading-browser"
-    | "observing"
-    | "thinking"
-    | "acted"
-    | "invalid-action"
-    | "error"
-    | "finished";
-  step?: number;
-  url?: string;
-  action?: { action: string; target?: string; text?: string; url?: string; key?: string; dy?: number; ms?: number; reason?: string };
-  execResult?: { ok: boolean; error?: string; clickedAt?: { x: number; y: number }; finished?: boolean };
-  raw?: string;
-  message?: string;
-  reason?: string;
-  at: string;
-};
-export type BrowserAgentResult = {
-  ok: boolean;
-  done?: boolean;
-  cancelled?: boolean;
-  reason?: string;
-  error?: string;
-  history?: unknown[];
-};
-export type BrowserAgentRunStatus = {
-  status: "running" | "done" | "error" | "cancelled";
-  steps: BrowserAgentStep[];
-  result: BrowserAgentResult | null;
-};
-export const getActiveBrowserAgent = () => request<{ runId: string | null }>("/browser-agent/active");
-export const startBrowserAgent = (goal: string) =>
-  request<{ runId: string }>("/browser-agent/start", { method: "POST", body: JSON.stringify({ goal }) });
-export const getBrowserAgentStatus = (runId: string) =>
-  request<BrowserAgentRunStatus>(`/browser-agent/${runId}/status`);
-export const cancelBrowserAgent = (runId: string) =>
-  request<{ cancelled: boolean }>(`/browser-agent/${runId}/cancel`, { method: "POST" });
+// O agente de navegador roda hoje só como skill dentro de uma execução por
+// etapas (ver app/skills/browser-agent/SKILL.md e app/workflows.js) — não
+// tem mais uma tela dedicada, então não há wrapper de API aqui.
 
 // ---------- Sandbox de execução (rodar código gerado pelo modelo local) ----------
 export type SandboxRunResult = { ok: true; filePath: string; previewUrl: string };

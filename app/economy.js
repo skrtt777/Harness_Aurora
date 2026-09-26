@@ -28,11 +28,14 @@ export async function compactContext({ input, instructions = '', memories = [], 
   const selectedSkills = includeOptional && includeSkills ? await selectSkills(skillQuery, Math.min(3600, max - essential.join('\n\n').length),3,scope) : [];
   const optional = []; let remaining = max - essential.join('\n\n').length;
   const add = text => { if (text.length + 2 > remaining) return false; optional.push(text); remaining -= text.length + 2; return true; };
-  const skillIds = []; const memoryIds = []; const referenceOptions=[];
+  const skillIds = []; const memoryIds = []; const referenceOptions=[]; let browserAgentOffered=false;
   for (const skill of selectedSkills) if (add(skill.block)) {
     skillIds.push({ id: skill.id, name: skill.name, hash: skill.hash, partial:skill.partial });
     const resources=skillReferences(skill).slice(0,6);
     if(allowSkillRequests&&resources.length){const option={id:skill.id,hash:skill.hash,resources};if(add('Referências disponíveis: '+JSON.stringify(option)+'\nSe necessárias, responda apenas {"skill_request":{"id":"'+skill.id+'","resource":"caminho listado"}}. Máximo de duas consultas por etapa.'))referenceOptions.push(option);}
+    if(allowSkillRequests&&!browserAgentOffered&&(skill.metadata?.hermes?.requires_tools||[]).includes('browser_agent')){
+      if(add('Para usar o agente de navegador (ações reais numa página, pode levar minutos), responda apenas {"browser_agent_request":{"goal":"o que fazer, em uma frase"}}. No máximo uma execução por etapa.'))browserAgentOffered=true;
+    }
   }
   let memoryChars=0;
   for (const memory of includeOptional ? memories : []) {
@@ -45,5 +48,5 @@ export async function compactContext({ input, instructions = '', memories = [], 
   }
   const task = essential.pop();
   const prompt = [...essential, ...optional, task].join('\n\n');
-  return { prompt, skills: skillIds, referenceOptions, memoryIds, memoryChars, memoryEstimatedTokens:Math.ceil(memoryChars/3), selectionVersion:selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy', estimatedInputTokens: Math.ceil(prompt.length / 3), omittedMemories: memories.length - memoryIds.length };
+  return { prompt, skills: skillIds, referenceOptions, browserAgentOffered, memoryIds, memoryChars, memoryEstimatedTokens:Math.ceil(memoryChars/3), selectionVersion:selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy', estimatedInputTokens: Math.ceil(prompt.length / 3), omittedMemories: memories.length - memoryIds.length };
 }

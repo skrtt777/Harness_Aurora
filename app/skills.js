@@ -25,7 +25,7 @@ export function parseSkill(text) {
   return { name: meta.name, description: meta.description.trim(), body: match[2].trim(), metadata: meta.metadata || {}, platforms:meta.platforms, requiredEnvironment:meta.required_environment_variables, hash: digest(text), text };
 }
 
-export const SKILL_CAPABILITIES=['html','json','javascript','markdown','csv','browser_validation','skill_reference'];
+export const SKILL_CAPABILITIES=['html','json','javascript','markdown','csv','browser_validation','skill_reference','browser_agent'];
 export function skillCompatibility(skill,{platform=process.platform,env=process.env}={}) {
   const reasons=[],os={win32:'windows',darwin:'macos',linux:'linux'}[platform]||platform;
   if(skill.platforms!==undefined && (!Array.isArray(skill.platforms)||!skill.platforms.includes(os)))reasons.push('Plataforma exigida não corresponde a '+os+'.');

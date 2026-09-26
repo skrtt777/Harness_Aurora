@@ -3,7 +3,7 @@ import { getHealth, getProviders, listConversations, searchConversations, type C
 import BrandMark from "./BrandMark";
 import Icon from "./Icon";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent" | "skills";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills";
 
 type Props = {
   projects: Project[];
@@ -423,9 +423,6 @@ export default function Sidebar({
         </button>
         <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
           <Icon name="flask" /> <span>Teste</span>
-        </button>
-        <button className={`rail-link ${activeView === "browser-agent" ? "active" : ""}`} onClick={() => onSelectView("browser-agent")}>
-          <Icon name="cursor" /> <span>Agente do navegador</span>
         </button>
         <button className={`rail-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
           <Icon name="puzzle" /> <span>Skills e regras</span>

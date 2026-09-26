@@ -18,6 +18,11 @@ const domains = {
   bi: /\b(bi|dashboard|dashboards|indicadores|faturamento|receita|margem|vendas|powerbi|analise financeira)\b/,
   web: /\b(landing|pagina|paginas|website|site|catalogo|formulario|portfolio)\b/,
   app: /\b(app|aplicativo|aplicacao|crud|lista de tarefas|localstorage)\b/,
+  // Deliberately narrower than `web` (landing/pagina/formulario alone match
+  // *building* a page) — this only fires for explicit real-navigation
+  // intent, so "crie uma landing page com formulario" never triggers the
+  // browser-agent skill just for containing the word "formulario".
+  browse: /\b(navegador|navegue|chromium)\b|\b(?:abra|acesse|visite|entre (?:no|em))\s+(?:o\s+)?site\b|\bsite real\b|\bpagina real\b/,
 };
 const capabilities = {
   audio: /\b(audio|som|musica|audiocontext|volume|mute)\b/,
@@ -44,7 +49,7 @@ export function referenceCompatibility(profile, memory) {
   return {compatible:true,reason:game&&!profile.domains.includes('game')&&!sharedCapability?'cross_domain':'compatible'};
 }
 export function skillRelevance(skill, input) {
-  const p=taskProfile(input),special={ 'browser-game':'game','bi-analysis':'bi' };
+  const p=taskProfile(input),special={ 'browser-game':'game','bi-analysis':'bi','browser-agent':'browse' };
   if(special[skill.name])return p.domains.includes(special[skill.name])?10:0;
   if(skill.name==='task-decomposition')return /\b(planej\w*|decompor|complex\w*|etapas|dependencias|integracao)\b/.test(p.query)?5:0;
   const names=new Set(queryTerms(skill.name)),description=new Set(queryTerms(skill.description));

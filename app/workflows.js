@@ -13,6 +13,7 @@ import { startTurn, endTurn } from './pendingTurns.js';
 import { normalizeTestContract, normalizeFunctionalContracts, testContractHash } from './functionalTests.js';
 import { applyLocalEdits } from './localDiagnostics.js';
 import {ENGINE_VERSION,repairTargets,applyTargetEdits,captureVerifiedRepair,loadRequestedReference,proposeDeterministicRepairs} from './evidenceEngine.js';
+import {runBrowserAgent,getOrLaunchBrowserContext,isChromiumInstalled,installChromium} from './browserAgent.js';
 
 const PLAN_SCHEMA = { type:'object', required:['steps'], additionalProperties:false, properties:{steps:{type:'array',minItems:1,maxItems:8,items:{type:'object',additionalProperties:false,required:['title','instruction','acceptance','format','dependsOn'],properties:{
  title:{type:'string',minLength:1,maxLength:160},instruction:{type:'string',minLength:1,maxLength:2000},acceptance:{type:'string',minLength:1,maxLength:1000},format:{type:'string',enum:['html','json','javascript','markdown','csv']},dependsOn:{type:'array',items:{type:'integer',minimum:0,maximum:6}},tests:{type:['object','null'],properties:{version:{const:1},cases:{type:'array',maxItems:8,items:{type:'object',properties:{id:{type:'string'},name:{type:'string'},actions:{type:'array',maxItems:20,items:{type:'object',properties:{op:{type:'string',enum:['click','fill','select','check','press','reload','assertText','assertValue','assertCount','assertNumber','assertChecked','assertVisible']},selector:{type:'string'},value:{type:['string','boolean']},expected:{type:['string','number','boolean']},tolerance:{type:'number'},locale:{type:'string'}}}}}}}}}
@@ -266,6 +267,25 @@ export async function runWorkflow(id, { env = process.env, call = runLocal, vali
             const ref=await loadRequestedReference(request,context.referenceOptions||[],{conversationId:job.conversationId,projectId:job.projectId});
             step.references=[...(step.references||[]).filter(r=>r.id!==ref.id||r.resource!==ref.resource),ref];
             job.stats.referenceLoads=(job.stats.referenceLoads||0)+1;step.attempts--;step.status='pending';await save(job);continue;
+          }
+          let browserRequest;try{browserRequest=JSON.parse(unwrap(response,'json')).browser_agent_request;}catch{}
+          if(browserRequest){
+            if(!context.browserAgentOffered)throw new Error('Agente de navegador não disponível nesta etapa.');
+            if((step.browserAgentRuns||0)>=1)throw new Error('Limite de uma execução do agente de navegador por etapa atingido.');
+            const goal=String(browserRequest.goal||'').trim().slice(0,500);
+            if(!goal)throw new Error('Meta do agente de navegador vazia.');
+            step.browserAgentRuns=(step.browserAgentRuns||0)+1; await save(job);
+            if(!isChromiumInstalled(env)){const installResult=await installChromium();if(!installResult.ok)throw new Error(installResult.error);}
+            const {page}=await getOrLaunchBrowserContext(env);
+            const result=await runBrowserAgent({page,goal,env,signal:controller.signal});
+            if(controller.signal.aborted)throw controller.signal.reason||new Error('Cancelado.');
+            const outcome=result.ok?`Concluído: ${result.reason||'tarefa finalizada'}.`:`Não concluído: ${result.error||'motivo desconhecido'}.`;
+            const actionsSummary=result.history.slice(-10).map(h=>h.action?`${h.action.action}${h.action.target?' "'+h.action.target+'"':''} -> ${h.execResult?.ok?'ok':'falhou'}`:'ação inválida').join('\n')||'(nenhuma ação registrada)';
+            step.evidence=[...step.evidence,`Agente de navegador (${goal}): ${outcome}`];
+            const ref={id:'browser-agent',hash:digest(goal),resource:'run-'+step.browserAgentRuns,text:`Agente de navegador — meta: ${goal}\n${outcome}\nÚltimas ações:\n${actionsSummary}`};
+            step.references=[...(step.references||[]),ref];
+            job.stats.browserAgentRuns=(job.stats.browserAgentRuns||0)+1;
+            step.attempts--;step.status='pending';await save(job);continue;
           }
         }
         let candidate = unwrap(response,step.format);

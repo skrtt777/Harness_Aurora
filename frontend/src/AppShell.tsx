@@ -5,7 +5,6 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import SettingsView from "./SettingsView";
 import WelcomeGuide from "./WelcomeGuide";
-import BrowserAgentView from "./BrowserAgentView";
 import BrandMark from "./BrandMark";
 
 // O bundle do Atlas 3D (Three.js + react-three-fiber) é o maior do app —
@@ -36,7 +35,7 @@ import {
   type SavingsStats,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "browser-agent" | "skills";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -423,7 +422,6 @@ export default function AppShell() {
             }}
           />
         )}
-        {view === "browser-agent" && <BrowserAgentView />}
         {view === "skills" && <SkillsView />}
       </main>
       {guideOpen && <WelcomeGuide onClose={(settings) => { setGuideOpen(false); if (settings) { setView('settings'); setSidebarOpen(false); } }} />}
