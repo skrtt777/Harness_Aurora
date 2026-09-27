@@ -335,7 +335,8 @@ export type UpdateStatus =
   | { status: "up-to-date"; checkedAt?: string }
   | { status: "downloading"; version?: string; percent?: number }
   | { status: "ready"; version?: string }
-  | { status: "error"; message?: string };
+  | { status: "error"; message?: string }
+  | { status: "unsupported" };
 export type UpdateState = UpdateStatus & { packaged: boolean; currentVersion: string };
 type HarnessUpdater = {
   getUpdateState?: () => Promise<UpdateState>;

@@ -1,0 +1,55 @@
+name: Release Linux
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  # Packaging changes get a real Linux build before merge (upload step is tag-only).
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - electron/**
+      - .github/workflows/release-linux.yml
+permissions:
+  contents: write
+concurrency:
+  group: release-linux-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm --prefix frontend ci
+      # x64 (Ubuntu) and arm64 (Raspberry Pi 64-bit) from one runner: no
+      # native modules, so electron-builder only swaps the Electron binary.
+      - run: npm run dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harness-aurora-linux
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/latest-linux*.yml
+          if-no-files-found: error
+      # latest-linux*.yml next to the AppImages is what electron-updater
+      # reads; it lands in the same release as the Windows installer.
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Harness Aurora $TAG"
+          gh release upload "$TAG" release/*.AppImage release/*.deb release/latest-linux*.yml --clobber

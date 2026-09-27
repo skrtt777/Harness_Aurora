@@ -20,6 +20,10 @@ const QUICK_CAPTURE_SHORTCUT_CANDIDATES = [
   "Alt+Shift+M",
 ];
 const ICON_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "icon.png");
+// electron-updater only knows how to replace an AppImage on Linux; a .deb
+// install is owned by apt/dpkg, so checking there would just surface an
+// error in Configurações for something the user can't fix from the app.
+const updatesSupported = process.platform !== "linux" || Boolean(process.env.APPIMAGE);
 const devUrl = process.env.ELECTRON_START_URL;
 let startUrl = devUrl || `http://${HOST}:${PORT}/`;
 if (process.env.HARNESS_USER_DATA_DIR) {
@@ -124,7 +128,14 @@ function showMainWindow(startUrl) {
 }
 
 function createTray(startUrl, shortcut) {
-  tray = new Tray(ICON_PATH);
+  // Some Linux desktops (GNOME without the AppIndicator extension) have no
+  // tray at all; the app must still start, reachable by relaunching it.
+  try {
+    tray = new Tray(ICON_PATH);
+  } catch (error) {
+    console.warn(`Bandeja do sistema indisponível: ${error.message}`);
+    return;
+  }
   tray.setToolTip("Harness Aurora");
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -198,7 +209,7 @@ ipcMain.handle("dialog:pick-folder", async (event) => {
 // show anything useful. This keeps a running `updaterState` the renderer
 // can always read (updater:state) plus live events (updater:status), and a
 // manual updater:check the Settings screen can trigger itself.
-let updaterState = { status: "idle" };
+let updaterState = updatesSupported ? { status: "idle" } : { status: "unsupported" };
 function setUpdaterState(next) {
   updaterState = next;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updater:status", updaterState);
@@ -220,6 +231,7 @@ ipcMain.handle("updater:state", (event) => {
 ipcMain.handle("updater:check", (event) => {
   if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
   if (!app.isPackaged) return { ...updaterState, packaged: false, currentVersion: app.getVersion() };
+  if (!updatesSupported) return { ...updaterState, packaged: true, currentVersion: app.getVersion() };
   autoUpdater.checkForUpdates().catch((error) => setUpdaterState({ status: "error", message: error?.message || "Falha ao verificar atualizações." }));
   return { ...updaterState, packaged: true, currentVersion: app.getVersion() };
 });
@@ -270,7 +282,7 @@ if (hasSingleInstanceLock) {
 
     app.on("activate", () => showMainWindow(startUrl));
 
-    if (app.isPackaged && !testing) {
+    if (app.isPackaged && !testing && updatesSupported) {
       autoUpdater.checkForUpdates().catch((error) => {
         // Sem internet ou sem release publicada ainda: não impede o uso do
         // app — mas agora fica registrado em updaterState (visível em

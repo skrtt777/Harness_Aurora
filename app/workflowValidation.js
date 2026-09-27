@@ -2,7 +2,7 @@ import { parseJavaScript } from './jsSandbox.js';
 import { extractRunnableHtml } from './sandboxCode.js';
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { findSystemBrowser } from './systemBrowser.js';
 import { diagnoseLocalArtifact, diagnosticText } from './localDiagnostics.js';
 import { normalizeTestContract, runFunctionalCases, functionalEvidence } from './functionalTests.js';
 
@@ -45,8 +45,7 @@ export async function validateArtifact(content, format, { signal, contract, cont
   let browser; let timer;
   const abort = () => { void browser?.close().catch(() => {}); };
   try {
-    const fallbacks=process.platform==='win32'?[process.env.ProgramFiles,process.env['ProgramFiles(x86)'],process.env.LOCALAPPDATA].filter(Boolean).flatMap(base=>[join(base,'Microsoft','Edge','Application','msedge.exe'),join(base,'BraveSoftware','Brave-Browser','Application','brave.exe')]):[];
-    const executablePath=existsSync(chromium.executablePath())?undefined:fallbacks.find(path=>existsSync(path));
+    const executablePath=existsSync(chromium.executablePath())?undefined:findSystemBrowser()||undefined;
     browser = await chromium.launch({ headless: true, timeout: 10000, ...(executablePath?{executablePath}:{} ) });
     if (signal?.aborted) throw signal.reason || new Error('Cancelado.');
     signal?.addEventListener('abort', abort, { once:true });

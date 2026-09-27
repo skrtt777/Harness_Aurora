@@ -155,13 +155,30 @@ async function installOllamaWindows(onProgress) {
   });
 }
 
+const OLLAMA_LINUX_INSTALL = "curl -fsSL https://ollama.com/install.sh | sh";
+
 async function installOllamaLinux(onProgress) {
+  // install.sh needs root (systemd service, /usr/local/bin). Run without a
+  // TTY, its internal sudo can't prompt and just fails — pkexec shows the
+  // desktop's graphical password dialog instead. Without pkexec (or a
+  // desktop session for its agent), ask for the one terminal command.
+  const graphical = Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+  if (!graphical || !(await which("pkexec", {}))) {
+    return {
+      ok: false,
+      manual: true,
+      url: "https://ollama.com/download/linux",
+      error: `Instale o Ollama uma única vez pelo terminal: ${OLLAMA_LINUX_INSTALL} — depois disso o Harness cuida do resto sozinho.`,
+    };
+  }
   onProgress({ stage: "installing" });
   return new Promise((resolve) => {
-    const child = spawn("sh", ["-c", "curl -fsSL https://ollama.com/install.sh | sh"], { stdio: "ignore" });
+    const child = spawn("pkexec", ["sh", "-c", OLLAMA_LINUX_INSTALL], { stdio: "ignore" });
     child.on("error", (error) => resolve({ ok: false, error: `Falha ao instalar o Ollama: ${error.message}` }));
     child.on("exit", (code) => {
       if (code === 0) resolve({ ok: true });
+      // 126/127: the user dismissed or failed the pkexec password dialog.
+      else if (code === 126 || code === 127) resolve({ ok: false, manual: true, url: "https://ollama.com/download/linux", error: `A autorização foi cancelada. Tente de novo ou rode no terminal: ${OLLAMA_LINUX_INSTALL}` });
       else resolve({ ok: false, error: `O instalador do Ollama terminou com código ${code}.` });
     });
   });

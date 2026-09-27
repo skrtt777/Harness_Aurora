@@ -214,6 +214,7 @@ export default function SettingsView({
                   {update.status === "downloading" && `Baixando a versão v${update.version || "nova"}… ${update.percent ?? 0}%`}
                   {update.status === "ready" && `Versão v${update.version} pronta — reinicie para instalar.`}
                   {update.status === "error" && (update.message || "Falha ao verificar atualizações.")}
+                  {update.status === "unsupported" && "Instalado via pacote .deb — atualize com o apt ou baixe o novo pacote no GitHub. A atualização automática só funciona no AppImage."}
                 </p>
                 {update.status === "downloading" && (
                   <div className="update-progress"><div className="update-progress-bar" style={{ width: `${update.percent ?? 0}%` }} /></div>
@@ -221,7 +222,7 @@ export default function SettingsView({
                 <div className="settings-actions">
                   {update.status === "ready" ? (
                     <button className="primary" onClick={runInstall}>Reiniciar e atualizar</button>
-                  ) : (
+                  ) : update.status === "unsupported" ? null : (
                     <button onClick={runUpdateCheck} disabled={update.status === "checking" || update.status === "downloading"}>
                       <Icon name="refresh" size={13} /> Verificar atualizações
                     </button>

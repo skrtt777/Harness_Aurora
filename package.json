@@ -17,6 +17,7 @@
     "electron:dev": "concurrently -k -n backend,frontend,electron \"npm:start\" \"npm:frontend:dev\" \"npm:electron:wait\"",
     "electron:wait": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
     "dist": "npm run frontend:build && electron-builder --publish never",
+    "dist:linux": "npm run frontend:build && electron-builder --linux --x64 --arm64 --publish never",
     "prepare": "node scripts/install-git-hooks.mjs"
   },
   "engines": {
@@ -49,6 +50,30 @@
       "perMachine": false,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "electron/icon-512.png",
+      "category": "Development",
+      "executableName": "harness-aurora",
+      "artifactName": "Harness-Aurora-${version}-${arch}.${ext}",
+      "maintainer": "skrtt777 <skrtt777@users.noreply.github.com>",
+      "synopsis": "Harness local para provedores de IA"
     },
     "publish": [
       {

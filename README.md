@@ -26,6 +26,19 @@ Os modelos Aurora experimentais ainda não superaram os critérios de qualidade 
 
 Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente — o histórico e a memória ficam em `%APPDATA%\Harness Aurora\` e não são apagados pelo desinstalador (apague essa pasta manualmente se quiser começar do zero).
 
+## Linux (Ubuntu e Raspberry Pi)
+
+Cada release traz quatro pacotes Linux: AppImage e `.deb`, cada um em x64 (PC com Ubuntu) e arm64 (Raspberry Pi 4/5). Eles são gerados pelo workflow `.github/workflows/release-linux.yml`.
+
+- **Ubuntu (x64)**: prefira o `.deb`, com `sudo apt install ./Harness-Aurora-<versão>-x64.deb`. No Ubuntu 24.04, o AppArmor bloqueia o sandbox do Chromium dentro de AppImages; o `.deb` já instala o `chrome-sandbox` com a permissão certa. Se usar o AppImage (`chmod +x Harness-Aurora-*.AppImage`), o Ubuntu 22.04+ também precisa de `sudo apt install libfuse2`.
+- **Raspberry Pi (arm64)**: exige o **Raspberry Pi OS 64-bit**, porque o Ollama não roda em 32-bit. Use `sudo apt install ./Harness-Aurora-<versão>-arm64.deb`. Para o agente de navegador, instale `sudo apt install chromium`; o app usa o Chromium do sistema quando o Playwright não tem uma versão para a placa. No Pi, prefira modelos pequenos (`qwen3.5:0.8b` ou `qwen3.5:2b`).
+- **Atualização automática**: só funciona no AppImage. No `.deb`, a tela de Configurações avisa isso, e a atualização é feita instalando o novo pacote.
+- **Ollama**: o assistente pede a senha pela janela gráfica do sistema (`pkexec`). Sem ela, mostra o comando `curl -fsSL https://ollama.com/install.sh | sh` para rodar uma vez no terminal.
+- **Bandeja e atalho global**: no GNOME, o ícone na bandeja precisa da extensão AppIndicator. No Wayland, o atalho global pode não registrar. Sem bandeja, abrir o app de novo traz a janela de volta.
+- Dados ficam em `~/.config/Harness Aurora/`.
+
+Build local (precisa de Linux ou Docker): `npm run dist:linux`.
+
 ## Bandeja do sistema e captura rápida
 
 O Harness Aurora roda em segundo plano com um ícone na bandeja do Windows — **fechar a janela pelo X minimiza pro sistema em vez de encerrar o app** (mesmo comportamento de Discord/Slack/Spotify). Pra encerrar de verdade, use "Sair" no menu da bandeja.
