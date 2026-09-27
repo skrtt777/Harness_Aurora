@@ -43,7 +43,7 @@ test('Quest rejects oversized essential requirements and never cuts a memory or 
   assert.equal(context.omittedHistory,1);assert.equal(context.omittedMemories,1);
   assert.deepEqual(context.memoryIds,[]);assert.equal(context.messages.length,2);
 });
-test('Real Harness turn uses Quest profile only when opted in, retaining persistence',async t=>{
+test('Quest transport uses the original Harness context even with the obsolete profile flag',async t=>{
   const {createConversation,listMessages}=await import('../app/store.js');
   const {handleChatTurn}=await import('../app/server.js');
   const captured=[];
@@ -54,11 +54,12 @@ test('Real Harness turn uses Quest profile only when opted in, retaining persist
   });
   const optimized=await createConversation({provider:'local',title:'Quest test'});
   const result=await handleChatTurn({conversationId:optimized.id,message:'Quanto é 3 + 5?',env:{LOCAL_ENGINE:'llama.cpp',HARNESS_QUEST_CHAT_PROFILE:'quest-chat-v1'}});
-  assert.equal(result.ok,true);assert.equal(result.execution.context.selectionVersion,'quest-chat-v1');
-  assert.equal(captured[0].messages[0].role,'system');
+  assert.equal(result.ok,true);assert.equal(result.execution.context.selectionVersion,'legacy');
+  assert.equal(captured[0].messages[0].role,'user');
   assert.equal((await listMessages(optimized.id)).at(-1).content,'8');
   const desktop=await createConversation({provider:'local',title:'Legacy test'});
   const legacy=await handleChatTurn({conversationId:desktop.id,message:'Quanto é 3 + 5?',env:{LOCAL_ENGINE:'llama.cpp'}});
   assert.equal(legacy.ok,true);assert.equal(legacy.execution.context.selectionVersion,'legacy');
   assert.equal(captured[1].messages[0].role,'user');
+  assert.deepEqual(captured[0].messages,captured[1].messages);
 });
