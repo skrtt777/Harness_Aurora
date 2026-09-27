@@ -15,8 +15,9 @@ process.env.LOCAL_MODEL=engineConfig.model;
 process.env.LOCAL_CONTEXT_TOKENS=String(engineConfig.contextTokens);
 process.env.LOCAL_MAX_OUTPUT_TOKENS=String(engineConfig.maxOutputTokens);
 process.env.LOCAL_TIMEOUT_MS=String(engineConfig.timeoutMs);
-// Conversation policy/context come from the same Harness path as desktop.
-process.env.LOCAL_TEMPERATURE='0.3';
+// Conversation policy/context, template and sampling come from the same Harness path as desktop.
+if(engineConfig.promptFormat)process.env.LOCAL_PROMPT_FORMAT=engineConfig.promptFormat;
+if(engineConfig.embedding)process.env.EMBEDDING_BASE_URL=`http://127.0.0.1:${engineConfig.embedding.port}`;
 const remote=join(saved,'aurora-connection.json');
 if(existsSync(remote)){process.env.HARNESS_REMOTE_CONFIG=remote;process.env.HARNESS_REMOTE_CA=join(root,'remote-ca.pem');}
 const {createServer}=await import('./app/server.js');

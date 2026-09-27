@@ -1,4 +1,5 @@
 import { isModelPulled, isServerUp, pullModel } from "./ollamaSetup.js";
+import { embedLlama } from "./localLlama.js";
 
 // nomic-embed-text is a small (~274 MB, far smaller than any chat model in
 // CURATED_MODELS) embedding-only model that Ollama serves over the same
@@ -71,9 +72,9 @@ export function cosineSimilarity(a, b) {
  * this time, and later calls succeed once the pull finishes.
  */
 export async function embedText(text, env = process.env, signal) {
-  if(env.LOCAL_ENGINE==='llama.cpp')return null; // Keep the existing lexical retrieval; no unsupported model download.
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
+  if (env.LOCAL_ENGINE === "llama.cpp") return embedLlama(trimmed, env, signal);
   const baseUrl = defaultBaseUrl(env);
   const model = resolveEmbeddingModel(env);
   try {

@@ -36,7 +36,7 @@ test('Large Quest prompts use actual tokenizer and reject overflow without infer
     if(url.endsWith('/tokenize'))return Response.json({tokens:Array(4000).fill(1)});
     assert.fail('An oversized prompt must never reach generation');
   });
-  const result=await runLocal('x'.repeat(6000),{LOCAL_ENGINE:'llama.cpp'});
+  const result=await runLocal('x'.repeat(6000),{LOCAL_ENGINE:'llama.cpp',LOCAL_CONTEXT_TOKENS:'4096',LOCAL_MAX_OUTPUT_TOKENS:'384'});
   assert.equal(result.ok,false);assert.equal(result.status,413);
   assert.deepEqual(paths,['/apply-template','/tokenize']);
 });
@@ -46,5 +46,38 @@ test('Large character count does not reject a tokenized prompt that fits',async 
     if(url.endsWith('/tokenize'))return Response.json({tokens:Array(1800).fill(1)});
     return Response.json({choices:[{message:{content:'Entendido.'},finish_reason:'stop'}]});
   });
-  assert.equal((await runLocal('x'.repeat(6000),{LOCAL_ENGINE:'llama.cpp'})).ok,true);
+  assert.equal((await runLocal('x'.repeat(6000),{LOCAL_ENGINE:'llama.cpp',LOCAL_CONTEXT_TOKENS:'4096',LOCAL_MAX_OUTPUT_TOKENS:'384'})).ok,true);
+});
+test('Desktop-parity prompt uses the Ollama template and sampling on /completion',async t=>{
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(url,'http://127.0.0.1:18080/completion');
+    const body=JSON.parse(options.body);
+    assert.equal(body.prompt,'<|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nque horas são?<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n');
+    assert.equal(body.temperature,.8);assert.equal(body.repeat_penalty,1.1);assert.equal(body.top_p,.9);assert.equal(body.top_k,40);
+    assert.equal(body.n_predict,2048);assert.equal(body.cache_prompt,true);
+    return Response.json({content:'São 14h.',stop_type:'eos',tokens_evaluated:29,tokens_predicted:5,tokens_cached:20,timings:{prompt_ms:50}});
+  });
+  const r=await runLocal('que horas são?',{LOCAL_ENGINE:'llama.cpp',LOCAL_PROMPT_FORMAT:'llama3'});
+  assert.equal(r.ok,true);assert.equal(r.text,'São 14h.');assert.equal(r.truncated,false);
+  assert.deepEqual(r.usage,{input_tokens:29,output_tokens:5});assert.equal(r.metrics.cachedInputTokens,20);
+});
+test('Desktop-parity overflow is measured on the exact formatted prompt',async t=>{
+  const paths=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    paths.push(new URL(url).pathname);
+    const body=JSON.parse(options.body);assert.equal(body.add_special,true);assert.match(body.content,/^<\|start_header_id\|>system/);
+    return Response.json({tokens:Array(7000).fill(1)});
+  });
+  const r=await runLocal('x'.repeat(9000),{LOCAL_ENGINE:'llama.cpp',LOCAL_PROMPT_FORMAT:'llama3'});
+  assert.equal(r.status,413);assert.deepEqual(paths,['/tokenize']);
+});
+test('Quest embeddings come from the local llama.cpp embedding server, never Ollama',async t=>{
+  const {embedText}=await import('../app/embeddings.js');
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(url,'http://127.0.0.1:18081/v1/embeddings');
+    assert.equal(options.headers.authorization,'Bearer k');assert.equal(JSON.parse(options.body).input,'jardim');
+    return Response.json({data:[{embedding:[.1,.2,.3]}]});
+  });
+  assert.deepEqual(await embedText(' jardim ',{LOCAL_ENGINE:'llama.cpp',EMBEDDING_BASE_URL:'http://127.0.0.1:18081',LOCAL_API_KEY:'k'}),[.1,.2,.3]);
+  assert.equal(await embedText('jardim',{LOCAL_ENGINE:'llama.cpp'}),null);
 });
