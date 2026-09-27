@@ -185,3 +185,22 @@ test("selectRelevantMemories ranks a semantically similar memory (no shared word
     );
   });
 });
+
+test("selectRelevantMemories leaves out memories with no evidence of relevance instead of always filling the limit", async () => {
+  await withStub({ tags: [DEFAULT_EMBEDDING_MODEL] }, async (baseUrl) => {
+    const env = { LOCAL_BASE_URL: baseUrl };
+    // Vector markers go in the content: in a title, "vec" itself would be a shared title word.
+    const related = await createMemory({ scope: "global", title: "Receita de pão caseiro", content: "Sove a massa e deixe crescer. ##vec:1,0,0##", env });
+    const unrelated = await createMemory({ scope: "global", title: "Configurar roteador", content: "Troque a senha padrão do equipamento. ##vec:0,1,0##", env });
+    // Orthogonal vector and no shared title word: nothing is about this request.
+    const none = await selectRelevantMemories("que horas são? ##vec:0,0,1##", {}, 12, env);
+    assert.ok(!none.some((m) => [related.id, unrelated.id].includes(m.id)));
+    // A distinctive title word is evidence even when similarity is low.
+    const byTitle = await selectRelevantMemories("como faço pão? ##vec:0,0,1##", {}, 12, env);
+    assert.ok(byTitle.some((m) => m.id === related.id));
+    assert.ok(!byTitle.some((m) => m.id === unrelated.id));
+    // High similarity is evidence without any shared word.
+    const bySimilarity = await selectRelevantMemories("algo para assar ##vec:1,0,0##", {}, 12, env);
+    assert.ok(bySimilarity.some((m) => m.id === related.id));
+  });
+});

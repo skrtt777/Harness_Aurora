@@ -459,6 +459,15 @@ const SEMANTIC_SCALE = 5;
 // unrelated text still tends to land well above 0 in embedding space, so a
 // low-but-nonzero score isn't meaningful relevance on its own.
 const SEMANTIC_THRESHOLD = 0.5;
+// A memory only enters the prompt with evidence that it is about the request: a
+// meaningful word of its title/tags, or similarity at least this high. Measured with
+// nomic-embed-text on the real memory base (scripts/eval-memory-retrieval.mjs):
+// unrelated requests peak at 0.675, while targets below 0.70 all share a title word.
+const SEMANTIC_EVIDENCE = 0.7;
+// A title word only counts as evidence when it is distinctive: present in few titles.
+// Generic words of the base ("jogos", "movimento") would otherwise admit dozens of memories.
+const distinctiveLimit = total => Math.max(5, Math.ceil(total * 0.06));
+const headlineTerms = memory => new Set(queryTerms(memory.title+' '+memory.tags.filter(t=>!t.startsWith('biblioteca-')).join(' ')));
 const pendingEmbeddings = new Set();
 
 /**
@@ -493,6 +502,10 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
     { scope: 'central', weight: 0.65, rows: shared.map(m => ({ id:m.id, scope:'central', title:m.title, content:m.content, tags:JSON.stringify(m.tags), kind:'imported', source:m.source, created_at:m.createdAt, updated_at:m.updatedAt })) },
   ];
   const scored = [];
+  const local = pools.filter(p => p.scope !== 'central').flatMap(p => p.rows);
+  const frequency = new Map();
+  for (const row of local) for (const w of headlineTerms(mapMemory(row))) frequency.set(w, (frequency.get(w) || 0) + 1);
+  const evidenceTerms = new Set(queryTerms(input).filter(w => (frequency.get(w) || 0) <= distinctiveLimit(local.length)));
   if (queryEmbedding) {
     // Incrementally repair legacy/missing vectors without delaying this search.
     for (const row of pools.filter(p => p.scope !== 'central').flatMap(p => p.rows).filter(r => !r.embedding || r.embedding_model !== resolveEmbeddingModel(env)).slice(0, 5)) {
@@ -506,7 +519,7 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
       const memory = mapMemory(row);
       const compatibility = selective?referenceCompatibility(profile,memory):{compatible:true,reason:'legacy'};
       if (!compatibility.compatible) continue;
-      const headline = new Set(queryTerms(memory.title+' '+memory.tags.filter(t=>!t.startsWith('biblioteca-')).join(' ')));
+      const headline = headlineTerms(memory);
       const words = new Set(queryTerms(memory.content));
       const titleMatches = [...queryTokens].filter(w=>headline.has(w));
       const overlap = [...queryTokens].filter(w=>words.has(w)).length;
@@ -521,6 +534,13 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
         if (similarity >= SEMANTIC_THRESHOLD) semantic = similarity * SEMANTIC_SCALE;
       }
       if (selective&&!titleMatches.length && !(similarity >= 0.65) && overlap < 3) continue;
+      if (!selective) {
+        // Without a vector for either side, fall back to meaningful word overlap only.
+        const titleEvidence = [...evidenceTerms].some(w => headline.has(w));
+        const semanticEvidence = similarity !== null && similarity >= SEMANTIC_EVIDENCE;
+        const contentEvidence = similarity === null && [...evidenceTerms].filter(w => words.has(w)).length >= 2;
+        if (!titleEvidence && !semanticEvidence && !contentEvidence) continue;
+      }
       const score = selective?(titleMatches.length * 2 + overlap * 0.3 + semantic) * pool.weight:(scoreMemory(memory,queryTokens)+semantic)*pool.weight+pool.weight*0.01;
       scored.push({ memory:{...memory,retrieval:{score,similarity,titleMatches,contentMatches:overlap,reason:compatibility.reason}}, score });
     }

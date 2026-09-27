@@ -5,5 +5,6 @@ export function clockObservation(input, {now=new Date(),timeZone=Intl.DateTimeFo
   if(!/\bque horas? (?:sao|e)\b|\b(?:hora|horario|data) atual\b|\b(?:que|qual) (?:dia|data) (?:e|de) hoje\b|\bdata de hoje\b/.test(text))return null;
   const local=new Intl.DateTimeFormat('pt-BR',{timeZone,dateStyle:'full',timeStyle:'long'}).format(now);
   return {source:'device-clock',observedAt:now.toISOString(),timeZone,local,
-    block:`Observação atual do relógio do dispositivo (dado transitório, não memória): ${local}. Fuso: ${timeZone}. Instante UTC: ${now.toISOString()}. Para este pedido, use esta leitura em vez de horários citados no histórico; não invente acesso a sensores ou serviços.`};
+    // Stated positively: a small model reads "do not invent access to sensors" as a cue to refuse.
+    block:`Hora atual deste dispositivo: ${local} (fuso ${timeZone}). Para perguntas sobre hora ou data, responda com este valor; ele vale mais que horários citados no histórico.`};
 }

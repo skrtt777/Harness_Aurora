@@ -8,7 +8,7 @@ test('Clock evidence uses the real instant and device time zone, not an old answ
   assert.equal(fact.observedAt,'2026-09-27T04:36:00.000Z');
   assert.equal(fact.timeZone,'America/Sao_Paulo');
   assert.match(fact.local,/01:36:00/);
-  assert.match(fact.block,/não memória/);
+  assert.match(fact.block,/Hora atual deste dispositivo: .*01:36:00/);
 });
 test('Clock observation handles date changes across time zones',()=>{
   const fact=clockObservation('Qual dia é hoje?',{...options,now:new Date('2026-09-27T01:00:00Z')});
