@@ -28,9 +28,9 @@ Para desinstalar, use "Adicionar ou remover programas" do Windows normalmente �
 
 ## Linux (Ubuntu e Raspberry Pi)
 
-Cada release traz quatro pacotes Linux: AppImage e `.deb`, cada um em x64 (PC com Ubuntu) e arm64 (Raspberry Pi 4/5). Eles são gerados pelo workflow `.github/workflows/release-linux.yml`.
+Cada release traz quatro pacotes Linux: AppImage (`x86_64` e `arm64`) e `.deb` (`amd64` e `arm64`); os de x64 são para PC com Ubuntu, e os arm64 para Raspberry Pi 4/5. Eles são gerados pelo workflow `.github/workflows/release-linux.yml`.
 
-- **Ubuntu (x64)**: prefira o `.deb`, com `sudo apt install ./Harness-Aurora-<versão>-x64.deb`. No Ubuntu 24.04, o AppArmor bloqueia o sandbox do Chromium dentro de AppImages; o `.deb` já instala o `chrome-sandbox` com a permissão certa. Se usar o AppImage (`chmod +x Harness-Aurora-*.AppImage`), o Ubuntu 22.04+ também precisa de `sudo apt install libfuse2`.
+- **Ubuntu (x64)**: prefira o `.deb`, com `sudo apt install ./Harness-Aurora-<versão>-amd64.deb`. No Ubuntu 24.04, o AppArmor bloqueia o sandbox do Chromium dentro de AppImages; o `.deb` já instala o `chrome-sandbox` com a permissão certa. Se usar o AppImage (`chmod +x Harness-Aurora-*.AppImage`), o Ubuntu 22.04+ também precisa de `sudo apt install libfuse2`.
 - **Raspberry Pi (arm64)**: exige o **Raspberry Pi OS 64-bit**, porque o Ollama não roda em 32-bit. Use `sudo apt install ./Harness-Aurora-<versão>-arm64.deb`. Para o agente de navegador, instale `sudo apt install chromium`; o app usa o Chromium do sistema quando o Playwright não tem uma versão para a placa. No Pi, prefira modelos pequenos (`qwen3.5:0.8b` ou `qwen3.5:2b`).
 - **Atualização automática**: só funciona no AppImage. No `.deb`, a tela de Configurações avisa isso, e a atualização é feita instalando o novo pacote.
 - **Ollama**: o assistente pede a senha pela janela gráfica do sistema (`pkexec`). Sem ela, mostra o comando `curl -fsSL https://ollama.com/install.sh | sh` para rodar uma vez no terminal.

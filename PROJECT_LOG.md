@@ -684,3 +684,5 @@ O bug real estava no frontend (`ChatView.tsx`): quando `onCorrect` rejeita (qual
 - `app/ollamaSetup.js`: a instalação no Linux usa `pkexec` (senha gráfica). Sem `pkexec` ou sem sessão gráfica, devolve instrução manual. Antes, o `sudo` do `install.sh` falhava sem TTY.
 - `electron/main.js`: auto-update desligado quando não é AppImage (estado `unsupported` mostrado em Configurações), e a falta de bandeja não impede o app de abrir.
 - `npm test` (261/261), `npm run check` e `npm run frontend:build` passando no Windows.
+- Validação em Docker, porque o GitHub Actions está bloqueado por cobrança na conta: os quatro pacotes foram gerados em `node:24-bookworm`. O `.deb` amd64 foi instalado num Ubuntu 24.04 limpo e o app abriu (backend em 2 s, janela e atalho global). O AppImage x86_64 também abriu. O `.deb` arm64 foi instalado num Debian Bookworm emulado (QEMU): o backend sobe, mas o renderer cai por limitação da emulação, então a janela precisa ser confirmada num Pi real.
+- Correção encontrada no teste: o `.deb` precisa declarar `libasound2t64 | libasound2` e `libgbm1`. Sem isso, o apt instala o substituto OSS do ALSA e o app não abre.
