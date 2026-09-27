@@ -48,3 +48,20 @@ O Quest não rodava a mesma mente do PC:
    - aproveitar melhor o cache de prompt entre turnos.
 3. Rodar de novo `compare-harness-parity.mjs quest 18887 8787` com a configuração final e registrar aqui.
 4. Só depois reavaliar o MoE 30B, que precisa de ~18,6 GB. O Quest tinha 2,6 GB livres com ele copiado; a cópia foi removida, e o original fica em `Saved/MoePort`.
+
+## Rota principal: PC primeiro, Quest como reserva (27/09/2026)
+
+Decisão do usuário: como só ele usa o app, o Quest conversa direto com o Harness do PC. É o mesmo app, com a mesma mente e a mesma GPU. O Harness embarcado fica como reserva.
+
+- `AuroraHarnessClient`: ao abrir, testa o PC pareado (`aurora-connection.json`) com limite de 3 s. Sem resposta, cria `Saved/aurora-runtime-wanted` e usa o Harness do Quest quando ele responder. Depois de 2 heartbeats perdidos, cai para o Quest. Na rota do Quest, tenta o PC a cada 30 s e volta quando ele reaparece. Cada rota guarda a própria sessão (`aurora-session-pc.json` e `aurora-session-standalone.json`), porque os bancos são diferentes.
+- `AuroraRuntime.java`: o Node e os dois `llama-server` (~3 GB) só rodam enquanto a flag existe.
+
+Medido no Quest 3S:
+
+| Situação | Resultado |
+|---|---|
+| PC ligado | "IA no PC". Pergunta e resposta em ~6 s; Harness embarcado desligado; 5,1 GB livres (antes 1,2 GB) |
+| Ponte do PC derrubada | Flag criada em 13 s; "IA no Quest" em 16 s |
+| Ponte religada | Volta para "IA no PC", derruba o runtime local e libera a RAM |
+
+No modo PC, a mente é a do **app instalado** no PC. As melhorias do repositório (evidência nas memórias e relógio) só valem lá depois de gerar e instalar uma versão nova.

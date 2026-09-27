@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+  <resourceCopies>
+    <copyFile src="$S(PluginDir)/Android/AuroraRuntime.java" dst="$S(BuildDir)/src/com/aurora/xr/AuroraRuntime.java" />
+    <copyFile src="$S(PluginDir)/ThirdParty/QuestRuntime/libaurora_node.so" dst="$S(BuildDir)/libs/arm64-v8a/libaurora_node.so" />
+    <copyFile src="$S(PluginDir)/ThirdParty/QuestRuntime/libaurora_llama.so" dst="$S(BuildDir)/libs/arm64-v8a/libaurora_llama.so" />
+    <copyFile src="$S(PluginDir)/ThirdParty/QuestRuntime/aurora-runtime.zip" dst="$S(BuildDir)/assets/aurora-runtime.zip" />
+  </resourceCopies>
+  <gameActivityOnCreateAdditions><insert>com.aurora.xr.AuroraRuntime.start(this);</insert></gameActivityOnCreateAdditions>
+  <androidManifestUpdates>
+    <addPermission android:name="android.permission.RECORD_AUDIO" />
+    <addPermission android:name="android.permission.CAMERA" />
+    <addPermission android:name="horizonos.permission.HEADSET_CAMERA" />
+    <addPermission android:name="com.oculus.permission.USE_ANCHOR_API" />
+  </androidManifestUpdates>
+  <gameActivityClassAdditions>
+    <insert><![CDATA[
+    private volatile byte[] auroraCameraImage=null;
+    private volatile String auroraCameraError="";
+    private volatile boolean auroraCameraBusy=false;
+    private android.os.HandlerThread auroraCameraThread;
+    private android.hardware.camera2.CameraDevice auroraCamera;
+    private android.hardware.camera2.CameraCaptureSession auroraCameraSession;
+    private android.media.ImageReader auroraReader;
+    public synchronized byte[] Aurora_CameraResult() { byte[] data=auroraCameraImage; auroraCameraImage=null; return data; }
+    public synchronized String Aurora_CameraError() { String data=auroraCameraError; auroraCameraError=""; return data; }
+    private void auroraCloseCamera() {
+      if(auroraCameraSession!=null){auroraCameraSession.close();auroraCameraSession=null;}
+      if(auroraCamera!=null){auroraCamera.close();auroraCamera=null;}
+      if(auroraReader!=null){auroraReader.close();auroraReader=null;}
+      auroraCameraBusy=false;
+      if(auroraCameraThread!=null){auroraCameraThread.quitSafely();auroraCameraThread=null;}
+    }
+    public void Aurora_CaptureStart() {
+      if(auroraCameraBusy)return;
+      auroraCameraBusy=true;auroraCameraImage=null;auroraCameraError="";
+      auroraCameraThread=new android.os.HandlerThread("AuroraExplicitCapture");auroraCameraThread.start();
+      final android.os.Handler handler=new android.os.Handler(auroraCameraThread.getLooper());
+      handler.postDelayed(()->{if(auroraCameraBusy){auroraCameraError="Tempo esgotado acessando a camera";auroraCloseCamera();}},12000);
+      handler.post(()->{
+        try {
+          android.hardware.camera2.CameraManager manager=(android.hardware.camera2.CameraManager)getSystemService(android.content.Context.CAMERA_SERVICE);
+          String selected=null;
+          android.hardware.camera2.CameraCharacteristics chosen=null;
+          for(String id:manager.getCameraIdList()) {
+            android.hardware.camera2.CameraCharacteristics c=manager.getCameraCharacteristics(id);
+            Integer source=c.get(new android.hardware.camera2.CameraCharacteristics.Key<Integer>("com.meta.extra_metadata.camera_source",Integer.class));
+            Integer position=c.get(new android.hardware.camera2.CameraCharacteristics.Key<Integer>("com.meta.extra_metadata.position",Integer.class));
+            if(source!=null&&source==0){selected=id;chosen=c;if(position!=null&&position==0)break;}
+          }
+          if(selected==null)throw new Exception("Camera passthrough indisponivel neste dispositivo");
+          android.hardware.camera2.params.StreamConfigurationMap map=chosen.get(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+          android.util.Size[] sizes=map.getOutputSizes(android.graphics.ImageFormat.YUV_420_888);
+          android.util.Size size=sizes[0];
+          for(android.util.Size candidate:sizes)if(Math.abs(candidate.getWidth()-1280)<Math.abs(size.getWidth()-1280))size=candidate;
+          auroraReader=android.media.ImageReader.newInstance(size.getWidth(),size.getHeight(),android.graphics.ImageFormat.YUV_420_888,2);
+          final int[] frames={0};
+          auroraReader.setOnImageAvailableListener(reader->{
+            android.media.Image image=null;
+            try {
+              image=reader.acquireLatestImage();if(image==null)return;
+              if(++frames[0]<4)return;
+              int width=image.getWidth(),height=image.getHeight();
+              byte[] nv21=new byte[width*height*3/2];
+              android.media.Image.Plane[] planes=image.getPlanes();
+              for(int plane=0;plane<3;plane++) {
+                java.nio.ByteBuffer buffer=planes[plane].getBuffer();int stride=planes[plane].getRowStride(),step=planes[plane].getPixelStride();
+                int w=plane==0?width:width/2,h=plane==0?height:height/2;
+                for(int y=0;y<h;y++)for(int x=0;x<w;x++) {
+                  int index=plane==0?y*width+x:width*height+y*width+x*2+(plane==1?1:0);
+                  nv21[index]=buffer.get(y*stride+x*step);
+                }
+              }
+              java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream();
+              new android.graphics.YuvImage(nv21,android.graphics.ImageFormat.NV21,width,height,null).compressToJpeg(new android.graphics.Rect(0,0,width,height),90,output);
+              auroraCameraImage=output.toByteArray();
+            } catch(Exception error){auroraCameraError=error.getMessage()==null?"Falha na captura":error.getMessage();}
+            finally {if(image!=null)image.close();if(auroraCameraImage!=null||!auroraCameraError.isEmpty())auroraCloseCamera();}
+          },handler);
+          manager.openCamera(selected,new android.hardware.camera2.CameraDevice.StateCallback(){
+            public void onOpened(android.hardware.camera2.CameraDevice camera){
+              auroraCamera=camera;
+              try {
+                camera.createCaptureSession(java.util.Collections.singletonList(auroraReader.getSurface()),new android.hardware.camera2.CameraCaptureSession.StateCallback(){
+                  public void onConfigured(android.hardware.camera2.CameraCaptureSession session){
+                    auroraCameraSession=session;
+                    try {android.hardware.camera2.CaptureRequest.Builder request=camera.createCaptureRequest(android.hardware.camera2.CameraDevice.TEMPLATE_PREVIEW);request.addTarget(auroraReader.getSurface());session.setRepeatingRequest(request.build(),null,handler);}
+                    catch(Exception e){auroraCameraError="Falha iniciando imagem";auroraCloseCamera();}
+                  }
+                  public void onConfigureFailed(android.hardware.camera2.CameraCaptureSession session){auroraCameraError="Configuracao de camera indisponivel";auroraCloseCamera();}
+                },handler);
+              }catch(Exception e){auroraCameraError="Falha criando captura";auroraCloseCamera();}
+            }
+            public void onDisconnected(android.hardware.camera2.CameraDevice camera){camera.close();auroraCameraError="Camera desconectada";auroraCloseCamera();}
+            public void onError(android.hardware.camera2.CameraDevice camera,int error){camera.close();auroraCameraError="Camera indisponivel: "+error;auroraCloseCamera();}
+          },handler);
+        }catch(Exception e){auroraCameraError=e.getMessage()==null?"Camera nao autorizada":e.getMessage();auroraCloseCamera();}
+      });
+    }
+    ]]></insert>
+  </gameActivityClassAdditions>
+  <gameActivityOnDestroyAdditions><insert>auroraCloseCamera();com.aurora.xr.AuroraRuntime.stop();</insert></gameActivityOnDestroyAdditions>
+</root>

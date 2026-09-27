@@ -37,3 +37,7 @@ Mudanças de API, eventos ou dados que afetam a interface.
 - `AuroraHarnessClient` já preenche `Panel->BodyText` com o parcial seguido de " …" a cada consulta (~1 s), sem mudar a página atual. A resposta final substitui esse texto como antes.
 - Motivo: no Quest com o MR aberto, um turno leva cerca de 95 s, a maior parte lendo o contexto. Assim que a geração começa, o texto aparece aos poucos.
 - Para o visual, opcional: indicar que o texto ainda está sendo gerado, com estilo ou animação, e decidir se a paginação acompanha a última página enquanto o texto cresce.
+
+### 2. Rota PC primeiro (27/09/2026)
+- O status do painel agora pode ser: "Procurando o PC…", "Harness / IA no PC", "Harness / IA no Quest" ou "PC indisponível • preparando o Harness no Quest…".
+- Ao trocar de rota, a conversa aberta muda, porque cada rota tem o próprio banco. Opcional para o visual: um indicador discreto e permanente de PC ou Quest.

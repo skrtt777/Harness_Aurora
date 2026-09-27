@@ -1,0 +1,9 @@
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.sln
+*.suo
+Content/Certificates/cacert.pem
+Source/AuroraXR/ThirdParty/QuestRuntime/

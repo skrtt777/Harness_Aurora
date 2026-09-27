@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+  <androidManifestUpdates>
+    <addFeature android:name="oculus.software.handtracking" android:required="true" />
+    <addFeature android:name="com.oculus.feature.PASSTHROUGH" android:required="true" />
+    <addPermission android:name="com.oculus.permission.HAND_TRACKING" />
+    <addElements tag="application">
+      <meta-data android:name="com.oculus.handtracking.frequency" android:value="HIGH" />
+      <meta-data android:name="com.oculus.handtracking.version" android:value="V2.0" />
+    </addElements>
+  </androidManifestUpdates>
+</root>
