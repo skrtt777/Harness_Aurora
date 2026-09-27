@@ -33,10 +33,12 @@ else:
     else:
         chat,embed=ollama_blob('llama3.2:3b'),ollama_blob('nomic-embed-text:latest')
         # Same context (8192) and output limit (2048) as the desktop defaults in app/local.js.
+        # --no-mmap: with mmap the ARM weight repack keeps a second copy resident (RSS 4.4 GB
+        # instead of 2.9 GB) and, with MR open, kswapd thrashing cut generation to 0.4 tok/s.
         engine={'model':'llama3.2:3b','contextProfile':'original-harness','promptFormat':'llama3','modelStorage':'external',
             'modelFile':'llama3.2-3b.gguf','modelBytes':chat['bytes'],'modelSha256':chat['sha256'],
             'contextTokens':8192,'maxOutputTokens':2048,'timeoutMs':240000,
-            'args':['-c','8192','-t','4','-tb','4','-np','1','-fa','on','-ctk','q8_0','-ctv','q8_0','--no-webui'],
+            'args':['--no-mmap','-c','8192','-t','4','-tb','4','-np','1','-fa','on','-ctk','q8_0','-ctv','q8_0','--no-webui'],
             'embedding':{'model':'nomic-embed-text','modelFile':'nomic-embed-text.gguf','modelBytes':embed['bytes'],'modelSha256':embed['sha256'],
                 'port':18081,'args':['--embeddings','-c','2048','-t','2','-np','1','--no-webui']}}
 shutil.copy2(stage/'runtime/bin/node',out/'libaurora_node.so')
