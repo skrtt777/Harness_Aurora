@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { expandPath } from "./files.js";
+import { assertAllowedUrl } from "./netGuard.js";
 
 const IS_WINDOWS = process.platform === "win32";
 
@@ -16,7 +17,9 @@ const BUILTIN_APPS = {
   "painel de controle": "control.exe", "ferramenta de captura": "snippingtool.exe",
 };
 
-const EXECUTABLE = /\.(exe|bat|cmd|ps1|vbs|js|msi|com|scr)$/i;
+// Files opened without asking: documents and media. Anything else — .exe,
+// but also .lnk, .hta, .url, .reg, .cpl, scripts — can run code, so it asks.
+const SAFE_TO_OPEN = /\.(txt|md|csv|tsv|json|xml|log|pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|png|jpe?g|gif|webp|bmp|svg|mp3|wav|ogg|flac|m4a|mp4|mkv|webm|avi|mov|zip|7z|rar|html?)$/i;
 
 export const normalizeName = (text) => String(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -81,7 +84,7 @@ export async function resolveOpenTarget(target, ctx) {
   if (builtin) return { target: builtin, kind: "app" };
   if (/[\\/]/.test(text) || /^[a-z]:/i.test(text) || /\.[a-z0-9]{1,5}$/i.test(text) || /^(desktop|documentos|downloads|~)/i.test(text)) {
     const full = expandPath(text, ctx.knownFolders);
-    if (existsSync(full)) return { target: full, kind: EXECUTABLE.test(full) ? "executable" : "path" };
+    if (existsSync(full)) return { target: full, kind: statSync(full).isDirectory() || SAFE_TO_OPEN.test(full) ? "path" : "executable" };
   }
   const shortcut = IS_WINDOWS ? matchShortcut(text, await startMenuShortcuts(ctx.env)) : null;
   if (shortcut) return { target: shortcut, kind: "app" };
@@ -97,7 +100,8 @@ export const systemTools = [
     stage: (a) => `Abrindo ${a.target}…`,
     async run({ target }, ctx) {
       const resolved = await resolveOpenTarget(target, ctx);
-      if (resolved.kind === "executable" && !(await ctx.approve({ tool: "open", summary: `Executar o programa ${resolved.target}` }))) throw new Error("O usuário não autorizou executar esse programa.");
+      if (resolved.kind === "link") assertAllowedUrl(resolved.target);
+      if (resolved.kind === "executable" && !(await ctx.approve({ tool: "open", summary: `Abrir ${resolved.target} (pode executar um programa)` }))) throw new Error("O usuário não autorizou executar esse programa.");
       await launch(resolved.target);
       return `Abri ${resolved.target}.`;
     },

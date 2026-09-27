@@ -1,3 +1,5 @@
+import { assertAllowedUrl } from "./netGuard.js";
+
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'", "#x27": "'" };
@@ -44,10 +46,25 @@ export function parseDuckDuckGo(html, max = 8) {
   return results;
 }
 
+// Redirects are followed by hand so each hop is checked: a public page must
+// not be able to bounce the fetch onto Aurora's own local API.
 async function get(url, signal, fetchImpl = fetch) {
-  const response = await fetchImpl(url, { headers: { "user-agent": UA, "accept-language": "pt-BR,pt;q=0.9,en;q=0.8" }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000), redirect: "follow" });
-  if (!response.ok) throw new Error(`O site respondeu com erro ${response.status}.`);
-  return response;
+  const timeout = signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000);
+  let current = String(url);
+  for (let hop = 0; hop < 6; hop += 1) {
+    assertAllowedUrl(current);
+    const response = await fetchImpl(current, { headers: { "user-agent": UA, "accept-language": "pt-BR,pt;q=0.9,en;q=0.8" }, signal: timeout, redirect: "manual" });
+    const location = response.status >= 300 && response.status < 400 ? response.headers.get("location") : null;
+    if (location) {
+      const next = new URL(location, current);
+      if (!["http:", "https:"].includes(next.protocol)) throw new Error("Redirecionamento para um endereço não suportado.");
+      current = next.href;
+      continue;
+    }
+    if (!response.ok) throw new Error(`O site respondeu com erro ${response.status}.`);
+    return Object.defineProperty(response, "finalUrl", { value: current });
+  }
+  throw new Error("Redirecionamentos demais.");
 }
 
 export const webTools = [
@@ -79,7 +96,7 @@ export const webTools = [
       const body = await response.text();
       const title = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
       const text = /html/i.test(type) ? htmlToText(body) : body;
-      return `${title ? `Título: ${htmlToText(title[1])}\n` : ""}URL: ${response.url || target.href}\n\n${text.slice(0, 7000)}`;
+      return `${title ? `Título: ${htmlToText(title[1])}\n` : ""}URL: ${response.finalUrl || target.href}\n\n${text.slice(0, 7000)}`;
     },
   },
 ];

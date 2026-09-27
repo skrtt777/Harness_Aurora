@@ -1,6 +1,7 @@
 import { getBrowserPage, setActivePage } from "../browserBackend.js";
 import { normalizeGotoUrl } from "../browserAgent.js";
 import { centerOf, findTextBox, recognizeImage } from "../ocr.js";
+import { assertAllowedUrl } from "./netGuard.js";
 
 const MAX_ELEMENTS = 60;
 
@@ -135,6 +136,7 @@ export const browserTools = [
       if (!/[.:/]/.test(target)) target = `${target}.com`;
       const destination = new URL(normalizeGotoUrl(target));
       if (!["http:", "https:"].includes(destination.protocol)) throw new Error("Só é possível navegar em HTTP/HTTPS.");
+      assertAllowedUrl(destination.href);
       const { page } = await current(ctx);
       await page.bringToFront().catch(() => {});
       await page.goto(destination.href, { timeout: 30000, waitUntil: "domcontentloaded" });
@@ -259,7 +261,12 @@ export const browserTools = [
       if (action === "new") {
         const tab = await context.newPage();
         setActivePage(tab);
-        if (url) await tab.goto(new URL(normalizeGotoUrl(url)).href, { timeout: 30000, waitUntil: "domcontentloaded" });
+        if (url) {
+          const destination = new URL(normalizeGotoUrl(url));
+          if (!["http:", "https:"].includes(destination.protocol)) throw new Error("Só é possível navegar em HTTP/HTTPS.");
+          assertAllowedUrl(destination.href);
+          await tab.goto(destination.href, { timeout: 30000, waitUntil: "domcontentloaded" });
+        }
         return after(ctx, tab, "Abri uma nova aba.");
       }
       if (action === "switch" || action === "close") {

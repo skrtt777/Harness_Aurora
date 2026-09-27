@@ -156,3 +156,53 @@ test("browser tools drive a real page through DOM refs, typing, clicks and new t
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("the agent can't reach Aurora's own API/UI, Ollama or the XR bridge, even through redirects", async () => {
+  const { isProtectedUrl, protectPort } = await import("../app/agentTools/netGuard.js");
+  for (const url of ["http://127.0.0.1:8787/api/session", "http://localhost:8787/", "http://[::1]:11434/api/tags", "https://0.0.0.0:8788/", "http://app.localhost:8787/", "http://127.1.2.3:8787"]) assert.equal(isProtectedUrl(url), true, url);
+  for (const url of ["http://localhost:3000/", "https://youtube.com/", "http://192.168.0.10:8787/", "not a url"]) assert.equal(isProtectedUrl(url), false, url);
+  protectPort(9999);
+  assert.equal(isProtectedUrl("http://127.0.0.1:9999/"), true);
+
+  assert.match((await executeTool("browser_navigate", { url: "http://127.0.0.1:8787/api/session" }, ctx())).result, /bloqueado/);
+  assert.match((await executeTool("web_fetch", { url: "http://localhost:11434/api/tags" }, ctx())).result, /bloqueado/);
+  assert.match((await executeTool("open", { target: "http://127.0.0.1:8787/" }, ctx())).result, /bloqueado/);
+  const redirecting = async (url) => url.startsWith("https://evil.example") ? new Response(null, { status: 302, headers: { location: "http://127.0.0.1:8787/api/session" } }) : new Response("token");
+  const bounced = await executeTool("web_fetch", { url: "https://evil.example/x" }, ctx(async () => false, { fetch: redirecting }));
+  assert.equal(bounced.ok, false);
+  assert.match(bounced.result, /bloqueado/);
+});
+
+test("opening anything that can run code asks first; documents and folders open directly", async () => {
+  for (const name of ["atalho.lnk", "app.hta", "site.url", "chave.reg", "script.ps1"]) writeFileSync(join(root, name), "x");
+  for (const name of ["atalho.lnk", "app.hta", "site.url", "chave.reg", "script.ps1"]) assert.equal((await resolveOpenTarget(join(root, name), ctx())).kind, "executable", name);
+  assert.equal((await resolveOpenTarget(join(root, "relatorio.pdf"), ctx())).kind, "path");
+  assert.equal((await resolveOpenTarget(root, ctx())).kind, "path");
+  const denied = await executeTool("open", { target: join(root, "app.hta") }, ctx(async () => false));
+  assert.match(denied.result, /não autorizou/);
+});
+
+test("a link on a page can't take the controlled browser to Aurora's API", { skip: hasBrowser ? false : "Nenhum navegador disponível." }, async () => {
+  const { closeBrowserContext, resetBrowserContextForTests } = await import("../app/browserAgent.js");
+  const { resetBrowserBackendForTests } = await import("../app/browserBackend.js");
+  const { protectPort } = await import("../app/agentTools/netGuard.js");
+  const api = http.createServer((req, res) => res.end('{"token":"segredo"}'));
+  await new Promise((resolve) => api.listen(0, "127.0.0.1", resolve));
+  protectPort(api.address().port);
+  const site = http.createServer((req, res) => { res.setHeader("content-type", "text/html"); res.end(`<title>Isca</title><a href="http://127.0.0.1:${api.address().port}/api/session">Clique aqui</a>`); });
+  await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
+  const env = { ...process.env, BROWSER_AGENT_HEADLESS: "1", BROWSER_AGENT_PROFILE_DIR: mkdtempSync(join(tmpdir(), "harness-agent-guard-")) };
+  const c = ctx(async () => false, { env, browserBackend: "aurora" });
+  resetBrowserContextForTests(); resetBrowserBackendForTests();
+  try {
+    assert.equal((await executeTool("browser_navigate", { url: `http://127.0.0.1:${site.address().port}/` }, c)).ok, true);
+    const clicked = await executeTool("browser_click", { text: "Clique aqui" }, c);
+    assert.doesNotMatch(clicked.result, /segredo/);
+    assert.doesNotMatch((await executeTool("browser_read", {}, c)).result, /segredo/);
+  } finally {
+    await closeBrowserContext();
+    resetBrowserBackendForTests();
+    await new Promise((resolve) => api.close(resolve));
+    await new Promise((resolve) => site.close(resolve));
+  }
+});

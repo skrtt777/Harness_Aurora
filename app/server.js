@@ -62,6 +62,7 @@ import {
 import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn, pushTurnStep, getTurnSteps, requestApproval, getApproval, resolveApproval } from "./pendingTurns.js";
 import { runChatAgent } from "./chatAgent.js";
 import { knownFolders } from "./agentTools/index.js";
+import { protectPort } from "./agentTools/netGuard.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
@@ -1018,6 +1019,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     }
   });
   server.apiToken = apiToken;
+  // Electron may pick a free port other than 8787: keep the agent off it too.
+  server.on("listening", () => protectPort(server.address()?.port));
   if (centralSync) {
     let stop;
     server.on('listening', () => { stop = startCentralScheduler(); });

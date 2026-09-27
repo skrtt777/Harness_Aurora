@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getOrLaunchBrowserContext } from "./browserAgent.js";
+import { isProtectedUrl } from "./agentTools/netGuard.js";
 
 const chromium = process.platform === "android" ? null : (await import("playwright")).chromium;
 
@@ -56,6 +57,14 @@ async function connectChrome(env) {
   return { browser, context };
 }
 
+// Network-level block, so a link, redirect, popup or page script can't reach
+// Aurora's own UI/API either — not just the URLs the model asks for.
+async function guardContext(context) {
+  if (context.__auroraGuard) return;
+  context.__auroraGuard = true;
+  await context.route((url) => isProtectedUrl(url.href), (route) => route.abort("blockedbyclient"));
+}
+
 export async function getBrowserPage({ backend = "aurora", env = process.env } = {}) {
   if (!chromium) throw new Error("Automação de navegador requer o Harness desktop.");
   if (!BROWSER_BACKENDS.includes(backend)) backend = "aurora";
@@ -68,6 +77,7 @@ export async function getBrowserPage({ backend = "aurora", env = process.env } =
       Object.assign(state, { backend, context, cdp: null, page });
       context.once("close", () => { if (state.context === context) Object.assign(state, { backend: null, context: null, page: null }); });
     }
+    await guardContext(state.context);
   }
   if (!state.page || state.page.isClosed()) state.page = state.context.pages().filter((p) => !p.isClosed()).at(-1) || (await state.context.newPage());
   return { context: state.context, page: state.page };
