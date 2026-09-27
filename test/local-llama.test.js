@@ -81,3 +81,14 @@ test('Quest embeddings come from the local llama.cpp embedding server, never Oll
   assert.deepEqual(await embedText(' jardim ',{LOCAL_ENGINE:'llama.cpp',EMBEDDING_BASE_URL:'http://127.0.0.1:18081',LOCAL_API_KEY:'k'}),[.1,.2,.3]);
   assert.equal(await embedText('jardim',{LOCAL_ENGINE:'llama.cpp'}),null);
 });
+test('Streaming reports growing partial text and keeps the final contract',async t=>{
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(JSON.parse(options.body).stream,true);
+    const events=[{content:'Olá'},{content:', Lucas'},{content:'',stop:true,stop_type:'eos',tokens_evaluated:29,tokens_predicted:3,timings:{predicted_per_second:4}}];
+    return new Response(events.map(e=>`data: ${JSON.stringify(e)}\n\n`).join(''),{headers:{'content-type':'text/event-stream'}});
+  });
+  const seen=[];
+  const r=await runLocal('oi',{LOCAL_ENGINE:'llama.cpp',LOCAL_PROMPT_FORMAT:'llama3'},undefined,{onText:text=>seen.push(text)});
+  assert.deepEqual(seen,['Olá','Olá, Lucas']);assert.equal(r.text,'Olá, Lucas');
+  assert.deepEqual(r.usage,{input_tokens:29,output_tokens:3});assert.equal(r.metrics.outputTokensPerSecond,4);
+});

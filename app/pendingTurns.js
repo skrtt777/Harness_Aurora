@@ -24,6 +24,16 @@ export function getStage(conversationId) {
   return pending.get(conversationId)?.stage || null;
 }
 
+// Text generated so far, for engines that stream (slow on-device inference).
+export function setPartial(conversationId, text) {
+  const entry = pending.get(conversationId);
+  if (entry) entry.partial = text;
+}
+
+export function getPartial(conversationId) {
+  return pending.get(conversationId)?.partial || null;
+}
+
 export function endTurn(conversationId, controller) {
   if (!controller || pending.get(conversationId)?.controller === controller) pending.delete(conversationId);
 }

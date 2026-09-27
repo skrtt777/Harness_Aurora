@@ -59,7 +59,7 @@ import {
   fetchCommunityBundle,
   resolveCommunityManifestUrl,
 } from "./community.js";
-import { startTurn, setStage, getStage, endTurn, cancelTurn } from "./pendingTurns.js";
+import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn } from "./pendingTurns.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
 import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
@@ -183,7 +183,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         if(reused) {
           providerLabel='Local (reutilizado)';
           result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
-        } else result = await runLocal(prompt, localEnv, controller.signal);
+        } else result = await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) });
         // For local conversations, spend a little extra free Ollama compute
         // (never Codex/Claude) trying to catch mistakes before the user sees
         // them: a syntax-check-and-retry pass for generated code, then a
@@ -673,7 +673,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/pending$/);
       if (match && method === "GET") {
         const [, id] = match;
-        return sendJson(response, 200, { stage: getStage(id) });
+        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/cancel$/);
       if (match && method === "POST") {

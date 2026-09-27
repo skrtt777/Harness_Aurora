@@ -31,8 +31,8 @@ export async function buildProviderConfig(env = process.env) {
  * the user hitting "Cancelar" on a slow local turn — independent of the
  * timeout below, which still applies on its own.
  */
-export async function runLocal(prompt, env = process.env, externalSignal) {
-  if(env.LOCAL_ENGINE==='llama.cpp')return runLlama(prompt,env,externalSignal);
+export async function runLocal(prompt, env = process.env, externalSignal, {onText}={}) {
+  if(env.LOCAL_ENGINE==='llama.cpp')return runLlama(prompt,env,externalSignal,{onText});
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);

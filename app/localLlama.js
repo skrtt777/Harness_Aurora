@@ -39,7 +39,24 @@ async function tokenCount(base,headers,signal,body){
   if(!response.ok||!Array.isArray(tokenized.tokens))throw new Error('Não foi possível contar os tokens do contexto local.');
   return tokenized.tokens.length;
 }
-export async function runLlama(prompt,env=process.env,externalSignal){
+// Reads llama.cpp server-sent events, reporting the accumulated text as it grows.
+async function streamCompletion(response,onText){
+  const decoder=new TextDecoder();let buffer='',text='',last={};
+  for await(const chunk of response.body){
+    buffer+=decoder.decode(chunk,{stream:true});
+    let end;
+    while((end=buffer.indexOf('\n'))>=0){
+      const line=buffer.slice(0,end).trim();buffer=buffer.slice(end+1);
+      if(!line.startsWith('data:'))continue;
+      const event=JSON.parse(line.slice(5));
+      if(event.error)throw new Error(event.error.message||'Executor local: erro durante a geração.');
+      if(event.content){text+=event.content;onText(text);}
+      last=event;
+    }
+  }
+  return {...last,content:text};
+}
+export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}){
   const started=performance.now(),model=env.LOCAL_MODEL||'llama3.2:3b';
   const timeout=AbortSignal.timeout(Number(env.LOCAL_TIMEOUT_MS||120000));
   const signal=externalSignal?AbortSignal.any([timeout,externalSignal]):timeout;
@@ -65,10 +82,11 @@ export async function runLlama(prompt,env=process.env,externalSignal){
     const schema=env.LOCAL_OUTPUT_SCHEMA?JSON.parse(env.LOCAL_OUTPUT_SCHEMA):env.LOCAL_OUTPUT_FORMAT==='json'?{type:'object'}:null;
     let text,usage=null,truncated,timings,cached=null;
     if(format){
+      const stream=typeof onText==='function';
       const response=await fetch(base+'/completion',{method:'POST',signal,headers,body:JSON.stringify({
-        prompt:format(prompt),n_predict:maxOutput,cache_prompt:true,stream:false,...sampling(env),...(schema?{json_schema:schema}:{})})});
-      const data=await response.json();
-      if(!response.ok)throw new Error(data.error?.message||`Executor local: HTTP ${response.status}`);
+        prompt:format(prompt),n_predict:maxOutput,cache_prompt:true,stream,...sampling(env),...(schema?{json_schema:schema}:{})})});
+      if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error?.message||`Executor local: HTTP ${response.status}`);}
+      const data=stream?await streamCompletion(response,onText):await response.json();
       text=data.content;truncated=data.stop_type==='limit'||data.stopped_limit===true;timings=data.timings;
       if(Number.isFinite(data.tokens_evaluated)&&Number.isFinite(data.tokens_predicted))usage={input_tokens:data.tokens_evaluated,output_tokens:data.tokens_predicted};
       cached=Number.isFinite(data.tokens_cached)?data.tokens_cached:null;
