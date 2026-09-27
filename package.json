@@ -4,6 +4,12 @@
   "version": "0.1.23",
   "private": true,
   "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
+  "homepage": "https://github.com/skrtt777/Harness_Aurora",
+  "author": {
+    "name": "skrtt777",
+    "email": "skrtt777@users.noreply.github.com"
+  },
+  "desktopName": "harness-aurora.desktop",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -73,7 +79,8 @@
       "executableName": "harness-aurora",
       "artifactName": "Harness-Aurora-${version}-${arch}.${ext}",
       "maintainer": "skrtt777 <skrtt777@users.noreply.github.com>",
-      "synopsis": "Harness local para provedores de IA"
+      "synopsis": "Harness local para provedores de IA",
+      "syncDesktopName": true
     },
     "publish": [
       {
