@@ -81,3 +81,17 @@ test('XR exposes only allowlisted operations and validates memory scopes',async 
   assert.equal((await call('/memories',token,{requestId:'x',title:'T',content:'C',scope:'project'})).status,400);
   assert.throws(()=>createDesktopClient('http://192.168.0.2:8787'));
 });
+test('Desktop client renews the session once after the desktop app restarts',async t=>{
+  const {createDesktopClient}=await import('../app/xrBridge.js');
+  let token='old',posts=0;
+  t.mock.method(globalThis,'fetch',async(url,options={})=>{
+    if(url.endsWith('/api/session'))return Response.json({token});
+    if(options.method==='POST')posts++;
+    return options.headers['x-harness-token']===token?Response.json({ok:true}):Response.json({error:'Sessão local inválida.'},{status:401});
+  });
+  const desktop=createDesktopClient();
+  assert.equal((await desktop('/conversations','GET')).ok,true);
+  token='new';
+  assert.equal((await desktop('/conversations/x/messages','POST',{message:'oi'})).ok,true);
+  assert.equal(posts,2);
+});

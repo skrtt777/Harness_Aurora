@@ -37,15 +37,22 @@ export function createDesktopClient(base='http://127.0.0.1:8787') {
   const url=new URL(base);
   if(url.protocol!=='http:' || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('Backend XR deve ser loopback.');
   let session;
-  return async (path,method='GET',body) => {
+  const send=async (path,method,body) => {
     if(!session) {
       const r=await fetch(`${base}/api/session`,{signal:AbortSignal.timeout(5000)});
       if(!r.ok) fail(502,'Harness local indisponível.');
       session=(await r.json()).token;
     }
-    const r=await fetch(`${base}/api${path}`,{method,headers:{'content-type':'application/json','x-harness-token':session},
+    return fetch(`${base}/api${path}`,{method,headers:{'content-type':'application/json','x-harness-token':session},
       body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(600000)});
-    if(r.status===401) session=undefined; // Never retry mutations implicitly.
+  };
+  return async (path,method='GET',body) => {
+    let r=await send(path,method,body);
+    // A restarted desktop app issues a new session token. The token check
+    // (httpSecurity.js) rejects before any handler runs, so repeating once
+    // with a fresh session cannot duplicate a mutation.
+    if(r.status===401) { session=undefined; r=await send(path,method,body); }
+    if(r.status===401) session=undefined;
     const result=await r.json();
     if(!r.ok) fail(r.status,result.error||'Falha no Harness.');
     return result;
