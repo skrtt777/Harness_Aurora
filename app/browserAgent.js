@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+const chromium=process.platform==='android'?null:(await import('playwright')).chromium;
 
 import { runLocal } from "./local.js";
 import { centerOf, findTextBox, recognizeImage } from "./ocr.js";
@@ -37,6 +37,7 @@ export function normalizeGotoUrl(url) {
  * own server rather than some system-wide LLM.
  */
 export function isChromiumInstalled(env = process.env) {
+  if(!chromium)return false;
   if (env.CHROMIUM_EXECUTABLE_PATH) return existsSync(env.CHROMIUM_EXECUTABLE_PATH);
   try {
     const path = chromium.executablePath();
@@ -64,6 +65,7 @@ function playwrightCliPath() {
  * does), and never throw — callers get {ok:false, error} instead.
  */
 export async function installChromium(onProgress = () => {}) {
+  if(!chromium)return {ok:false,error:'Automação de navegador requer o Harness desktop.'};
   onProgress({ stage: "downloading-browser" });
   return new Promise((resolve) => {
     execFile(
@@ -117,6 +119,7 @@ let contextPromise = null;
  * final state and the next run doesn't pay the ~1-2s launch cost again.
  */
 export async function getOrLaunchBrowserContext(env = process.env) {
+  if(!chromium)throw new Error('Automação de navegador requer o Harness desktop.');
   if (!contextPromise) {
     contextPromise = launchBrowserContext(env).catch((error) => {
       contextPromise = null;

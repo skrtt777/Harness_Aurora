@@ -71,6 +71,7 @@ export function cosineSimilarity(a, b) {
  * this time, and later calls succeed once the pull finishes.
  */
 export async function embedText(text, env = process.env, signal) {
+  if(env.LOCAL_ENGINE==='llama.cpp')return null; // Keep the existing lexical retrieval; no unsupported model download.
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
   const baseUrl = defaultBaseUrl(env);

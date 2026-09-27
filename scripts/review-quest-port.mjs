@@ -1,0 +1,9 @@
+import {correctLocalAnswer} from '../app/correction.js';
+import {writeFileSync} from 'node:fs';
+const question='Revisão técnica do porte do repositório Harness Aurora (Node >=22.5, node:sqlite DatabaseSync, backend app/server.js, local.js chama Ollama /api/generate; correction.js usa Claude/Codex CLI; front Unreal nativo Android) para Quest 3S 8GB. Preservar lógica existente, conversas, memórias e professores. Proposta: rodar o mesmo backend Node24 ARM64 no headset; prover inferência local via llama.cpp em loopback; empacotar executáveis em nativeLibraryDir e scripts/dados privados; manter professores remotos configurados, nunca dizer que Claude/ChatGPT rodam offline no Quest. Revisar compatibilidade Android/SELinux, bibliotecas Termux, memória, ciclo de vida e riscos concretos. Não execute ferramentas nem leia arquivos; responda somente com revisão textual no JSON exigido.';
+const wrongAnswer='O backend JavaScript pode ser copiado sem trocar suas regras, mas precisamos confirmar node:sqlite em Android, dependências nativas e imports do servidor. O executor local deve ganhar um adaptador para llama.cpp, sem substituir o Harness. Modelo 0.8B quantizado deve ser medido junto do MR antes de prometer desempenho. Professores exigem adapter remoto, pois CLIs desktop não estão disponíveis automaticamente no headset. Ferramentas de navegador e shell exigem tratamento de capacidades.';
+for(const teacherProvider of ['claude','codex']){
+  const result=await correctLocalAnswer({question,wrongAnswer,note:'Aponte erros e proponha o menor porte fiel. Não prometa recursos ainda não medidos.',teacherProvider,env:{...process.env,CORRECTION_TIMEOUT_MS:'120000'}});
+  writeFileSync(`unreal/AuroraXR/Saved/Standalone/review-${teacherProvider}.json`,JSON.stringify(result,null,2));
+  console.log(teacherProvider,result.ok?'review ready':result.error);
+}

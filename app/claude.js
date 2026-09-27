@@ -1,7 +1,9 @@
 import { resolveCli, executeCli } from "./cliRuntime.js";
+import {remoteTeacher} from './remoteXR.js';
 
 
 export function buildProviderConfig(env = process.env) {
+  if(env.HARNESS_PLATFORM==='quest')return {id:'claude',name:'Claude (professor remoto)',mode:'relay',configured:!!env.HARNESS_REMOTE_CONFIG,authentication:'unverified'};
   return {
     id: "claude",
     name: "Claude",
@@ -30,6 +32,7 @@ export function parseClaudeOutput(stdout) {
  * the caller's point of view.
  */
 export async function runClaude(prompt, env = process.env, signal) {
+  if(env.HARNESS_PLATFORM==='quest')return remoteTeacher('claude',prompt,env,signal);
   try {
     const args = ["-p", prompt, "--output-format", "json", "--no-session-persistence"];
     if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);

@@ -1,0 +1,13 @@
+import {DatabaseSync} from 'node:sqlite';
+import {join,resolve} from 'node:path';
+import {existsSync,writeFileSync} from 'node:fs';
+const source=join(process.env.APPDATA,'Harness Aurora','harness.db');
+const destination=resolve('unreal/AuroraXR/Saved/Standalone/harness-import.db');
+if(existsSync(destination))throw new Error('Snapshot já existe; preserve o backup antes de exportar novamente.');
+const db=new DatabaseSync(source,{readOnly:true});
+db.prepare('VACUUM INTO ?').run(destination);
+const counts={};for(const table of ['projects','conversations','messages','memories'])counts[table]=db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
+db.close();
+const copy=new DatabaseSync(destination,{readOnly:true});
+if(copy.prepare('PRAGMA integrity_check').get().integrity_check!=='ok')throw new Error('Snapshot inválido');copy.close();
+writeFileSync(destination+'.json',JSON.stringify({at:new Date().toISOString(),counts,integrity:'ok'},null,2));console.log(counts);

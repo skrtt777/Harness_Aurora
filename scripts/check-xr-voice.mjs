@@ -1,0 +1,12 @@
+import { createMedia } from '../app/xrMedia.js';
+import { writeFile } from 'node:fs/promises';
+const media=createMedia(),started=performance.now();
+const result=await media.speak({text:'Olá, Lucas. Eu sou a Aurora. Agora você pode ajustar a altura e a posição do visor para ficar mais confortável.'});
+const synthesisMs=Math.round(performance.now()-started);
+const audio=Buffer.from(result.audio,'base64');
+await writeFile('unreal/AuroraXR/Saved/NeuralVoiceSample.wav',audio);
+const recognition=await media.transcribe({audio:result.audio});
+if(!recognition.text.toLowerCase().includes('aurora')||!recognition.text.toLowerCase().includes('visor'))throw new Error('Neural voice intelligibility check failed');
+const report={engine:result.engine,voice:result.voice,local:result.local,sampleRate:result.sampleRate,bytes:audio.length,synthesisMs,transcription:recognition.text,subjectiveQualityValidated:false};
+await writeFile('unreal/AuroraXR/Saved/NeuralVoiceValidation.json',JSON.stringify(report,null,2));
+console.log(JSON.stringify(report,null,2));

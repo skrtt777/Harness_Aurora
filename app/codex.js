@@ -1,7 +1,9 @@
 import { resolveCli, executeCli } from "./cliRuntime.js";
+import {remoteTeacher} from './remoteXR.js';
 
 
 export function buildProviderConfig(env = process.env) {
+  if(env.HARNESS_PLATFORM==='quest')return {id:'codex',name:'Codex (professor remoto)',mode:'relay',configured:!!env.HARNESS_REMOTE_CONFIG,authentication:'unverified'};
   return {
     id: "codex",
     name: "Codex",
@@ -61,6 +63,7 @@ export function extractCodexError(stdout) {
  * the exact same authentication and error handling.
  */
 export async function runCodex(prompt, env = process.env, signal) {
+  if(env.HARNESS_PLATFORM==='quest')return remoteTeacher('codex',prompt,env,signal);
   try {
     const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", prompt];
     if (env.CODEX_MODEL) args.splice(args.length - 1, 0, "--model", env.CODEX_MODEL);

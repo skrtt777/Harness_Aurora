@@ -7,6 +7,9 @@ frontend/*.tsbuildinfo
 frontend/.test-build/
 release/
 .venv-training/
+.venv-xr/
+.venv-xr-tts/
+.venv-xr-pocket/
 models/local-training/
 tmp/
 output/

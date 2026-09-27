@@ -1,4 +1,5 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
+import {llamaReady,runLlama} from './localLlama.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
@@ -7,6 +8,7 @@ export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
 export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
 
 export async function buildProviderConfig(env = process.env) {
+  if(env.LOCAL_ENGINE==='llama.cpp')return {id:'local',name:'Local (Quest)',mode:'http',command:env.LOCAL_MODEL,model:env.LOCAL_MODEL,configured:await llamaReady(env)};
   const model = await resolveLocalModel(env);
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const ready = await isServerUp(baseUrl) && await isModelPulled(baseUrl, model);
@@ -30,6 +32,7 @@ export async function buildProviderConfig(env = process.env) {
  * timeout below, which still applies on its own.
  */
 export async function runLocal(prompt, env = process.env, externalSignal) {
+  if(env.LOCAL_ENGINE==='llama.cpp')return runLlama(prompt,env,externalSignal);
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);

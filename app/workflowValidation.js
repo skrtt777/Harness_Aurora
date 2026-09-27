@@ -1,6 +1,6 @@
 import { parseJavaScript } from './jsSandbox.js';
 import { extractRunnableHtml } from './sandboxCode.js';
-import { chromium } from 'playwright';
+const chromium=process.platform==='android'?null:(await import('playwright')).chromium;
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { diagnoseLocalArtifact, diagnosticText } from './localDiagnostics.js';
@@ -41,6 +41,7 @@ export async function validateArtifact(content, format, { signal, contract, cont
     try { parseJavaScript(m[2]); } catch (error) { return fail(`Sintaxe: ${error.message}`); }
   }
   evidence.push('Documento HTML e sintaxe dos scripts inline verificados.');
+  if(!chromium)return {status:'needs_review',evidence,validator:VALIDATOR_VERSION,limitation:'Teste funcional de navegador requer o Harness desktop.'};
   if (/<script[^>]+src\s*=|\bimport\s*(?:\(|[^;]*from\s*)["']https?:/i.test(html)) return { status: 'needs_review', evidence, validator: VALIDATOR_VERSION, limitation: 'Dependências externas não são acessadas pelo teste isolado. Execute e confira no preview.' };
   let browser; let timer;
   const abort = () => { void browser?.close().catch(() => {}); };

@@ -215,10 +215,13 @@ export async function updateConversation(id, patch) {
   const title = patch.title !== undefined ? String(patch.title).trim() || existing.title : existing.title;
   const projectId = patch.projectId !== undefined ? patch.projectId : existing.project_id;
   const archivedAt = patch.archived !== undefined ? (patch.archived ? now() : null) : existing.archived_at;
-  db.prepare("UPDATE conversations SET title = ?, project_id = ?, archived_at = ?, updated_at = ? WHERE id = ?").run(
+  if(patch.teacherProvider!==undefined&&!['codex','claude'].includes(patch.teacherProvider))throw new Error('Professor inválido.');
+  const teacherProvider=patch.teacherProvider===undefined?existing.teacher_provider:patch.teacherProvider;
+  db.prepare("UPDATE conversations SET title = ?, project_id = ?, archived_at = ?, teacher_provider = ?, updated_at = ? WHERE id = ?").run(
     title,
     projectId,
     archivedAt,
+    teacherProvider,
     now(),
     id,
   );

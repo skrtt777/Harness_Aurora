@@ -131,9 +131,9 @@ export function skillExcerpt(skill, query, budget) {
   return added?{body:result,partial:true}:null;
 }
 
-export async function selectSkills(query, budget = 3600, max = 3, scope = {}) {
+export async function selectSkills(query, budget = 3600, max = 3, scope = {}, env = process.env) {
   const words=terms(query);
-  const candidates = (await allSkills()).filter(s => s.enabled && skillInScope(s,scope) && skillCompatibility(s).status!=='blocked').map(s => ({ ...s, score: selectiveContext()?skillRelevance(s,query):words.reduce((n,w)=>n+(terms(s.name+' '+s.description).some(t=>t===w||(w.length>2&&t.startsWith(w)))?1:0),0) })).filter(s => s.score > 0).sort((a,b) => b.score - a.score || a.name.localeCompare(b.name));
+  const candidates = (await allSkills()).filter(s => s.enabled && skillInScope(s,scope) && skillCompatibility(s).status!=='blocked').map(s => ({ ...s, score: selectiveContext(env)?skillRelevance(s,query):words.reduce((n,w)=>n+(terms(s.name+' '+s.description).some(t=>t===w||(w.length>2&&t.startsWith(w)))?1:0),0) })).filter(s => s.score > 0).sort((a,b) => b.score - a.score || a.name.localeCompare(b.name));
   const selected = []; const names = new Set(); let used = 0;
   for (const skill of candidates) {
     const excerpt = skillExcerpt(skill,query,Math.min(3000,budget-used-100));

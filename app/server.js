@@ -65,6 +65,7 @@ import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./
 import { extractArtifacts, listArtifacts, materializeArtifact } from './artifacts.js';
 
 import { compactContext, rules, DEFAULT_BUDGET } from './economy.js';
+import {compactQuestContext,QUEST_CONTEXT_VERSION} from './questContext.js';
 import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill } from './skills.js';
 import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, findReusableWorkflow, recheckWorkflow } from './workflows.js';
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from './skillCatalog.js';
@@ -133,6 +134,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
   try {
     const conversation = await getConversation(conversationId);
     if (!conversation) return { ok: false, status: 404, error: "Conversa não encontrada." };
+    const questChat=conversation.provider==='local'&&env.LOCAL_ENGINE==='llama.cpp'&&env.HARNESS_QUEST_CHAT_PROFILE===QUEST_CONTEXT_VERSION;
+    const retrievalEnv=questChat?{...env,HARNESS_CONTEXT_POLICY:QUEST_CONTEXT_VERSION}:env;
 
     const trimmed = typeof message === "string" ? message.trim() : "";
     if (!trimmed) return { ok: false, status: 400, error: "A mensagem é obrigatória." };
@@ -154,7 +157,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     const relevant = await selectRelevantMemories(trimmed, {
       conversationId,
       projectId: conversation.projectId,
-    }, 12, env, controller.signal);
+    }, 12, retrievalEnv, controller.signal);
     const promptArgs = {
       input: trimmed,
       history,
@@ -162,7 +165,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       instructions: project?.instructions || "",
       limit: contextLimit,
     };
-    const localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, scope:{conversationId,projectId:conversation.projectId},limit: contextLimit || 12000 }) : null;
+    const localContext = conversation.provider === 'local' ? await (questChat?compactQuestContext:compactContext)({ ...promptArgs, scope:{conversationId,projectId:conversation.projectId},limit: contextLimit || (questChat?3600:12000),env:retrievalEnv }) : null;
     const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
 
     let result;
@@ -180,7 +183,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         if(reused) {
           providerLabel='Local (reutilizado)';
           result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
-        } else result = await runLocal(prompt, localEnv, controller.signal);
+        } else result = await runLocal(localContext?.messages||prompt, localEnv, controller.signal);
         // For local conversations, spend a little extra free Ollama compute
         // (never Codex/Claude) trying to catch mistakes before the user sees
         // them: a syntax-check-and-retry pass for generated code, then a

@@ -1,7 +1,7 @@
 // Deterministic routing: no extra model call, and no fixed quota of references.
 export const CONTEXT_SELECTION_VERSION = 'selective-v1.1';
 // Not promoted to the default: the first A/B did not pass the quality gate.
-export const selectiveContext = (env=process.env) => (env.HARNESS_CONTEXT_POLICY ?? process.env.HARNESS_CONTEXT_POLICY) === 'selective-v1';
+export const selectiveContext = (env=process.env) => ['selective-v1','quest-chat-v1'].includes(env.HARNESS_CONTEXT_POLICY ?? process.env.HARNESS_CONTEXT_POLICY);
 export const normalize = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const stop = new Set('a o as os e de da do das dos em no na nos nas um uma uns umas para por com como que se ao aos pelo pela pelo essa esse esta este isso sua seu suas seus quero preciso favor me fale sobre the and for with from this that into create make criar crie fazer faca use usar utilizando somente apenas deve devem sempre todos todas cada qualquer tambem inicialmente texto numero valores valor'.split(' '));
 const presentation = new Set('html css javascript inline arquivo completo unico entregue entrega codigo fonte fontes imagens bibliotecas externos externo servicos portugues interface limpa responsiva responsivo pixels rolagem horizontal title main lang meta viewport input inputs label associado labels botoes botao nativos nativo nome ids id obrigatorios explique'.split(' '));
