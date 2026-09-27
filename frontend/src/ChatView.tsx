@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArtifacts, type Artifact, type ChatMessage, type ConversationWithMessages, type Project } from './api';
+import { getArtifacts, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type Project } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -56,9 +56,29 @@ function exportConversation(conversation: ConversationWithMessages, format: 'md'
   else downloadBlob(conversationToJson(conversation), `${slug}.json`, 'application/json');
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  browser_navigate: 'Abriu site', browser_snapshot: 'Olhou a página', browser_click: 'Clicou', browser_type: 'Digitou',
+  browser_key: 'Apertou tecla', browser_scroll: 'Rolou a página', browser_read: 'Leu a página', browser_tabs: 'Abas',
+  web_search: 'Pesquisou', web_fetch: 'Leu', open: 'Abriu', run_command: 'Rodou comando',
+  list_dir: 'Listou pasta', read_file: 'Leu arquivo', write_file: 'Salvou arquivo', edit_file: 'Editou arquivo',
+};
+
+function stepText(step: AgentStep) {
+  const args = step.args || {};
+  const detail = args.url ?? args.query ?? args.target ?? args.text ?? args.key ?? args.command ?? args.path ?? args.ref ?? args.action ?? '';
+  return `${TOOL_LABELS[step.tool] || step.tool}${detail ? ` ${String(detail).slice(0, 80)}` : ''}`;
+}
+
+function StepList({ steps }: { steps: AgentStep[] }) {
+  return <ol className="agent-steps">{steps.map((step, index) => <li key={index} className={`agent-step ${step.status || (step.ok === false ? 'failed' : 'done')}`} title={step.summary || ''}>
+    <span className="agent-step-icon" aria-hidden="true">{step.status === 'running' ? '…' : step.ok === false || step.status === 'failed' ? '✕' : '✓'}</span>{stepText(step)}
+  </li>)}</ol>;
+}
+
 type Props = {
   conversation: ConversationWithMessages | null; project: Project | null; loading: boolean;
   sending: boolean; pendingStage: string | null; lastMemoryCreatedCount: number;
+  pendingTurn?: PendingTurn | null; onResolveApproval?: (approvalId: string, approved: boolean) => void;
   onSend: (message: string) => Promise<boolean>; onCancel: () => void;
   onCorrect: (messageId: string, note: string) => Promise<void>; onRenameTitle: (title: string) => void;
   onDuplicate: () => void;
@@ -86,6 +106,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
   return <article className={`chat-message ${isUser ? 'user' : 'assistant'} ${message.provider === 'Sistema' ? 'system' : ''}`} aria-label={isUser ? 'Você' : 'Aurora'}>
     {!isUser && <div className="chat-avatar" aria-hidden="true"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="" width="1254" height="1254" draggable={false} /></div>}
     <div className="chat-bubble-wrap">
+      {!isUser && (message.execution?.toolSteps?.length ?? 0) > 0 && <details className="agent-actions"><summary>{message.execution!.toolSteps!.length} {message.execution!.toolSteps!.length === 1 ? 'ação executada' : 'ações executadas'}</summary><StepList steps={message.execution!.toolSteps!} /></details>}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <div className="message-actions">
         <button onClick={async () => {
@@ -117,7 +138,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
 }
 
 const drafts = new Map<string, string>();
-export default function ChatView({ conversation, project, loading, sending, pendingStage, onSend, onCancel, onCorrect, onRenameTitle, onDuplicate }: Props) {
+export default function ChatView({ conversation, project, loading, sending, pendingStage, pendingTurn, onResolveApproval, onSend, onCancel, onCorrect, onRenameTitle, onDuplicate }: Props) {
   const [draftState, setDraftState] = useState(() => new Map(drafts));
   const draftId = conversation?.id || '';
   const draft = draftState.get(draftId) || '';
@@ -208,7 +229,15 @@ export default function ChatView({ conversation, project, loading, sending, pend
           <div className="starter-prompts">{['Criar um jogo', 'Montar um dashboard', 'Explorar uma ideia'].map(label => <button key={label} onClick={() => { setDraft(label === 'Criar um jogo' ? 'Crie um jogo em HTML que ' : label === 'Montar um dashboard' ? 'Crie um dashboard para ' : 'Quero explorar uma ideia: '); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
         </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
-        {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response" aria-hidden="true"><span className="typing-dots"><span /><span /><span /></span></div></div>}
+        {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
+          {(pendingTurn?.steps.length ?? 0) > 0 && <StepList steps={pendingTurn!.steps} />}
+          {pendingTurn?.approval ? <div className="agent-approval" role="alertdialog" aria-label="Autorização necessária">
+            <p>A Aurora quer {pendingTurn.approval.tool === 'run_command' ? 'executar este comando' : 'fazer isto'}:</p>
+            <code>{pendingTurn.approval.summary}</code>
+            {pendingTurn.approval.detail && <small>{pendingTurn.approval.detail}</small>}
+            <div><button type="button" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, false)}>Negar</button><button type="button" className="primary" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true)}>Permitir</button></div>
+          </div> : <span className="pending-stage">{pendingStage && pendingStage !== 'Gerando resposta…' && <small>{pendingStage}</small>}<span className="typing-dots" aria-hidden="true"><span /><span /><span /></span></span>}
+        </div></div>}
       </div>
       <div className="composer-area"><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
         <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {

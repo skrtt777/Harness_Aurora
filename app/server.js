@@ -59,13 +59,16 @@ import {
   fetchCommunityBundle,
   resolveCommunityManifestUrl,
 } from "./community.js";
-import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn } from "./pendingTurns.js";
+import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn, pushTurnStep, getTurnSteps, requestApproval, getApproval, resolveApproval } from "./pendingTurns.js";
+import { runChatAgent } from "./chatAgent.js";
+import { knownFolders } from "./agentTools/index.js";
+import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
 import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
 import { extractArtifacts, listArtifacts, materializeArtifact } from './artifacts.js';
 
-import { compactContext, rules, DEFAULT_BUDGET } from './economy.js';
+import { compactContext, rules, agentRules, DEFAULT_BUDGET } from './economy.js';
 import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill } from './skills.js';
 import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, findReusableWorkflow, recheckWorkflow } from './workflows.js';
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from './skillCatalog.js';
@@ -120,6 +123,63 @@ export function buildPrompt({ input, memories = [], instructions = "", history =
   return [context, historyText, task].filter(Boolean).join("\n\n").slice(0, max);
 }
 
+// Page snapshots and tool results need more room than a plain answer.
+const AGENT_MIN_CONTEXT_TOKENS = 12288;
+
+async function chatAgentEnabled(env) {
+  if (env.HARNESS_AGENT_TOOLS === "false" || env.LOCAL_ENGINE === "llama.cpp" || env.HARNESS_PLATFORM === "quest") return false;
+  return (await getSetting("agent_tools_enabled")) !== "false";
+}
+
+async function agentAllowedRoots(folders) {
+  try {
+    const saved = JSON.parse(await getSetting("agent_allowed_roots"));
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch {}
+  return [folders.desktop, folders.documents, folders.downloads];
+}
+
+async function agentSettingsPayload() {
+  const folders = await knownFolders();
+  const backend = await getSetting("browser_backend");
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders) };
+}
+
+async function chatAgentToolContext() {
+  const folders = await knownFolders();
+  const backend = await getSetting("browser_backend");
+  return { knownFolders: folders, allowedRoots: await agentAllowedRoots(folders), browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage() };
+}
+
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, browserBackend, openPage }) {
+  return [
+    `Ambiente: ${process.platform === "win32" ? "Windows" : process.platform}; agora é ${new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
+    `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
+    `Você pode ler e salvar arquivos sem pedir em: ${allowedRoots.join("; ")}. Fora disso, o usuário precisa autorizar.`,
+    `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,
+    openPage ? `No navegador agora: "${openPage.title}" — ${openPage.url}. "Lá", "nele" ou "nessa página" se referem a ela.` : "",
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Recent turns as real chat messages. What the agent did in a past turn is
+ * replayed as the tool calls and (short) results it had, the format the
+ * model was trained on — a follow-up like "agora pesquise lá" then knows
+ * where "lá" is without the model imitating an ad-hoc annotation.
+ */
+function agentHistory(history, limit = 8) {
+  return history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-limit).flatMap((m) => {
+    const steps = (m.execution?.toolSteps || []).slice(-6);
+    const content = String(m.content).slice(0, 1500);
+    if (m.role !== "assistant" || !steps.length) return [{ role: m.role, content }];
+    return [
+      { role: "assistant", content: "", tool_calls: steps.map((step) => ({ function: { name: step.tool, arguments: step.args || {} } })) },
+      ...steps.map((step) => ({ role: "tool", tool_name: step.tool, content: step.summary || (step.ok ? "ok" : "falhou") })),
+      { role: "assistant", content },
+    ];
+  });
+}
+
 /**
  * Runs one full chat turn for a conversation: persists the user message
  * immediately (so it survives even if Codex fails), asks Codex for a
@@ -165,32 +225,59 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       limit: contextLimit,
       required:observation?[observation.block]:[],
     };
-    const localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, scope:{conversationId,projectId:conversation.projectId},limit: contextLimit || 12000 }) : null;
-    const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
+    // Settings (Central de Configurações) are the user-facing control for
+    // both knobs; an explicit env var (dev/test override, e.g. running from
+    // source) still wins over them. Resolved once and reused for every call
+    // of the turn, so a changed context size doesn't only apply to the first.
+    const contextSetting = conversation.provider === "local" && env.LOCAL_CONTEXT_TOKENS === undefined ? await getSetting("local_context_tokens") : undefined;
+    const localEnv = contextSetting ? { ...env, LOCAL_CONTEXT_TOKENS: contextSetting } : env;
+    const scope = { conversationId, projectId: conversation.projectId };
+    let localContext = null;
+    let agentContext = null;
+    let agentSteps = [];
 
     let result;
     try {
-      if (conversation.provider === "local") {
-        // Settings (Central de Configurações) are the user-facing control for
-        // both knobs; an explicit env var (dev/test override, e.g. running
-        // from source) still wins over them. Resolved once and reused for the
-        // initial call and every retry/self-review call inside
-        // refineLocalAnswer, so a changed context size doesn't only apply to
-        // the first Ollama call of the turn.
-        const contextSetting = env.LOCAL_CONTEXT_TOKENS === undefined ? await getSetting("local_context_tokens") : undefined;
-        const localEnv = contextSetting ? { ...env, LOCAL_CONTEXT_TOKENS: contextSetting } : env;
-        const reused = observation ? null : await findReusableWorkflow({conversation,goal:trimmed,memories:relevant.slice(0,8),instructions:project?.instructions || ''});
-        if(reused) {
-          providerLabel='Local (reutilizado)';
-          result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
-        } else result = await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) });
+      const reused = conversation.provider === "local" && !observation ? await findReusableWorkflow({conversation,goal:trimmed,memories:relevant.slice(0,8),instructions:project?.instructions || ''}) : null;
+      if (reused) {
+        providerLabel='Local (reutilizado)';
+        result={ok:true,status:200,text:reused.text,usage:{input_tokens:0,output_tokens:0},reusedFrom:reused.workflowId};
+      } else {
+        // The chat is an agent: the model decides whether to answer or to act
+        // (browser, web, apps, files, commands) and loops until done.
+        if (await chatAgentEnabled(env)) {
+          const toolContext = await chatAgentToolContext();
+          agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext)], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
+          const agentEnv = conversation.provider === "local" ? { ...localEnv, LOCAL_CONTEXT_TOKENS: String(Math.max(Number(localEnv.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens, AGENT_MIN_CONTEXT_TOKENS)) } : env;
+          const agent = await runChatAgent({
+            provider: conversation.provider, system: agentContext.prompt, history: agentHistory(history), input: trimmed,
+            env: agentEnv, signal: controller.signal, toolContext,
+            onStage: (stage) => setStage(conversationId, stage),
+            onStep: (step) => pushTurnStep(conversationId, step),
+            approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request); },
+          });
+          if (agent.unsupported && !agent.steps.length) agentContext = null;
+          else {
+            agentSteps = agent.steps;
+            const telemetry = summarizeLocalCalls(agent.calls);
+            result = { ...agent, usage: telemetry.completeUsage ? telemetry.knownUsage : null, metrics: agent.calls.at(-1)?.metrics || null, telemetry: conversation.provider === "local" ? telemetry : undefined };
+          }
+        }
+        if (!result) {
+          localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, scope, limit: contextLimit || 12000 }) : null;
+          const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
+          result = conversation.provider === "local"
+            ? await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) })
+            : await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env, controller.signal);
+        }
         // For local conversations, spend a little extra free Ollama compute
-        // (never Codex/Claude) trying to catch mistakes before the user sees
-        // them: a syntax-check-and-retry pass for generated code, then a
-        // self-review pass against the same memories already selected above.
-        if (!reused) {
+        // (never Codex/Claude) trying to catch mistakes in generated code
+        // before the user sees them. Not after tool use: that answer is a
+        // report of actions, not an artifact.
+        if (conversation.provider === "local" && !agentSteps.length) {
           const maxFixAttemptsSetting = await getSetting("local_max_fix_attempts");
           const maxAttempts = maxFixAttemptsSetting !== null ? Number(maxFixAttemptsSetting) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts;
+          const priorCalls = result.telemetry?.calls || null;
           result = await refineLocalAnswer({
             task: trimmed,
             result,
@@ -200,17 +287,22 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             signal: controller.signal,
             onStage: (stage) => setStage(conversationId, stage),
           });
+          if (priorCalls && result.telemetry && result.telemetry.calls !== priorCalls) {
+            const calls = [...priorCalls, ...result.telemetry.calls.slice(1)];
+            const telemetry = { ...summarizeLocalCalls(calls), events: result.telemetry.events || [] };
+            result = { ...result, telemetry, usage: telemetry.completeUsage ? telemetry.knownUsage : null };
+          }
         }
-      } else {
-        result = await (conversation.provider === "claude" ? runClaude : runCodex)(prompt, env, controller.signal);
       }
     } catch (error) {
-      result = { ok: false, status: 502, error: error.message };
+      result = { ok: false, status: error.status || 502, error: error.message };
     }
+    const usedContext = agentContext || localContext;
     if(conversation.provider === 'local') {
       result.telemetry ||= summarizeLocalCalls(result.reusedFrom ? [] : [localCallRecord(result)]);
-      result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:result.diagnostics||diagnoseLocalArtifact(result.text),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:localContext?{memoryIds:localContext.memoryIds,memoryChars:localContext.memoryChars,skills:localContext.skills,selectionVersion:localContext.selectionVersion}:null};
+      result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
     }
+    if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {
@@ -238,7 +330,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       execution: result.execution,
       provider: providerLabel,
       memoryStatus: conversation.provider === "local" ? "none" : "pending",
-      memoryAccess: localContext ? localContext.memoryIds : relevant.map((m) => m.id),
+      memoryAccess: usedContext ? usedContext.memoryIds : relevant.map((m) => m.id),
       memoryCreated: memoryCreated.map((m) => m.id),
     });
 
@@ -423,6 +515,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           // already apply when nothing is configured — see LOCAL_SETTINGS_DEFAULTS.
           localMaxFixAttempts: localMaxFixAttempts !== null ? Number(localMaxFixAttempts) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts,
           localContextTokens: localContextTokens !== null ? Number(localContextTokens) : LOCAL_SETTINGS_DEFAULTS.contextTokens,
+          ...(await agentSettingsPayload()),
         });
       }
       if (method === "PUT" && pathname === "/api/settings") {
@@ -468,6 +561,18 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           }
           values.local_context_tokens = value;
         }
+        if (body.agentToolsEnabled !== undefined) {
+          if (typeof body.agentToolsEnabled !== "boolean") throw httpError(400, "Valor inválido para as ações do agente.");
+          values.agent_tools_enabled = String(body.agentToolsEnabled);
+        }
+        if (body.browserBackend !== undefined) {
+          if (!BROWSER_BACKENDS.includes(body.browserBackend)) throw httpError(400, "Navegador inválido.");
+          values.browser_backend = body.browserBackend;
+        }
+        if (body.agentAllowedRoots !== undefined) {
+          if (!Array.isArray(body.agentAllowedRoots) || body.agentAllowedRoots.length > 20 || body.agentAllowedRoots.some((p) => typeof p !== "string" || !/^(\/|[a-zA-Z]:[\\/])/.test(p.trim()))) throw httpError(400, "Informe pastas absolutas.");
+          values.agent_allowed_roots = JSON.stringify(body.agentAllowedRoots.map((p) => p.trim()));
+        }
         const db = await getDb();
         db.exec("BEGIN IMMEDIATE");
         try {
@@ -488,6 +593,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           onboardingCompleted: (await getSetting("onboarding_completed")) === "true",
           localMaxFixAttempts: localMaxFixAttempts !== null ? Number(localMaxFixAttempts) : LOCAL_SETTINGS_DEFAULTS.maxFixAttempts,
           localContextTokens: localContextTokens !== null ? Number(localContextTokens) : LOCAL_SETTINGS_DEFAULTS.contextTokens,
+          ...(await agentSettingsPayload()),
         });
       }
 
@@ -673,7 +779,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/pending$/);
       if (match && method === "GET") {
         const [, id] = match;
-        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id) });
+        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id), steps: getTurnSteps(id), approval: getApproval(id) });
+      }
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/approval$/);
+      if (match && method === "POST") {
+        const [, id] = match;
+        const body = await readJson(request);
+        if (typeof body.id !== "string" || typeof body.approved !== "boolean") throw httpError(400, "Resposta de autorização inválida.");
+        return sendJson(response, 200, { resolved: resolveApproval(id, body.id, body.approved) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/cancel$/);
       if (match && method === "POST") {

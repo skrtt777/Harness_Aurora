@@ -4,6 +4,7 @@ import { digest, selectSkills, skillReferences } from './skills.js';
 import { httpError } from './httpSecurity.js';
 import { CONTEXT_SELECTION_VERSION, selectiveContext } from './contextSelection.js';
 
+export const agentRules = readFileSync(fileURLToPath(new URL('./runtime-policy/AGENT.md', import.meta.url)), 'utf8');
 export const rules = Object.fromEntries(['SOUL','RULES','ECONOMY','KERNEL'].map(name => [name, readFileSync(fileURLToPath(new URL(`./runtime-policy/${name}.md`, import.meta.url)), 'utf8')]));
 export const policyHash = digest(Object.values(rules).join('\n')+'\n'+(selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy')+'\nrepair-v1');
 export const DEFAULT_BUDGET = Object.freeze({ maxCalls: 16, maxTokens: 60000, maxAttempts: 2, maxInputChars: 16000, maxOutputTokens: 2048, maxDurationMs: 600000 });
@@ -20,9 +21,8 @@ export function budgetFrom(input = {}) {
 }
 
 // Complete blocks only: never silently cut requirements, code or dependency artifacts.
-export async function compactContext({ input, instructions = '', memories = [], history = [], required = [], limit = 16000, skillQuery = input, includeOptional = true, includeSkills = true, scope = {}, allowSkillRequests = false }) {
+export async function compactContext({ input, instructions = '', memories = [], history = [], required = [], limit = 16000, skillQuery = input, includeOptional = true, includeSkills = true, scope = {}, allowSkillRequests = false, core = rules.KERNEL, withTask = true }) {
   const max = Math.min(24000, Math.max(6000, limit));
-  const core = rules.KERNEL;
   const essential = [core, instructions && `Projeto:\n${instructions}`, ...required, `Tarefa atual:\n${input}`].filter(Boolean);
   if (essential.join('\n\n').length > max) throw httpError(413, 'Requisitos ou dependências excedem o contexto. Divida a etapa; nenhum conteúdo foi truncado.');
   const selectedSkills = includeOptional && includeSkills ? await selectSkills(skillQuery, Math.min(3600, max - essential.join('\n\n').length),3,scope) : [];
@@ -47,6 +47,6 @@ export async function compactContext({ input, instructions = '', memories = [], 
     if (!add(`Histórico ${message.role}: ${message.content}`)) break;
   }
   const task = essential.pop();
-  const prompt = [...essential, ...optional, task].join('\n\n');
+  const prompt = [...essential, ...optional, ...(withTask ? [task] : [])].join('\n\n');
   return { prompt, skills: skillIds, referenceOptions, browserAgentOffered, memoryIds, memoryChars, memoryEstimatedTokens:Math.ceil(memoryChars/3), selectionVersion:selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy', estimatedInputTokens: Math.ceil(prompt.length / 3), omittedMemories: memories.length - memoryIds.length };
 }

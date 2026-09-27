@@ -17,6 +17,9 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
+export type PendingApproval = { id: string; tool: string; summary: string; detail?: string };
+export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null };
 export type UsedSkill = { id: string; name: string; hash: string; partial: boolean };
 export type ChatMessage = {
   id: string;
@@ -29,7 +32,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[] } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
@@ -165,6 +168,10 @@ export const correctMessage = (conversationId: string, messageId: string, note?:
   );
 export const getPendingStage = (conversationId: string) =>
   request<{ stage: string | null }>(`/conversations/${conversationId}/pending`).then((r) => r.stage);
+export const getPendingTurn = (conversationId: string) =>
+  request<PendingTurn>(`/conversations/${conversationId}/pending`).then((r) => ({ stage: r.stage ?? null, steps: r.steps ?? [], approval: r.approval ?? null }));
+export const resolveApproval = (conversationId: string, approvalId: string, approved: boolean) =>
+  request<{ resolved: boolean }>(`/conversations/${conversationId}/approval`, { method: "POST", body: JSON.stringify({ id: approvalId, approved }) });
 export const cancelMessage = (conversationId: string) =>
   request<{ cancelled: boolean }>(`/conversations/${conversationId}/cancel`, { method: "POST" });
 
@@ -215,10 +222,16 @@ export type Settings = {
   localMaxFixAttempts: number;
   /** Tamanho da janela de contexto (num_ctx) enviada ao Ollama, em tokens (2048–32768, padrão 8192). */
   localContextTokens: number;
+  /** O chat pode agir no computador (navegador, web, apps, arquivos, comandos). */
+  agentToolsEnabled: boolean;
+  /** Navegador que o chat controla: Chromium da Aurora ou o Chrome do usuário. */
+  browserBackend: "aurora" | "chrome";
+  /** Pastas onde o chat lê e salva arquivos sem pedir autorização. */
+  agentAllowedRoots: string[];
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------

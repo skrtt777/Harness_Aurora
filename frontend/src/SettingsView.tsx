@@ -60,6 +60,9 @@ export default function SettingsView({
   const [contextTokensDraft, setContextTokensDraft] = useState("8192");
   const [tuningSaved, setTuningSaved] = useState(false);
   const [tuningError, setTuningError] = useState("");
+  const [rootsDraft, setRootsDraft] = useState("");
+  const [agentSaved, setAgentSaved] = useState(false);
+  const [agentError, setAgentError] = useState("");
 
   const refresh = () => {
     getSettings().then((s) => {
@@ -68,6 +71,7 @@ export default function SettingsView({
       setSandboxDraft(s.sandboxDir);
       setMaxFixAttemptsDraft(String(s.localMaxFixAttempts));
       setContextTokensDraft(String(s.localContextTokens));
+      setRootsDraft((s.agentAllowedRoots || []).join("\n"));
     }).catch(e => setError(e.message));
     getProviders().then(setProviders).catch(e => setError(e.message));
     getLocalStatus().then(setLocalStatus).catch(e => setError(e.message));
@@ -116,6 +120,19 @@ export default function SettingsView({
       setTimeout(() => setManifestSaved(false), 2000);
     } catch (err) {
       setManifestError(err instanceof Error ? err.message : "Falha ao salvar.");
+    }
+  };
+
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots">>) => {
+    setAgentError("");
+    try {
+      const updated = await updateSettings(patch);
+      setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
+      setRootsDraft(updated.agentAllowedRoots.join("\n"));
+      setAgentSaved(true);
+      setTimeout(() => setAgentSaved(false), 2000);
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : "Falha ao salvar.");
     }
   };
 
@@ -261,6 +278,48 @@ export default function SettingsView({
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+
+        <div className="settings-card">
+          <h2>Ações no computador</h2>
+          <p className="settings-hint">
+            O chat pode agir por você: controlar o navegador, pesquisar na web, abrir programas e arquivos, salvar
+            arquivos e rodar comandos. Comandos sempre pedem sua autorização antes.
+          </p>
+          <div className="settings-field">
+            <label>Ações do chat</label>
+            <div className="settings-options">
+              {[true, false].map((on) => (
+                <button key={String(on)} className={settings.agentToolsEnabled === on ? "selected" : ""} onClick={() => saveAgent({ agentToolsEnabled: on })}>
+                  {settings.agentToolsEnabled === on && <Icon name="check" size={12} />}
+                  {on ? "Ligadas" : "Só conversa"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="settings-field">
+            <label>Navegador que a Aurora controla</label>
+            <div className="settings-options">
+              {(["aurora", "chrome"] as const).map((id) => (
+                <button key={id} className={settings.browserBackend === id ? "selected" : ""} onClick={() => saveAgent({ browserBackend: id })}>
+                  {settings.browserBackend === id && <Icon name="check" size={12} />}
+                  {id === "aurora" ? "Chromium da Aurora" : "Meu Google Chrome"}
+                </button>
+              ))}
+            </div>
+            <small className="settings-hint">
+              "Meu Google Chrome" abre o seu Chrome num perfil próprio da Aurora; faça login lá uma vez e ele fica salvo.
+            </small>
+          </div>
+          <div className="settings-field">
+            <label>Pastas liberadas para ler e salvar arquivos (uma por linha)</label>
+            <textarea className="path-field" rows={3} value={rootsDraft} onChange={(e) => setRootsDraft(e.target.value)} />
+            <div className="settings-actions">
+              <button onClick={() => saveAgent({ agentAllowedRoots: rootsDraft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) })}>Salvar pastas</button>
+            </div>
+            {agentSaved && <small className="settings-saved">Salvo.</small>}
+            {agentError && <p className="memory-form-error">{agentError}</p>}
           </div>
         </div>
 

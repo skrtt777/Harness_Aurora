@@ -93,6 +93,14 @@ export async function installChromium(onProgress = () => {}) {
  * window on purpose, so the user can see what an experimental local-model
  * agent is doing and intervene (close it, or use the cancel endpoint).
  */
+function installedChannel(env) {
+  const programs = [env.PROGRAMFILES || "C:\\Program Files", env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)", env.LOCALAPPDATA].filter(Boolean);
+  const has = (...parts) => programs.some((base) => existsSync(join(base, ...parts)));
+  if (has("Google", "Chrome", "Application", "chrome.exe")) return "chrome";
+  if (has("Microsoft", "Edge", "Application", "msedge.exe")) return "msedge";
+  return undefined;
+}
+
 async function launchBrowserContext(env) {
   const userDataDir = defaultProfileDir(env);
   await mkdir(userDataDir, { recursive: true });
@@ -101,6 +109,10 @@ async function launchBrowserContext(env) {
     viewport: { width: 1280, height: 800 },
   };
   if (env.CHROMIUM_EXECUTABLE_PATH) launchOptions.executablePath = env.CHROMIUM_EXECUTABLE_PATH;
+  // Without Playwright's own Chromium (not downloaded yet, or a Playwright
+  // upgrade moved to a new build), drive an installed Chrome or Edge — Edge
+  // ships with every Windows 10/11 — instead of failing the action.
+  else if (!isChromiumInstalled(env)) launchOptions.channel = installedChannel(env);
   const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
   context.once("close", () => { contextPromise = null; });
   const page = context.pages()[0] || (await context.newPage());

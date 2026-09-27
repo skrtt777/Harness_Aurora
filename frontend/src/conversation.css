@@ -244,3 +244,21 @@
 .skill-compatibility { font-size:12px; }
 @media (max-width: 700px) { .skills-hub, .skill-review { padding: 14px; } .skills-hub-heading, .skills-hub-search { flex-direction: column; align-items: stretch; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* Chat agent: live tool steps, approval card and executed actions (functional base; visual polish pending). */
+.pending-response:has(.agent-steps, .agent-approval) { flex-direction: column; align-items: flex-start; gap: 8px; }
+.pending-stage { display: flex; align-items: center; gap: 10px; }
+.agent-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: #aaa4b5; }
+.agent-step { display: flex; gap: 8px; align-items: baseline; overflow-wrap: anywhere; }
+.agent-step-icon { width: 14px; flex: none; text-align: center; }
+.agent-step.failed { color: #e08a8a; }
+.agent-step.running { color: #d8d2e4; }
+.agent-approval { display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(200, 180, 255, .35); border-radius: 12px; background: rgba(120, 90, 200, .12); color: inherit; max-width: 560px; }
+.agent-approval p { margin: 0; }
+.agent-approval code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
+.agent-approval div { display: flex; gap: 8px; justify-content: flex-end; }
+.agent-approval button { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(200, 180, 255, .35); background: transparent; color: inherit; cursor: pointer; }
+.agent-approval button.primary { background: rgba(160, 130, 255, .35); }
+.agent-actions { margin-bottom: 6px; font-size: 13px; color: #aaa4b5; }
+.agent-actions summary { cursor: pointer; }
+.agent-actions .agent-steps { margin-top: 6px; }

@@ -1,0 +1,158 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const { executeTool, getTool, toolSchemas, AGENT_TOOLS } = await import("../app/agentTools/index.js");
+const { expandPath, isInsideRoots } = await import("../app/agentTools/files.js");
+const { parseDuckDuckGo, htmlToText } = await import("../app/agentTools/web.js");
+const { matchShortcut, resolveOpenTarget } = await import("../app/agentTools/system.js");
+
+const root = mkdtempSync(join(tmpdir(), "harness-tools-root-"));
+const outside = mkdtempSync(join(tmpdir(), "harness-tools-outside-"));
+const folders = { desktop: root, documents: join(root, "docs"), downloads: join(root, "dl") };
+const ctx = (approve = async () => false, extra = {}) => ({ allowedRoots: [root], knownFolders: folders, env: process.env, approve, ...extra });
+
+test("every tool exposes a valid function schema", () => {
+  const names = new Set();
+  for (const schema of toolSchemas()) {
+    assert.equal(schema.type, "function");
+    assert.match(schema.function.name, /^[a-z_]+$/);
+    assert.ok(schema.function.description.length > 20);
+    assert.equal(schema.function.parameters.type, "object");
+    names.add(schema.function.name);
+  }
+  assert.equal(names.size, AGENT_TOOLS.length);
+  for (const name of ["browser_navigate", "browser_click", "web_search", "open", "run_command", "write_file"]) assert.ok(names.has(name), name);
+});
+
+test("paths expand folder aliases and stay inside the allowed roots", async () => {
+  assert.equal(expandPath("Desktop/notas.txt", folders), join(root, "notas.txt"));
+  assert.equal(expandPath("área de trabalho\\a.txt", folders), join(root, "a.txt"));
+  assert.equal(expandPath("Documentos/x.md", folders), join(root, "docs", "x.md"));
+  assert.equal(expandPath("solto.txt", folders), join(root, "solto.txt"));
+  assert.equal(await isInsideRoots(join(root, "sub", "novo.txt"), [root]), true);
+  assert.equal(await isInsideRoots(join(root, "..", "fora.txt"), [root]), false);
+  assert.equal(await isInsideRoots(join(outside, "x.txt"), [root]), false);
+  const link = join(root, "atalho");
+  try { symlinkSync(outside, link, "junction"); } catch { /* no link support: covered by the other cases */ }
+  if (existsSync(link)) assert.equal(await isInsideRoots(join(link, "segredo.txt"), [root]), false, "a junction must not escape the root");
+});
+
+test("files inside the roots need no approval; outside asks and respects a denial", async () => {
+  const asked = [];
+  const deny = async (request) => { asked.push(request); return false; };
+  const written = await executeTool("write_file", { path: "Desktop/sub/nota.txt", content: "oi" }, ctx(deny));
+  assert.equal(written.ok, true, written.result);
+  assert.equal(readFileSync(join(root, "sub", "nota.txt"), "utf8"), "oi");
+  assert.equal(asked.length, 0);
+
+  const edited = await executeTool("edit_file", { path: join(root, "sub", "nota.txt"), before: "oi", after: "olá" }, ctx(deny));
+  assert.equal(edited.ok, true);
+  assert.equal(readFileSync(join(root, "sub", "nota.txt"), "utf8"), "olá");
+  assert.match((await executeTool("read_file", { path: join(root, "sub", "nota.txt") }, ctx(deny))).result, /olá$/);
+  assert.match((await executeTool("list_dir", { path: root }, ctx(deny))).result, /\[pasta\] sub/);
+
+  const blocked = await executeTool("write_file", { path: join(outside, "x.txt"), content: "x" }, ctx(deny));
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.result, /não autorizou/);
+  assert.equal(existsSync(join(outside, "x.txt")), false);
+  assert.equal(asked.length, 1);
+
+  const allowed = await executeTool("write_file", { path: join(outside, "y.txt"), content: "y" }, ctx(async () => true));
+  assert.equal(allowed.ok, true);
+  assert.equal(readFileSync(join(outside, "y.txt"), "utf8"), "y");
+  assert.match((await executeTool("edit_file", { path: join(root, "sub", "nota.txt"), before: "nada", after: "x" }, ctx(deny))).result, /não existe no arquivo/);
+});
+
+test("run_command never runs without the user's approval", async () => {
+  const marker = join(outside, "rodou.txt");
+  const command = process.platform === "win32" ? `Set-Content -Path '${marker}' -Value ok` : `echo ok > '${marker}'`;
+  const denied = await executeTool("run_command", { command }, ctx(async () => false));
+  assert.equal(denied.ok, false);
+  assert.match(denied.result, /não autorizou/);
+  assert.equal(existsSync(marker), false);
+  const approved = await executeTool("run_command", { command, cwd: outside }, ctx(async (request) => request.summary === command));
+  assert.equal(approved.ok, true, approved.result);
+  assert.match(approved.result, /código 0/);
+  assert.equal(existsSync(marker), true);
+});
+
+test("open resolves links, domains, built-in apps, files and Start Menu shortcuts", async () => {
+  writeFileSync(join(root, "relatorio.pdf"), "%PDF");
+  assert.deepEqual(await resolveOpenTarget("https://youtube.com", ctx()), { target: "https://youtube.com", kind: "link" });
+  assert.deepEqual(await resolveOpenTarget("youtube.com", ctx()), { target: "https://youtube.com", kind: "link" });
+  assert.deepEqual(await resolveOpenTarget("Bloco de Notas", ctx()), { target: "notepad.exe", kind: "app" });
+  assert.deepEqual(await resolveOpenTarget("Desktop/relatorio.pdf", ctx()), { target: join(root, "relatorio.pdf"), kind: "path" });
+  const shortcuts = ["C:\\SM\\Spotify.lnk", "C:\\SM\\Uninstall Spotify.lnk", "C:\\SM\\Microsoft Office\\Word.lnk", "C:\\SM\\Visual Studio Code.lnk"];
+  assert.equal(matchShortcut("spotify", shortcuts), "C:\\SM\\Spotify.lnk");
+  assert.equal(matchShortcut("word", shortcuts), "C:\\SM\\Microsoft Office\\Word.lnk");
+  assert.equal(matchShortcut("vs code", shortcuts), null);
+  assert.equal(matchShortcut("visual studio", shortcuts), "C:\\SM\\Visual Studio Code.lnk");
+});
+
+test("web results are parsed from DuckDuckGo's HTML and pages become readable text", () => {
+  const html = `<div class="result results_links"><div class="links_main links_deep result__body"><h2 class="result__title"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.bcb.gov.br%2Fconversao&amp;rut=abc">Conversor &amp; Cotação</a></h2><a class="result__snippet" href="#">Dólar <b>hoje</b> R$ 5,18</a></div></div>
+  <div class="result"><div class="result__body"><a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Anúncio</a></div></div>`;
+  assert.deepEqual(parseDuckDuckGo(html), [{ title: "Conversor & Cotação", url: "https://www.bcb.gov.br/conversao", snippet: "Dólar hoje R$ 5,18" }]);
+  assert.equal(htmlToText("<style>x{}</style><h1>Título</h1><p>Um&nbsp;texto &#233; bom</p><script>alert(1)</script>"), "Título\nUm texto é bom");
+});
+
+test("unknown tools and bad arguments come back as readable errors", async () => {
+  assert.match((await executeTool("apagar_tudo", {}, ctx())).result, /^ERRO: a ferramenta "apagar_tudo" não existe/);
+  assert.match((await executeTool("browser_navigate", { url: "file:///C:/Windows/win.ini" }, ctx())).result, /^ERRO: Só é possível navegar em HTTP\/HTTPS/);
+  assert.match((await executeTool("web_fetch", { url: "ftp://x" }, ctx())).result, /^ERRO/);
+  assert.ok(getTool("browser_click"));
+});
+
+const { isChromiumInstalled } = await import("../app/browserAgent.js");
+const hasBrowser = isChromiumInstalled(process.env) || ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"].some(existsSync);
+
+test("browser tools drive a real page through DOM refs, typing, clicks and new tabs", { skip: hasBrowser ? false : "Nenhum navegador disponível." }, async () => {
+  const { closeBrowserContext, resetBrowserContextForTests } = await import("../app/browserAgent.js");
+  const { resetBrowserBackendForTests } = await import("../app/browserBackend.js");
+  const page = `<!doctype html><title>Loja Teste</title><main><input placeholder="Buscar produtos" id="q"><button onclick="document.getElementById('out').textContent='Resultados para '+document.getElementById('q').value">Buscar</button>
+    <p id="out"></p><a href="/detalhe">Ver detalhes</a> <a href="/detalhe" target="_blank">Abrir em nova aba</a><canvas width="10" height="10"></canvas></main>`;
+  const server = http.createServer((req, res) => { res.setHeader("content-type", "text/html; charset=utf-8"); res.end(req.url === "/detalhe" ? "<title>Detalhe</title><h1>Produto 42</h1>" : page); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  const env = { ...process.env, BROWSER_AGENT_HEADLESS: "1", BROWSER_AGENT_PROFILE_DIR: mkdtempSync(join(tmpdir(), "harness-agent-browser-")) };
+  const c = ctx(async () => false, { env, browserBackend: "aurora" });
+  resetBrowserContextForTests(); resetBrowserBackendForTests();
+  try {
+    const opened = await executeTool("browser_navigate", { url }, c);
+    assert.equal(opened.ok, true, opened.result);
+    assert.match(opened.result, /Página: Loja Teste/);
+    const ref = opened.result.match(/\[(e\d+)\] textbox "Buscar produtos"/)?.[1];
+    assert.ok(ref, opened.result);
+    assert.match(opened.result, /\[e\d+\] button "Buscar"/);
+    assert.match(opened.result, /\[e\d+\] link "Ver detalhes"/);
+
+    const typed = await executeTool("browser_type", { ref, text: "tênis" }, c);
+    assert.equal(typed.ok, true, typed.result);
+    assert.match(typed.result, /valor: "tênis"/);
+    const clicked = await executeTool("browser_click", { text: "Buscar" }, c);
+    assert.match(clicked.result, /Resultados para tênis/);
+    const read = await executeTool("browser_read", {}, c);
+    assert.match(read.result, /Resultados para tênis/);
+
+    const again = await executeTool("browser_snapshot", {}, c);
+    assert.ok(again.result.includes(`[${ref}] textbox`), "refs stay stable across snapshots");
+
+    const tab = await executeTool("browser_click", { text: "Abrir em nova aba" }, c);
+    assert.match(tab.result, /Página: Detalhe/, "the snapshot follows the tab the click opened");
+    const tabs = await executeTool("browser_tabs", { action: "list" }, c);
+    assert.match(tabs.result, /1 \(ativa\): Detalhe/);
+    await executeTool("browser_tabs", { action: "close", index: 1 }, c);
+    assert.match((await executeTool("browser_snapshot", {}, c)).result, /Página: Loja Teste/);
+
+    const missing = await executeTool("browser_type", { field: "campo que não existe", text: "x" }, c);
+    assert.equal(missing.ok, false);
+  } finally {
+    await closeBrowserContext();
+    resetBrowserBackendForTests();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

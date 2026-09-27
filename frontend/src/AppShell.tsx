@@ -21,7 +21,9 @@ import {
   deleteProject as apiDeleteProject,
   getConversation,
   getMemoryStats,
-  getPendingStage,
+  getPendingTurn,
+  resolveApproval as apiResolveApproval,
+  type PendingTurn,
   getSavingsStats,
   getSettings,
   listConversations,
@@ -53,6 +55,7 @@ export default function AppShell() {
   const [operationError, setOperationError] = useState("");
   const bootStarted = useRef(false);
   const [pendingStage, setPendingStage] = useState<string | null>(null);
+  const [pendingTurn, setPendingTurn] = useState<PendingTurn | null>(null);
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [bootError, setBootError] = useState("");
@@ -281,13 +284,14 @@ export default function AppShell() {
   useEffect(() => {
     if (!sending || !activeConversationId) {
       setPendingStage(null);
+      setPendingTurn(null);
       return;
     }
     let cancelled = false;
     const poll = () => {
-      getPendingStage(activeConversationId)
-        .then((stage) => {
-          if (!cancelled) setPendingStage(stage);
+      getPendingTurn(activeConversationId)
+        .then((turn) => {
+          if (!cancelled) { setPendingStage(turn.stage); setPendingTurn(turn); }
         })
         .catch(() => {});
     };
@@ -298,6 +302,12 @@ export default function AppShell() {
       clearInterval(interval);
     };
   }, [sending, activeConversationId]);
+
+  const handleResolveApproval = useCallback(async (approvalId: string, approved: boolean) => {
+    if (!activeConversationId) return;
+    setPendingTurn(turn => turn ? { ...turn, approval: null } : turn);
+    await apiResolveApproval(activeConversationId, approvalId, approved).catch(() => {});
+  }, [activeConversationId]);
 
   const handleCancel = useCallback(async () => {
     if (!activeConversationId) return;
@@ -402,6 +412,8 @@ export default function AppShell() {
             loading={loadingConversation}
             sending={sending}
             pendingStage={pendingStage}
+            pendingTurn={pendingTurn}
+            onResolveApproval={handleResolveApproval}
             lastMemoryCreatedCount={0}
             onSend={handleSend}
             onCancel={handleCancel}
