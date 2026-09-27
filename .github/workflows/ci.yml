@@ -6,7 +6,11 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -22,8 +26,14 @@ jobs:
       - run: npm ci
       - run: npm --prefix frontend ci
       - run: npx playwright install chromium
+        if: runner.os == 'Windows'
+      - run: npx playwright install --with-deps chromium
+        if: runner.os == 'Linux'
       - run: npm run check
       - run: node scripts/central-memory/validate.mjs
       - run: npm run frontend:build
       - run: npm test
+        if: runner.os == 'Windows'
+      - run: xvfb-run -a npm test
+        if: runner.os == 'Linux'
       - run: npm run test:memory

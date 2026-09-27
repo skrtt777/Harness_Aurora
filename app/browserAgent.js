@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 
 import { runLocal } from "./local.js";
 import { centerOf, findTextBox, recognizeImage } from "./ocr.js";
+import { findSystemBrowser } from "./systemBrowser.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
@@ -36,14 +37,24 @@ export function normalizeGotoUrl(url) {
  * at via CHROMIUM_EXECUTABLE_PATH), the same way runLocal talks to Ollama's
  * own server rather than some system-wide LLM.
  */
-export function isChromiumInstalled(env = process.env) {
-  if (env.CHROMIUM_EXECUTABLE_PATH) return existsSync(env.CHROMIUM_EXECUTABLE_PATH);
+function managedChromiumExists() {
   try {
     const path = chromium.executablePath();
     return Boolean(path) && existsSync(path);
   } catch {
     return false;
   }
+}
+
+// Only on Linux: Windows keeps its intentional managed-Chromium download,
+// while on a Raspberry Pi the distro chromium may be the only option.
+function linuxSystemBrowser() {
+  return process.platform === "linux" ? findSystemBrowser("linux") : null;
+}
+
+export function isChromiumInstalled(env = process.env) {
+  if (env.CHROMIUM_EXECUTABLE_PATH) return existsSync(env.CHROMIUM_EXECUTABLE_PATH);
+  return managedChromiumExists() || Boolean(linuxSystemBrowser());
 }
 
 function playwrightCliPath() {
@@ -98,7 +109,8 @@ async function launchBrowserContext(env) {
     headless: env.BROWSER_AGENT_HEADLESS === "1",
     viewport: { width: 1280, height: 800 },
   };
-  if (env.CHROMIUM_EXECUTABLE_PATH) launchOptions.executablePath = env.CHROMIUM_EXECUTABLE_PATH;
+  const executablePath = env.CHROMIUM_EXECUTABLE_PATH || (managedChromiumExists() ? null : linuxSystemBrowser());
+  if (executablePath) launchOptions.executablePath = executablePath;
   const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
   context.once("close", () => { contextPromise = null; });
   const page = context.pages()[0] || (await context.newPage());

@@ -4,6 +4,12 @@
   "version": "0.1.23",
   "private": true,
   "description": "Harness local para uso individual ou colaborativo de provedores de IA.",
+  "homepage": "https://github.com/skrtt777/Harness_Aurora",
+  "author": {
+    "name": "skrtt777",
+    "email": "skrtt777@users.noreply.github.com"
+  },
+  "desktopName": "harness-aurora.desktop",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -17,6 +23,7 @@
     "electron:dev": "concurrently -k -n backend,frontend,electron \"npm:start\" \"npm:frontend:dev\" \"npm:electron:wait\"",
     "electron:wait": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
     "dist": "npm run frontend:build && electron-builder --publish never",
+    "dist:linux": "npm run frontend:build && electron-builder --linux --x64 --arm64 --publish never",
     "prepare": "node scripts/install-git-hooks.mjs"
   },
   "engines": {
@@ -49,6 +56,46 @@
       "perMachine": false,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "electron/icon-512.png",
+      "category": "Development",
+      "executableName": "harness-aurora",
+      "artifactName": "Harness-Aurora-${version}-${arch}.${ext}",
+      "maintainer": "skrtt777 <skrtt777@users.noreply.github.com>",
+      "synopsis": "Harness local para provedores de IA",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2t64 | libasound2",
+        "libgbm1"
+      ]
     },
     "publish": [
       {

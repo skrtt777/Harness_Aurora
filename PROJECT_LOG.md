@@ -675,3 +675,14 @@ O bug real estava no frontend (`ChatView.tsx`): quando `onCorrect` rejeita (qual
 **Correção**: `submitCorrection` agora captura o erro (`catch` em vez de deixar propagar em silêncio) e guarda numa nova `correctionError`, exibida com o mesmo estilo `.memory-form-error` já usado no resto do app. Também adicionei uma dica (`.correct-hint`) avisando que a correção pode levar até 1 minuto, enquanto `sendingCorrection` está true — pra diferenciar "está processando" de "travou". Fortaleci o teste já existente (`test/server.test.js`, "POST /correct fails gracefully...") pra também checar que `error` é sempre uma string não-vazia, já que agora o frontend depende desse contrato pra mostrar a mensagem certa.
 
 `npm run check`, `npm test` (141/141, mesmo total — só fortaleci as asserções de um teste já existente, não adicionei um novo), `npm run test:memory` (6/6), `npm run frontend:build` passando. Versão subida pra `0.1.12` (mesmo motivo do bump anterior: dar um jeito visível de confirmar que a correção chegou no computador do usuário).
+
+### 2026-09-27 — Versão Linux (Ubuntu x64 e Raspberry Pi arm64)
+
+- `package.json`: alvo `linux` com AppImage e `.deb` em x64 e arm64, ícone de 512 px (`electron/icon-512.png`) e script `dist:linux`.
+- Novo workflow `.github/workflows/release-linux.yml`: em tag `v*` (ou manualmente), gera os quatro pacotes num runner Ubuntu e anexa ao release da tag, junto com `latest-linux*.yml` para o auto-updater. O CI (`ci.yml`) agora roda também em `ubuntu-latest`.
+- `app/systemBrowser.js`: lista única de navegadores Chromium do sistema (Windows e Linux), usada por `workflowValidation.js` e, só no Linux, por `browserAgent.js`, porque no Raspberry Pi o Playwright pode não ter Chromium.
+- `app/ollamaSetup.js`: a instalação no Linux usa `pkexec` (senha gráfica). Sem `pkexec` ou sem sessão gráfica, devolve instrução manual. Antes, o `sudo` do `install.sh` falhava sem TTY.
+- `electron/main.js`: auto-update desligado quando não é AppImage (estado `unsupported` mostrado em Configurações), e a falta de bandeja não impede o app de abrir.
+- `npm test` (261/261), `npm run check` e `npm run frontend:build` passando no Windows.
+- Validação em Docker, porque o GitHub Actions está bloqueado por cobrança na conta: os quatro pacotes foram gerados em `node:24-bookworm`. O `.deb` amd64 foi instalado num Ubuntu 24.04 limpo e o app abriu (backend em 2 s, janela e atalho global). O AppImage x86_64 também abriu. O `.deb` arm64 foi instalado num Debian Bookworm emulado (QEMU): o backend sobe, mas o renderer cai por limitação da emulação, então a janela precisa ser confirmada num Pi real.
+- Correção encontrada no teste: o `.deb` precisa declarar `libasound2t64 | libasound2` e `libgbm1`. Sem isso, o apt instala o substituto OSS do ALSA e o app não abre.
