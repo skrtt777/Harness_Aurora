@@ -1,32 +1,72 @@
-# Chat agêntico da Aurora (desktop)
+# Aurora como agente local que aprende
 
-O chat do desktop deixou de ser uma única chamada de texto. Agora ele é um loop de agente: o modelo decide se responde direto ou se age, chama ferramentas, lê o resultado e continua até concluir. Não existe roteador por palavra-chave; quem escolhe a ferramenta é o modelo.
+O chat do desktop é um agente. O modelo local decide se responde direto ou se age: navegador, web, programas, arquivos do projeto, terminal, memória e skills. Ele age passo a passo até concluir. Quando erra, ou quando a entrega alterou algo, um professor pago (Codex ou Claude CLI) revisa, ensina e a própria local refaz. Uma bateria fixa de tarefas mede se ela está melhorando.
+
+Revisão e roadmap: [`REVISAO_2026-09-27.md`](REVISAO_2026-09-27.md).
 
 ## Peças
 
 | Arquivo | Papel |
 |---|---|
-| `app/chatAgent.js` | Loop do agente. Limite de 15 ações; detecção de repetição (mesma ação 3×); um empurrão quando a resposta só anuncia a próxima ação ("vou rolar…"); compactação dos resultados antigos para caber no contexto; fechamento com um resumo sem ferramentas. |
-| `app/local.js` → `runLocalChat` | Ollama `/api/chat` com tool calling nativo. Um modelo sem suporte a ferramentas (ex.: fine-tunes `aurora-local`) devolve `unsupported`, e o chat cai no pipeline de texto antigo. |
-| `app/agentTools/` | Ferramentas: `browser_*` (por DOM/refs, com OCR só como reserva), `web_search`/`web_fetch` (DuckDuckGo), `open` (apps do Menu Iniciar, arquivos, links), `list_dir`/`read_file`/`write_file`/`edit_file` (presos às pastas liberadas) e `run_command` (sempre pede autorização). |
-| `app/browserBackend.js` | Dois navegadores: "Chromium da Aurora" (Playwright; sem o Chromium próprio, usa Chrome ou Edge instalados) e "Meu Google Chrome" (CDP, com perfil dedicado da Aurora). |
-| `app/runtime-policy/AGENT.md` | Instruções do agente. |
-| `app/pendingTurns.js` + `/api/conversations/:id/approval` | O turno pausa até o usuário clicar Permitir/Negar. Cancelar ou encerrar o turno nega a autorização. |
+| `app/chatAgent.js` | Loop do agente. Limite de 15 ações; detecção de repetição; um empurrão quando a resposta só anuncia a ação; compactação dos resultados antigos; devolve a conversa e o motivo de parada. |
+| `app/local.js` → `runLocalChat` | Ollama `/api/chat` com tool calling nativo e `keep_alive` de 30 min. Um modelo sem suporte a ferramentas cai no pipeline de texto antigo. |
+| `app/agentTools/` | 26 ferramentas: `browser_*` (DOM/refs, abas, OCR de reserva), `web_search`/`web_fetch`, `open`, `list_dir`/`search_files`/`grep`/`read_file`/`write_file`/`edit_file`, `run_command` (ao vivo e em segundo plano) com `command_output`/`command_stop`, `memory_search`/`memory_save`, `skill_search`/`skill_use`/`skill_create` e `update_plan`. |
+| `app/agentPolicy.js` | Modos **Auto** (livre na pasta do projeto; pergunta ao apagar, instalar, usar a rede, mexer no sistema ou sair da pasta), **Manual** (pergunta toda alteração) e **Plano** (só olha). "Sempre permitir" por prefixo de comando, nunca para comandos perigosos. |
+| `app/agentTools/netGuard.js` | O agente nunca alcança a UI/API da própria Aurora, o Ollama nem a ponte XR, nem por link ou redirecionamento. |
+| Projeto (`workspace_dir`) | Pasta de trabalho do projeto; `AURORA.md`, `AGENTS.md` ou `CLAUDE.md` dentro dela viram instruções permanentes. |
+| `app/teacher.js` + `app/teachingLoop.js` | Professor automático (ver abaixo). |
+| `app/agentEval.js` + `agentEvalRuns.js` | Avaliação contínua (ver abaixo). |
 
-- **Claude/Codex:** usam o mesmo loop com um protocolo em texto (`{"tool":…,"args":…}`).
-- **Quest (`LOCAL_ENGINE=llama.cpp`):** continua no caminho antigo, sem ferramentas.
-- **Desligar:** Configurações → Ações no computador → "Só conversa" (ou `HARNESS_AGENT_TOOLS=false`).
+## Professor automático
 
-## Medições (2026-09-27, qwen3.5:4b, Ollama, PC do desenvolvedor)
+1. **Sinais de erro, sem custo:**
+   - ação que falhou e não foi recuperada;
+   - limite de ações atingido;
+   - repetição da mesma ação;
+   - o agente admite que não conseguiu;
+   - o usuário reclama ("não funcionou", "tá errado", "de novo").
+2. **Quando revisa**, no modo padrão "Erros e entregas": em todo sinal de erro e em toda entrega que alterou arquivos, rodou comandos, clicou ou digitou em páginas ou abriu programas. Só navegar ou ler não dispara revisão.
+3. **Como revisa:** o professor recebe a trajetória (pedido, ações, resultados, resposta) e roda **dentro da pasta do projeto**, podendo ler os arquivos para conferir. Ele devolve um veredito JSON: `ok` ou `fix`, com problemas, orientação, lições e uma skill opcional.
+4. **Com `fix`:**
+   - as lições viram memórias (deduplicadas);
+   - uma skill proposta pelo professor é ativada;
+   - a **local refaz** sobre a própria tentativa;
+   - se a nova tentativa sai limpa, as lições ganham "ajudou".
+5. **Estatística das memórias:** memórias no contexto de uma entrega aprovada ganham "ajudou"; numa entrega corrigida, "falhou". As automáticas que falham 3 vezes sem nunca ajudar são arquivadas. As que você escreve nunca são arquivadas.
+6. **Limites de custo:** limite diário configurável (padrão 30 chamadas). A falha do professor nunca bloqueia a resposta.
 
-| Pedido | Ações | Tempo |
-|---|---|---|
-| "controle o navegador e acesse o youtube" | `browser_navigate` | 13–39 s (o primeiro inclui carregar o modelo) |
-| "agora pesquise por jazz lofi lá" (continuação) | `browser_type` (errou o campo e se corrigiu pela lista de campos no erro) | 43 s |
-| "abre o segundo vídeo" (continuação) | `browser_snapshot`, `browser_click` | 28 s |
-| "pesquise lofi girl no youtube e abra o primeiro vídeo" | `browser_navigate` (URL de busca), `browser_click` | 51 s |
-| "qual a cotação do dólar hoje?" | `web_search`, `web_fetch` | 59 s |
-| "rode o ipconfig e me diga meu endereço IPv4" | `run_command` ×2 (com autorização) | 44 s |
-| "oi, tudo bem?" | nenhuma | 9 s |
+Exemplo real (Codex, 27/09):
+- A local criou `soma.js` com `parseInt`.
+- O Codex rodou `node soma.js 1.5 2.5` na pasta, viu 3 em vez de 4 e ensinou: "use uma conversão que preserve decimais e verifique um exemplo com casas decimais".
+- A local trocou por `Number()` e conferiu os dois casos.
+- Tempo total: 21 s.
 
-O 4b resolve esses casos, mas é lento e às vezes dá voltas; o `qwen3.5:9b` não foi medido (não está instalado). O tempo é dominado pelo processamento do prompt (as ferramentas somam cerca de 1,5k tokens), não pelas ações.
+## Avaliação contínua
+
+Configurações → "A IA local está aprendendo?":
+- **Bateria:** 12 tarefas com verificação determinística (arquivos, busca, terminal, script, correção de bug, renomear, navegador em site de teste local, memória, conversa).
+- **Isolamento:** roda numa **cópia** do banco, em processo separado, sem o professor.
+- **Comparação:** com ou sem as memórias aprendidas.
+- **Histórico:** fica na tabela `agent_eval_runs`.
+
+Pela linha de comando:
+
+```
+HARNESS_DB_FILE=<cópia.db> node app/agentEvalRunner.mjs [--no-memories]
+```
+
+## Medições (27/09, qwen3.5:4b, RTX 4090)
+
+| Medida | Resultado |
+|---|---|
+| Pedido simples ("oi") | ~2–3 s |
+| Abrir o YouTube no navegador | ~5 s |
+| Pesquisar a cotação do dólar (busca + leitura) | ~3 s |
+| Entrega com ação + revisão do Codex | 17–21 s (revisão ~10–16 s) |
+| Bateria de 12 tarefas | 24–37 s sem memórias; ~30 s com memórias (uma rodada levou ~158 s por um comando que esperava stdin, corrigido) |
+| Acertos com as 93 memórias | 11/12 e 10/12 |
+| Acertos sem memórias | 9/12 e 10/12 |
+
+A amostra ainda é pequena para afirmar ganho das memórias. É para isso que existe a curva contínua.
+
+A lentidão do primeiro teste de 27/09 (20–60 s por pedido) era ambiental: a geração estava a ~4 tokens/s, velocidade de CPU, porque a GPU estava ocupada. O código também eliminava recargas desnecessárias do modelo: mesmo `num_ctx` em todas as chamadas e `keep_alive` de 30 min.
