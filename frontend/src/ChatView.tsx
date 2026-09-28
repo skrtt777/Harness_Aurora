@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArtifacts, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type Project } from './api';
+import { getArtifacts, getSettings, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -61,7 +61,33 @@ const TOOL_LABELS: Record<string, string> = {
   browser_key: 'Apertou tecla', browser_scroll: 'Rolou a página', browser_read: 'Leu a página', browser_tabs: 'Abas',
   web_search: 'Pesquisou', web_fetch: 'Leu', open: 'Abriu', run_command: 'Rodou comando',
   list_dir: 'Listou pasta', read_file: 'Leu arquivo', write_file: 'Salvou arquivo', edit_file: 'Editou arquivo',
+  search_files: 'Procurou arquivos', grep: 'Procurou texto', command_output: 'Conferiu processo', command_stop: 'Encerrou processo',
+  memory_search: 'Consultou memórias', memory_save: 'Guardou na memória', skill_search: 'Procurou skills', skill_use: 'Usou skill',
+  skill_create: 'Criou skill', update_plan: 'Atualizou o plano',
 };
+
+const MODE_LABEL: Record<AgentMode, string> = { auto: 'Auto', manual: 'Manual', plan: 'Plano' };
+const MODE_HINT: Record<AgentMode, string> = {
+  auto: 'Age livremente na pasta do projeto; pergunta antes de apagar, instalar, usar a rede ou sair da pasta.',
+  manual: 'Pergunta antes de toda alteração, comando ou programa aberto.',
+  plan: 'Só olha e propõe: não altera nada.',
+};
+
+// Global agent mode, switchable right from the chat.
+function AgentModeSelect() {
+  const [mode, setMode] = useState<AgentMode | null>(null);
+  useEffect(() => { getSettings().then(s => setMode(s.agentMode)).catch(() => {}); }, []);
+  if (!mode) return null;
+  return <label className="agent-mode" title={MODE_HINT[mode]}>Modo
+    <select value={mode} onChange={async event => { const next = event.target.value as AgentMode; setMode(next); await updateSettings({ agentMode: next }).catch(() => {}); }}>
+      {(Object.keys(MODE_LABEL) as AgentMode[]).map(m => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
+    </select>
+  </label>;
+}
+
+function PlanList({ plan }: { plan: PlanItem[] }) {
+  return <ol className="agent-plan">{plan.map((item, index) => <li key={index} className={item.status}>{item.status === 'done' ? '☑' : item.status === 'in_progress' ? '▸' : '☐'} {item.text}</li>)}</ol>;
+}
 
 function stepText(step: AgentStep) {
   const args = step.args || {};
@@ -78,7 +104,7 @@ function StepList({ steps }: { steps: AgentStep[] }) {
 type Props = {
   conversation: ConversationWithMessages | null; project: Project | null; loading: boolean;
   sending: boolean; pendingStage: string | null; lastMemoryCreatedCount: number;
-  pendingTurn?: PendingTurn | null; onResolveApproval?: (approvalId: string, approved: boolean) => void;
+  pendingTurn?: PendingTurn | null; onResolveApproval?: (approvalId: string, approved: boolean, always?: boolean) => void;
   onSend: (message: string) => Promise<boolean>; onCancel: () => void;
   onCorrect: (messageId: string, note: string) => Promise<void>; onRenameTitle: (title: string) => void;
   onDuplicate: () => void;
@@ -230,16 +256,17 @@ export default function ChatView({ conversation, project, loading, sending, pend
         </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
+          {pendingTurn?.plan && <PlanList plan={pendingTurn.plan} />}
           {(pendingTurn?.steps.length ?? 0) > 0 && <StepList steps={pendingTurn!.steps} />}
           {pendingTurn?.approval ? <div className="agent-approval" role="alertdialog" aria-label="Autorização necessária">
             <p>A Aurora quer {pendingTurn.approval.tool === 'run_command' ? 'executar este comando' : 'fazer isto'}:</p>
             <code>{pendingTurn.approval.summary}</code>
             {pendingTurn.approval.detail && <small>{pendingTurn.approval.detail}</small>}
-            <div><button type="button" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, false)}>Negar</button><button type="button" className="primary" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true)}>Permitir</button></div>
+            <div><button type="button" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, false)}>Negar</button>{pendingTurn.approval.rule && <button type="button" title="Não perguntar de novo para comandos que começam assim" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true, true)}>Sempre permitir “{pendingTurn.approval.rule}”</button>}<button type="button" className="primary" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true)}>Permitir</button></div>
           </div> : <span className="pending-stage">{pendingStage && pendingStage !== 'Gerando resposta…' && <small>{pendingStage}</small>}<span className="typing-dots" aria-hidden="true"><span /><span /><span /></span></span>}
         </div></div>}
       </div>
-      <div className="composer-area"><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+      <div className="composer-area"><AgentModeSelect /><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
         <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
           if (event.key === 'Escape' && composerExpanded) { event.preventDefault(); setComposerExpanded(false); }
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }

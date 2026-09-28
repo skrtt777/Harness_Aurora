@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -83,7 +83,7 @@ export async function resolveOpenTarget(target, ctx) {
   const builtin = BUILTIN_APPS[text.toLowerCase()] || BUILTIN_APPS[normalizeName(text)];
   if (builtin) return { target: builtin, kind: "app" };
   if (/[\\/]/.test(text) || /^[a-z]:/i.test(text) || /\.[a-z0-9]{1,5}$/i.test(text) || /^(desktop|documentos|downloads|~)/i.test(text)) {
-    const full = expandPath(text, ctx.knownFolders);
+    const full = expandPath(text, ctx.knownFolders, ctx.workspace);
     if (existsSync(full)) return { target: full, kind: statSync(full).isDirectory() || SAFE_TO_OPEN.test(full) ? "path" : "executable" };
   }
   const shortcut = IS_WINDOWS ? matchShortcut(text, await startMenuShortcuts(ctx.env)) : null;
@@ -91,41 +91,116 @@ export async function resolveOpenTarget(target, ctx) {
   throw new Error(`Não encontrei um app, arquivo ou site chamado "${text}". Se for um programa, diga o nome como aparece no Menu Iniciar.`);
 }
 
+// Background processes (dev servers, watchers) the agent started this session.
+const processes = new Map();
+const MAX_OUTPUT = 60_000;
+let nextProcess = 1;
+
+function shellFor(command) {
+  return IS_WINDOWS ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]] : ["/bin/sh", ["-c", command]];
+}
+
+function stopTree(child) {
+  if (!child.pid || child.exitCode !== null) return;
+  if (IS_WINDOWS) execFile("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+  else child.kill("SIGTERM");
+}
+
+const commandDir = (cwd, ctx) => (cwd ? expandPath(cwd, ctx.knownFolders, ctx.workspace) : ctx.workspace || homedir());
+
+export function stopAllBackgroundProcesses() {
+  for (const entry of processes.values()) stopTree(entry.child);
+}
+
 export const systemTools = [
   {
     name: "open",
     description: "Abre no computador do usuário: um programa pelo nome (ex.: \"Spotify\", \"bloco de notas\", \"calculadora\"), um arquivo ou pasta (caminho ou Desktop/Documentos/Downloads) ou um link no navegador padrão. Para CONTROLAR um site (clicar, digitar, ler), use as ferramentas browser_*.",
     parameters: { type: "object", properties: { target: { type: "string" } }, required: ["target"] },
-    risk: "safe",
     stage: (a) => `Abrindo ${a.target}…`,
-    async run({ target }, ctx) {
+    async describe({ target }, ctx) {
       const resolved = await resolveOpenTarget(target, ctx);
       if (resolved.kind === "link") assertAllowedUrl(resolved.target);
-      if (resolved.kind === "executable" && !(await ctx.approve({ tool: "open", summary: `Abrir ${resolved.target} (pode executar um programa)` }))) throw new Error("O usuário não autorizou executar esse programa.");
+      const launch = resolved.kind === "executable" ? "executable" : resolved.kind === "app" ? "app" : "document";
+      return { kind: "open", launch, summary: `Abrir ${resolved.target}` };
+    },
+    async run({ target }, ctx) {
+      const resolved = await resolveOpenTarget(target, ctx);
       await launch(resolved.target);
       return `Abri ${resolved.target}.`;
     },
   },
   {
     name: "run_command",
-    description: "Executa um comando do PowerShell no computador do usuário e devolve a saída. SEMPRE pede autorização ao usuário antes. Use só quando nenhuma outra ferramenta resolve.",
-    parameters: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string", description: "pasta onde rodar (opcional)" } }, required: ["command"] },
-    risk: "exec",
+    description: "Executa um comando do PowerShell na pasta do projeto e devolve a saída (até 2 min). Para servidores e processos longos use background=true e acompanhe com command_output. Comandos que apagam, instalam, usam a rede ou mexem no sistema pedem autorização.",
+    parameters: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string", description: "pasta onde rodar (padrão: pasta do projeto)" }, background: { type: "boolean" } }, required: ["command"] },
     stage: (a) => `Rodando ${String(a.command).slice(0, 50)}…`,
-    async run({ command, cwd }, ctx) {
+    describe: ({ command, cwd }, ctx) => ({ kind: "exec", command: String(command || ""), cwd: commandDir(cwd, ctx), summary: String(command || "") }),
+    async run({ command, cwd, background }, ctx) {
       const text = String(command || "").trim();
       if (!text) throw new Error("Informe o comando.");
-      const dir = cwd ? expandPath(cwd, ctx.knownFolders) : homedir();
-      if (!(await ctx.approve({ tool: "run_command", summary: text, detail: `Pasta: ${dir}` }))) throw new Error("O usuário não autorizou esse comando.");
-      ctx.onStage?.(`Rodando ${text.slice(0, 50)}…`);
+      const dir = commandDir(cwd, ctx);
+      const [cmd, args] = shellFor(text);
+      const child = spawn(cmd, args, { cwd: dir, windowsHide: true });
+      let output = "";
+      const append = (chunk) => {
+        output = (output + chunk).slice(-MAX_OUTPUT);
+        const last = output.trim().split(/\r?\n/).at(-1);
+        if (last && !background) ctx.onStage?.(`${text.slice(0, 30)}: ${last.slice(0, 80)}`);
+      };
+      child.stdout.setEncoding("utf8").on("data", append);
+      child.stderr.setEncoding("utf8").on("data", append);
+      if (background) {
+        const id = `p${nextProcess++}`;
+        const entry = { id, command: text, cwd: dir, child, read: 0, get output() { return output; }, exit: null };
+        child.on("close", (code) => { entry.exit = code; });
+        child.on("error", (error) => { output += `\n${error.message}`; entry.exit = -1; });
+        processes.set(id, entry);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        entry.read = output.length;
+        return `Processo ${id} iniciado em segundo plano (${dir}).${entry.exit !== null ? ` Já terminou com código ${entry.exit}.` : ""}\nSaída inicial:\n${output.slice(-3000) || "(nada ainda)"}`;
+      }
       return new Promise((resolve) => {
-        const [cmd, args] = IS_WINDOWS ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", text]] : ["/bin/sh", ["-c", text]];
-        execFile(cmd, args, { cwd: dir, windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024, signal: ctx.signal }, (error, stdout, stderr) => {
-          const out = [String(stdout || "").trim(), String(stderr || "").trim() && `stderr:\n${String(stderr).trim()}`].filter(Boolean).join("\n\n");
-          const status = error ? (error.killed ? "interrompido (tempo esgotado)" : `código ${error.code ?? "?"}`) : "código 0";
-          resolve(`Comando terminou com ${status}.\n${out.slice(0, 6000) || "(sem saída)"}`);
+        const timer = setTimeout(() => stopTree(child), 120_000);
+        const abort = () => stopTree(child);
+        ctx.signal?.addEventListener("abort", abort, { once: true });
+        child.on("error", (error) => { output += `\n${error.message}`; });
+        child.on("close", (code, signal) => {
+          clearTimeout(timer);
+          ctx.signal?.removeEventListener("abort", abort);
+          const status = signal || code === null ? "interrompido" : `código ${code}`;
+          const tail = output.trim();
+          resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}`);
         });
       });
+    },
+  },
+  {
+    name: "command_output",
+    description: "Mostra a saída nova de um processo em segundo plano (id como p1) e se ele ainda está rodando.",
+    parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    stage: (a) => `Conferindo o processo ${a.id}…`,
+    describe: () => ({ kind: "meta" }),
+    async run({ id }) {
+      const entry = processes.get(String(id));
+      if (!entry) throw new Error(`Não existe processo ${id}. Em execução: ${[...processes.keys()].join(", ") || "nenhum"}.`);
+      const fresh = entry.output.slice(entry.read);
+      entry.read = entry.output.length;
+      return `${entry.command} — ${entry.exit === null ? "rodando" : `terminou com código ${entry.exit}`}\n${fresh.trim().slice(-6000) || "(sem saída nova)"}`;
+    },
+  },
+  {
+    name: "command_stop",
+    description: "Encerra um processo em segundo plano iniciado pela Aurora.",
+    parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    stage: (a) => `Encerrando o processo ${a.id}…`,
+    describe: () => ({ kind: "meta" }),
+    async run({ id }) {
+      const entry = processes.get(String(id));
+      if (!entry) throw new Error(`Não existe processo ${id}.`);
+      stopTree(entry.child);
+      processes.delete(String(id));
+      return `Encerrei ${entry.command}.`;
     },
   },
 ];

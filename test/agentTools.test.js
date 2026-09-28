@@ -13,7 +13,7 @@ const { matchShortcut, resolveOpenTarget } = await import("../app/agentTools/sys
 const root = mkdtempSync(join(tmpdir(), "harness-tools-root-"));
 const outside = mkdtempSync(join(tmpdir(), "harness-tools-outside-"));
 const folders = { desktop: root, documents: join(root, "docs"), downloads: join(root, "dl") };
-const ctx = (approve = async () => false, extra = {}) => ({ allowedRoots: [root], knownFolders: folders, env: process.env, approve, ...extra });
+const ctx = (approve = async () => false, extra = {}) => ({ allowedRoots: [root], workspaceRoots: [root], mode: "auto", knownFolders: folders, env: process.env, approve, ...extra });
 
 test("every tool exposes a valid function schema", () => {
   const names = new Set();
@@ -52,7 +52,7 @@ test("files inside the roots need no approval; outside asks and respects a denia
   const edited = await executeTool("edit_file", { path: join(root, "sub", "nota.txt"), before: "oi", after: "olá" }, ctx(deny));
   assert.equal(edited.ok, true);
   assert.equal(readFileSync(join(root, "sub", "nota.txt"), "utf8"), "olá");
-  assert.match((await executeTool("read_file", { path: join(root, "sub", "nota.txt") }, ctx(deny))).result, /olá$/);
+  assert.match((await executeTool("read_file", { path: join(root, "sub", "nota.txt") }, ctx(deny))).result, /\n +1  olá\n/);
   assert.match((await executeTool("list_dir", { path: root }, ctx(deny))).result, /\[pasta\] sub/);
 
   const blocked = await executeTool("write_file", { path: join(outside, "x.txt"), content: "x" }, ctx(deny));

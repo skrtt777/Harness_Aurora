@@ -52,6 +52,15 @@ export function getTurnSteps(conversationId) {
   return pending.get(conversationId)?.steps || [];
 }
 
+export function setTurnPlan(conversationId, plan) {
+  const entry = pending.get(conversationId);
+  if (entry) entry.plan = plan;
+}
+
+export function getTurnPlan(conversationId) {
+  return pending.get(conversationId)?.plan || null;
+}
+
 /**
  * Pauses the turn until the user clicks Permitir/Negar in the chat. The
  * pending request is exposed through /pending (which the UI already polls);
@@ -68,10 +77,10 @@ export function requestApproval(conversationId, request, { timeoutMs = APPROVAL_
   if (!entry) return Promise.resolve(false);
   entry.approval?.resolve(false);
   return new Promise((resolve, reject) => {
-    const approval = { id: randomUUID(), tool: request.tool, summary: request.summary, detail: request.detail || "", expiresAt: Date.now() + timeoutMs, resolve: null };
+    const approval = { id: randomUUID(), tool: request.tool, summary: request.summary, detail: request.detail || "", rule: request.rule || null, expiresAt: Date.now() + timeoutMs, resolve: null };
     let timer;
     const settle = (fn) => { clearTimeout(timer); if (entry.approval === approval) entry.approval = null; fn(); };
-    approval.resolve = (value) => settle(() => resolve(Boolean(value)));
+    approval.resolve = (value) => settle(() => resolve(value === "always" ? "always" : Boolean(value)));
     timer = setTimeout(() => settle(() => reject(new Error(`Ninguém respondeu ao pedido de autorização em ${Math.round(timeoutMs / 1000)} s; a ação não foi executada.`))), timeoutMs);
     timer.unref?.();
     entry.approval = approval;
@@ -81,13 +90,14 @@ export function requestApproval(conversationId, request, { timeoutMs = APPROVAL_
 
 export function getApproval(conversationId) {
   const approval = pending.get(conversationId)?.approval;
-  return approval ? { id: approval.id, tool: approval.tool, summary: approval.summary, detail: approval.detail, expiresAt: new Date(approval.expiresAt).toISOString() } : null;
+  return approval ? { id: approval.id, tool: approval.tool, summary: approval.summary, detail: approval.detail, rule: approval.rule, expiresAt: new Date(approval.expiresAt).toISOString() } : null;
 }
 
-export function resolveApproval(conversationId, id, approved) {
+/** `always` also turns the offered rule (e.g. "npm test") into a standing permission. */
+export function resolveApproval(conversationId, id, approved, always = false) {
   const approval = pending.get(conversationId)?.approval;
   if (!approval || approval.id !== id) return false;
-  approval.resolve(approved === true);
+  approval.resolve(approved === true ? (always && approval.rule ? "always" : true) : false);
   return true;
 }
 

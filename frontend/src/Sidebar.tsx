@@ -25,6 +25,7 @@ type Props = {
   onArchiveConversation: (id: string, archived: boolean) => void;
   onDeleteConversation: (id: string) => void;
   onRenameProject: (id: string, name: string) => void;
+  onConfigureProject: (project: Project) => void;
   onDeleteProject: (id: string) => void;
   /** Off-canvas drawer state below the 900px breakpoint — see AppShell.tsx. */
   mobileOpen?: boolean;
@@ -163,6 +164,7 @@ export default function Sidebar({
   onArchiveConversation,
   onDeleteConversation,
   onRenameProject,
+  onConfigureProject,
   onDeleteProject,
   mobileOpen,
 }: Props) {
@@ -338,6 +340,13 @@ export default function Sidebar({
                       aria-label="Renomear projeto"
                     >
                       <Icon name="edit" size={12} />
+                    </button>
+                    <button
+                      title="Configurar pasta e instruções do projeto"
+                      onClick={() => onConfigureProject(project)}
+                      aria-label="Configurar projeto"
+                    >
+                      <Icon name="folder" size={12} />
                     </button>
                     <button
                       title="Excluir projeto"

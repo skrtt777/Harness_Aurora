@@ -16,7 +16,7 @@ const parseJsonArray = (value) => {
 
 function mapProject(row) {
   if (!row) return null;
-  return { id: row.id, name: row.name, instructions: row.instructions, createdAt: row.created_at, updatedAt: row.updated_at };
+  return { id: row.id, name: row.name, instructions: row.instructions, workspaceDir: row.workspace_dir || "", createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
 function mapConversation(row) {
@@ -108,13 +108,13 @@ export async function getProject(id) {
   return mapProject(db.prepare("SELECT * FROM projects WHERE id = ?").get(id));
 }
 
-export async function createProject({ name, instructions = "" }) {
+export async function createProject({ name, instructions = "", workspaceDir = "" }) {
   const db = await getDb();
   const id = randomUUID();
   const ts = now();
   db.prepare(
-    "INSERT INTO projects (id, name, instructions, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(id, String(name || "Novo projeto").trim() || "Novo projeto", String(instructions || ""), ts, ts);
+    "INSERT INTO projects (id, name, instructions, workspace_dir, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, String(name || "Novo projeto").trim() || "Novo projeto", String(instructions || ""), String(workspaceDir || "").trim() || null, ts, ts);
   return getProject(id);
 }
 
@@ -124,9 +124,11 @@ export async function updateProject(id, patch) {
   if (!existing) return null;
   const name = patch.name !== undefined ? String(patch.name).trim() || existing.name : existing.name;
   const instructions = patch.instructions !== undefined ? String(patch.instructions) : existing.instructions;
-  db.prepare("UPDATE projects SET name = ?, instructions = ?, updated_at = ? WHERE id = ?").run(
+  const workspaceDir = patch.workspaceDir !== undefined ? String(patch.workspaceDir).trim() || null : existing.workspace_dir;
+  db.prepare("UPDATE projects SET name = ?, instructions = ?, workspace_dir = ?, updated_at = ? WHERE id = ?").run(
     name,
     instructions,
+    workspaceDir,
     now(),
     id,
   );

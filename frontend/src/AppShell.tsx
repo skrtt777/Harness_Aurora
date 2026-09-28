@@ -5,6 +5,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import SettingsView from "./SettingsView";
 import WelcomeGuide from "./WelcomeGuide";
+import ProjectSettings from "./ProjectSettings";
 import BrandMark from "./BrandMark";
 
 // O bundle do Atlas 3D (Three.js + react-three-fiber) é o maior do app —
@@ -56,6 +57,7 @@ export default function AppShell() {
   const bootStarted = useRef(false);
   const [pendingStage, setPendingStage] = useState<string | null>(null);
   const [pendingTurn, setPendingTurn] = useState<PendingTurn | null>(null);
+  const [configuringProject, setConfiguringProject] = useState<Project | null>(null);
   const [memoryTotal, setMemoryTotal] = useState(0);
   const [savings, setSavings] = useState<SavingsStats | null>(null);
   const [bootError, setBootError] = useState("");
@@ -242,6 +244,11 @@ export default function AppShell() {
     setProjects((items) => items.map((p) => (p.id === id ? updated : p)));
   }, []);
 
+  const handleConfigureProject = useCallback(async (id: string, patch: { name: string; workspaceDir: string; instructions: string }) => {
+    const updated = await apiUpdateProject(id, patch);
+    setProjects((items) => items.map((p) => (p.id === id ? updated : p)));
+  }, []);
+
   const handleDeleteProject = useCallback(async (id: string) => {
     await apiDeleteProject(id);
     await refreshLists();
@@ -303,10 +310,10 @@ export default function AppShell() {
     };
   }, [sending, activeConversationId]);
 
-  const handleResolveApproval = useCallback(async (approvalId: string, approved: boolean) => {
+  const handleResolveApproval = useCallback(async (approvalId: string, approved: boolean, always = false) => {
     if (!activeConversationId) return;
     setPendingTurn(turn => turn ? { ...turn, approval: null } : turn);
-    await apiResolveApproval(activeConversationId, approvalId, approved).catch(() => {});
+    await apiResolveApproval(activeConversationId, approvalId, approved, always).catch(() => {});
   }, [activeConversationId]);
 
   const handleCancel = useCallback(async () => {
@@ -401,6 +408,7 @@ export default function AppShell() {
         onArchiveConversation={(...args) => { void handleArchiveConversation(...args).catch(e => setOperationError(e.message)); }}
         onDeleteConversation={(...args) => { void handleDeleteConversation(...args).catch(e => setOperationError(e.message)); }}
         onRenameProject={(...args) => { void handleRenameProject(...args).catch(e => setOperationError(e.message)); }}
+        onConfigureProject={setConfiguringProject}
         onDeleteProject={(...args) => { void handleDeleteProject(...args).catch(e => setOperationError(e.message)); }}
       />
       <main className="app-main">
@@ -437,6 +445,7 @@ export default function AppShell() {
         {view === "skills" && <SkillsView />}
       </main>
       {guideOpen && <WelcomeGuide onClose={(settings) => { setGuideOpen(false); if (settings) { setView('settings'); setSidebarOpen(false); } }} />}
+      {configuringProject && <ProjectSettings project={configuringProject} onClose={() => setConfiguringProject(null)} onSave={(patch) => handleConfigureProject(configuringProject.id, patch)} />}
     </div>
   );
 }

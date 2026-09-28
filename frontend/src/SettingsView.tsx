@@ -123,7 +123,7 @@ export default function SettingsView({
     }
   };
 
-  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots">>) => {
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow">>) => {
     setAgentError("");
     try {
       const updated = await updateSettings(patch);
@@ -285,8 +285,27 @@ export default function SettingsView({
           <h2>Ações no computador</h2>
           <p className="settings-hint">
             O chat pode agir por você: controlar o navegador, pesquisar na web, abrir programas e arquivos, salvar
-            arquivos e rodar comandos. Comandos sempre pedem sua autorização antes.
+            arquivos e rodar comandos. O modo define o que ela faz sem perguntar.
           </p>
+          <div className="settings-field">
+            <label>Modo</label>
+            <div className="settings-options">
+              {([["auto", "Auto", "Livre na pasta do projeto; pergunta antes de apagar, instalar, usar a rede ou sair da pasta."], ["manual", "Manual", "Pergunta antes de toda alteração, comando ou programa."], ["plan", "Plano", "Só olha e propõe; não altera nada."]] as const).map(([id, label, hint]) => (
+                <button key={id} title={hint} className={settings.agentMode === id ? "selected" : ""} onClick={() => saveAgent({ agentMode: id })}>
+                  {settings.agentMode === id && <Icon name="check" size={12} />}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {settings.agentAlwaysAllow.length > 0 && <div className="settings-field">
+            <label>Comandos sempre permitidos</label>
+            <ul className="always-allow-list">
+              {settings.agentAlwaysAllow.map((rule) => (
+                <li key={rule.prefix}><code>{rule.prefix}</code> <button onClick={() => saveAgent({ agentAlwaysAllow: settings.agentAlwaysAllow.filter((r) => r.prefix !== rule.prefix) })}>Remover</button></li>
+              ))}
+            </ul>
+          </div>}
           <div className="settings-field">
             <label>Ações do chat</label>
             <div className="settings-options">
@@ -313,7 +332,7 @@ export default function SettingsView({
             </small>
           </div>
           <div className="settings-field">
-            <label>Pastas liberadas para ler e salvar arquivos (uma por linha)</label>
+            <label>Pastas de trabalho quando a conversa não tem projeto com pasta (uma por linha)</label>
             <textarea className="path-field" rows={3} value={rootsDraft} onChange={(e) => setRootsDraft(e.target.value)} />
             <div className="settings-actions">
               <button onClick={() => saveAgent({ agentAllowedRoots: rootsDraft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) })}>Salvar pastas</button>

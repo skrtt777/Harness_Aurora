@@ -191,7 +191,7 @@ test("chat turns run the agent end to end: tool call, approval-free file read, s
     res.setHeader("content-type", "application/json");
     const toolResult = body.messages.find((m) => m.role === "tool");
     res.end(JSON.stringify(toolResult
-      ? { message: { role: "assistant", content: `Li o arquivo: ${toolResult.content.split("\n").at(-1)}` }, prompt_eval_count: 50, eval_count: 9 }
+      ? { message: { role: "assistant", content: `Li o arquivo: ${toolResult.content.match(/senha.*$/m)?.[0]}` }, prompt_eval_count: 50, eval_count: 9 }
       : { message: { role: "assistant", content: "", tool_calls: [{ function: { name: "read_file", arguments: { path: join(folder, "nota.txt") } } }] }, prompt_eval_count: 40, eval_count: 7 }));
   });
   const base = await listen(stub);

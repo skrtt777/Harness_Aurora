@@ -23,7 +23,7 @@ export function authorize(request, url, token, allowDev) {
 
 export function validateBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw httpError(400, "O corpo deve ser um objeto JSON.");
-  const strings = ["name", "instructions", "title", "content", "message", "provider", "teacherProvider", "note", "goal", "model", "scope", "kind", "source", "type", "toId", "defaultProvider", "defaultTeacher", "communityManifestUrl", "sandboxDir"];
+  const strings = ["name", "instructions", "title", "content", "message", "provider", "teacherProvider", "note", "goal", "model", "scope", "kind", "source", "type", "toId", "defaultProvider", "defaultTeacher", "communityManifestUrl", "sandboxDir", "workspaceDir"];
   for (const key of strings) if (body[key] !== undefined && typeof body[key] !== "string") throw httpError(400, `Campo ${key} deve ser texto.`);
   for (const key of ["projectId", "conversationId"]) if (body[key] != null && typeof body[key] !== "string") throw httpError(400, `Campo ${key} inválido.`);
   if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.some(t => typeof t !== "string") || body.tags.length > 100)) throw httpError(400, "Tags devem ser uma lista de textos (até 100).");

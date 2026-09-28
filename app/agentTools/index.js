@@ -5,8 +5,14 @@ import { browserTools } from "./browser.js";
 import { fileTools } from "./files.js";
 import { systemTools } from "./system.js";
 import { webTools } from "./web.js";
+import { knowledgeTools } from "./knowledge.js";
+import { decide } from "../agentPolicy.js";
 
-export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools];
+// Browser and web tools only look, except the ones that act on a page.
+const INTERACT = new Set(["browser_click", "browser_type", "browser_key"]);
+for (const tool of [...browserTools, ...webTools]) tool.describe ||= () => ({ kind: INTERACT.has(tool.name) ? "interact" : "browse" });
+
+export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools, ...knowledgeTools];
 const byName = new Map(AGENT_TOOLS.map((tool) => [tool.name, tool]));
 export const MAX_TOOL_RESULT = 4500;
 
@@ -35,14 +41,24 @@ export function stageFor(name, args, tools) {
 /**
  * Runs one tool call. Never throws: a failure becomes an "ERRO: …" result
  * the model reads on its next step and can recover from, the same contract
- * executeAction() in browserAgent.js has.
+ * executeAction() in browserAgent.js has. Before running, the tool describes
+ * what it will touch and the permission mode decides: run, ask or refuse.
  */
 export async function executeTool(name, args, ctx, tools = AGENT_TOOLS) {
   const tool = getTool(name, tools);
   const started = Date.now();
   if (!tool) return { ok: false, result: `ERRO: a ferramenta "${name}" não existe. Ferramentas disponíveis: ${tools.map((t) => t.name).join(", ")}.`, ms: 0 };
+  const input = args && typeof args === "object" ? args : {};
   try {
-    const output = String(await tool.run(args && typeof args === "object" ? args : {}, ctx));
+    const access = tool.describe ? await tool.describe(input, ctx) : { kind: "meta" };
+    const decision = await decide(access, ctx);
+    if (decision.action === "deny") return { ok: false, denied: true, result: `ERRO: ${decision.reason}`, ms: Date.now() - started };
+    if (decision.action === "ask") {
+      const answer = await ctx.approve({ tool: name, summary: access.summary || `${name} ${JSON.stringify(input).slice(0, 200)}`, detail: decision.reason, rule: decision.rule });
+      if (!answer) return { ok: false, denied: true, result: `ERRO: o usuário não autorizou (${decision.reason}). Não tente contornar; pergunte o que ele prefere.`, ms: Date.now() - started };
+      if (answer === "always" && decision.rule) await ctx.onAlwaysAllow?.({ tool: name, prefix: decision.rule });
+    }
+    const output = String(await tool.run(input, ctx));
     return { ok: true, result: output.length > MAX_TOOL_RESULT ? `${output.slice(0, MAX_TOOL_RESULT)}\n… (cortado)` : output, ms: Date.now() - started };
   } catch (error) {
     if (ctx.signal?.aborted) throw Object.assign(new Error("Cancelado pelo usuário."), { name: "AbortError" });

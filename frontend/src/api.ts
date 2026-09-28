@@ -2,6 +2,8 @@ export type Project = {
   id: string;
   name: string;
   instructions: string;
+  /** Pasta onde o agente trabalha (vazio = pastas liberadas nas configurações). */
+  workspaceDir?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -18,8 +20,9 @@ export type Conversation = {
 };
 
 export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
-export type PendingApproval = { id: string; tool: string; summary: string; detail?: string };
-export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null };
+export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
+export type PlanItem = { text: string; status: "pending" | "in_progress" | "done" };
+export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null };
 export type UsedSkill = { id: string; name: string; hash: string; partial: boolean };
 export type ChatMessage = {
   id: string;
@@ -130,7 +133,7 @@ export const getProviders = () => request<{ providers: ProviderInfo[] }>("/provi
 export const listProjects = () => request<{ projects: Project[] }>("/projects").then((r) => r.projects);
 export const createProject = (data: { name: string; instructions?: string }) =>
   request<Project>("/projects", { method: "POST", body: JSON.stringify(data) });
-export const updateProject = (id: string, patch: Partial<Pick<Project, "name" | "instructions">>) =>
+export const updateProject = (id: string, patch: Partial<Pick<Project, "name" | "instructions" | "workspaceDir">>) =>
   request<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteProject = (id: string) => request<{ ok: true }>(`/projects/${id}`, { method: "DELETE" });
 
@@ -169,9 +172,9 @@ export const correctMessage = (conversationId: string, messageId: string, note?:
 export const getPendingStage = (conversationId: string) =>
   request<{ stage: string | null }>(`/conversations/${conversationId}/pending`).then((r) => r.stage);
 export const getPendingTurn = (conversationId: string) =>
-  request<PendingTurn>(`/conversations/${conversationId}/pending`).then((r) => ({ stage: r.stage ?? null, steps: r.steps ?? [], approval: r.approval ?? null }));
-export const resolveApproval = (conversationId: string, approvalId: string, approved: boolean) =>
-  request<{ resolved: boolean }>(`/conversations/${conversationId}/approval`, { method: "POST", body: JSON.stringify({ id: approvalId, approved }) });
+  request<PendingTurn>(`/conversations/${conversationId}/pending`).then((r) => ({ stage: r.stage ?? null, steps: r.steps ?? [], approval: r.approval ?? null, plan: r.plan ?? null }));
+export const resolveApproval = (conversationId: string, approvalId: string, approved: boolean, always = false) =>
+  request<{ resolved: boolean }>(`/conversations/${conversationId}/approval`, { method: "POST", body: JSON.stringify({ id: approvalId, approved, always }) });
 export const cancelMessage = (conversationId: string) =>
   request<{ cancelled: boolean }>(`/conversations/${conversationId}/cancel`, { method: "POST" });
 
@@ -211,6 +214,7 @@ export type SavingsStats = {
 export const getSavingsStats = () => request<SavingsStats>("/savings");
 
 // ---------- Settings (Central de Configurações) ----------
+export type AgentMode = "manual" | "auto" | "plan";
 export type Settings = {
   onboardingCompleted: boolean;
   defaultProvider: string;
@@ -228,10 +232,14 @@ export type Settings = {
   browserBackend: "aurora" | "chrome";
   /** Pastas onde o chat lê e salva arquivos sem pedir autorização. */
   agentAllowedRoots: string[];
+  /** manual: pergunta toda alteração; auto: livre na pasta do projeto; plan: só olha. */
+  agentMode: AgentMode;
+  /** Comandos que o usuário escolheu "sempre permitir". */
+  agentAlwaysAllow: { tool: string; prefix: string }[];
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------

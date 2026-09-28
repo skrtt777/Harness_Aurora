@@ -8,7 +8,7 @@ import { centralStatus, updateCentralConfig, listCentralMemories, previewContrib
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { importMemories } from "./memoryImport.js";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,7 @@ import {
   updateProject,
   getProject,
   getSetting,
+  setSetting,
 } from "./store.js";
 import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { correctLocalAnswer } from "./correction.js";
@@ -59,7 +60,8 @@ import {
   fetchCommunityBundle,
   resolveCommunityManifestUrl,
 } from "./community.js";
-import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn, pushTurnStep, getTurnSteps, requestApproval, getApproval, resolveApproval } from "./pendingTurns.js";
+import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn, pushTurnStep, getTurnSteps, requestApproval, getApproval, resolveApproval, setTurnPlan, getTurnPlan } from "./pendingTurns.js";
+import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
@@ -140,25 +142,77 @@ async function agentAllowedRoots(folders) {
   return [folders.desktop, folders.documents, folders.downloads];
 }
 
+async function agentMode() {
+  const mode = await getSetting("agent_mode");
+  return AGENT_MODES.includes(mode) ? mode : DEFAULT_AGENT_MODE;
+}
+
+async function alwaysAllowRules() {
+  try {
+    const rules = JSON.parse(await getSetting("agent_always_allow"));
+    return Array.isArray(rules) ? rules.filter((r) => r && typeof r.tool === "string" && typeof r.prefix === "string") : [];
+  } catch { return []; }
+}
+
+async function rememberAlwaysAllow(rule) {
+  const rules = await alwaysAllowRules();
+  if (!rules.some((r) => r.tool === rule.tool && r.prefix === rule.prefix)) await setSetting("agent_always_allow", JSON.stringify([...rules, rule].slice(-50)));
+}
+
 async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders) };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules() };
 }
 
-async function chatAgentToolContext() {
+// Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
+const WORKSPACE_INSTRUCTION_FILES = ["AURORA.md", "AGENTS.md", "CLAUDE.md"];
+async function workspaceInstructions(workspace) {
+  if (!workspace) return null;
+  for (const name of WORKSPACE_INSTRUCTION_FILES) {
+    const text = await readFile(join(workspace, name), "utf8").catch(() => null);
+    if (text?.trim()) return { name, text: text.length > 4000 ? `${text.slice(0, 4000)}\n… (cortado)` : text };
+  }
+  return null;
+}
+
+async function validateWorkspaceDir(value) {
+  if (value === undefined || !String(value).trim()) return;
+  const dir = String(value).trim();
+  if (!/^(\/|[a-zA-Z]:[\\/]|\\\\)/.test(dir)) throw httpError(400, "Informe o caminho completo da pasta do projeto.");
+  const info = await stat(dir).catch(() => null);
+  if (!info?.isDirectory()) throw httpError(400, "A pasta do projeto não existe.");
+}
+
+async function chatAgentToolContext({ conversation, project }) {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { knownFolders: folders, allowedRoots: await agentAllowedRoots(folders), browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage() };
+  const allowedRoots = await agentAllowedRoots(folders);
+  const workspace = project?.workspaceDir || null;
+  return {
+    knownFolders: folders, allowedRoots, workspace, workspaceRoots: workspace ? [workspace] : allowedRoots,
+    mode: await agentMode(), alwaysAllow: await alwaysAllowRules(), onAlwaysAllow: rememberAlwaysAllow,
+    conversationId: conversation.id, projectId: conversation.projectId || null,
+    browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage(),
+    workspaceFile: await workspaceInstructions(workspace),
+  };
 }
 
-function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, browserBackend, openPage }) {
+const MODE_TEXT = {
+  auto: "Modo Auto: dentro da pasta do projeto você lê, cria, edita e roda comandos sem pedir; apagar, instalar, usar a rede, mexer no sistema ou sair da pasta pede autorização.",
+  manual: "Modo Manual: toda alteração de arquivo, comando ou abertura de programa pede autorização do usuário.",
+  plan: "Modo Plano: você só pode olhar (ler arquivos, pesquisar, navegar sem clicar). Não altere nada; termine com um plano do que faria.",
+};
+
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile }) {
   return [
-    `Ambiente: ${process.platform === "win32" ? "Windows" : process.platform}; agora é ${new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
+    `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
-    `Você pode ler e salvar arquivos sem pedir em: ${allowedRoots.join("; ")}. Fora disso, o usuário precisa autorizar.`,
+    workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (ex.: "soma.js", "src/app.js"), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
+    MODE_TEXT[mode] || MODE_TEXT.auto,
     `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,
     openPage ? `No navegador agora: "${openPage.title}" — ${openPage.url}. "Lá", "nele" ou "nessa página" se referem a ela.` : "",
+    workspaceFile ? `Instruções da pasta do projeto (${workspaceFile.name}) — siga-as:\n${workspaceFile.text}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -240,6 +294,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let localContext = null;
     let agentContext = null;
     let agentSteps = [];
+    let agentPlan = null;
 
     let result;
     try {
@@ -251,7 +306,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         // The chat is an agent: the model decides whether to answer or to act
         // (browser, web, apps, files, commands) and loops until done.
         if (agentOn) {
-          const toolContext = await chatAgentToolContext();
+          const toolContext = await chatAgentToolContext({ conversation, project });
+          toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext)], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
           const agentEnv = conversation.provider === "local" ? localEnv : env;
           const agent = await runChatAgent({
@@ -307,7 +363,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       result.telemetry ||= summarizeLocalCalls(result.reusedFrom ? [] : [localCallRecord(result)]);
       result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
     }
-    if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps };
+    if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {
@@ -574,6 +630,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (!BROWSER_BACKENDS.includes(body.browserBackend)) throw httpError(400, "Navegador inválido.");
           values.browser_backend = body.browserBackend;
         }
+        if (body.agentMode !== undefined) {
+          if (!AGENT_MODES.includes(body.agentMode)) throw httpError(400, "Modo do agente inválido.");
+          values.agent_mode = body.agentMode;
+        }
+        if (body.agentAlwaysAllow !== undefined) {
+          if (!Array.isArray(body.agentAlwaysAllow) || body.agentAlwaysAllow.length > 50 || body.agentAlwaysAllow.some((r) => !r || r.tool !== "run_command" || typeof r.prefix !== "string" || !r.prefix.trim() || r.prefix.length > 120)) throw httpError(400, "Regras de permissão inválidas.");
+          values.agent_always_allow = JSON.stringify(body.agentAlwaysAllow.map((r) => ({ tool: r.tool, prefix: r.prefix.trim().toLowerCase() })));
+        }
         if (body.agentAllowedRoots !== undefined) {
           if (!Array.isArray(body.agentAllowedRoots) || body.agentAllowedRoots.length > 20 || body.agentAllowedRoots.some((p) => typeof p !== "string" || !/^(\/|[a-zA-Z]:[\\/])/.test(p.trim()))) throw httpError(400, "Informe pastas absolutas.");
           values.agent_allowed_roots = JSON.stringify(body.agentAllowedRoots.map((p) => p.trim()));
@@ -700,6 +764,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && pathname === "/api/projects") {
         const body = await readJson(request);
         if (!String(body.name || "").trim()) return sendJson(response, 400, { error: "O nome do projeto é obrigatório." });
+        await validateWorkspaceDir(body.workspaceDir);
         return sendJson(response, 201, await createProject(body));
       }
       let match = pathname.match(/^\/api\/projects\/([^/]+)$/);
@@ -711,6 +776,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         }
         if (method === "PATCH") {
           const body = await readJson(request);
+          await validateWorkspaceDir(body.workspaceDir);
           const project = await updateProject(id, body);
           return project ? sendJson(response, 200, project) : sendJson(response, 404, { error: "Projeto não encontrado." });
         }
@@ -784,14 +850,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/pending$/);
       if (match && method === "GET") {
         const [, id] = match;
-        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id), steps: getTurnSteps(id), approval: getApproval(id) });
+        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id), steps: getTurnSteps(id), approval: getApproval(id), plan: getTurnPlan(id) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/approval$/);
       if (match && method === "POST") {
         const [, id] = match;
         const body = await readJson(request);
-        if (typeof body.id !== "string" || typeof body.approved !== "boolean") throw httpError(400, "Resposta de autorização inválida.");
-        return sendJson(response, 200, { resolved: resolveApproval(id, body.id, body.approved) });
+        if (typeof body.id !== "string" || typeof body.approved !== "boolean" || (body.always !== undefined && typeof body.always !== "boolean")) throw httpError(400, "Resposta de autorização inválida.");
+        return sendJson(response, 200, { resolved: resolveApproval(id, body.id, body.approved, body.always === true) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/cancel$/);
       if (match && method === "POST") {

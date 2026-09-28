@@ -97,6 +97,11 @@ function migrateSchema(db) {
   if (!messageColumns.some(c => c.name === "execution")) db.exec("ALTER TABLE messages ADD COLUMN execution TEXT");
   if (!messageColumns.some(c => c.name === "correction_of")) db.exec("ALTER TABLE messages ADD COLUMN correction_of TEXT REFERENCES messages(id) ON DELETE SET NULL");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_message_correction ON messages(correction_of) WHERE correction_of IS NOT NULL");
+  // Fase 1 (docs/REVISAO_2026-09-27.md): pasta de trabalho do projeto — o
+  // agente lê, edita e roda comandos a partir dela; no modo Auto é o limite
+  // do que ele faz sem perguntar.
+  const projectColumns = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectColumns.some((c) => c.name === "workspace_dir")) db.exec("ALTER TABLE projects ADD COLUMN workspace_dir TEXT");
   const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all();
   if (!conversationColumns.some((c) => c.name === "teacher_provider")) {
     db.exec("ALTER TABLE conversations ADD COLUMN teacher_provider TEXT");
