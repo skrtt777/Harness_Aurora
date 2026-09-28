@@ -214,6 +214,14 @@ export type SavingsStats = {
 };
 export const getSavingsStats = () => request<SavingsStats>("/savings");
 
+// ---------- Avaliação contínua do agente local ----------
+export type AgentEvalResult = { id: string; area: string; passed: boolean; ms: number; steps: number; error: string | null; answer: string };
+export type AgentEvalRun = { id: string; createdAt: string; model: string; withMemories: boolean; memoryCount: number; passed: number; total: number; summary: { byArea: Record<string, { passed: number; total: number }> }; results: AgentEvalResult[] };
+export type AgentEvalState = { status: { running: boolean; progress?: { index: number; total: number; task: string } | null }; runs: AgentEvalRun[] };
+export const getAgentEval = () => request<AgentEvalState>("/agent-eval");
+export const startAgentEval = (withMemories: boolean) => request<{ id: string }>("/agent-eval/run", { method: "POST", body: JSON.stringify({ withMemories }) });
+export const cancelAgentEval = () => request<{ cancelled: boolean }>("/agent-eval/cancel", { method: "POST", body: "{}" });
+
 // ---------- Settings (Central de Configurações) ----------
 export type AgentMode = "manual" | "auto" | "plan";
 export type Settings = {

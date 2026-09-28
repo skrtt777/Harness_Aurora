@@ -64,6 +64,7 @@ import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelT
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
+import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
@@ -778,6 +779,15 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const [, id] = agentCancelMatch;
         return sendJson(response, 200, { cancelled: cancelRun(id) });
       }
+
+      // ---------- Avaliação contínua do agente local (Fase 3) ----------
+      if (method === "GET" && pathname === "/api/agent-eval") return sendJson(response, 200, { status: evalStatus(), runs: await listEvalRuns() });
+      if (method === "POST" && pathname === "/api/agent-eval/run") {
+        const body = await readJson(request);
+        if (body.withMemories !== undefined && typeof body.withMemories !== "boolean") throw httpError(400, "Opção withMemories inválida.");
+        return sendJson(response, 202, await startEvalRun({ withMemories: body.withMemories !== false }));
+      }
+      if (method === "POST" && pathname === "/api/agent-eval/cancel") return sendJson(response, 200, { cancelled: cancelEvalRun() });
 
       // ---------- Projects ----------
       if (method === "GET" && pathname === "/api/projects") {

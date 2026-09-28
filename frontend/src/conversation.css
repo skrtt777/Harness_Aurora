@@ -287,3 +287,6 @@
 .teacher-review summary { cursor: pointer; }
 .teacher-review.fix summary { color: #e0c28a; }
 .teacher-review ul { margin: 4px 0 0 18px; padding: 0; }
+.eval-runs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.eval-runs th, .eval-runs td { text-align: left; padding: 4px 6px; border-bottom: 1px solid rgba(200, 180, 255, .12); }
+.eval-bar { display: inline-block; width: 60px; height: 6px; border-radius: 3px; vertical-align: middle; background: linear-gradient(90deg, #8fd6a4 var(--rate), rgba(255, 255, 255, .12) var(--rate)); }

@@ -142,6 +142,10 @@ export const systemTools = [
       const dir = commandDir(cwd, ctx);
       const [cmd, args] = shellFor(text);
       const child = spawn(cmd, args, { cwd: dir, windowsHide: true });
+      // Nothing is ever typed into these commands: without EOF, anything that
+      // reads stdin (findstr with no file, sort, more…) hung until the timeout.
+      child.stdin.on("error", () => {});
+      child.stdin.end();
       let output = "";
       const append = (chunk) => {
         output = (output + chunk).slice(-MAX_OUTPUT);

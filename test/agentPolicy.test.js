@@ -115,6 +115,12 @@ test("commands run in the project folder, stream output and can live in the back
   const where = await executeTool("run_command", { command: process.platform === "win32" ? "(Get-Location).Path" : "pwd" }, c);
   assert.match(where.result, /projeto/);
   assert.ok(stages.some((s) => s.includes("projeto")), "last output line is shown as the live stage");
+  const reader = join(workspace, "le-entrada.js");
+  writeFileSync(reader, "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log('fim:'+s.length));");
+  const startedAt = Date.now();
+  const eof = await executeTool("run_command", { command: "node le-entrada.js" }, c);
+  assert.match(eof.result, /fim:0/);
+  assert.ok(Date.now() - startedAt < 10000, "a command that reads stdin gets EOF instead of hanging");
   const script = join(workspace, "tick.js");
   writeFileSync(script, "let n=0;const t=setInterval(()=>{console.log('tick '+(++n));if(n===50)clearInterval(t)},100);");
   const started = await executeTool("run_command", { command: `node tick.js`, background: true }, c);

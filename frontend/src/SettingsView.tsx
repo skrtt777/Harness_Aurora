@@ -21,6 +21,7 @@ import {
 import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
 import Icon from './Icon';
+import EvalPanel from './EvalPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 
@@ -356,6 +357,15 @@ export default function SettingsView({
             {agentSaved && <small className="settings-saved">Salvo.</small>}
             {agentError && <p className="memory-form-error">{agentError}</p>}
           </div>
+        </div>
+
+        <div className="settings-card">
+          <h2>A IA local está aprendendo?</h2>
+          <p className="settings-hint">
+            Uma bateria fixa de 12 tarefas (arquivos, código, terminal, navegador, memória) roda com o modelo local numa cópia
+            dos seus dados, sem o professor. Compare com e sem memórias e acompanhe a evolução.
+          </p>
+          <EvalPanel />
         </div>
 
         <div className="settings-card">
