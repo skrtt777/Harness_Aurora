@@ -123,7 +123,7 @@ export default function SettingsView({
     }
   };
 
-  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow">>) => {
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit">>) => {
     setAgentError("");
     try {
       const updated = await updateSettings(patch);
@@ -297,6 +297,22 @@ export default function SettingsView({
                 </button>
               ))}
             </div>
+          </div>
+          <div className="settings-field">
+            <label>Professor automático (Codex/Claude ensina a IA local)</label>
+            <div className="settings-options">
+              {([["actions", "Erros e entregas", "Revisa quando há erro e toda entrega que alterou arquivos, rodou comandos ou agiu em páginas."], ["errors", "Só erros", "Revisa só quando detecta erro ou você reclama."], ["off", "Desligado", "Nunca chama o professor automaticamente."]] as const).map(([id, label, hint]) => (
+                <button key={id} title={hint} className={settings.teacherMode === id ? "selected" : ""} onClick={() => saveAgent({ teacherMode: id })}>
+                  {settings.teacherMode === id && <Icon name="check" size={12} />}
+                  {label}
+                </button>
+              ))}
+            </div>
+            <small className="settings-hint">
+              Limite por dia:{" "}
+              <input type="number" min={0} max={1000} value={settings.teacherDailyLimit} style={{ width: 70 }} onChange={(e) => { const value = Number(e.target.value); if (Number.isInteger(value) && value >= 0) void saveAgent({ teacherDailyLimit: value }); }} />
+              {" "}chamadas · usadas hoje: {settings.teacherUsedToday}. Cada revisão leva de 30 s a 2 min e usa a sua cota do Codex/Claude.
+            </small>
           </div>
           {settings.agentAlwaysAllow.length > 0 && <div className="settings-field">
             <label>Comandos sempre permitidos</label>

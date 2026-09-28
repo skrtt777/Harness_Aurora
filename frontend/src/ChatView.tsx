@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArtifacts, getSettings, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project } from './api';
+import { getArtifacts, getSettings, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -85,6 +85,18 @@ function AgentModeSelect() {
   </label>;
 }
 
+function ReviewNote({ review }: { review: TeacherReview }) {
+  const teacher = review.teacher === 'claude' ? 'Claude' : 'Codex';
+  const text = review.skipped === 'daily_limit' ? `Revisão de ${teacher} pulada: limite diário atingido.`
+    : review.error ? `Não foi possível revisar com ${teacher}: ${review.error}`
+    : review.verdict === 'ok' ? `Conferido por ${teacher}: aprovado.`
+    : review.verdict === 'fix' ? `${teacher} encontrou ${review.problems?.length || 0} problema(s)${review.lessonIds?.length ? ` e ensinou ${review.lessonIds.length} lição(ões)` : ''}; a Aurora ${review.redo === 'ok' ? 'refez e corrigiu' : review.redo === 'com_erros' ? 'refez, mas ainda há erros' : 'não conseguiu refazer'}.` : '';
+  if (!text) return null;
+  return <details className={`teacher-review ${review.verdict || 'none'}`}><summary>🎓 {text}</summary>
+    {!!review.problems?.length && <ul>{review.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+  </details>;
+}
+
 function PlanList({ plan }: { plan: PlanItem[] }) {
   return <ol className="agent-plan">{plan.map((item, index) => <li key={index} className={item.status}>{item.status === 'done' ? '☑' : item.status === 'in_progress' ? '▸' : '☐'} {item.text}</li>)}</ol>;
 }
@@ -133,6 +145,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
     {!isUser && <div className="chat-avatar" aria-hidden="true"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="" width="1254" height="1254" draggable={false} /></div>}
     <div className="chat-bubble-wrap">
       {!isUser && (message.execution?.toolSteps?.length ?? 0) > 0 && <details className="agent-actions"><summary>{message.execution!.toolSteps!.length} {message.execution!.toolSteps!.length === 1 ? 'ação executada' : 'ações executadas'}</summary><StepList steps={message.execution!.toolSteps!} /></details>}
+      {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <div className="message-actions">
         <button onClick={async () => {

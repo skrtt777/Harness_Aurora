@@ -283,3 +283,7 @@
 .project-settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .always-allow-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .always-allow-list li { display: flex; gap: 8px; align-items: center; }
+.teacher-review { margin-bottom: 6px; font-size: 13px; color: #aaa4b5; }
+.teacher-review summary { cursor: pointer; }
+.teacher-review.fix summary { color: #e0c28a; }
+.teacher-review ul { margin: 4px 0 0 18px; padding: 0; }

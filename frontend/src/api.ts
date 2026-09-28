@@ -20,6 +20,7 @@ export type Conversation = {
 };
 
 export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
+export type TeacherReview = { reason: "errors" | "actions" | null; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
 export type PlanItem = { text: string; status: "pending" | "in_progress" | "done" };
 export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null };
@@ -35,7 +36,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[] } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
@@ -236,10 +237,14 @@ export type Settings = {
   agentMode: AgentMode;
   /** Comandos que o usuário escolheu "sempre permitir". */
   agentAlwaysAllow: { tool: string; prefix: string }[];
+  /** actions: revisa erros e entregas que alteraram algo; errors: só erros; off: nunca. */
+  teacherMode: "actions" | "errors" | "off";
+  teacherDailyLimit: number;
+  teacherUsedToday: number;
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------

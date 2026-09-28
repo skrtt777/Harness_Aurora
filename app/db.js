@@ -122,6 +122,12 @@ function migrateSchema(db) {
   }
   if (!memoryColumns.some(c => c.name === "embedding_model")) db.exec("ALTER TABLE memories ADD COLUMN embedding_model TEXT");
   if (!memoryColumns.some(c => c.name === "revision")) db.exec("ALTER TABLE memories ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
+  // Fase 2: ciclo de vida — quantas vezes a memória entrou no contexto e se o
+  // turno deu certo ou errado com ela; lições que só falham são arquivadas.
+  if (!memoryColumns.some(c => c.name === "uses")) db.exec("ALTER TABLE memories ADD COLUMN uses INTEGER NOT NULL DEFAULT 0");
+  if (!memoryColumns.some(c => c.name === "helped")) db.exec("ALTER TABLE memories ADD COLUMN helped INTEGER NOT NULL DEFAULT 0");
+  if (!memoryColumns.some(c => c.name === "failed")) db.exec("ALTER TABLE memories ADD COLUMN failed INTEGER NOT NULL DEFAULT 0");
+  if (!memoryColumns.some(c => c.name === "status")) db.exec("ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
 }
 
 function migrateLegacyMemory(db) {

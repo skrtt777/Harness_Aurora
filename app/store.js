@@ -62,6 +62,8 @@ function mapMemory(row) {
     tags: parseJsonArray(row.tags),
     kind: row.kind,
     source: row.source || undefined,
+    stats: { uses: row.uses || 0, helped: row.helped || 0, failed: row.failed || 0 },
+    status: row.status || "active",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     relations: [],
@@ -554,6 +556,7 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
   }
   for (const pool of pools) {
     for (const row of pool.rows) {
+      if (row.status === "archived") continue;
       const memory = mapMemory(row);
       const compatibility = selective?referenceCompatibility(profile,memory):{compatible:true,reason:'legacy'};
       if (!compatibility.compatible) continue;
@@ -579,7 +582,7 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
         const contentEvidence = similarity === null && [...evidenceTerms].filter(w => words.has(w)).length >= 2;
         if (!titleEvidence && !semanticEvidence && !contentEvidence) continue;
       }
-      const score = selective?(titleMatches.length * 2 + overlap * 0.3 + semantic) * pool.weight:(scoreMemory(memory,queryTokens)+semantic)*pool.weight+pool.weight*0.01;
+      const score = (selective?(titleMatches.length * 2 + overlap * 0.3 + semantic) * pool.weight:(scoreMemory(memory,queryTokens)+semantic)*pool.weight+pool.weight*0.01) * usefulness(row);
       scored.push({ memory:{...memory,retrieval:{score,similarity,titleMatches,contentMatches:overlap,reason:compatibility.reason}}, score });
     }
   }
@@ -646,6 +649,34 @@ export async function getSavingsStats() {
 }
 
 // ---------- Settings (small key/value store, e.g. the chosen local model) ----------
+
+// Proven lessons rank higher, lessons that keep failing sink (0.5x–1.5x).
+function usefulness(row) {
+  const helped = row.helped || 0;
+  const failed = row.failed || 0;
+  return Math.min(1.5, Math.max(0.5, 1 + 0.1 * helped - 0.15 * failed));
+}
+
+const ARCHIVE_AFTER_FAILURES = 3;
+
+/**
+ * Records how a turn went for the memories that were in its context.
+ * "helped"/"failed" come from the teaching loop (clean turn vs. error or
+ * teacher verdict "fix"); a memory that failed ARCHIVE_AFTER_FAILURES times
+ * without ever helping is archived — kept, but no longer injected.
+ */
+export async function recordMemoryOutcome(ids = [], outcome) {
+  const unique = [...new Set(ids)].filter((id) => typeof id === "string");
+  if (!unique.length || !["helped", "failed", "used"].includes(outcome)) return;
+  const db = await getDb();
+  const update = db.prepare(`UPDATE memories SET uses = uses + 1${outcome === "used" ? "" : `, ${outcome} = ${outcome} + 1`} WHERE id = ?`);
+  const archive = db.prepare("UPDATE memories SET status = 'archived' WHERE id = ? AND kind != 'manual' AND failed >= ? AND helped = 0");
+  db.exec("BEGIN");
+  try {
+    for (const id of unique) { update.run(id); archive.run(id, ARCHIVE_AFTER_FAILURES); }
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+}
 
 export async function getSetting(key, fallback = null) {
   const db = await getDb();

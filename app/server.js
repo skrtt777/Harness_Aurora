@@ -63,6 +63,8 @@ import {
 import { startTurn, setStage, getStage, getPartial, setPartial, endTurn, cancelTurn, pushTurnStep, getTurnSteps, requestApproval, getApproval, resolveApproval, setTurnPlan, getTurnPlan } from "./pendingTurns.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
+import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
+import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
@@ -162,7 +164,7 @@ async function rememberAlwaysAllow(rule) {
 async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules() };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))) };
 }
 
 // Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
@@ -295,6 +297,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentContext = null;
     let agentSteps = [];
     let agentPlan = null;
+    let agentReview = null;
 
     let result;
     try {
@@ -310,13 +313,23 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext)], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
           const agentEnv = conversation.provider === "local" ? localEnv : env;
-          const agent = await runChatAgent({
-            provider: conversation.provider, system: agentContext.prompt, history: agentHistory(history), input: trimmed,
+          const runAgent = (agentHistoryMessages, input) => runChatAgent({
+            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
           });
+          let agent = await runAgent(agentHistory(history), trimmed);
+          // Local deliveries with errors or changes are reviewed by the paid
+          // teacher; its lessons become memories and the local model redoes.
+          if (agent.ok && conversation.provider === "local") {
+            const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
+            const teacherProvider = (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
+            const loop = await runTeachingLoop({ userMessage: trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal });
+            agent = loop.result;
+            agentReview = loop.review;
+          }
           if (agent.unsupported && !agent.steps.length) agentContext = null;
           else {
             agentSteps = agent.steps;
@@ -364,6 +377,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
+    if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {
@@ -630,6 +644,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (!BROWSER_BACKENDS.includes(body.browserBackend)) throw httpError(400, "Navegador inválido.");
           values.browser_backend = body.browserBackend;
         }
+        if (body.teacherMode !== undefined) {
+          if (!TEACHER_MODES.includes(body.teacherMode)) throw httpError(400, "Modo do professor inválido.");
+          values.teacher_mode = body.teacherMode;
+        }
+        if (body.teacherDailyLimit !== undefined) {
+          if (!Number.isInteger(body.teacherDailyLimit) || body.teacherDailyLimit < 0 || body.teacherDailyLimit > 1000) throw httpError(400, "Limite diário do professor deve ser de 0 a 1000.");
+          values.teacher_daily_limit = String(body.teacherDailyLimit);
+        }
         if (body.agentMode !== undefined) {
           if (!AGENT_MODES.includes(body.agentMode)) throw httpError(400, "Modo do agente inválido.");
           values.agent_mode = body.agentMode;
@@ -892,7 +914,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           const teacherProvider = conversation.teacherProvider === "claude" ? "claude" : "codex";
           const correction = await correctLocalAnswer({
             question: question.content,
-            wrongAnswer: flagged.content,
+            // An agent answer is only half the story: the teacher needs what it did.
+            wrongAnswer: flagged.execution?.toolSteps?.length ? `${flagged.content}\n\nAções que o modelo executou:\n${flagged.execution.toolSteps.map((s, i) => `${i + 1}. ${s.tool} ${JSON.stringify(s.args).slice(0, 300)} → ${s.ok ? "ok" : "falhou"}: ${String(s.result ?? s.summary).slice(0, 400)}`).join("\n")}` : flagged.content,
             note: body.note,
             teacherProvider,
             signal: correctionController.signal,

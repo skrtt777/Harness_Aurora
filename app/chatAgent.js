@@ -107,11 +107,12 @@ export async function runChatAgent({
   const ctx = { ...toolContext, env, signal, onStage, approve };
   let offered = tools;
   let forcedNote = "";
+  let forced = null;
   let nudged = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
-    if (round === maxSteps && offered.length) { offered = []; forcedNote = `Você atingiu o limite de ${maxSteps} ações nesta mensagem.`; }
+    if (round === maxSteps && offered.length) { offered = []; forced = "limit"; forcedNote = `Você atingiu o limite de ${maxSteps} ações nesta mensagem.`; }
     if (!offered.length && forcedNote) messages.push({ role: "user", content: `${forcedNote} Não chame mais ferramentas: diga ao usuário, em poucas frases, o que você conseguiu fazer e o que faltou.` });
     onStage(round === 0 ? "Pensando…" : steps.length ? "Decidindo o próximo passo…" : "Gerando resposta…");
     compactOldToolResults(messages);
@@ -132,7 +133,10 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Faça isso agora usando as ferramentas, em vez de só anunciar. Depois responda com o resultado." });
       continue;
     }
-    if (!toolCalls.length) return { ok: true, status: 200, text: text || "Pronto.", steps, calls, truncated: result.truncated, threadId: result.threadId || null };
+    if (!toolCalls.length) {
+      messages.push({ role: "assistant", content: text || "Pronto." });
+      return { ok: true, status: 200, text: text || "Pronto.", steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null };
+    }
 
     messages.push({ role: "assistant", content: toolCalls.length && parseTextToolCall(text) ? "" : text, tool_calls: toolCalls.map((c) => ({ function: { name: c.name, arguments: c.arguments } })) });
     for (const call of toolCalls) {
@@ -143,6 +147,7 @@ export async function runChatAgent({
       if (count >= REPEAT_LIMIT) {
         outcome = { ok: false, result: "ERRO: você já repetiu exatamente essa ação várias vezes sem progresso.", ms: 0 };
         offered = [];
+        forced = "repeat";
         forcedNote = "Você repetiu a mesma ação sem progresso.";
       } else {
         const stage = stageFor(call.name, call.arguments, tools);
@@ -151,7 +156,7 @@ export async function runChatAgent({
         try { outcome = await executeTool(call.name, call.arguments, ctx, tools); }
         catch { return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls }; }
       }
-      const step = { tool: call.name, args: call.arguments, ok: outcome.ok, summary: outcome.result.split("\n")[0].slice(0, 200), ms: outcome.ms };
+      const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
       messages.push({ role: "tool", tool_name: call.name, content: outcome.result });
