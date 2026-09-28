@@ -254,7 +254,15 @@ test("sandbox artifacts stay accessible after a rename and reject path traversal
 test("CLI wrappers honor model selection, reject empty/error output and abort subprocesses", async () => {
   const codex = await runCodex("pergunta", { CODEX_BIN: fakeCli, CODEX_MODEL: "test-model" });
   assert.equal(codex.ok, true);
-  assert.deepEqual(JSON.parse(codex.text).args.slice(-3), ["--model", "test-model", "pergunta"]);
+  assert.deepEqual(JSON.parse(codex.text).args.slice(-3), ["--model", "test-model", "-"]);
+  // Prompts go through stdin: far past the ~32k Windows command-line limit.
+  const long = "x".repeat(70000);
+  const viaStdin = await runCodex(long, { CODEX_BIN: fakeCli });
+  assert.equal(viaStdin.ok, true, viaStdin.error);
+  assert.equal(JSON.parse(viaStdin.text).promptLength, 70000);
+  const claudeLong = await runClaude(long, { CLAUDE_BIN: fakeCli });
+  assert.equal(claudeLong.ok, true, claudeLong.error);
+  assert.equal(JSON.parse(claudeLong.text).promptLength, 70000);
   assert.equal((await runCodex("x", { CODEX_BIN: fakeCli, FAKE_CLI_INVALID: "1" })).ok, false);
   assert.equal((await runClaude("x", { CLAUDE_BIN: fakeCli, FAKE_CLI_ERROR: "1" })).ok, false);
   const controller = new AbortController();

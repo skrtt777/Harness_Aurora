@@ -326,6 +326,32 @@ async function attachEmbedding(db, id, text, env) {
   }
 }
 
+const DUPLICATE_WORD_OVERLAP = 0.8;
+const DUPLICATE_SIMILARITY = 0.93;
+
+const dedupeWords = (text) => new Set(String(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]+/g) || []);
+
+/**
+ * Automatic lessons repeat a lot (the distillation runs saved the same
+ * number-formatting rule 4 times). A near-identical memory in the same scope
+ * is returned instead of stored again — by word overlap, or by embedding when
+ * one is available. Memories the user writes by hand are never merged.
+ */
+export function findDuplicateMemory(rows, content, vector, model) {
+  const words = dedupeWords(content);
+  for (const row of rows) {
+    const other = dedupeWords(row.content);
+    const shared = [...words].filter((w) => other.has(w)).length;
+    const union = new Set([...words, ...other]).size;
+    if (union && shared / union >= DUPLICATE_WORD_OVERLAP) return row;
+    if (vector && row.embedding && row.embedding_model === model) {
+      const existing = decodeEmbedding(row.embedding);
+      if (existing && cosineSimilarity(vector, existing) >= DUPLICATE_SIMILARITY) return row;
+    }
+  }
+  return null;
+}
+
 export async function createMemory({
   scope = "global",
   projectId = null,
@@ -336,6 +362,7 @@ export async function createMemory({
   kind = "manual",
   source,
   env = process.env,
+  dedupe = kind !== "manual",
 }) {
   if (!Array.isArray(tags) || tags.some(t => typeof t !== "string")) throw new Error("Tags devem ser uma lista de textos.");
   const db = await getDb();
@@ -344,9 +371,17 @@ export async function createMemory({
   if (scope === "conversation" && !conversationId) throw new Error("Memória de conversa requer conversationId.");
   const cleanContent = String(content || "").trim();
   if (!cleanContent) throw new Error("O conteúdo da memória é obrigatório.");
+  const cleanTitle = String(title || "Memória").trim() || "Memória";
+  const embeddingText = embeddingInputFor({ title: cleanTitle, content: cleanContent, tags });
+  const vector = dedupe ? await embedText(embeddingText, env).catch(() => null) : null;
+  if (dedupe) {
+    const siblings = db.prepare("SELECT * FROM memories WHERE scope = ? AND IFNULL(project_id, '') = ? AND IFNULL(conversation_id, '') = ?")
+      .all(scope, scope === "project" ? projectId : "", scope === "conversation" ? conversationId : "");
+    const duplicate = findDuplicateMemory(siblings, cleanContent, vector, resolveEmbeddingModel(env));
+    if (duplicate) return { ...attachRelations(db, [mapMemory(duplicate)])[0], deduplicated: true };
+  }
   const id = randomUUID();
   const ts = now();
-  const cleanTitle = String(title || "Memória").trim() || "Memória";
   db.prepare(
     `INSERT INTO memories (id, scope, project_id, conversation_id, title, content, tags, kind, source, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -363,7 +398,8 @@ export async function createMemory({
     ts,
     ts,
   );
-  await attachEmbedding(db, id, embeddingInputFor({ title: cleanTitle, content: cleanContent, tags }), env);
+  if (vector) db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?").run(encodeEmbedding(vector), resolveEmbeddingModel(env), id);
+  else await attachEmbedding(db, id, embeddingText, env);
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 

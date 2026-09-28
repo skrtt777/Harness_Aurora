@@ -95,3 +95,14 @@ test('Desktop client renews the session once after the desktop app restarts',asy
   assert.equal((await desktop('/conversations/x/messages','POST',{message:'oi'})).ok,true);
   assert.equal(posts,2);
 });
+
+test('The headset can answer the agent permission requests through the desktop route',async t=>{
+  const seen=[];const {store,call}=await setup(t,async(path,method,body)=>{seen.push({path,method,body});return {resolved:true};});
+  assert.equal((await call('/conversations/c/approval',null,{id:'a1',approved:true})).status,401);
+  const {token}=store.issueDevice('Quest');
+  assert.equal((await call('/conversations/c/approval',token,{id:'a1',approved:'sim'})).status,400);
+  assert.equal((await call('/conversations/c/approval',token,{id:'../x',approved:true})).status,400);
+  const answered=await call('/conversations/c/approval',token,{id:'a1',approved:false});
+  assert.equal(answered.status,200);assert.equal(answered.data.resolved,true);
+  assert.deepEqual(seen,[{path:'/conversations/c/approval',method:'POST',body:{id:'a1',approved:false}}]);
+});

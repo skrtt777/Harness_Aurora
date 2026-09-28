@@ -56,15 +56,24 @@ export function getTurnSteps(conversationId) {
  * Pauses the turn until the user clicks Permitir/Negar in the chat. The
  * pending request is exposed through /pending (which the UI already polls);
  * cancelling the turn or ending it resolves it as denied, so a tool can
- * never run on a stale approval.
+ * never run on a stale approval. Nobody answering (the user walked away, or
+ * the message came from a headset with no approve button) must not hold the
+ * conversation forever: after `timeoutMs` the request is rejected, and the
+ * tool reports that no one answered rather than "the user said no".
  */
-export function requestApproval(conversationId, request) {
+export const APPROVAL_TIMEOUT_MS = 120_000;
+
+export function requestApproval(conversationId, request, { timeoutMs = APPROVAL_TIMEOUT_MS } = {}) {
   const entry = pending.get(conversationId);
   if (!entry) return Promise.resolve(false);
   entry.approval?.resolve(false);
-  return new Promise((resolve) => {
-    const approval = { id: randomUUID(), tool: request.tool, summary: request.summary, detail: request.detail || "", resolve: null };
-    approval.resolve = (value) => { if (entry.approval === approval) entry.approval = null; resolve(Boolean(value)); };
+  return new Promise((resolve, reject) => {
+    const approval = { id: randomUUID(), tool: request.tool, summary: request.summary, detail: request.detail || "", expiresAt: Date.now() + timeoutMs, resolve: null };
+    let timer;
+    const settle = (fn) => { clearTimeout(timer); if (entry.approval === approval) entry.approval = null; fn(); };
+    approval.resolve = (value) => settle(() => resolve(Boolean(value)));
+    timer = setTimeout(() => settle(() => reject(new Error(`Ninguém respondeu ao pedido de autorização em ${Math.round(timeoutMs / 1000)} s; a ação não foi executada.`))), timeoutMs);
+    timer.unref?.();
     entry.approval = approval;
     entry.controller.signal.addEventListener("abort", () => approval.resolve(false), { once: true });
   });
@@ -72,7 +81,7 @@ export function requestApproval(conversationId, request) {
 
 export function getApproval(conversationId) {
   const approval = pending.get(conversationId)?.approval;
-  return approval ? { id: approval.id, tool: approval.tool, summary: approval.summary, detail: approval.detail } : null;
+  return approval ? { id: approval.id, tool: approval.tool, summary: approval.summary, detail: approval.detail, expiresAt: new Date(approval.expiresAt).toISOString() } : null;
 }
 
 export function resolveApproval(conversationId, id, approved) {

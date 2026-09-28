@@ -7,6 +7,13 @@ export const LOCAL_SETTINGS_DEFAULTS = { contextTokens: 8192, maxFixAttempts: 2 
 export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
 export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
 
+// Ollama unloads an idle model after 5 min by default; the next message then
+// pays a multi-second load. A personal assistant is used in bursts, so keep it
+// warm longer (LOCAL_KEEP_ALIVE accepts Ollama durations: "10m", "-1", "0").
+export function keepAlive(env = process.env) {
+  return env.LOCAL_KEEP_ALIVE || "30m";
+}
+
 export async function buildProviderConfig(env = process.env) {
   if(env.LOCAL_ENGINE==='llama.cpp')return {id:'local',name:'Local (Quest)',mode:'http',command:env.LOCAL_MODEL,model:env.LOCAL_MODEL,configured:await llamaReady(env)};
   const model = await resolveLocalModel(env);
@@ -43,7 +50,7 @@ export async function runLocal(prompt, env = process.env, externalSignal, {onTex
     const response = await fetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, prompt, stream: false,
+      body: JSON.stringify({ model, prompt, stream: false, keep_alive: keepAlive(env),
         ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
         ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
         num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
@@ -99,7 +106,7 @@ export async function runLocalChat(messages, tools = [], env = process.env, exte
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: false,
+      body: JSON.stringify({ model, messages, stream: false, keep_alive: keepAlive(env),
         ...(tools.length ? { tools } : {}),
         ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
         options: {

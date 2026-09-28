@@ -231,7 +231,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     // source) still wins over them. Resolved once and reused for every call
     // of the turn, so a changed context size doesn't only apply to the first.
     const contextSetting = conversation.provider === "local" && env.LOCAL_CONTEXT_TOKENS === undefined ? await getSetting("local_context_tokens") : undefined;
-    const localEnv = contextSetting ? { ...env, LOCAL_CONTEXT_TOKENS: contextSetting } : env;
+    const agentOn = await chatAgentEnabled(env);
+    const configuredContext = contextSetting ? { ...env, LOCAL_CONTEXT_TOKENS: contextSetting } : env;
+    // One context size for every local call of the turn (agent, fallback,
+    // repair): Ollama reloads the model when num_ctx changes (~4 s measured).
+    const localEnv = agentOn && conversation.provider === "local" ? { ...configuredContext, LOCAL_CONTEXT_TOKENS: String(Math.max(Number(configuredContext.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens, AGENT_MIN_CONTEXT_TOKENS)) } : configuredContext;
     const scope = { conversationId, projectId: conversation.projectId };
     let localContext = null;
     let agentContext = null;
@@ -246,16 +250,16 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       } else {
         // The chat is an agent: the model decides whether to answer or to act
         // (browser, web, apps, files, commands) and loops until done.
-        if (await chatAgentEnabled(env)) {
+        if (agentOn) {
           const toolContext = await chatAgentToolContext();
           agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext)], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
-          const agentEnv = conversation.provider === "local" ? { ...localEnv, LOCAL_CONTEXT_TOKENS: String(Math.max(Number(localEnv.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens, AGENT_MIN_CONTEXT_TOKENS)) } : env;
+          const agentEnv = conversation.provider === "local" ? localEnv : env;
           const agent = await runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistory(history), input: trimmed,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
-            approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request); },
+            approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
           });
           if (agent.unsupported && !agent.steps.length) agentContext = null;
           else {

@@ -142,6 +142,7 @@ test("runLocalChat sends native tools to /api/chat and flags models without tool
     assert.deepEqual(result.toolCalls, [{ name: "echo", arguments: { text: "oi" } }]);
     assert.equal(requests[0].url, "/api/chat");
     assert.equal(requests[0].body.think, false);
+    assert.equal(requests[0].body.keep_alive, "30m", "keeps the model warm between bursts");
     assert.equal(requests[0].body.tools[0].function.name, "echo");
     mode = "unsupported";
     const unsupported = await runLocalChat([{ role: "user", content: "oi" }], [], env);
@@ -274,4 +275,34 @@ test("an answer that only announces the next action is pushed to actually do it,
   assert.equal(result.steps.length, 1);
   assert.equal(result.text, "Vou tentar de novo depois.", "only one nudge per turn");
   assert.match(seen[1].messages.at(-1).content, /Faça isso agora/);
+});
+
+test("an unanswered approval expires, and the tool reports that nobody answered", async () => {
+  const controller = startTurn("conv-timeout");
+  try {
+    const started = Date.now();
+    await assert.rejects(requestApproval("conv-timeout", { tool: "run_command", summary: "dir" }, { timeoutMs: 60 }), /Ninguém respondeu/);
+    assert.ok(Date.now() - started < 2000);
+    assert.equal(getApproval("conv-timeout"), null);
+    const { executeTool } = await import("../app/agentTools/index.js");
+    const result = await executeTool("run_command", { command: "dir" }, { approve: (request) => requestApproval("conv-timeout", request, { timeoutMs: 30 }), knownFolders: {}, allowedRoots: [] });
+    assert.equal(result.ok, false);
+    assert.match(result.result, /Ninguém respondeu/);
+  } finally { endTurn("conv-timeout", controller); }
+});
+
+test("automatic lessons don't pile up as duplicates; hand-written memories are never merged", async () => {
+  const store = await import("../app/store.js");
+  const env = { LOCAL_BASE_URL: "http://127.0.0.1:1", EMBEDDINGS_ENABLED: "false" };
+  const first = await store.createMemory({ scope: "global", title: "Números", content: "Formate números en-US sem separador de milhar usando useGrouping:false.", kind: "extracted", env });
+  const again = await store.createMemory({ scope: "global", title: "Formatação", content: "Formate números en-US sem separador de milhar, usando useGrouping: false", kind: "extracted", env });
+  assert.equal(again.id, first.id);
+  assert.equal(again.deduplicated, true);
+  const different = await store.createMemory({ scope: "global", title: "Select", content: "Um select com estado inicial precisa do atributo selected explícito.", kind: "extracted", env });
+  assert.notEqual(different.id, first.id);
+  const conversation = await store.createConversation({ provider: "local" });
+  const otherScope = await store.createMemory({ scope: "conversation", conversationId: conversation.id, content: "Formate números en-US sem separador de milhar usando useGrouping:false.", kind: "extracted", env });
+  assert.notEqual(otherScope.id, first.id, "dedupe only within the same scope/owner");
+  const manual = await store.createMemory({ scope: "global", content: "Formate números en-US sem separador de milhar usando useGrouping:false.", kind: "manual", env });
+  assert.notEqual(manual.id, first.id);
 });

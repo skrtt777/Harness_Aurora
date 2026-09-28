@@ -4,11 +4,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
-export async function executeCli(command, args, { signal, timeout, ...options }) {
+// `input` goes to stdin: prompts never ride on the command line, which Windows
+// caps at ~32k characters (a long teacher prompt failed with ENAMETOOLONG).
+export async function executeCli(command, args, { signal, timeout, input, ...options }) {
   if (signal?.aborted) throw Object.assign(new Error("Operação cancelada."), { name: "AbortError" });
   const pending = execFileAsync(command, args, options);
   const child = pending.child;
-  child.stdin?.end();
+  child.stdin?.on("error", () => {});
+  child.stdin?.end(input === undefined ? undefined : String(input));
   let timedOut = false;
   const stop = () => {
     if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;

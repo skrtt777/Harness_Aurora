@@ -65,7 +65,7 @@ export function extractCodexError(stdout) {
 export async function runCodex(prompt, env = process.env, signal) {
   if(env.HARNESS_PLATFORM==='quest')return remoteTeacher('codex',prompt,env,signal);
   try {
-    const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", prompt];
+    const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", "-"];
     if (env.CODEX_MODEL) args.splice(args.length - 1, 0, "--model", env.CODEX_MODEL);
     const cli = resolveCli("codex", env);
     const result = await executeCli(cli.command, [...cli.prefix, ...args], {
@@ -74,6 +74,7 @@ export async function runCodex(prompt, env = process.env, signal) {
       signal,
       env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
+      input: prompt,
       timeout: Number(env.CODEX_TIMEOUT_MS || 120_000),
     });
     const parsed = parseCodexOutput(result.stdout);

@@ -148,6 +148,10 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
       if(m&&method==='POST')return respond(res,200,await desktop(`/conversations/${m[1]}/cancel`,'POST',{}));
       m=p.match(/^\/xr\/v1\/conversations\/([\w-]+)$/);
       if(m&&method==='PATCH'){const body=await jsonBody(req,2048);if(!['codex','claude'].includes(body.teacherProvider))fail(400,'Professor inválido.');return respond(res,200,await desktop(`/conversations/${m[1]}`,'PATCH',{teacherProvider:body.teacherProvider}));}
+      // The headset answers the agent's permission requests too; otherwise a
+      // command asked from the Quest could only wait for the desktop.
+      m=p.match(/^\/xr\/v1\/conversations\/([\w-]+)\/approval$/);
+      if(m&&method==='POST'){const body=await jsonBody(req,2048);if(typeof body.approved!=='boolean')fail(400,'Resposta inválida.');return respond(res,200,await desktop(`/conversations/${m[1]}/approval`,'POST',{id:identifier(body.id),approved:body.approved}));}
       if(method!=='POST')fail(404,'Operação não disponível.');
       const body=await jsonBody(req,9_000_000);
       let action,kind;

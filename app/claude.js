@@ -34,7 +34,7 @@ export function parseClaudeOutput(stdout) {
 export async function runClaude(prompt, env = process.env, signal) {
   if(env.HARNESS_PLATFORM==='quest')return remoteTeacher('claude',prompt,env,signal);
   try {
-    const args = ["-p", prompt, "--output-format", "json", "--no-session-persistence"];
+    const args = ["-p", "--output-format", "json", "--no-session-persistence"];
     if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);
     const cli = resolveCli("claude", env);
     const result = await executeCli(cli.command, [...cli.prefix, ...args], {
@@ -43,6 +43,7 @@ export async function runClaude(prompt, env = process.env, signal) {
       signal,
       env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
+      input: prompt,
       timeout: Number(env.CLAUDE_TIMEOUT_MS || 120_000),
     });
     const parsed = parseClaudeOutput(result.stdout);
