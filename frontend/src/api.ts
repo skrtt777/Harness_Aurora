@@ -20,7 +20,7 @@ export type Conversation = {
 };
 
 export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
-export type TeacherReview = { reason: "errors" | "actions" | null; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
+export type TeacherReview = { reason: "errors" | "actions" | null; ms?: number; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
 export type PlanItem = { text: string; status: "pending" | "in_progress" | "done" };
 export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null };
@@ -213,6 +213,17 @@ export type SavingsStats = {
   savingsPercent: number;
 };
 export const getSavingsStats = () => request<SavingsStats>("/savings");
+
+// ---------- Conhecimento da empresa ----------
+export type KnowledgeSource = { id: string; name: string; path: string; department: string; paidAllowed: boolean; documents: number; failed: number; indexedAt: string | null; lastError: string | null; job: { total: number; done: number; current: string | null; finished?: boolean } | null };
+export type KnowledgeDocument = { title: string; type: string; summary: string; flow: string[]; relPath: string; path: string; source: string; updatedAt: string };
+export type KnowledgeCategory = { category: string; documents: KnowledgeDocument[] };
+export const getKnowledgeSources = () => request<{ sources: KnowledgeSource[] }>("/knowledge/sources").then((r) => r.sources);
+export const createKnowledgeSource = (data: { name: string; department: string; path: string; paidAllowed: boolean }) => request<KnowledgeSource>("/knowledge/sources", { method: "POST", body: JSON.stringify(data) });
+export const updateKnowledgeSource = (id: string, patch: Partial<Pick<KnowledgeSource, "name" | "department" | "paidAllowed">>) => request<KnowledgeSource>(`/knowledge/sources/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteKnowledgeSource = (id: string) => request<{ ok: boolean }>(`/knowledge/sources/${id}`, { method: "DELETE" });
+export const reindexKnowledgeSource = (id: string) => request<{ started: boolean }>(`/knowledge/sources/${id}/reindex`, { method: "POST", body: "{}" });
+export const getKnowledgeMap = () => request<{ map: KnowledgeCategory[] }>("/knowledge/map").then((r) => r.map);
 
 // ---------- Avaliação contínua do agente local ----------
 export type AgentEvalResult = { id: string; area: string; passed: boolean; ms: number; steps: number; error: string | null; answer: string };

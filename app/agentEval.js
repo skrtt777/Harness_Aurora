@@ -59,6 +59,22 @@ export const EVAL_TASKS = [
     check: ({ answer }) => has(answer, "atendimento@loja-aurora.test") },
   { id: "lembrar", area: "memória", prompt: "Lembre que meu time de futebol é o Bahia.",
     check: ({ memories }) => memories.some((m) => has(m.content, "bahia")) },
+  // Company knowledge: a fictitious HR share (app/sampleDocs.js) is indexed
+  // first; the questions never say where the answer is.
+  { id: "rh-final-de-ano", area: "conhecimento", knowledge: true, prompt: "Me traz um resumo da programação de final de ano.",
+    check: ({ answer }) => has(answer, /19\b/, /Espa[çc]o Jardim/i, /recesso|24\/12/i, /Confraterniza[çc][ãa]o 2026/i) },
+  { id: "rh-vale", area: "conhecimento", knowledge: true, prompt: "Quanto é o vale-refeição?",
+    check: ({ answer }) => has(answer, /42,00/, /Benef[íi]cios/i) },
+  { id: "rh-ferias", area: "conhecimento", knowledge: true, prompt: "Como eu faço para pedir férias?",
+    check: ({ answer }) => has(answer, /45 dias/, /portal/i) },
+  { id: "rh-folha", area: "conhecimento", knowledge: true, prompt: "Quem cuida da folha de pagamento e qual o ramal?",
+    check: ({ answer }) => has(answer, "Diego", "2204") },
+  { id: "rh-admissao", area: "conhecimento", knowledge: true, prompt: "O que eu preciso levar no meu primeiro dia de trabalho?",
+    check: ({ answer }) => has(answer, "RG", "CPF") },
+  { id: "rh-calendario", area: "conhecimento", knowledge: true, prompt: "Quando é o Dia das Crianças em família?",
+    check: ({ answer }) => has(answer, /10\/10|10 de outubro/i) },
+  { id: "rh-inexistente", area: "conhecimento", knowledge: true, prompt: "Qual é a política de viagens a trabalho da empresa?",
+    check: ({ answer }) => /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta)/i.test(answer) && !/150/.test(answer) },
   { id: "resposta-direta", area: "conversa", prompt: "Quanto é 17 vezes 3? Responda só o número.",
     check: ({ answer, steps }) => has(answer, "51") && !steps.some((s) => ["write_file", "run_command"].includes(s.tool)) },
 ];
@@ -79,11 +95,21 @@ export async function runAgentEval({ tasks = EVAL_TASKS.filter((t) => !process.e
   const store = await import("./store.js");
   const { handleChatTurn } = await import("./server.js");
   const { closeBrowserContext } = await import("./browserAgent.js");
+  const knowledge = await import("./knowledge.js");
+  const { writeSampleHrShare } = await import("./sampleDocs.js");
   await store.setSetting("teacher_mode", "off");
   await store.setSetting("agent_mode", "auto");
   const root = mkdtempSync(join(tmpdir(), "aurora-eval-"));
   const { server, url: site } = await startTestSite();
   const results = [];
+  if (tasks.some((t) => t.knowledge)) {
+    // The benchmark's own HR share; the user's real sources are left out so
+    // the score doesn't depend on what they happen to have indexed.
+    for (const source of await knowledge.listSources()) await knowledge.deleteSource(source.id);
+    const share = writeSampleHrShare(join(root, "compartilhamento-rh"));
+    const source = await knowledge.createSource({ name: "Pasta do RH (teste)", path: share, department: "RH" });
+    await knowledge.indexSource(source.id, { env });
+  }
   try {
     for (const [index, task] of tasks.entries()) {
       onProgress({ index, total: tasks.length, task: task.id });

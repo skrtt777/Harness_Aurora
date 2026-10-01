@@ -1,6 +1,10 @@
 import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { extractText } from "../docText.js";
+
+// Binary office formats are read as their text; everything else as UTF-8.
+const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf"]);
 
 const MAX_READ = 12000;
 const MAX_WALK = 20000;
@@ -149,14 +153,16 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo de texto com números de linha. Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx) e PDF. Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
     parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     describe: (a, ctx) => ({ kind: "read", paths: [full(a.path, ctx)] }),
     async run({ path, offset = 1, limit = 400 }, ctx) {
       const file = full(path, ctx);
-      if ((await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
-      const lines = (await readFile(file, "utf8")).split(/\r?\n/);
+      const office = EXTRACTED.has(extname(file).toLowerCase());
+      if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
+      const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
+      ctx.onFileRead?.(file);
       const start = Math.max(1, Number(offset) || 1);
       const count = Math.min(Math.max(1, Number(limit) || 400), 2000);
       let text = "";

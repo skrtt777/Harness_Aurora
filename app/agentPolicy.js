@@ -81,6 +81,8 @@ export async function decide(access, ctx) {
       return { action: "allow" };
     case "interact":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano a Aurora só observa páginas; não clica nem digita." } : { action: "allow" };
+    case "share":
+      return { action: "ask", reason: "Enviar trechos de documentos internos para a IA paga" };
     case "import":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano nada é instalado." } : { action: "ask", reason: "Usar instruções de uma skill de terceiros" };
     case "read":

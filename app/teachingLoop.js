@@ -26,7 +26,7 @@ async function spendTeacherCall() {
  * rerun(history, input) runs the local agent again on top of the first
  * attempt's transcript (so it sees what it did and what went wrong).
  */
-export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher }) {
+export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher, needsConsent = () => false, approve = async () => false }) {
   const settings = await teacherSettings();
   const signals = detectSignals({ userMessage, result: first });
   const reason = shouldReview({ mode: settings.mode, signals, steps: first.steps });
@@ -38,6 +38,10 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   if (settings.usedToday >= settings.dailyLimit) return { result: first, review: { ...review, skipped: "daily_limit" } };
 
   const label = teacherProvider === "claude" ? "Claude" : "Codex";
+  // Internal documents not cleared for paid AI leave the machine only with consent.
+  if (needsConsent() && !(await approve({ tool: "teacher", summary: `Enviar esta conversa ao ${label} para revisão`, detail: "Ela usa documentos internos que não estão liberados para IA paga." }))) {
+    return { result: first, review: { ...review, skipped: "privacy" } };
+  }
   onStage(`Revisando com ${label}…`);
   const started = Date.now();
   await spendTeacherCall();

@@ -33,6 +33,9 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
   return { name, arguments: args && typeof args === "object" ? args : {} };
 }
 
+const GROUNDING_TOOLS = new Set(["knowledge_search", "knowledge_map", "read_file", "web_search", "web_fetch", "browser_read", "grep"]);
+export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(String(text || ""));
+
 const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar";
 
 /** "Vou rolar a página e verificar…" — a promise of an action, not an answer. */
@@ -98,7 +101,7 @@ function defaultCallModel(provider) {
 export async function runChatAgent({
   provider = "local", system, history = [], input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
-  tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider),
+  tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false,
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
   const steps = [];
@@ -109,6 +112,7 @@ export async function runChatAgent({
   let forcedNote = "";
   let forced = null;
   let nudged = false;
+  let citationChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -126,6 +130,12 @@ export async function runChatAgent({
     if (offered.length && !toolCalls.length) {
       const inline = parseTextToolCall(text, offered.map((t) => t.name));
       if (inline) toolCalls = [inline];
+    }
+    // A "Fonte:" with nothing consulted this turn is an invented citation.
+    if (!toolCalls.length && offered.length && !citationChecked && citesSource(text) && !grounded && !steps.some((s) => GROUNDING_TOOLS.has(s.tool) && s.ok)) {
+      citationChecked = true;
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Você citou uma fonte sem consultar nenhum documento nesta resposta. Pesquise com knowledge_search (ou leia o arquivo) e responda só com o que encontrar; se não houver, diga que não encontrou." });
+      continue;
     }
     if (!toolCalls.length && offered.length && !nudged && announcesAction(text)) {
       // Small models often stop at "vou rolar a página…" instead of doing it.

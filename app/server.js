@@ -65,6 +65,7 @@ import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
+import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, updateSource } from "./knowledge.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
@@ -144,6 +145,15 @@ async function agentAllowedRoots(folders) {
   } catch {}
   return [folders.desktop, folders.documents, folders.downloads];
 }
+
+// Strong matches only: an unrelated message ("oi") must not drag documents in.
+async function relatedDocuments(text, env, signal) {
+  try {
+    if (!(await listSources()).some((s) => s.documents > 0)) return [];
+    return (await searchKnowledge(text, { limit: 3, env, signal })).filter((hit) => hit.score >= KNOWLEDGE_AUTO_SCORE);
+  } catch { return []; }
+}
+const KNOWLEDGE_AUTO_SCORE = 1.5;
 
 async function agentMode() {
   const mode = await getSetting("agent_mode");
@@ -312,10 +322,21 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         if (agentOn) {
           const toolContext = await chatAgentToolContext({ conversation, project });
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
-          agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext)], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
+          // Company documents not cleared for paid AI: tracked per turn so the
+          // teacher (or a paid chat) only sees them with the person's consent.
+          toolContext.provider = conversation.provider;
+          toolContext.restrictedSources = new Set();
+          toolContext.onFileRead = (file) => { void sourceForPath(file).then((s) => { if (s && !s.paid_allowed) toolContext.restrictedSources.add(s.id); }).catch(() => {}); };
+          // Local model only: the company documents most related to the request
+          // go straight into the context (a small model forgets to search and
+          // then invents). Paid chats keep asking through knowledge_search.
+          const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal) : [];
+          for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
+          const docsBlock = autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${d.text.slice(0, 900)}`).join("\n\n")}` : "";
+          agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
           const agentEnv = conversation.provider === "local" ? localEnv : env;
           const runAgent = (agentHistoryMessages, input) => runChatAgent({
-            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input,
+            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
@@ -327,7 +348,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           if (agent.ok && conversation.provider === "local") {
             const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
             const teacherProvider = (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
-            const loop = await runTeachingLoop({ userMessage: trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal });
+            const approveTeacher = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };
+            const loop = await runTeachingLoop({ userMessage: trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal, needsConsent: () => toolContext.restrictedSources.size > 0, approve: approveTeacher });
             agent = loop.result;
             agentReview = loop.review;
           }
@@ -778,6 +800,28 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (agentCancelMatch && method === "POST") {
         const [, id] = agentCancelMatch;
         return sendJson(response, 200, { cancelled: cancelRun(id) });
+      }
+
+      // ---------- Conhecimento da empresa (pastas da rede / SharePoint) ----------
+      if (method === "GET" && pathname === "/api/knowledge/sources") return sendJson(response, 200, { sources: await listSources() });
+      if (method === "POST" && pathname === "/api/knowledge/sources") {
+        const body = await readJson(request);
+        if (body.paidAllowed !== undefined && typeof body.paidAllowed !== "boolean") throw httpError(400, "Opção paidAllowed inválida.");
+        const source = await createSource({ name: body.name, path: body.path, department: body.department, paidAllowed: body.paidAllowed === true });
+        void startIndexing(source.id).catch(() => {});
+        return sendJson(response, 201, source);
+      }
+      if (method === "GET" && pathname === "/api/knowledge/map") return sendJson(response, 200, { map: await knowledgeMap({ department: url.searchParams.get("department") || undefined }) });
+      const knowledgeMatch = pathname.match(/^\/api\/knowledge\/sources\/([^/]+)(\/reindex)?$/);
+      if (knowledgeMatch) {
+        const [, id, reindex] = knowledgeMatch;
+        if (reindex && method === "POST") { void startIndexing(id).catch(() => {}); return sendJson(response, 202, { started: true }); }
+        if (!reindex && method === "PATCH") {
+          const body = await readJson(request);
+          if (body.paidAllowed !== undefined && typeof body.paidAllowed !== "boolean") throw httpError(400, "Opção paidAllowed inválida.");
+          return sendJson(response, 200, await updateSource(id, body));
+        }
+        if (!reindex && method === "DELETE") return sendJson(response, (await deleteSource(id)) ? 200 : 404, { ok: true });
       }
 
       // ---------- Avaliação contínua do agente local (Fase 3) ----------

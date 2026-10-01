@@ -290,3 +290,11 @@
 .eval-runs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
 .eval-runs th, .eval-runs td { text-align: left; padding: 4px 6px; border-bottom: 1px solid rgba(200, 180, 255, .12); }
 .eval-bar { display: inline-block; width: 60px; height: 6px; border-radius: 3px; vertical-align: middle; background: linear-gradient(90deg, #8fd6a4 var(--rate), rgba(255, 255, 255, .12) var(--rate)); }
+.knowledge-panel { display: grid; gap: 10px; }
+.knowledge-source { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid rgba(200, 180, 255, .18); border-radius: 10px; font-size: 13px; }
+.knowledge-source small { color: #aaa4b5; overflow-wrap: anywhere; }
+.knowledge-add { display: grid; gap: 6px; font-size: 13px; }
+.knowledge-map { font-size: 13px; }
+.knowledge-map details { margin: 4px 0 4px 12px; }
+.knowledge-map ul { margin: 4px 0; padding-left: 18px; }
+.knowledge-map p { margin: 2px 0; color: #aaa4b5; }

@@ -1,6 +1,17 @@
 import { createMemory, selectRelevantMemories } from "../store.js";
 import { allSkills, importSkill } from "../skills.js";
 import { importCatalogSkill, searchSkillCatalog } from "../skillCatalog.js";
+import { knowledgeMap, listSources, searchKnowledge } from "../knowledge.js";
+
+// Paid providers (Claude/Codex chats) only see restricted company documents
+// when the person approves; the local model sees everything it indexed.
+async function shareAccess(ctx, what) {
+  if (!ctx.provider || ctx.provider === "local") return { kind: "meta" };
+  const restricted = (await listSources()).filter((s) => !s.paidAllowed);
+  return restricted.length ? { kind: "share", summary: `${what} — inclui documentos de ${[...new Set(restricted.map((s) => s.department))].join(", ")} que não estão liberados para IA paga` } : { kind: "meta" };
+}
+
+const rememberRestricted = (ctx, items) => { for (const item of items) if (!item.paidAllowed) ctx.restrictedSources?.add(item.sourceId); };
 
 const clip = (text, max) => (String(text).length > max ? `${String(text).slice(0, max)}…` : String(text));
 
@@ -10,6 +21,31 @@ async function findLocalSkill(id) {
 }
 
 export const knowledgeTools = [
+  {
+    name: "knowledge_search",
+    description: "Procura nos documentos da empresa (pastas da rede e SharePoint indexados: políticas, procedimentos, comunicados, planilhas, contatos). Use para QUALQUER pergunta sobre a empresa ou um departamento. Devolve trechos com o arquivo de origem para citar.",
+    parameters: { type: "object", properties: { query: { type: "string", description: "o que procurar, com as palavras do usuário" }, category: { type: "string", description: "opcional, ex.: RH/Eventos" } }, required: ["query"] },
+    stage: (a) => `Procurando nos documentos da empresa: "${clip(a.query, 40)}"…`,
+    describe: (a, ctx) => shareAccess(ctx, `Buscar "${clip(a.query, 60)}" nos documentos da empresa`),
+    async run({ query, category }, ctx) {
+      const hits = await searchKnowledge(String(query || ""), { category, env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
+      if (!hits.length) return "Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.";
+      rememberRestricted(ctx, hits);
+      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem.";
+    },
+  },
+  {
+    name: "knowledge_map",
+    description: "Mostra como os documentos da empresa estão organizados: categorias por departamento, cada documento com resumo, datas e fluxos (passo a passo). Use para visão geral ou para listar o que existe num assunto.",
+    parameters: { type: "object", properties: { department: { type: "string" }, category: { type: "string" } } },
+    stage: () => "Consultando o mapa de documentos…",
+    describe: (a, ctx) => shareAccess(ctx, "Ver o mapa de documentos da empresa"),
+    async run({ department, category }, ctx) {
+      const map = await knowledgeMap({ department, category });
+      if (!map.length) return "Nenhum documento indexado ainda. As pastas são cadastradas em Configurações → Conhecimento da empresa.";
+      return map.map((c) => `# ${c.category}\n${c.documents.map((d) => `- ${d.title} (${d.relPath})${d.summary ? `: ${clip(d.summary, 220)}` : ""}${d.flow.length ? `\n  Fluxo: ${d.flow.map((s, i) => `${i + 1}) ${clip(s, 80)}`).join(" ")}` : ""}`).join("\n")}`).join("\n\n").slice(0, 8000);
+    },
+  },
   {
     name: "memory_search",
     description: "Procura nas memórias da Aurora (fatos, preferências e lições aprendidas com correções anteriores). Use antes de tarefas parecidas com algo já feito ou quando o usuário perguntar o que você lembra.",

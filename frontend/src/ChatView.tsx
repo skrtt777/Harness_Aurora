@@ -63,7 +63,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_dir: 'Listou pasta', read_file: 'Leu arquivo', write_file: 'Salvou arquivo', edit_file: 'Editou arquivo',
   search_files: 'Procurou arquivos', grep: 'Procurou texto', command_output: 'Conferiu processo', command_stop: 'Encerrou processo',
   memory_search: 'Consultou memórias', memory_save: 'Guardou na memória', skill_search: 'Procurou skills', skill_use: 'Usou skill',
-  skill_create: 'Criou skill', update_plan: 'Atualizou o plano',
+  skill_create: 'Criou skill', update_plan: 'Atualizou o plano', knowledge_search: 'Consultou documentos da empresa', knowledge_map: 'Consultou o mapa de documentos',
 };
 
 const MODE_LABEL: Record<AgentMode, string> = { auto: 'Auto', manual: 'Manual', plan: 'Plano' };
@@ -88,6 +88,7 @@ function AgentModeSelect() {
 function ReviewNote({ review }: { review: TeacherReview }) {
   const teacher = review.teacher === 'claude' ? 'Claude' : 'Codex';
   const text = review.skipped === 'daily_limit' ? `Revisão de ${teacher} pulada: limite diário atingido.`
+    : review.skipped === 'privacy' ? `Revisão de ${teacher} não enviada: a conversa usa documentos internos e você não autorizou.`
     : review.error ? `Não foi possível revisar com ${teacher}: ${review.error}`
     : review.verdict === 'ok' ? `Conferido por ${teacher}: aprovado.`
     : review.verdict === 'fix' ? `${teacher} encontrou ${review.problems?.length || 0} problema(s)${review.lessonIds?.length ? ` e ensinou ${review.lessonIds.length} lição(ões)` : ''}; a Aurora ${review.redo === 'ok' ? 'refez e corrigiu' : review.redo === 'com_erros' ? 'refez, mas ainda há erros' : 'não conseguiu refazer'}.` : '';

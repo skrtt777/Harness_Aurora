@@ -22,6 +22,7 @@ import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
 import Icon from './Icon';
 import EvalPanel from './EvalPanel';
+import KnowledgePanel from './KnowledgePanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 
@@ -357,6 +358,16 @@ export default function SettingsView({
             {agentSaved && <small className="settings-saved">Salvo.</small>}
             {agentError && <p className="memory-form-error">{agentError}</p>}
           </div>
+        </div>
+
+        <div className="settings-card">
+          <h2>Conhecimento da empresa</h2>
+          <p className="settings-hint">
+            Pastas da rede (\\servidor\RH) ou bibliotecas do SharePoint sincronizadas pelo OneDrive. A IA local lê Word, Excel,
+            PowerPoint, PDF e texto, organiza tudo por categoria (com resumos e fluxos) e responde perguntas citando o arquivo.
+            Só entra o que você já tem permissão de abrir, e nada sai deste computador sem a sua autorização.
+          </p>
+          <KnowledgePanel />
         </div>
 
         <div className="settings-card">
