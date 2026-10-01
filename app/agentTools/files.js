@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -11,10 +12,15 @@ const MAX_WALK = 20000;
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "$recycle.bin", "appdata"]);
 
 export function expandPath(input, knownFolders = {}, base) {
-  let text = String(input || "").trim().replace(/^["']|["']$/g, "");
+  let text = String(input || "").trim().replace(/^["'`]+|["'`,;]+$/g, "");
   if (!text) throw new Error("Informe o caminho.");
   if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) text = join(homedir(), text.slice(1));
-  text = text.replace(/%([A-Z_]+)%/gi, (m, name) => process.env[name] ?? m);
+  // Windows (%USERPROFILE%) and PowerShell ($env:USERPROFILE, $HOME) variables,
+  // and the doubled backslashes small models copy from JSON (UNC prefix kept).
+  text = text.replace(/%([A-Z_]+)%/gi, (m, name) => process.env[name] ?? m)
+    .replace(/\$env:([A-Z_][A-Z0-9_]*)/gi, (m, name) => process.env[name] ?? process.env[name.toUpperCase()] ?? m)
+    .replace(/^\$HOME(?=$|[\\/])/i, homedir());
+  text = text.replace(/^(\\\\)?/, "$1").replace(/(?!^)\\{2,}/g, "\\").replace(/\/{2,}/g, "/");
   if (!isAbsolute(text)) {
     // "Desktop/notas.txt", "área de trabalho\\x" → the real known folder;
     // anything else is relative to the project folder (or the Desktop).
@@ -52,6 +58,66 @@ export async function isInsideRoots(path, roots = []) {
 }
 
 const full = (path, ctx) => expandPath(path, ctx.knownFolders, ctx.workspace);
+
+// Explicit folder, else the project, else the person's usual folders.
+const searchRoots = ({ path }, ctx) => (path ? [full(path, ctx)] : ctx.workspace ? [ctx.workspace] : (ctx.workspaceRoots?.length ? ctx.workspaceRoots : personalFolders(ctx)).filter((p) => existsSync(p)));
+
+const fold = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Where a file the person mentions by name usually lives. */
+export function personalFolders(ctx = {}) {
+  const f = ctx.knownFolders || {};
+  const home = f.home || homedir();
+  return [...new Set([ctx.workspace, f.desktop, f.documents, f.downloads, join(home, "OneDrive"), join(home, "Desktop"), join(home, "Documents"), join(home, "Downloads")].filter(Boolean))];
+}
+
+/**
+ * Finds files by name (accent/case-insensitive; with or without extension)
+ * in the person's folders: exact name first, then same name without
+ * extension, then names containing it; newest first within each.
+ */
+export async function findFilesByName(name, roots, { limit = 5, signal } = {}) {
+  const wanted = fold(String(name).replace(/\uFFFD/g, "").split(/[\\/]/).pop().trim());
+  if (wanted.length < 3) return [];
+  const stem = wanted.replace(/\.[a-z0-9]{1,5}$/, "");
+  const hits = [];
+  const seen = new Set();
+  for (const root of roots) {
+    const stack = [[root, 0]];
+    let visited = 0;
+    while (stack.length && visited < 15000 && !signal?.aborted) {
+      const [dir, depth] = stack.pop();
+      const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        visited += 1;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { if (depth < 5 && !SKIP_DIRS.has(entry.name.toLowerCase()) && !entry.name.startsWith(".")) stack.push([path, depth + 1]); continue; }
+        if (!entry.isFile() || seen.has(path.toLowerCase())) continue;
+        const base = fold(entry.name);
+        const rank = base === wanted ? 0 : base.replace(/\.[a-z0-9]{1,5}$/, "") === stem ? 1 : stem.length >= 8 && base.includes(stem) ? 2 : -1;
+        if (rank < 0) continue;
+        seen.add(path.toLowerCase());
+        hits.push({ path, rank, mtime: (await stat(path).catch(() => ({ mtimeMs: 0 }))).mtimeMs });
+      }
+    }
+  }
+  return hits.sort((a, b) => a.rank - b.rank || b.mtime - a.mtime).slice(0, limit).map((h) => h.path);
+}
+
+/**
+ * The path as given if it exists; otherwise the same file name found in the
+ * person's folders — models often guess the folder (Desktop vs Downloads) or
+ * mangle accents ("\\�rea de Trabalho").
+ */
+export async function resolveExisting(path, ctx, { directory = false } = {}) {
+  const target = full(path, ctx);
+  const info = await stat(target).catch(() => null);
+  if (info && (directory ? info.isDirectory() : true)) return target;
+  if (directory) throw new Error(`A pasta ${target} não existe.`);
+  const found = await findFilesByName(target, personalFolders(ctx), { limit: 3, signal: ctx.signal });
+  if (found.length) return found[0];
+  throw new Error(`O arquivo ${target} não existe e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário.`);
+}
 
 /** "src/**\/*.ts" → RegExp over forward-slash relative paths. */
 export function globToRegExp(pattern) {
@@ -110,19 +176,23 @@ export const fileTools = [
   },
   {
     name: "search_files",
-    description: "Procura arquivos pelo nome com um padrão glob, ex.: \"**/*.py\", \"src/**/App.tsx\", \"*relatorio*\". Ignora node_modules, .git e pastas ocultas.",
-    parameters: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string", description: "pasta onde procurar (padrão: pasta do projeto)" } }, required: ["pattern"] },
+    description: "Procura arquivos pelo nome: um nome ou parte dele (ex.: \"MARU_MEDIA_KIT\", \"relatorio\") ou um padrão glob (\"**/*.py\", \"src/**/App.tsx\"). Sem path, procura na pasta do projeto ou, sem projeto, na Área de Trabalho, Documentos, Downloads e OneDrive. Ignora node_modules, .git e pastas ocultas.",
+    parameters: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string", description: "pasta onde procurar (opcional)" } }, required: ["pattern"] },
     stage: (a) => `Procurando ${a.pattern}…`,
-    describe: (a, ctx) => ({ kind: "read", paths: [full(a.path || ".", ctx)] }),
+    describe: (a, ctx) => ({ kind: "read", paths: searchRoots(a, ctx) }),
     async run({ pattern, path }, ctx) {
-      const root = full(path || ".", ctx);
-      const regex = globToRegExp(pattern);
+      const roots = searchRoots({ path }, ctx);
+      // A bare name is a "contains" search, accent- and case-insensitive.
+      const glob = /[*?{]/.test(pattern) ? pattern : `*${fold(String(pattern).replace(/\.[a-z0-9]{1,5}$/i, ""))}*`;
+      const regex = globToRegExp(glob);
       const found = [];
-      for await (const file of walk(root, ctx.signal)) {
-        if (regex.test(rel(root, file))) found.push(rel(root, file));
-        if (found.length >= 200) break;
+      for (const root of roots) {
+        for await (const file of walk(root, ctx.signal)) {
+          if (regex.test(fold(rel(root, file)))) found.push(roots.length > 1 ? file : rel(root, file));
+          if (found.length >= 200) break;
+        }
       }
-      return found.length ? `${root}\n${found.join("\n")}${found.length >= 200 ? "\n… (limite de 200)" : ""}` : `Nenhum arquivo com "${pattern}" em ${root}.`;
+      return found.length ? `${roots.length > 1 ? "" : `${roots[0]}\n`}${found.join("\n")}${found.length >= 200 ? "\n… (limite de 200)" : ""}` : `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}.`;
     },
   },
   {
@@ -156,9 +226,14 @@ export const fileTools = [
     description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx) e PDF. Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
     parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
-    describe: (a, ctx) => ({ kind: "read", paths: [full(a.path, ctx)] }),
+    async describe(a, ctx) {
+      const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
+      // A paid chat only sees a restricted company document with consent.
+      if (ctx.provider && ctx.provider !== "local" && (await ctx.isRestricted?.(path))) return { kind: "share", summary: `Ler ${path} (documento interno não liberado para IA paga)` };
+      return { kind: "read", paths: [path] };
+    },
     async run({ path, offset = 1, limit = 400 }, ctx) {
-      const file = full(path, ctx);
+      const file = await resolveExisting(path, ctx);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);

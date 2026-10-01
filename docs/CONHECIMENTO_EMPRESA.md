@@ -46,6 +46,25 @@ Objetivo: a Aurora conhecer o que cada departamento faz, a partir dos documentos
   - uma resposta forçada sobre uma política que não existe.
 - **O que a bateria ainda não cobre:** conversas longas.
 
+## Escala e arquivos citados (01/10)
+
+Um teste real indexou uma pasta Downloads inteira: 3.030 documentos, quase 50 mil trechos. Com esse volume:
+- remover a fonte não terminava, porque o índice de palavras era apagado trecho por trecho com uma varredura completa;
+- a busca comparava todos os vetores a cada mensagem.
+
+Correções:
+- **Índice de palavras ligado ao trecho:** remover a fonte leva 1,3 s. A tabela antiga é migrada sozinha em ~1 s.
+- **Busca por candidatos acima de 5 mil trechos:** os 300 melhores por palavra e os 300 por significado, num cache de vetores em memória. Fica em ~90 ms por busca; a primeira, que monta o cache, leva ~1 s.
+- **Embeddings em lote:** 16 trechos por chamada.
+- **Pontuação por raridade (IDF):** palavras raras no acervo pesam mais.
+- **Busca automática só para pedidos de informação:** "qual", "quanto", "me traz", "resuma", "?". Saudações e ordens de ação ("oi", "crie", "abra") nunca puxam documentos. Num acervo grande e misturado nenhum sinal de pontuação sozinho separava "oi, tudo bem" de uma pergunta real.
+
+Arquivos citados na conversa ("resuma o MARU_MEDIA_KIT_PDF_FINAL", um caminho colado):
+- são localizados pelo nome no projeto, Área de Trabalho, Documentos, Downloads e OneDrive;
+- são lidos antes da resposta e continuam anexados nos turnos seguintes;
+- caminhos com `$env:`, barras duplicadas ou acentos corrompidos são corrigidos ou encontrados pelo nome;
+- o histórico só repete as ações que deram certo, então um link inventado não volta a ser tentado.
+
 ## Próximos passos
 
 - **Servidor da empresa:** índice e memória por departamento num servidor com GPU e modelo maior; permissões por usuário via Active Directory/Entra ID, filtrando a busca pelas permissões de cada documento.

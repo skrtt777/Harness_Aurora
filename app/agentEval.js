@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makePdf } from "./sampleDocs.js";
 
 /**
  * Fixed agent benchmark (docs/REVISAO_2026-09-27.md, Fase 3). Each task
@@ -75,6 +76,9 @@ export const EVAL_TASKS = [
     check: ({ answer }) => has(answer, /10\/10|10 de outubro/i) },
   { id: "rh-inexistente", area: "conhecimento", knowledge: true, prompt: "Qual é a política de viagens a trabalho da empresa?",
     check: ({ answer }) => /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta)/i.test(answer) && !/150/.test(answer) },
+  // A file named only by its name, like "resuma o MARU_MEDIA_KIT" (27/09).
+  { id: "pdf-citado", area: "arquivos", seed: { "PROPOSTA_COMERCIAL_ACME.pdf": () => makePdf(["Proposta comercial ACME 2026", "Plano mensal: US$ 120", "Plano anual: US$ 1.200 (2 meses grátis)", "Validade da proposta: 30 dias"]) }, prompt: "Quanto custa o plano anual no PROPOSTA_COMERCIAL_ACME?",
+    check: ({ answer, steps }) => has(answer, /1\.200/) && !steps.some((s) => s.tool === "web_fetch" || s.tool === "open") },
   { id: "resposta-direta", area: "conversa", prompt: "Quanto é 17 vezes 3? Responda só o número.",
     check: ({ answer, steps }) => has(answer, "51") && !steps.some((s) => ["write_file", "run_command"].includes(s.tool)) },
 ];
@@ -82,7 +86,7 @@ export const EVAL_TASKS = [
 function seedFolder(dir, files = {}) {
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(dir, ...path.split("/").slice(0, -1)), { recursive: true });
-    writeFileSync(join(dir, ...path.split("/")), content);
+    writeFileSync(join(dir, ...path.split("/")), typeof content === "function" ? content() : content);
   }
 }
 

@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
-import { expandPath } from "./files.js";
+import { expandPath, resolveExisting } from "./files.js";
 import { assertAllowedUrl } from "./netGuard.js";
 
 const IS_WINDOWS = process.platform === "win32";
@@ -83,8 +83,8 @@ export async function resolveOpenTarget(target, ctx) {
   const builtin = BUILTIN_APPS[text.toLowerCase()] || BUILTIN_APPS[normalizeName(text)];
   if (builtin) return { target: builtin, kind: "app" };
   if (/[\\/]/.test(text) || /^[a-z]:/i.test(text) || /\.[a-z0-9]{1,5}$/i.test(text) || /^(desktop|documentos|downloads|~)/i.test(text)) {
-    const full = expandPath(text, ctx.knownFolders, ctx.workspace);
-    if (existsSync(full)) return { target: full, kind: statSync(full).isDirectory() || SAFE_TO_OPEN.test(full) ? "path" : "executable" };
+    const full = existsSync(expandPath(text, ctx.knownFolders, ctx.workspace)) ? expandPath(text, ctx.knownFolders, ctx.workspace) : await resolveExisting(text, ctx).catch(() => null);
+    if (full && existsSync(full)) return { target: full, kind: statSync(full).isDirectory() || SAFE_TO_OPEN.test(full) ? "path" : "executable" };
   }
   const shortcut = IS_WINDOWS ? matchShortcut(text, await startMenuShortcuts(ctx.env)) : null;
   if (shortcut) return { target: shortcut, kind: "app" };
@@ -96,8 +96,24 @@ const processes = new Map();
 const MAX_OUTPUT = 60_000;
 let nextProcess = 1;
 
+// UTF-8 output: PowerShell otherwise prints in the console codepage and the
+// model reads "n\uFFFDo" instead of "não".
 function shellFor(command) {
-  return IS_WINDOWS ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]] : ["/bin/sh", ["-c", command]];
+  return IS_WINDOWS ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncoding=[Text.Encoding]::UTF8; ${command}`]] : ["/bin/sh", ["-c", command]];
+}
+
+/**
+ * Windows' own tools first: with Git's usr\bin early in PATH, `find /c "x"`
+ * runs GNU find over the whole C: drive (it hung for the full 2 minutes in
+ * the benchmark) and `sort`, `timeout` behave differently too.
+ */
+export function commandEnv(env = process.env) {
+  if (!IS_WINDOWS) return { ...env };
+  const root = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  const windowsDirs = [join(root, "System32"), root, join(root, "System32", "Wbem"), join(root, "System32", "WindowsPowerShell", "v1.0")];
+  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "Path";
+  const rest = String(env[key] || "").split(";").filter((p) => p && !windowsDirs.some((w) => w.toLowerCase() === p.toLowerCase().replace(/\\$/, "")));
+  return { ...env, [key]: [...windowsDirs, ...rest].join(";") };
 }
 
 function stopTree(child) {
@@ -141,7 +157,7 @@ export const systemTools = [
       if (!text) throw new Error("Informe o comando.");
       const dir = commandDir(cwd, ctx);
       const [cmd, args] = shellFor(text);
-      const child = spawn(cmd, args, { cwd: dir, windowsHide: true });
+      const child = spawn(cmd, args, { cwd: dir, windowsHide: true, env: commandEnv() });
       // Nothing is ever typed into these commands: without EOF, anything that
       // reads stdin (findstr with no file, sort, more…) hung until the timeout.
       child.stdin.on("error", () => {});

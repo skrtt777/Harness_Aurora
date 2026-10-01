@@ -154,3 +154,15 @@ test("HTTP: sources are added, listed, cleared for paid AI and removed", async (
     assert.equal((await api("/knowledge/sources")).body.sources.some((x) => x.id === created.body.id), false);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+test("a paid chat must ask before reading a restricted company document with read_file", async () => {
+  const [source] = (await kb.listSources()).filter((s) => !s.paidAllowed);
+  const file = join(source.path, "Eventos", "Confraternização 2026.docx");
+  const isRestricted = async (path) => { const s = await kb.sourceForPath(path); return Boolean(s && !s.paid_allowed); };
+  const asked = [];
+  const base = { mode: "auto", workspaceRoots: [temp], knownFolders: {}, isRestricted, approve: async (r) => { asked.push(r); return false; } };
+  assert.equal((await executeTool("read_file", { path: file }, { ...base, provider: "local" })).ok, true, "the local model reads it freely");
+  const paid = await executeTool("read_file", { path: file }, { ...base, provider: "claude" });
+  assert.equal(paid.ok, false);
+  assert.match(asked.at(-1).summary, /não liberado para IA paga/);
+});

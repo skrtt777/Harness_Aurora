@@ -69,6 +69,8 @@ import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge,
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
+import { resolveExisting } from "./agentTools/files.js";
+import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
@@ -146,14 +148,61 @@ async function agentAllowedRoots(folders) {
   return [folders.desktop, folders.documents, folders.downloads];
 }
 
+// Documents are pulled in only for information requests — not greetings,
+// thanks or orders to act ("crie", "abra"), which in a big mixed folder
+// still find look-alike passages. The model can always search by itself.
+const INFO_REQUEST = /\?|\b(qual|quais|quanto|quanta|quantos|quantas|quando|onde|quem|como|por ?que|o que|me (traz|traga|fala|fale|diz|diga|explica|mostra|mostre|passa|manda)|resum[aeo]|resumir|explique|procur[ae]|busque|existe|informa[çc][õo]es|preciso saber)\b/i;
+const SMALL_TALK = new Set("oi ola opa tudo bem bom boa dia tarde noite obrigado obrigada valeu certo beleza blz ok legal show perfeito entendi sim nao e ai como vai voce esta td".split(" "));
+export function asksForInformation(text) {
+  const words = String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || [];
+  if (!words.length || words.every((w) => SMALL_TALK.has(w))) return false;
+  return INFO_REQUEST.test(String(text));
+}
+
 // Strong matches only: an unrelated message ("oi") must not drag documents in.
 async function relatedDocuments(text, env, signal) {
+  if (!asksForInformation(text)) return [];
   try {
     if (!(await listSources()).some((s) => s.documents > 0)) return [];
-    return (await searchKnowledge(text, { limit: 3, env, signal })).filter((hit) => hit.score >= KNOWLEDGE_AUTO_SCORE);
+    // A good score AND a real link: a rare word in common, or a close meaning.
+    return (await searchKnowledge(text, { limit: 3, env, signal })).filter((hit) => hit.score >= KNOWLEDGE_AUTO_SCORE && (hit.specificity >= 0.45 || hit.semantic >= 0.72));
   } catch { return []; }
 }
 const KNOWLEDGE_AUTO_SCORE = 1.5;
+
+const ATTACH_CHARS = 5000;
+/** Paths and file names in the message that point to readable files. */
+export function fileMentions(text) {
+  const found = new Set();
+  for (const m of String(text).matchAll(/["'“”]([^"'“”\n]{3,260})["'“”]/g)) found.add(m[1].trim());
+  for (const m of String(text).matchAll(/(?:[a-zA-Z]:\\|\\\\)[^\n"<>|*?]+?\.[a-z0-9]{2,5}\b/gi)) found.add(m[0].trim());
+  for (const m of String(text).matchAll(/[\p{L}\p{N}_()\-.]+\.(?:pdf|docx|xlsx|pptx|txt|md|csv|json|rtf|html?)\b/giu)) found.add(m[0]);
+  // Bare names like MARU_MEDIA_KIT_PDF_FINAL (underscores or digits+caps).
+  for (const m of String(text).matchAll(/(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[_-][\p{L}\p{N}]+){2,}(?![\p{L}\p{N}])/gu)) found.add(m[0]);
+  return [...found].filter((s) => s.length >= 4).slice(0, 6);
+}
+
+// Files named in this message; if none, the ones named earlier in the
+// conversation stay attached ("quanto custa o pacote X?" after a summary).
+async function mentionedFiles(text, ctx, history = []) {
+  const earlier = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
+  const current = fileMentions(text);
+  const files = [];
+  for (const mention of current.length ? current : earlier) {
+    if (files.length >= 2) break;
+    try {
+      const path = await resolveExisting(mention, ctx);
+      if (files.some((f) => f.path === path) || !(await stat(path)).isFile()) continue;
+      // Attaching sends the text to the chat's model: never a restricted
+      // company document to a paid one (read_file still asks there).
+      if (ctx.provider && ctx.provider !== "local" && (await ctx.isRestricted?.(path))) continue;
+      const body = isDocument(path) ? await extractText(path) : null;
+      if (!body?.trim()) continue;
+      files.push({ path, text: body.length > ATTACH_CHARS ? `${body.slice(0, ATTACH_CHARS)}\n… (continua; leia o restante com read_file e offset)` : body });
+    } catch { /* not a file the person has */ }
+  }
+  return files;
+}
 
 async function agentMode() {
   const mode = await getSetting("agent_mode");
@@ -237,7 +286,9 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
  */
 function agentHistory(history, limit = 8) {
   return history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-limit).flatMap((m) => {
-    const steps = (m.execution?.toolSteps || []).slice(-6);
+    // Only what worked is replayed: a small model imitates past calls, so a
+    // failed guess (a made-up link, a wrong folder) would be repeated.
+    const steps = (m.execution?.toolSteps || []).filter((step) => step.ok).slice(-6);
     const content = String(m.content).slice(0, 1500);
     if (m.role !== "assistant" || !steps.length) return [{ role: m.role, content }];
     return [
@@ -308,6 +359,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentContext = null;
     let agentSteps = [];
     let agentPlan = null;
+    let agentAttachments = [];
     let agentReview = null;
 
     let result;
@@ -326,17 +378,24 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // teacher (or a paid chat) only sees them with the person's consent.
           toolContext.provider = conversation.provider;
           toolContext.restrictedSources = new Set();
+          toolContext.isRestricted = async (file) => { const source = await sourceForPath(file).catch(() => null); return Boolean(source && !source.paid_allowed); };
           toolContext.onFileRead = (file) => { void sourceForPath(file).then((s) => { if (s && !s.paid_allowed) toolContext.restrictedSources.add(s.id); }).catch(() => {}); };
           // Local model only: the company documents most related to the request
           // go straight into the context (a small model forgets to search and
           // then invents). Paid chats keep asking through knowledge_search.
           const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal) : [];
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
+          // Files the person names ("resuma o MARU_MEDIA_KIT", a pasted path) are
+          // found and read up front: a small model guesses folders and links.
+          const attached = await mentionedFiles(trimmed, toolContext, history);
+          agentAttachments = attached.map((f) => f.path);
+          for (const file of attached) { const source = await sourceForPath(file.path).catch(() => null); if (source && !source.paid_allowed) toolContext.restrictedSources.add(source.id); }
+          const filesBlock = attached.length ? `ARQUIVOS DO USUÁRIO JÁ LIDOS PARA VOCÊ — o texto abaixo é o conteúdo real do(s) arquivo(s) que o usuário mencionou nesta conversa. Responda a partir dele (resumir, explicar, achar valores); não procure em outro lugar, não use knowledge_search nem abra o arquivo de novo:\n${attached.map((f) => `=== ${f.path} ===\n${f.text}`).join("\n\n")}` : "";
           const docsBlock = autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${d.text.slice(0, 900)}`).join("\n\n")}` : "";
-          agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: contextLimit || 12000 });
+          agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           const agentEnv = conversation.provider === "local" ? localEnv : env;
           const runAgent = (agentHistoryMessages, input) => runChatAgent({
-            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0,
+            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
@@ -401,6 +460,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
+    if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {

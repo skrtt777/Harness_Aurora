@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { getDb } from "./db.js";
-import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
+import { embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 import { extractText, isDocument } from "./docText.js";
 import { httpError } from "./httpSecurity.js";
 import { runLocal } from "./local.js";
@@ -26,6 +26,9 @@ const CHUNK_OVERLAP = 150;
 const MAX_WALK = 50_000;
 const SKIP = /(^~\$|^\.|^thumbs\.db$|^desktop\.ini$)/i;
 const jobs = new Map();
+// Bumped on every index write: the in-memory vector cache is rebuilt lazily.
+let indexVersion = 0;
+let migrated = false;
 
 async function ready() {
   const db = await getDb();
@@ -34,7 +37,15 @@ async function ready() {
     CREATE TABLE IF NOT EXISTS knowledge_docs(id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE, path TEXT NOT NULL, rel_path TEXT NOT NULL, mtime_ms REAL NOT NULL, size INTEGER NOT NULL, hash TEXT, category TEXT, card TEXT, chars INTEGER NOT NULL DEFAULT 0, error TEXT, indexed_at TEXT NOT NULL, UNIQUE(source_id, path));
     CREATE TABLE IF NOT EXISTS knowledge_chunks(id TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES knowledge_docs(id) ON DELETE CASCADE, ord INTEGER NOT NULL, text TEXT NOT NULL, embedding BLOB, embedding_model TEXT);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_doc ON knowledge_chunks(doc_id);
-    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(chunk_id UNINDEXED, text, tokenize='unicode61 remove_diacritics 2');`);
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_text USING fts5(text, tokenize='unicode61 remove_diacritics 2');`);
+  if (!migrated) {
+    migrated = true;
+    // 0.1.27 keyed the word index by chunk id (an unindexed column): deleting
+    // a document scanned the whole index per passage — a 50k-passage folder
+    // never finished. Now the word index shares the passage rowid.
+    if (db.prepare("SELECT count(*) n FROM sqlite_master WHERE name = 'knowledge_fts'").get().n) db.exec("DROP TABLE knowledge_fts");
+    if (!db.prepare("SELECT rowid FROM knowledge_text LIMIT 1").get() && db.prepare("SELECT rowid FROM knowledge_chunks LIMIT 1").get()) db.exec("INSERT INTO knowledge_text(rowid, text) SELECT rowid, text FROM knowledge_chunks");
+  }
   return db;
 }
 
@@ -82,15 +93,14 @@ export async function updateSource(id, patch) {
 export async function deleteSource(id) {
   jobs.get(id)?.controller.abort();
   const db = await ready();
-  const chunkIds = db.prepare("SELECT c.id FROM knowledge_chunks c JOIN knowledge_docs d ON d.id = c.doc_id WHERE d.source_id = ?").all(id).map((r) => r.id);
-  const dropFts = db.prepare("DELETE FROM knowledge_fts WHERE chunk_id = ?");
   db.exec("BEGIN");
   try {
-    for (const chunk of chunkIds) dropFts.run(chunk);
+    db.prepare("DELETE FROM knowledge_text WHERE rowid IN (SELECT c.rowid FROM knowledge_chunks c JOIN knowledge_docs d ON d.id = c.doc_id WHERE d.source_id = ?)").run(id);
     db.prepare("DELETE FROM knowledge_chunks WHERE doc_id IN (SELECT id FROM knowledge_docs WHERE source_id = ?)").run(id);
     db.prepare("DELETE FROM knowledge_docs WHERE source_id = ?").run(id);
     const removed = db.prepare("DELETE FROM knowledge_sources WHERE id = ?").run(id).changes > 0;
     db.exec("COMMIT");
+    indexVersion += 1;
     return removed;
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
@@ -166,6 +176,23 @@ export async function mapDocument({ relPath, text, department, categories = [], 
 
 const hashText = (text) => createHash("sha256").update(text).digest("hex");
 
+/** Embeddings 16 passages per Ollama call (/api/embed), one by one as a fallback. */
+async function embedDocuments(chunks, env, signal) {
+  const base = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
+  const model = resolveEmbeddingModel(env);
+  const out = [];
+  for (let i = 0; i < chunks.length; i += 16) {
+    const input = chunks.slice(i, i + 16).map((c) => `search_document: ${c}`);
+    try {
+      const response = await fetch(`${base}/api/embed`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, input, keep_alive: "30m" }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
+      const data = response.ok ? await response.json() : null;
+      if (Array.isArray(data?.embeddings) && data.embeddings.length === input.length) { out.push(...data.embeddings); continue; }
+    } catch { /* older Ollama or offline: one by one below */ }
+    for (const text of input) out.push(await embedText(text, env, signal).catch(() => null));
+  }
+  return out;
+}
+
 /**
  * Brings a source's index up to date: new or changed documents are read,
  * cut, embedded and mapped; documents that disappeared are dropped. Only the
@@ -182,12 +209,12 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
   const stats = { total: files.length, done: 0, changed: 0, removed: 0, failed: 0 };
   const categories = new Set(db.prepare("SELECT DISTINCT category FROM knowledge_docs WHERE source_id = ? AND category IS NOT NULL").all(id).map((r) => r.category.split("/").slice(1).join("/")));
   const insertChunk = db.prepare("INSERT INTO knowledge_chunks(id,doc_id,ord,text,embedding,embedding_model) VALUES(?,?,?,?,?,?)");
-  const insertFts = db.prepare("INSERT INTO knowledge_fts(chunk_id,text) VALUES(?,?)");
+  const insertText = db.prepare("INSERT INTO knowledge_text(rowid, text) VALUES(?, ?)");
   const dropDocChunks = (docId) => {
-    for (const { id: chunkId } of db.prepare("SELECT id FROM knowledge_chunks WHERE doc_id = ?").all(docId)) db.prepare("DELETE FROM knowledge_fts WHERE chunk_id = ?").run(chunkId);
+    db.prepare("DELETE FROM knowledge_text WHERE rowid IN (SELECT rowid FROM knowledge_chunks WHERE doc_id = ?)").run(docId);
     db.prepare("DELETE FROM knowledge_chunks WHERE doc_id = ?").run(docId);
   };
-  for (const [path, row] of known) if (!present.has(path)) { dropDocChunks(row.id); db.prepare("DELETE FROM knowledge_docs WHERE id = ?").run(row.id); stats.removed += 1; }
+  for (const [path, row] of known) if (!present.has(path)) { dropDocChunks(row.id); db.prepare("DELETE FROM knowledge_docs WHERE id = ?").run(row.id); stats.removed += 1; indexVersion += 1; }
 
   for (const path of files) {
     if (signal?.aborted) break;
@@ -205,9 +232,8 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
     let mapped = { category: `${source.department}/${relPath.split(sep).length > 1 ? relPath.split(sep)[0] : "Geral"}`, card: null };
     if (!error) mapped = await map({ relPath, text, department: source.department, categories: [...categories], env, signal });
     if (mapped.category) categories.add(mapped.category.split("/").slice(1).join("/"));
-    const vectors = [];
     const chunks = error ? [] : chunkText(text, `${source.department} — ${relPath.split(sep).join("/")}`);
-    for (const chunk of chunks) vectors.push(await embedText(`search_document: ${chunk}`, env, signal).catch(() => null));
+    const vectors = await embedDocuments(chunks, env, signal);
     const model = resolveEmbeddingModel(env);
     db.exec("BEGIN");
     try {
@@ -216,11 +242,11 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
         ON CONFLICT(source_id,path) DO UPDATE SET mtime_ms=excluded.mtime_ms,size=excluded.size,hash=excluded.hash,category=excluded.category,card=excluded.card,chars=excluded.chars,error=excluded.error,indexed_at=excluded.indexed_at`)
         .run(docId, id, path, relPath.split(sep).join("/"), info.mtimeMs, info.size, hash, mapped.category, mapped.card ? JSON.stringify(mapped.card) : null, text.length, error, new Date().toISOString());
       chunks.forEach((chunk, ord) => {
-        const chunkId = randomUUID();
-        insertChunk.run(chunkId, docId, ord, chunk, vectors[ord] ? encodeEmbedding(vectors[ord]) : null, vectors[ord] ? model : null);
-        insertFts.run(chunkId, chunk);
+        const { lastInsertRowid } = insertChunk.run(randomUUID(), docId, ord, chunk, vectors[ord] ? encodeEmbedding(vectors[ord]) : null, vectors[ord] ? model : null);
+        insertText.run(lastInsertRowid, chunk);
       });
       db.exec("COMMIT");
+      indexVersion += 1;
     } catch (e) { db.exec("ROLLBACK"); throw e; }
     stats.done += 1; stats.changed += 1; if (error) stats.failed += 1;
   }
@@ -247,7 +273,49 @@ const STOPWORDS = new Set("a o as os ao aos de do da dos das um uma uns umas e o
 export const contentWords = (text) => [...new Set((String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]{3,}/g) || []).filter((w) => !STOPWORDS.has(w)))];
 const stemOf = (w) => (w.length > 5 ? w.slice(0, w.length - 2) : w);
 
-const ftsQuery = (query) => (String(query).normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[\p{L}\p{N}]{2,}/gu) || []).slice(0, 12).map((w) => `"${w}"*`).join(" OR ");
+// Above this many passages, only candidates (best by words + best by meaning)
+// are scored; below, everything is — small departments keep exact recall.
+const SCORE_ALL_UP_TO = 5000;
+const CANDIDATES = 300;
+let vectorCache = null;
+
+/** All passage vectors of the current model, normalized, in one Float32Array. */
+function passageVectors(db, model) {
+  if (vectorCache?.version === indexVersion && vectorCache.model === model) return vectorCache;
+  const rows = db.prepare("SELECT c.rowid r, c.embedding e FROM knowledge_chunks c JOIN knowledge_docs d ON d.id = c.doc_id WHERE c.embedding IS NOT NULL AND c.embedding_model = ? AND d.error IS NULL").all(model);
+  const dim = rows[0] ? rows[0].e.byteLength / 4 : 0;
+  const matrix = new Float32Array(rows.length * dim);
+  const ids = new Float64Array(rows.length);
+  let n = 0;
+  for (const row of rows) {
+    if (row.e.byteLength !== dim * 4) continue;
+    const v = new Float32Array(row.e.buffer, row.e.byteOffset, dim);
+    let norm = 0; for (let k = 0; k < dim; k += 1) norm += v[k] * v[k];
+    norm = Math.sqrt(norm) || 1;
+    for (let k = 0; k < dim; k += 1) matrix[n * dim + k] = v[k] / norm;
+    ids[n] = row.r; n += 1;
+  }
+  vectorCache = { version: indexVersion, model, dim, count: n, ids, matrix };
+  return vectorCache;
+}
+
+function similarities(cache, query) {
+  let norm = 0; for (const x of query) norm += x * x;
+  norm = Math.sqrt(norm) || 1;
+  const q = Float32Array.from(query, (x) => x / norm);
+  const out = new Map();
+  const scores = new Float32Array(cache.count);
+  for (let i = 0; i < cache.count; i += 1) { let dot = 0; const o = i * cache.dim; for (let k = 0; k < cache.dim; k += 1) dot += cache.matrix[o + k] * q[k]; scores[i] = dot; }
+  const order = Array.from(scores.keys()).sort((a, b) => scores[b] - scores[a]);
+  for (const i of order) out.set(cache.ids[i], scores[i]);
+  // How far the best passages stand out from the whole collection: a real
+  // question about a document does; "oi, tudo bem" in a big folder does not.
+  let mean = 0; for (const s of scores) mean += s; mean /= scores.length || 1;
+  let variance = 0; for (const s of scores) variance += (s - mean) ** 2; const std = Math.sqrt(variance / (scores.length || 1)) || 1;
+  return { all: out, top: order.slice(0, CANDIDATES).map((i) => cache.ids[i]), zOf: (s) => (s - mean) / std };
+}
+
+const ftsQuery = (stems) => stems.slice(0, 12).map((w) => `"${w}"*`).join(" OR ");
 
 /**
  * Hybrid search: words (FTS, accent-insensitive) + meaning (embeddings),
@@ -263,23 +331,47 @@ export async function searchKnowledge(query, { category, sourceIds, limit = 6, e
   const args = [];
   if (sourceIds) { if (!sourceIds.length) return []; where.push(`d.source_id IN (${sourceIds.map(() => "?").join(",")})`); args.push(...sourceIds); }
   if (category) { where.push("lower(d.category) LIKE ?"); args.push(`%${String(category).toLowerCase()}%`); }
-  const rows = db.prepare(`SELECT c.id, c.text, c.embedding, c.embedding_model, d.id doc_id, d.path, d.rel_path, d.category, d.card, d.mtime_ms, d.source_id, s.department, s.name source_name, s.paid_allowed FROM knowledge_chunks c JOIN knowledge_docs d ON d.id = c.doc_id JOIN knowledge_sources s ON s.id = d.source_id WHERE ${where.join(" AND ")}`).all(...args);
-  if (!rows.length) return [];
   const vector = await embedText(`search_query: ${text}`, env, signal).catch(() => null);
   const model = resolveEmbeddingModel(env);
   // Coverage of the request's content words ("ferias" ~ "férias"), not a
   // relative rank: a stray "do" or "hoje" must not look like a match.
   const words = contentWords(text);
   const stems = words.map(stemOf);
-  const coverage = (body) => (stems.length ? stems.filter((s) => body.includes(s)).length / stems.length : 0);
+  const total = db.prepare("SELECT count(*) n FROM knowledge_chunks").get().n;
+  if (!total) return [];
+  const cache = vector ? passageVectors(db, model) : null;
+  const sims = cache?.count && cache.dim === vector.length ? similarities(cache, vector) : null;
+  if (total > SCORE_ALL_UP_TO) {
+    const candidates = new Set(sims?.top || []);
+    if (stems.length) {
+      try { for (const hit of db.prepare("SELECT rowid FROM knowledge_text WHERE knowledge_text MATCH ? ORDER BY bm25(knowledge_text) LIMIT ?").all(ftsQuery(stems), CANDIDATES)) candidates.add(hit.rowid); }
+      catch { /* unusual characters: meaning-only */ }
+    }
+    if (!candidates.size) return [];
+    where.push(`c.rowid IN (${[...candidates].map(() => "?").join(",")})`);
+    args.push(...candidates);
+  }
+  const rows = db.prepare(`SELECT c.rowid r, c.text, d.id doc_id, d.path, d.rel_path, d.category, d.card, d.mtime_ms, d.source_id, s.department, s.name source_name, s.paid_allowed FROM knowledge_chunks c JOIN knowledge_docs d ON d.id = c.doc_id JOIN knowledge_sources s ON s.id = d.source_id WHERE ${where.join(" AND ")}`).all(...args);
+  if (!rows.length) return [];
+  // Rare words weigh more (IDF): "pagamento" in an HR folder says a lot,
+  // "tudo" or "bem" in a big mixed folder says nothing.
+  const idf = new Map(stems.map((s) => {
+    let df = 0;
+    try { df = db.prepare("SELECT count(*) n FROM knowledge_text WHERE knowledge_text MATCH ?").get(`"${s}"*`).n; } catch { df = 0; }
+    return [s, Math.log((total + 1) / (df + 0.5))];
+  }));
+  const idfTotal = stems.reduce((n, s) => n + Math.max(0, idf.get(s)), 0) || 1;
+  const maxIdf = Math.log(total + 1) || 1;
+  const coverage = (body) => stems.reduce((n, s) => n + (body.includes(s) ? Math.max(0, idf.get(s)) : 0), 0) / idfTotal;
+  const specificity = (body) => Math.max(0, ...stems.filter((s) => body.includes(s)).map((s) => idf.get(s))) / maxIdf;
   const scored = rows.map((row) => {
     const card = row.card ? JSON.parse(row.card) : null;
     const cardText = `${card?.title || ""} ${card?.topic || ""} ${card?.summary || ""} ${(card?.keywords || []).join(" ")} ${row.category || ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const body = row.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const cardHits = stems.filter((s) => cardText.includes(s)).length;
-    const semantic = vector && row.embedding && row.embedding_model === model ? cosineSimilarity(vector, decodeEmbedding(row.embedding)) : 0;
+    const semantic = sims?.all.get(row.r) ?? 0;
     const score = coverage(body) * 1.5 + Math.max(0, semantic - 0.35) * 3 + Math.min(cardHits, 4) * 0.25;
-    return { row, card, score, semantic };
+    return { row, card, score, semantic, specificity: specificity(body) };
   }).filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
   const perDoc = new Map();
   const out = [];
@@ -290,6 +382,9 @@ export async function searchKnowledge(query, { category, sourceIds, limit = 6, e
     out.push({
       path: s.row.path, relPath: s.row.rel_path, category: s.row.category, department: s.row.department, source: s.row.source_name,
       sourceId: s.row.source_id, paidAllowed: !!s.row.paid_allowed, updatedAt: new Date(s.row.mtime_ms).toISOString(),
+      semantic: Math.round(s.semantic * 100) / 100,
+      specificity: Math.round(s.specificity * 100) / 100,
+      standout: sims && s.semantic ? Math.round(sims.zOf(s.semantic) * 10) / 10 : null,
       title: s.card?.title || s.row.rel_path, summary: s.card?.summary || "", text: s.row.text.replace(/^\[[^\]]*\]\n/, ""), score: Math.round(s.score * 100) / 100,
     });
     if (out.length >= limit) break;

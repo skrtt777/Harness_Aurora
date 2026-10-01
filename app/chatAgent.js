@@ -23,9 +23,11 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
   const fence = text.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
   if (tagged) text = tagged[1].trim();
   else if (fence) text = fence[1].trim();
-  if (!text.startsWith("{") || !text.endsWith("}")) return null;
+  // Broken JSON is only rescued when the reply ENDS with it, never from prose.
+  const loose = () => (/\}\s*`*\s*$/.test(String(rawText).trim()) ? looseToolCall(String(rawText), known) : null);
+  if (!text.startsWith("{") || !text.endsWith("}")) return loose();
   let parsed;
-  try { parsed = JSON.parse(text); } catch { return null; }
+  try { parsed = JSON.parse(text); } catch { return loose(); }
   const name = parsed?.tool || parsed?.name || parsed?.function?.name;
   let args = parsed?.args ?? parsed?.arguments ?? parsed?.parameters ?? parsed?.function?.arguments ?? {};
   if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
@@ -43,6 +45,27 @@ export function announcesAction(text) {
   const tail = String(text || "").slice(-400);
   return new RegExp(`\\b(vou|irei|vamos|deixa eu|deixe-me|agora vou)\\s+(\\w+\\s+)?(${ACTION_VERBS})`, "i").test(tail)
     && !/\?\s*$/.test(tail.trim());
+}
+
+/**
+ * Broken JSON a small model printed instead of calling the tool, e.g.
+ * ["name": "run_command", "parameters": {"command": "..."}}. Only when the
+ * name is a real tool and the arguments object parses.
+ */
+function looseToolCall(text, known) {
+  const name = text.match(/"(?:name|tool)"\s*:\s*"([a-z_]+)"/)?.[1];
+  if (!name || !known.includes(name)) return null;
+  const at = text.search(/"(?:parameters|arguments|args)"\s*:\s*\{/);
+  if (at < 0) return { name, arguments: {} };
+  const start = text.indexOf("{", at);
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === "{") depth += 1;
+    else if (text[i] === "}" && --depth === 0) {
+      try { return { name, arguments: JSON.parse(text.slice(start, i + 1)) }; } catch { return null; }
+    }
+  }
+  return null;
 }
 
 /** Transcript as a single prompt, for the CLI providers (no native tools). */

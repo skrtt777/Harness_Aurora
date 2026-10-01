@@ -156,3 +156,14 @@ test("memory and skill tools let the agent remember, look up and propose procedu
   assert.match(plan.result, /\[x\] Ler\n\[~\] Editar\n\[ \] Testar/);
   assert.equal(plans[0].length, 3);
 });
+
+test("commands use Windows' own tools first and print UTF-8", { skip: process.platform !== "win32" }, async () => {
+  const { commandEnv } = await import("../app/agentTools/system.js");
+  const env = commandEnv({ SystemRoot: "C:\\Windows", Path: "C:\\Program Files\\Git\\usr\\bin;C:\\Windows\\System32;C:\\tools" });
+  assert.deepEqual(env.Path.split(";").slice(0, 2), ["C:\\Windows\\System32", "C:\\Windows"]);
+  assert.ok(env.Path.indexOf("Git\\usr\\bin") > env.Path.indexOf("System32"), "GNU find no longer shadows find.exe");
+  assert.equal(env.Path.split(";").filter((p) => p.toLowerCase() === "c:\\windows\\system32").length, 1);
+  const c = ctx("auto");
+  const out = await executeTool("run_command", { command: "Write-Output 'ação não é exceção'" }, c);
+  assert.match(out.result, /ação não é exceção/);
+});
