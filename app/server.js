@@ -1,6 +1,6 @@
 import "./config.js";
 import http from "node:http";
-import {clockObservation} from './runtimeFacts.js';
+import {clockObservation, mathObservation} from './runtimeFacts.js';
 import { randomBytes } from "node:crypto";
 import {engineSummary,reviewEngineKnowledge} from './evidenceEngine.js';
 import {localExperiment} from './localModelRelease.js';
@@ -65,7 +65,7 @@ import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
-import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
+import { contentWords, createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
 import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
@@ -161,16 +161,31 @@ export function asksForInformation(text) {
   return INFO_REQUEST.test(String(text));
 }
 
+// A follow-up ("e o auxílio home office?", "quem eu procuro sobre isso?")
+// doesn't say its subject: it is searched together with the previous question.
+const FOLLOW_UP = /^\s*(e|mas|ok|certo|entao)\b|\b(isso|disso|nisso|esse|essa|desse|dessa|nesse|nessa|ele|ela|dele|dela)\b/i;
+export function knowledgeQuery(text, history = []) {
+  const previous = history.filter((m) => m.role === "user").at(-1)?.content;
+  const plain = String(text).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!previous || !(FOLLOW_UP.test(plain) || contentWords(text).length <= 1)) return text;
+  return `${String(previous).slice(0, 300)}\n${text}`;
+}
+
 // Strong matches only: an unrelated message ("oi") must not drag documents in.
-async function relatedDocuments(text, env, signal) {
+async function relatedDocuments(text, env, signal, history = []) {
   if (!asksForInformation(text)) return [];
+  text = knowledgeQuery(text, history);
   try {
     if (!(await listSources()).some((s) => s.documents > 0)) return [];
     // A good score AND a real link: a rare word in common, or a close meaning.
-    return (await searchKnowledge(text, { limit: 3, env, signal })).filter((hit) => hit.score >= KNOWLEDGE_AUTO_SCORE && (hit.specificity >= 0.45 || hit.semantic >= 0.72));
+    // "Quem eu procuro?": a contact list (ramal, e-mail, telefone) qualifies with a lower score.
+    const contact = CONTACT_REQUEST.test(text);
+    return (await searchKnowledge(text, { limit: 3, env, signal })).filter((hit) => hit.score >= (contact && CONTACT_DATA.test(hit.text) ? 1.0 : KNOWLEDGE_AUTO_SCORE) && (hit.specificity >= 0.45 || hit.semantic >= 0.72));
   } catch { return []; }
 }
 const KNOWLEDGE_AUTO_SCORE = 1.5;
+const CONTACT_REQUEST = /\b(quem (eu )?(procuro|procurar|falo|chamo)|com quem|falar com|contato|ramal|respons[áa]vel)\b/i;
+const CONTACT_DATA = /\bramal\b|e-?mail|telefone|@/i;
 
 const ATTACH_CHARS = 5000;
 /** Paths and file names in the message that point to readable files. */
@@ -338,7 +353,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       conversationId,
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
-    const observation=clockObservation(trimmed);
+    const observation=clockObservation(trimmed)||mathObservation(trimmed);
     const promptArgs = {
       input: trimmed,
       history,
@@ -387,7 +402,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // Local model only: the company documents most related to the request
           // go straight into the context (a small model forgets to search and
           // then invents). Paid chats keep asking through knowledge_search.
-          const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal) : [];
+          const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal, history) : [];
           const hasKnowledge = conversation.provider === "local" && (await listSources().catch(() => [])).some((s) => s.documents > 0);
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
           agentDocs = [...new Set(autoDocs.map((d) => d.path))];

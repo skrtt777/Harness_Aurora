@@ -100,6 +100,13 @@ test("a network folder is indexed incrementally, organized by folder and searcha
   assert.equal(await top("quanto é o vale refeição"), "Benefícios/Política de Benefícios.pdf");
   assert.equal(await top("ramal da folha de pagamento"), "Contatos do RH.txt");
   assert.equal(await top("como solicitar férias"), "Procedimentos/Como solicitar férias.docx");
+  assert.equal(await top("posso dividir em quantas partes?"), "Procedimentos/Como solicitar férias.docx", "'partes' doesn't match inside 'coparticipação'");
+  assert.ok((await kb.searchKnowledge("quem eu procuro sobre benefícios?", { limit: 3 })).some((h) => h.relPath === "Contatos do RH.txt"), "a contact question finds the contact list");
+  const { knowledgeQuery } = await import("../app/server.js");
+  const prev = [{ role: "user", content: "E o auxílio home office?" }];
+  assert.equal(knowledgeQuery("Quem eu procuro pra tirar dúvida sobre isso?", prev), "E o auxílio home office?\nQuem eu procuro pra tirar dúvida sobre isso?");
+  assert.equal(knowledgeQuery("Quanto é o vale-refeição?", prev), "Quanto é o vale-refeição?", "a complete question stands alone");
+  assert.equal(knowledgeQuery("E a data?", []), "E a data?");
   assert.equal(await top("quem atende o plantão do RH no recesso"), "Eventos/Plantão do recesso (escaneado).pdf", "a scanned page is found by what OCR read");
   assert.equal((await kb.knowledgeMap({ category: "Eventos" }))[0].documents.find((d) => d.relPath.includes("escaneado")).ocr, true);
   assert.ok((await kb.searchKnowledge("oi, tudo bem?")).every((h) => h.score < 1.5), "small talk doesn't look like a document match");

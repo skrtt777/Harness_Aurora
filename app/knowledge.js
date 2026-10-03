@@ -310,6 +310,7 @@ export function startIndexing(id, options = {}) {
 // Words that say nothing about the subject ("qual", "do", "hoje", "me traz").
 const STOPWORDS = new Set("a o as os ao aos de do da dos das um uma uns umas e ou que qual quais quem como para pra pro por com sem no na nos nas em me mim meu minha meus minhas eu voce voces ele ela nos isso isto esse essa este esta aquele aquela ser sao foi tem ter tenho faco fazer pode posso quero queria preciso sobre hoje agora ja tambem mais menos muito pouco quanto quanta quantos quando onde porque traz traga trazer mostra mostre diga fala fale resumo explica explique favor oi ola obrigado".split(" "));
 export const contentWords = (text) => [...new Set((String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]{3,}/g) || []).filter((w) => !STOPWORDS.has(w)))];
+const CONTACT_INTENT = /\b(quem (eu )?(procuro|procurar|falo|chamo|contato)|com quem|falar com|contato|ramal|respons[áa]vel)\b/i;
 const stemOf = (w) => (w.length > 5 ? w.slice(0, w.length - 2) : w);
 
 // Above this many passages, only candidates (best by words + best by meaning)
@@ -374,7 +375,9 @@ export async function searchKnowledge(query, { category, sourceIds, limit = 6, e
   const model = resolveEmbeddingModel(env);
   // Coverage of the request's content words ("ferias" ~ "férias"), not a
   // relative rank: a stray "do" or "hoje" must not look like a match.
-  const words = contentWords(text);
+  // "Quem eu procuro?" asks for a contact: the department's contact list
+  // shares no word with it, so the intent brings its usual words along.
+  const words = contentWords(CONTACT_INTENT.test(text) ? `${text} contato ramal responsavel` : text);
   const stems = words.map(stemOf);
   const total = db.prepare("SELECT count(*) n FROM knowledge_chunks").get().n;
   if (!total) return [];
@@ -401,13 +404,16 @@ export async function searchKnowledge(query, { category, sourceIds, limit = 6, e
   }));
   const idfTotal = stems.reduce((n, s) => n + Math.max(0, idf.get(s)), 0) || 1;
   const maxIdf = Math.log(total + 1) || 1;
-  const coverage = (body) => stems.reduce((n, s) => n + (body.includes(s) ? Math.max(0, idf.get(s)) : 0), 0) / idfTotal;
-  const specificity = (body) => Math.max(0, ...stems.filter((s) => body.includes(s)).map((s) => idf.get(s))) / maxIdf;
+  // A stem counts at the start of a word: "part" (partes) is not inside "coparticipação".
+  const stemRe = new Map(stems.map((s) => [s, new RegExp(`(^|[^a-z0-9])${s}`)]));
+  const hasStem = (body, s) => stemRe.get(s).test(body);
+  const coverage = (body) => stems.reduce((n, s) => n + (hasStem(body, s) ? Math.max(0, idf.get(s)) : 0), 0) / idfTotal;
+  const specificity = (body) => Math.max(0, ...stems.filter((s) => hasStem(body, s)).map((s) => idf.get(s))) / maxIdf;
   const scored = rows.map((row) => {
     const card = row.card ? JSON.parse(row.card) : null;
     const cardText = `${card?.title || ""} ${card?.topic || ""} ${card?.summary || ""} ${(card?.keywords || []).join(" ")} ${row.category || ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const body = row.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const cardHits = stems.filter((s) => cardText.includes(s)).length;
+    const cardHits = stems.filter((s) => hasStem(cardText, s)).length;
     const semantic = sims?.all.get(row.r) ?? 0;
     const score = coverage(body) * 1.5 + Math.max(0, semantic - 0.35) * 3 + Math.min(cardHits, 4) * 0.25;
     return { row, card, score, semantic, specificity: specificity(body) };
