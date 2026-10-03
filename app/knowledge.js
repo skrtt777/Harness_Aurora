@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import { getDb } from "./db.js";
 import { embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
-import { extractText, isDocument } from "./docText.js";
+import { IMAGE_EXTENSIONS, extractText, isDocument } from "./docText.js";
 import { httpError } from "./httpSecurity.js";
 import { runLocal } from "./local.js";
 
@@ -25,6 +25,8 @@ const CHUNK_CHARS = 900;
 const CHUNK_OVERLAP = 150;
 const MAX_WALK = 50_000;
 const SKIP = /(^~\$|^\.|^thumbs\.db$|^desktop\.ini$)/i;
+// Icons, thumbnails and emoji images: never worth an OCR pass.
+const MIN_IMAGE_BYTES = 20_000;
 const jobs = new Map();
 // Bumped on every index write: the in-memory vector cache is rebuilt lazily.
 let indexVersion = 0;
@@ -198,7 +200,7 @@ async function embedDocuments(chunks, env, signal) {
  * cut, embedded and mapped; documents that disappeared are dropped. Only the
  * difference is processed, so re-running is cheap.
  */
-export async function indexSource(id, { env = process.env, signal, onProgress = () => {}, map = mapDocument } = {}) {
+export async function indexSource(id, { env = process.env, signal, onProgress = () => {}, map = mapDocument, ocr } = {}) {
   const db = await ready();
   const source = db.prepare("SELECT * FROM knowledge_sources WHERE id = ?").get(id);
   if (!source) throw httpError(404, "Fonte não encontrada.");
@@ -222,15 +224,17 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
     const info = await stat(path).catch(() => null);
     const previous = known.get(path);
     if (!info || (previous && previous.mtime_ms === info.mtimeMs && previous.size === info.size)) { stats.done += 1; continue; }
+    if (!previous && IMAGE_EXTENSIONS.has(extname(path).toLowerCase()) && info.size < MIN_IMAGE_BYTES) { stats.done += 1; continue; }
     const relPath = relative(source.path, path);
     const docId = previous?.id || randomUUID();
     let text = "";
     let error = null;
-    try { text = await extractText(path); if (!text.trim()) error = "Documento sem texto (talvez seja uma imagem escaneada)."; }
+    try { text = await extractText(path, ocr === undefined ? { signal } : { signal, ocr }); if (!text.trim()) error = IMAGE_EXTENSIONS.has(extname(path).toLowerCase()) ? "Imagem sem texto legível." : "Documento sem texto (nem o OCR achou texto legível)."; }
     catch (e) { error = e.message; }
     const hash = text ? hashText(text) : null;
     let mapped = { category: `${source.department}/${relPath.split(sep).length > 1 ? relPath.split(sep)[0] : "Geral"}`, card: null };
     if (!error) mapped = await map({ relPath, text, department: source.department, categories: [...categories], env, signal });
+    if (mapped.card && /^## (Página \d+ \(OCR\)|Imagem \(OCR\))$/m.test(text)) mapped.card.ocr = true;
     if (mapped.category) categories.add(mapped.category.split("/").slice(1).join("/"));
     const chunks = error ? [] : chunkText(text, `${source.department} — ${relPath.split(sep).join("/")}`);
     const vectors = await embedDocuments(chunks, env, signal);
@@ -402,7 +406,7 @@ export async function knowledgeMap({ department, category } = {}) {
     if (category && !String(row.category).toLowerCase().includes(String(category).toLowerCase())) continue;
     const card = row.card ? JSON.parse(row.card) : {};
     if (!tree.has(row.category)) tree.set(row.category, []);
-    tree.get(row.category).push({ title: card.title || row.rel_path, type: card.type || "outro", summary: card.summary || "", dates: card.dates || [], flow: card.flow || [], keywords: card.keywords || [], relPath: row.rel_path, path: row.path, source: row.name, updatedAt: new Date(row.mtime_ms).toISOString() });
+    tree.get(row.category).push({ title: card.title || row.rel_path, type: card.type || "outro", summary: card.summary || "", dates: card.dates || [], flow: card.flow || [], keywords: card.keywords || [], ocr: !!card.ocr, relPath: row.rel_path, path: row.path, source: row.name, updatedAt: new Date(row.mtime_ms).toISOString() });
   }
   return [...tree].map(([name, documents]) => ({ category: name, documents }));
 }

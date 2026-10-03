@@ -2,10 +2,10 @@ import { existsSync } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { extractText } from "../docText.js";
+import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
 
 // Binary office formats are read as their text; everything else as UTF-8.
-const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf"]);
+const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf", ...IMAGE_EXTENSIONS]);
 
 const MAX_READ = 12000;
 const MAX_WALK = 20000;
@@ -223,7 +223,7 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx) e PDF. Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
     parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {

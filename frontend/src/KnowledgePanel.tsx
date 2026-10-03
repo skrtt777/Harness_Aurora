@@ -47,7 +47,7 @@ export default function KnowledgePanel() {
     {error && <p className="memory-form-error">{error}</p>}
     {map.length > 0 && <details className="knowledge-map"><summary>Mapa do conhecimento ({map.reduce((n, c) => n + c.documents.length, 0)} documentos em {map.length} categorias)</summary>
       {map.map(category => <details key={category.category}><summary>{category.category} ({category.documents.length})</summary>
-        <ul>{category.documents.map(doc => <li key={doc.path}><strong>{doc.title}</strong> <small>{doc.relPath}</small>{doc.summary && <p>{doc.summary}</p>}
+        <ul>{category.documents.map(doc => <li key={doc.path}><strong>{doc.title}</strong> <small>{doc.relPath}{doc.ocr ? ' · lido por OCR' : ''}</small>{doc.summary && <p>{doc.summary}</p>}
           {doc.flow.length > 0 && <ol>{doc.flow.map((step, i) => <li key={i}>{step}</li>)}</ol>}</li>)}</ul>
       </details>)}
     </details>}

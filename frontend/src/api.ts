@@ -216,7 +216,7 @@ export const getSavingsStats = () => request<SavingsStats>("/savings");
 
 // ---------- Conhecimento da empresa ----------
 export type KnowledgeSource = { id: string; name: string; path: string; department: string; paidAllowed: boolean; documents: number; failed: number; indexedAt: string | null; lastError: string | null; job: { total: number; done: number; current: string | null; finished?: boolean } | null };
-export type KnowledgeDocument = { title: string; type: string; summary: string; flow: string[]; relPath: string; path: string; source: string; updatedAt: string };
+export type KnowledgeDocument = { title: string; type: string; summary: string; flow: string[]; ocr?: boolean; relPath: string; path: string; source: string; updatedAt: string };
 export type KnowledgeCategory = { category: string; documents: KnowledgeDocument[] };
 export const getKnowledgeSources = () => request<{ sources: KnowledgeSource[] }>("/knowledge/sources").then((r) => r.sources);
 export const createKnowledgeSource = (data: { name: string; department: string; path: string; paidAllowed: boolean }) => request<KnowledgeSource>("/knowledge/sources", { method: "POST", body: JSON.stringify(data) });

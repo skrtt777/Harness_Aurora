@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { crc32 } from "node:zlib";
+import { createCanvas } from "@napi-rs/canvas";
 
 /**
  * Minimal but valid Office/PDF writers plus a fictitious HR department used by
@@ -91,6 +92,50 @@ export function makePdf(lines) {
   return Buffer.from(pdf, "latin1");
 }
 
+/**
+ * A scanned page: the lines drawn as a JPEG photo inside a PDF, with no text
+ * layer at all — only OCR can read it, like a paper signed and scanned.
+ */
+export function makeScannedPdf(lines) {
+  const W = 1240;
+  const H = 1754; // A4 at 150 dpi
+  const canvas = createCanvas(W, H);
+  const g = canvas.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#111"; g.font = "34px sans-serif";
+  lines.forEach((line, i) => g.fillText(line, 100, 200 + i * 58));
+  const jpeg = canvas.encodeSync("jpeg", 85);
+  const content = "q 595 0 0 842 0 0 cm /Im1 Do Q";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
+    jpeg,
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ];
+  const parts = [Buffer.from("%PDF-1.4\n", "latin1")];
+  const offsets = [];
+  let length = parts[0].length;
+  objects.forEach((o, i) => {
+    offsets.push(length);
+    const part = Buffer.isBuffer(o)
+      ? Buffer.concat([Buffer.from(`${i + 1} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${o.length} >>\nstream\n`, "latin1"), o, Buffer.from("\nendstream\nendobj\n", "latin1")])
+      : Buffer.from(`${i + 1} 0 obj\n${o}\nendobj\n`, "latin1");
+    parts.push(part);
+    length += part.length;
+  });
+  parts.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF`, "latin1"));
+  return Buffer.concat(parts);
+}
+
+export const SCANNED_ON_CALL = [
+  "COMUNICADO INTERNO - Plantão do RH no recesso",
+  "Durante o recesso, de 26/12/2026 a 30/12/2026, o RH",
+  "funciona em regime de plantão, das 9h às 15h.",
+  "Responsável pelo plantão: Marcos Lima, ramal 2210.",
+  "Urgências fora do horário: telefone (11) 4000-1234.",
+];
+
 /** A small, fictitious HR department share (names and data invented). */
 export const SAMPLE_HR_FILES = {
   "Eventos/Confraternização 2026.docx": () => makeDocx([
@@ -120,6 +165,7 @@ export const SAMPLE_HR_FILES = {
     ["Documentos: RG, CPF, carteira de trabalho digital, comprovante de residência", "Exame admissional agendado pelo RH"],
     ["Primeiro dia: entrega de crachá e notebook, integração às 9h com a equipe de RH"],
   ]),
+  "Eventos/Plantão do recesso (escaneado).pdf": () => makeScannedPdf(SCANNED_ON_CALL),
   "Contatos do RH.txt": () => Buffer.from("Equipe de RH\nRecrutamento: Carla Mendes - ramal 2201\nFolha de pagamento: Diego Santos - ramal 2204\nBenefícios: Júlia Rocha - ramal 2207\nE-mail geral: rh@empresa-exemplo.com.br\n", "utf8"),
 };
 

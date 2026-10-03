@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,12 +12,13 @@ process.env.CODEX_BIN = join(temp, "missing-codex.exe");
 process.env.CLAUDE_BIN = join(temp, "missing-claude.exe");
 
 const { extractText, docxText, readZip } = await import("../app/docText.js");
-const { makeDocx, makeXlsx, makePptx, makePdf, writeSampleHrShare } = await import("../app/sampleDocs.js");
+const { makeDocx, makeXlsx, makePptx, makePdf, makeScannedPdf, SCANNED_ON_CALL, writeSampleHrShare } = await import("../app/sampleDocs.js");
 const kb = await import("../app/knowledge.js");
 const { executeTool } = await import("../app/agentTools/index.js");
 const { citesSource, runChatAgent } = await import("../app/chatAgent.js");
 
-// Deterministic "mapping" so tests never need the local model.
+// Deterministic "mapping" and "OCR" so tests never need the local model or Tesseract.
+const fakeOcr = async (image) => { assert.ok(Buffer.isBuffer(image) && image.length > 1000, "OCR gets a rendered image"); return SCANNED_ON_CALL.join("\n"); };
 const fakeMap = async ({ relPath, department }) => ({ category: `${department}/${relPath.split(/[\\/]/).length > 1 ? relPath.split(/[\\/]/)[0] : "Geral"}`, card: { title: relPath, type: "outro", topic: "", summary: `Resumo de ${relPath}`, keywords: [], dates: [], flow: relPath.includes("férias") ? ["Combine com o gestor", "Registre no portal"] : [], mapped: true } });
 
 test("Word, Excel, PowerPoint, PDF and text documents become plain text", async () => {
@@ -35,6 +36,36 @@ test("Word, Excel, PowerPoint, PDF and text documents become plain text", async 
   await assert.rejects(extractText(join(dir, "x.exe")), /não suportado/);
   assert.throws(() => readZip(Buffer.from("não é zip")), /ZIP inválido/);
   assert.equal(docxText(makeDocx(["a"])), "a");
+});
+
+test("scanned PDF pages and images are read by OCR; pages with text keep their text", async () => {
+  const dir = mkdtempSync(join(temp, "ocr-"));
+  writeFileSync(join(dir, "scan.pdf"), makeScannedPdf(SCANNED_ON_CALL));
+  writeFileSync(join(dir, "texto.pdf"), makePdf(["Política de férias", "Vale-refeição: R$ 42,00"]));
+  writeFileSync(join(dir, "foto.png"), Buffer.alloc(30_000));
+  let calls = 0;
+  const ocr = async (image) => { calls += 1; return fakeOcr(image); };
+  assert.equal(await extractText(join(dir, "scan.pdf"), { ocr }), `## Página 1 (OCR)\n${SCANNED_ON_CALL.join("\n")}`);
+  assert.match(await extractText(join(dir, "texto.pdf"), { ocr }), /^Política de férias/);
+  assert.equal(calls, 1, "a page with a text layer never goes through OCR");
+  assert.equal(await extractText(join(dir, "scan.pdf"), { ocr: false }), "", "OCR can be turned off");
+  assert.match(await extractText(join(dir, "foto.png"), { ocr }), /^## Imagem \(OCR\)\nCOMUNICADO/);
+  assert.equal(await extractText(join(dir, "foto.png"), { ocr: async () => "~ |\\ .. ii" }), "", "noise from a photo is not text");
+  await assert.rejects(extractText(join(dir, "scan.pdf"), { ocr: async () => { throw new Error("sem idioma"); } }), /escaneado, mas o OCR falhou: sem idioma/);
+});
+
+const OCR_CACHE = join(process.env.APPDATA || "", "Harness Aurora XR", "ocr-cache");
+test("real Tesseract reads the sample scan (skipped without language data)", { skip: !existsSync(join(OCR_CACHE, "por.traineddata")) && "no traineddata" }, async () => {
+  const { defaultOcr } = await import("../app/docText.js");
+  const { terminateOcr } = await import("../app/ocr.js");
+  const dir = mkdtempSync(join(temp, "tess-"));
+  writeFileSync(join(dir, "scan.pdf"), makeScannedPdf(SCANNED_ON_CALL));
+  const env = { ...process.env, OCR_LANG: "por+eng", OCR_CACHE_PATH: OCR_CACHE };
+  try {
+    const text = await extractText(join(dir, "scan.pdf"), { ocr: (image) => defaultOcr(image, env) });
+    assert.match(text, /Marcos Lima, ramal 2210/);
+    assert.match(text, /26\/12\/2026/);
+  } finally { await terminateOcr(); }
 });
 
 test("read_file opens office documents with line numbers", async () => {
@@ -58,8 +89,8 @@ test("a network folder is indexed incrementally, organized by folder and searcha
   await assert.rejects(kb.createSource({ path: "relativo/rh", department: "RH" }), /caminho completo/);
   await assert.rejects(kb.createSource({ path: join(temp, "nao-existe"), department: "RH" }), /não existe/);
   const source = await kb.createSource({ name: "Pasta do RH", path: share, department: "RH" });
-  const first = await kb.indexSource(source.id, { map: fakeMap });
-  assert.deepEqual(first, { total: 6, done: 6, changed: 6, removed: 0, failed: 0, ...{} });
+  const first = await kb.indexSource(source.id, { map: fakeMap, ocr: fakeOcr });
+  assert.deepEqual(first, { total: 7, done: 7, changed: 7, removed: 0, failed: 0, ...{} });
   assert.deepEqual((await kb.knowledgeMap()).map((c) => c.category), ["RH/Benefícios", "RH/Eventos", "RH/Geral", "RH/Procedimentos"]);
   const ferias = (await kb.knowledgeMap({ category: "Procedimentos" }))[0].documents.find((d) => d.relPath.includes("férias"));
   assert.deepEqual(ferias.flow, ["Combine com o gestor", "Registre no portal"]);
@@ -69,9 +100,11 @@ test("a network folder is indexed incrementally, organized by folder and searcha
   assert.equal(await top("quanto é o vale refeição"), "Benefícios/Política de Benefícios.pdf");
   assert.equal(await top("ramal da folha de pagamento"), "Contatos do RH.txt");
   assert.equal(await top("como solicitar férias"), "Procedimentos/Como solicitar férias.docx");
+  assert.equal(await top("quem atende o plantão do RH no recesso"), "Eventos/Plantão do recesso (escaneado).pdf", "a scanned page is found by what OCR read");
+  assert.equal((await kb.knowledgeMap({ category: "Eventos" }))[0].documents.find((d) => d.relPath.includes("escaneado")).ocr, true);
   assert.ok((await kb.searchKnowledge("oi, tudo bem?")).every((h) => h.score < 1.5), "small talk doesn't look like a document match");
 
-  const again = await kb.indexSource(source.id, { map: fakeMap });
+  const again = await kb.indexSource(source.id, { map: fakeMap, ocr: async () => assert.fail("unchanged scans are not read again") });
   assert.equal(again.changed, 0, "nothing changed, nothing re-read");
   writeFileSync(join(share, "Contatos do RH.txt"), "Folha de pagamento: Ana Lima - ramal 2299\n");
   utimesSync(join(share, "Contatos do RH.txt"), new Date(), new Date(Date.now() + 5000));

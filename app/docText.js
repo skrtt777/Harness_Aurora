@@ -7,12 +7,19 @@ import { htmlToText } from "./agentTools/web.js";
  * Plain text out of the documents a company actually keeps: Word, Excel,
  * PowerPoint, PDF, plus text formats. Office files are ZIP archives of XML,
  * read with a small central-directory reader (no extra dependency); PDF goes
- * through Mozilla's pdf.js. Scanned PDFs (images only) come back empty —
- * OCR is a later step.
+ * through Mozilla's pdf.js. Scanned pages (a PDF page without a text layer)
+ * and images are read by OCR: pdf.js draws the page on a canvas and Tesseract
+ * reads it, locally like everything else.
  */
-export const DOC_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".csv", ".tsv", ".json", ".html", ".htm", ".xml", ".log", ".rtf"]);
+export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".bmp", ".webp"]);
+export const DOC_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".csv", ".tsv", ".json", ".html", ".htm", ".xml", ".log", ".rtf", ...IMAGE_EXTENSIONS]);
 export const MAX_DOC_BYTES = 40 * 1024 * 1024;
 const MAX_TEXT = 2_000_000;
+// A page with less text than this is a scan (or a photo pasted as a page).
+const OCR_MIN_CHARS = 20;
+const OCR_MAX_PAGES = 40;
+// Long side of a rendered page in pixels (~200 dpi on A4): enough for Tesseract.
+const OCR_MAX_SIDE = 2400;
 
 /** Entries of a ZIP archive: name → () => Buffer. */
 export function readZip(buffer) {
@@ -84,14 +91,45 @@ export function pptxText(buffer) {
   }).join("\n\n");
 }
 
-export async function pdfText(buffer) {
+/** Tesseract over an image, through the warm worker of app/ocr.js. */
+export async function defaultOcr(image, env = process.env) {
+  const { recognizeImage } = await import("./ocr.js");
+  return (await recognizeImage(image, env)).text;
+}
+
+/** Photos and icons give Tesseract noise; text is a few real words. */
+export const readableText = (text) => (String(text).match(/[a-zA-ZÀ-ÿ]{3,}/g) || []).length >= 5;
+
+async function renderPage(page) {
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: Math.min(2, OCR_MAX_SIDE / Math.max(base.width, base.height)) });
+  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, canvasContext: context, viewport }).promise;
+  return canvas.encode("png");
+}
+
+/**
+ * Text of every page; with `ocr`, pages without a text layer are rendered and
+ * read by OCR (only those — a mixed PDF keeps its real text). OCR'd pages are
+ * headed "(OCR)". If OCR is unavailable and nothing was read, that error is
+ * thrown instead of an empty document.
+ */
+export async function pdfText(buffer, { ocr, signal } = {}) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: false, isEvalSupported: false, verbosity: 0 });
   const doc = await task.promise;
   const pages = [];
+  let ocrPages = 0;
+  let ocrError = null;
   try {
     for (let n = 1; n <= doc.numPages; n += 1) {
-      const content = await (await doc.getPage(n)).getTextContent();
+      if (signal?.aborted) break;
+      const page = await doc.getPage(n);
+      const content = await page.getTextContent();
       let line = "";
       const lines = [];
       for (const item of content.items) {
@@ -99,19 +137,32 @@ export async function pdfText(buffer) {
         if (item.hasEOL) { lines.push(line); line = ""; }
       }
       if (line) lines.push(line);
-      pages.push(lines.join("\n").trim());
-      if (pages.join("\n").length > MAX_TEXT) break;
+      let text = lines.join("\n").trim();
+      let scanned = false;
+      if (ocr && text.length < OCR_MIN_CHARS && ocrPages < OCR_MAX_PAGES) {
+        ocrPages += 1;
+        try {
+          const read = String(await ocr(await renderPage(page))).trim();
+          if (read.length > text.length) { text = read; scanned = true; }
+        } catch (error) { ocrError ||= error; }
+      }
+      pages.push({ text, scanned });
+      if (pages.reduce((n, p) => n + p.text.length, 0) > MAX_TEXT) break;
     }
   } finally { await task.destroy(); }
-  return pages.map((p, i) => (doc.numPages > 1 ? `## Página ${i + 1}\n${p}` : p)).join("\n\n");
+  if (ocrError && !pages.some((p) => p.text)) throw new Error(`Documento escaneado, mas o OCR falhou: ${ocrError.message}`);
+  return pages.map((p, i) => (doc.numPages > 1 || p.scanned ? `## Página ${i + 1}${p.scanned ? " (OCR)" : ""}\n${p.text}` : p.text)).join("\n\n");
 }
 
 export function isDocument(path) {
   return DOC_EXTENSIONS.has(extname(path).toLowerCase());
 }
 
-/** Text of any supported document; throws for unsupported or oversized files. */
-export async function extractText(path) {
+/**
+ * Text of any supported document; throws for unsupported or oversized files.
+ * `ocr` (image Buffer → text) reads scans and images; `false` turns it off.
+ */
+export async function extractText(path, { ocr = defaultOcr, signal } = {}) {
   const ext = extname(path).toLowerCase();
   if (!DOC_EXTENSIONS.has(ext)) throw new Error(`Formato ${ext || "sem extensão"} não suportado.`);
   if ((await stat(path)).size > MAX_DOC_BYTES) throw new Error("Documento grande demais (mais de 40 MB).");
@@ -120,7 +171,11 @@ export async function extractText(path) {
   if (ext === ".docx") text = docxText(buffer);
   else if (ext === ".xlsx") text = xlsxText(buffer);
   else if (ext === ".pptx") text = pptxText(buffer);
-  else if (ext === ".pdf") text = await pdfText(buffer);
+  else if (ext === ".pdf") text = await pdfText(buffer, { ocr: ocr || undefined, signal });
+  else if (IMAGE_EXTENSIONS.has(ext)) {
+    const read = ocr ? String(await ocr(buffer)).trim() : "";
+    text = readableText(read) ? `## Imagem (OCR)\n${read}` : "";
+  }
   else if (ext === ".html" || ext === ".htm") text = htmlToText(buffer.toString("utf8"));
   else if (ext === ".rtf") text = buffer.toString("latin1").replace(/\\par[d]?/g, "\n").replace(/\{\\\*[^}]*\}|\\[a-z]+-?\d* ?|[{}]/g, "").trim();
   else text = buffer.toString("utf8").replace(/^﻿/, "");
