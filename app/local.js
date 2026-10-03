@@ -38,6 +38,24 @@ export async function buildProviderConfig(env = process.env) {
  * the user hitting "Cancelar" on a slow local turn — independent of the
  * timeout below, which still applies on its own.
  */
+// Reasoning ("thinking") models answer an agent step much slower and the
+// agent loop doesn't use the trace: it is turned off unless LOCAL_THINK=true.
+// gpt-oss can't turn it off, only down to "low". Which models think is asked
+// to Ollama once (/api/show capabilities) instead of guessed by name.
+const thinkingModels = new Map();
+export async function thinkOption(baseUrl, model, env = process.env) {
+  const name = model.split('/').at(-1);
+  const on = env.LOCAL_THINK === 'true';
+  if (/^gpt-oss(?:[.:-]|$)/i.test(name)) return { think: on ? 'medium' : 'low' };
+  if (/^qwen3(?:[.:-]|$)/i.test(name)) return { think: on };
+  const key = `${baseUrl}|${model}`;
+  if (!thinkingModels.has(key)) {
+    thinkingModels.set(key, fetch(`${baseUrl}/api/show`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model }), signal: AbortSignal.timeout(5000) })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => Array.isArray(d?.capabilities) && d.capabilities.includes('thinking')).catch(() => false));
+  }
+  return (await thinkingModels.get(key)) ? { think: on } : {};
+}
+
 export async function runLocal(prompt, env = process.env, externalSignal, {onText}={}) {
   if(env.LOCAL_ENGINE==='llama.cpp')return runLlama(prompt,env,externalSignal,{onText});
   const started=performance.now();
@@ -51,7 +69,7 @@ export async function runLocal(prompt, env = process.env, externalSignal, {onTex
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, prompt, stream: false, keep_alive: keepAlive(env),
-        ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
+        ...(await thinkOption(baseUrl, model, env)),
         ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
         num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
         num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
@@ -108,7 +126,7 @@ export async function runLocalChat(messages, tools = [], env = process.env, exte
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, messages, stream: false, keep_alive: keepAlive(env),
         ...(tools.length ? { tools } : {}),
-        ...(/^qwen3(?:[.:-]|$)/i.test(model.split('/').at(-1)) ? { think: env.LOCAL_THINK === 'true' } : {}),
+        ...(await thinkOption(baseUrl, model, env)),
         options: {
           num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
           num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
