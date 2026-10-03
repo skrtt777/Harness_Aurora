@@ -146,7 +146,24 @@ Estão em `app/grounding.js` e não fazem nenhuma chamada paga. Cada trava devol
 - rodada 13: 19/23 tarefas, 18/20 turnos;
 - rodada 14: 21/23 tarefas, 20/20 turnos.
 
-A trava foi restringida a perguntas de sim/não respondidas com "sim". **Essa versão ainda não foi medida na bateria.** As rodadas foram interrompidas porque o computador ficou sem memória, e o Ollama também foi encerrado.
+A trava foi restringida a perguntas de sim/não respondidas com "sim". Com isso, as três travas entraram na bateria completa (rodadas 16–18):
+
+| Rodadas | Tarefas | Turnos | Conversas inteiras | RH |
+|---|---|---|---|---|
+| 7–9 (0.1.29, sem estas travas) | 61/69 | 58/60 | 7/9 | 20/21 |
+| 16–18 (com as 3 travas) | 65/69 | 59/60 | 8/9 | 20/21 |
+
+Correções que as travas fizeram e que acertaram na volta:
+- **Nome copiado errado:** "Marco Lima" virou "Marcos Lima".
+- **"Sim" sem base:** "Sim! A empresa oferece cursos de inglês" virou "não encontrei".
+
+Um falso positivo restante foi corrigido depois das rodadas:
+- **O que aconteceu:** dois números colados por um separador ("20" e "2026", lidos como "202026") foram sinalizados como erro, e o resumo de fim de ano, que estava certo, saiu errado.
+- **Correção:** um número assim agora é conferido parte por parte.
+
+As outras falhas das rodadas são:
+- a conta "17 vezes 3", que já oscilava antes;
+- uma resposta genérica ("procure o RH") para "quem eu procuro?".
 
 ## IA paga revisa a organização (03/10)
 

@@ -22,6 +22,8 @@ test("names and numbers copied from the documents pass; wrong or invented ones a
   assert.deepEqual(unsupportedFacts("**Data do Evento:** amanhã. **Documentos Pessoais:** RG. Fale com Recursos Humanos.", DOCS), [], "headings and common phrases are not names");
   assert.deepEqual(unsupportedFacts("Confirme até 05/12/2026.", "Confirmação de presença até 05/12 pelo formulário"), [], "adding the year to a date is fine");
   assert.deepEqual(unsupportedFacts("O plantão vai de 27/12 a 30/12.", DOCS), ["27/12"], "a wrong day is caught");
+  assert.deepEqual(unsupportedFacts("Final de ano 20–2026 e 20/2026, no total US$ 1.200.", DOCS), [], "joined numbers are checked part by part");
+  assert.deepEqual(unsupportedFacts("O plano anual custa US$ 1.300.", DOCS), ["1.300"], "a wrong value is still caught");
   assert.deepEqual(unsupportedFacts("Para dúvidas sobre benefícios, Procure Júlia Rocha no ramal 2207.", DOCS), [], "two words of the name in the documents are enough");
   assert.deepEqual(unsupportedFacts("O vale é de R$ 42,00 por dia útil; o plano anual custa US$ 1.200.", DOCS), []);
   assert.deepEqual(unsupportedFacts("Em 22 dias úteis: 22 × R$ 42,00 = R$ 924,00 por mês.", DOCS), [], "computed values are not checked");

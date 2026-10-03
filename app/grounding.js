@@ -58,7 +58,10 @@ export function unsupportedFacts(answer, evidence) {
       // A date is checked by day and month: adding the year the document implies is fine.
       const d = digits(raw.trim().match(/^(\d{1,2}\/\d{1,2})\/\d{2,4}$/)?.[1] || raw);
       if (d.length < 4) continue;
-      if (!sourceNumbers.some((n) => n.includes(d))) missing.push(raw.trim().replace(/[).,\s]+$/, ""));
+      const supported = (x) => sourceNumbers.some((n) => n.includes(x));
+      // Two numbers joined by a separator ("20–2026", "20/2026"): each part on its own.
+      const parts = /^\(/.test(raw) || d.length < 6 ? [d] : raw.split(/\D+/).filter((p) => p.length >= 4);
+      if (!parts.every(supported)) missing.push(raw.trim().replace(/[).,\s]+$/, ""));
     }
   }
   const known = pairsOf(evidence);
