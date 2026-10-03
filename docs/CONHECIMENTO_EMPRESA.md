@@ -165,6 +165,26 @@ As outras falhas das rodadas são:
 - a conta "17 vezes 3", que já oscilava antes;
 - uma resposta genérica ("procure o RH") para "quem eu procuro?".
 
+### Calculadora, seguimentos e pedidos de contato (03/10)
+
+- **Calculadora:** contas em português ("17 vezes 3", "15% de 200") são calculadas de forma exata (`app/runtimeFacts.js`) e entregues ao modelo como fato, como a hora.
+- **Seguimentos:** uma pergunta de seguimento com pronome ("sobre isso", "e o…") busca documentos junto com a pergunta anterior.
+- **Contatos:** um pedido de contato ("quem eu procuro?") aceita listas com ramal ou e-mail a partir da pontuação 1,0.
+- **Busca:** o radical passa a casar só no início da palavra ("partes" não casa dentro de "coparticipação").
+
+| Rodadas | Tarefas | Turnos | "17 × 3" | "Quem eu procuro sobre isso?" |
+|---|---|---|---|---|
+| 16–18 (antes) | 65/69 | 59/60 | 1/3 | 2/3 |
+| 19–21 (depois) | 64/69 | 58/60 | 3/3 | 3/3 |
+
+Os dois casos visados passaram a acertar em todas as rodadas. O total ficou dentro da variação entre rodadas.
+
+As falhas novas não se repetiram entre rodadas:
+- um "não encontrei" para o prazo de aprovação das férias;
+- `contar-arquivos` e `pasta-leiame`, que já oscilavam antes.
+
+As rodadas 19–21 levaram de 113 a 231 s, contra cerca de 65 s antes, com o computador sob outra carga.
+
 ## IA paga revisa a organização (03/10)
 
 Em Configurações → Conhecimento, o botão **"Revisar com IA paga"** manda ao professor (Codex ou Claude, o mesmo do ensino automático) as **fichas** de até 60 documentos da fonte:
