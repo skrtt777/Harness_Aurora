@@ -85,8 +85,18 @@ export async function decide(access, ctx) {
       return { action: "ask", reason: "Enviar trechos de documentos internos para a IA paga" };
     case "import":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano nada é instalado." } : { action: "ask", reason: "Usar instruções de uma skill de terceiros" };
-    case "read":
-      return (await inside(access.paths)) ? { action: "allow" } : { action: "ask", reason: "Ler fora da pasta do projeto" };
+    case "read": {
+      if (await inside(access.paths)) return { action: "allow" };
+      // Company knowledge folders the person registered are read like the
+      // project (the indexer already reads them); paid chats still ask (share).
+      const knowledge = ctx.knowledgeRoots || [];
+      if (access.paths?.length && knowledge.length) {
+        let all = true;
+        for (const path of access.paths) if (!(await insideWorkspace(path, knowledge))) { all = false; break; }
+        if (all) return { action: "allow" };
+      }
+      return { action: "ask", reason: "Ler fora da pasta do projeto" };
+    }
     case "write":
       if (mode === "plan") return { action: "deny", reason: "No modo Plano nada é alterado; proponha a mudança ao usuário." };
       if (mode === "manual") return { action: "ask", reason: "Modo Manual: toda alteração pede autorização" };

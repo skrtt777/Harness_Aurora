@@ -13,7 +13,7 @@ export async function teacherSettings() {
   return { mode: TEACHER_MODES.includes(mode) ? mode : DEFAULT_TEACHER_MODE, dailyLimit: Number.isInteger(limit) && limit >= 0 ? limit : DEFAULT_DAILY_LIMIT, usedToday: usage.count };
 }
 
-async function spendTeacherCall() {
+export async function spendTeacherCall() {
   const { usedToday } = await teacherSettings();
   await setSetting("teacher_usage", JSON.stringify({ date: today(), count: usedToday + 1 }));
 }

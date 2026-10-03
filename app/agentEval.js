@@ -75,13 +75,53 @@ export const EVAL_TASKS = [
   { id: "rh-calendario", area: "conhecimento", knowledge: true, prompt: "Quando é o Dia das Crianças em família?",
     check: ({ answer }) => has(answer, /10\/10|10 de outubro/i) },
   { id: "rh-inexistente", area: "conhecimento", knowledge: true, prompt: "Qual é a política de viagens a trabalho da empresa?",
-    check: ({ answer }) => /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta)/i.test(answer) && !/150/.test(answer) },
+    // Honest "not found" (any wording) and no value attributed to travel.
+    check: ({ answer }) => NOT_FOUND.test(answer) && !/(viage|di[áa]ri)[^.\n]{0,80}R\$|R\$[^.\n]{0,40}(viage|di[áa]ri)/i.test(answer) },
   // A file named only by its name, like "resuma o MARU_MEDIA_KIT" (27/09).
   { id: "pdf-citado", area: "arquivos", seed: { "PROPOSTA_COMERCIAL_ACME.pdf": () => makePdf(["Proposta comercial ACME 2026", "Plano mensal: US$ 120", "Plano anual: US$ 1.200 (2 meses grátis)", "Validade da proposta: 30 dias"]) }, prompt: "Quanto custa o plano anual no PROPOSTA_COMERCIAL_ACME?",
     check: ({ answer, steps }) => has(answer, /1\.200/) && !steps.some((s) => s.tool === "web_fetch" || s.tool === "open") },
   { id: "resposta-direta", area: "conversa", prompt: "Quanto é 17 vezes 3? Responda só o número.",
     check: ({ answer, steps }) => has(answer, "51") && !steps.some((s) => ["write_file", "run_command"].includes(s.tool)) },
+  // Long conversations about company knowledge (where the invented source
+  // and the forced answer showed up): follow-ups that don't repeat the
+  // subject, small talk in between, a policy that doesn't exist, the
+  // scanned notice and a person contradicting the document. Every turn must
+  // pass, and any "Fonte:" must name a real file of the share.
+  { id: "conversa-fim-de-ano", area: "conversa longa", knowledge: true, turns: [
+    { prompt: "Me traz um resumo da programação de final de ano.", check: ({ answer }) => has(answer, /19\b/, /Espa[çc]o Jardim/i) },
+    { prompt: "E até quando eu confirmo presença?", check: ({ answer }) => has(answer, /05\/12|5 de dezembro|05 de dezembro/i) },
+    { prompt: "Quanto é o valor do amigo secreto?", check: ({ answer }) => has(answer, /\b80\b/) },
+    { prompt: "Quem fica de plantão no RH durante o recesso?", check: ({ answer }) => has(answer, /Marcos/i, /2210/) },
+    { prompt: "E qual o horário desse plantão?", check: ({ answer }) => has(answer, /9\s*h|9:00|09:00/i, /15\s*h|15:00/i) },
+    { prompt: "Valeu!", check: ({ docs, steps }) => !docs.length && !steps.some((s) => s.tool.startsWith("knowledge_")) },
+    { prompt: "Mas me disseram que a confraternização vai ser dia 20, é isso mesmo?", check: ({ answer }) => has(answer, /\b19\b/) },
+  ] },
+  { id: "conversa-beneficios", area: "conversa longa", knowledge: true, turns: [
+    { prompt: "Quanto é o vale-refeição?", check: ({ answer }) => has(answer, /42,00/) },
+    { prompt: "E o auxílio home office?", check: ({ answer }) => has(answer, /150/) },
+    { prompt: "Quem eu procuro pra tirar dúvida sobre isso?", check: ({ answer }) => has(answer, /J[úu]lia/i, /2207/) },
+    { prompt: "Qual é a política de bônus anual?", check: ({ answer }) => NOT_FOUND.test(answer) && !/b[ôo]nus[^.\n]{0,80}R\$\s*\d/i.test(answer) },
+    { prompt: "Ok. E a coparticipação do plano de saúde?", check: ({ answer }) => has(answer, /20\s*%/) },
+    { prompt: "Crie um arquivo resumo.txt com o valor do vale-refeição.", check: ({ dir }) => has(read(dir, "resumo.txt"), /42/) },
+  ] },
+  { id: "conversa-ferias-admissao", area: "conversa longa", knowledge: true, turns: [
+    { prompt: "Como eu faço para pedir férias?", check: ({ answer }) => has(answer, /45 dias/, /portal/i) },
+    { prompt: "Posso dividir em quantas partes?", check: ({ answer }) => has(answer, /\b3\b|tr[êe]s/i) },
+    { prompt: "E em quanto tempo o gestor aprova?", check: ({ answer }) => has(answer, /5 dias [úu]teis|cinco dias [úu]teis/i) },
+    { prompt: "Oi, tudo bem?", check: ({ docs }) => !docs.length },
+    { prompt: "Voltando ao RH: o que eu preciso levar na admissão?", check: ({ answer }) => has(answer, "RG", "CPF") },
+    { prompt: "E que horas é a integração no primeiro dia?", check: ({ answer }) => has(answer, /9\s*h|9:00|09:00/i) },
+    { prompt: "A empresa paga curso de inglês?", check: ({ answer }) => NOT_FOUND.test(answer) },
+  ] },
 ];
+
+const NOT_FOUND = /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta|tenho|identifiquei|cont[ée]m|menciona|foi (poss[íi]vel )?(encontrad|localizad|encontrar|localizar))|nenhum(a)? (documento|informa[çc][ãa]o|pol[íi]tica)/i;
+const fold = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\.(docx|xlsx|pptx|pdf|txt)\b/g, "").replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+/** Every "Fonte:" in the answer names a real file of the share (no invented sources). */
+export function citesRealFiles(answer, files) {
+  const names = files.map((f) => fold(f.split("/").pop()));
+  return [...String(answer).matchAll(/fontes?\**\s*:\**\s*([^\n]+)/gi)].every(([, cited]) => names.some((n) => fold(cited).includes(n)));
+}
 
 function seedFolder(dir, files = {}) {
   for (const [path, content] of Object.entries(files)) {
@@ -100,7 +140,8 @@ export async function runAgentEval({ tasks = EVAL_TASKS.filter((t) => !process.e
   const { handleChatTurn } = await import("./server.js");
   const { closeBrowserContext } = await import("./browserAgent.js");
   const knowledge = await import("./knowledge.js");
-  const { writeSampleHrShare } = await import("./sampleDocs.js");
+  const { SAMPLE_HR_FILES, writeSampleHrShare } = await import("./sampleDocs.js");
+  const shareFiles = Object.keys(SAMPLE_HR_FILES);
   await store.setSetting("teacher_mode", "off");
   await store.setSetting("agent_mode", "auto");
   const root = mkdtempSync(join(tmpdir(), "aurora-eval-"));
@@ -123,21 +164,33 @@ export async function runAgentEval({ tasks = EVAL_TASKS.filter((t) => !process.e
       const project = await store.createProject({ name: `Avaliação ${task.id}`, workspaceDir: dir });
       const conversation = await store.createConversation({ provider: "local", projectId: project.id });
       const started = Date.now();
-      const prompt = typeof task.prompt === "function" ? task.prompt({ site }) : task.prompt;
-      let turn;
-      try { turn = await handleChatTurn({ conversationId: conversation.id, message: prompt, env }); }
-      catch (error) { turn = { ok: false, error: error.message }; }
-      const steps = turn.message?.execution?.toolSteps || [];
-      const memories = await store.listMemories({});
-      let passed = false;
-      try { passed = turn.ok && Boolean(await task.check({ dir, answer: turn.message?.content || "", steps, memories })); } catch { passed = false; }
-      const calls = turn.message?.execution?.calls || [];
+      // A conversation is several turns on the same chat; a plain task is one.
+      const turns = task.turns || [{ prompt: task.prompt, check: task.check }];
+      const outcomes = [];
+      for (const step of turns) {
+        const turnStarted = Date.now();
+        const prompt = typeof step.prompt === "function" ? step.prompt({ site }) : step.prompt;
+        let turn;
+        try { turn = await handleChatTurn({ conversationId: conversation.id, message: prompt, env }); }
+        catch (error) { turn = { ok: false, error: error.message }; }
+        const steps = turn.message?.execution?.toolSteps || [];
+        const docs = turn.message?.execution?.knowledgeDocs || [];
+        const answer = turn.message?.content || "";
+        const memories = await store.listMemories({});
+        let passed = false;
+        try { passed = turn.ok && Boolean(await step.check({ dir, answer, steps, memories, docs })) && (!task.turns || citesRealFiles(answer, shareFiles)); } catch { passed = false; }
+        outcomes.push({ prompt, passed, turn, steps, docs, ms: Date.now() - turnStarted });
+      }
+      const all = outcomes.flatMap((o) => o.steps);
+      const calls = outcomes.flatMap((o) => o.turn.message?.execution?.calls || []);
+      const failed = outcomes.find((o) => !o.turn.ok);
       results.push({
-        id: task.id, area: task.area, passed, ms: Date.now() - started, steps: steps.length, failedSteps: steps.filter((s) => !s.ok).length,
-        modelMs: Math.round(calls.reduce((n, c) => n + (c.metrics?.wallMs || 0), 0)), toolMs: steps.reduce((n, s) => n + (s.ms || 0), 0),
-        actions: steps.map((s) => `${s.ok ? "" : "✕ "}${s.tool} ${JSON.stringify(s.args).slice(0, 80)} (${s.ms}ms)`),
-        memoryIds: turn.message?.memoryAccess || [],
-        error: turn.ok ? null : turn.error, answer: String(turn.message?.content || "").slice(0, 300),
+        id: task.id, area: task.area, passed: outcomes.every((o) => o.passed), ms: Date.now() - started, steps: all.length, failedSteps: all.filter((s) => !s.ok).length,
+        modelMs: Math.round(calls.reduce((n, c) => n + (c.metrics?.wallMs || 0), 0)), toolMs: all.reduce((n, s) => n + (s.ms || 0), 0),
+        actions: all.map((s) => `${s.ok ? "" : "✕ "}${s.tool} ${JSON.stringify(s.args).slice(0, 80)} (${s.ms}ms)`),
+        memoryIds: outcomes.flatMap((o) => o.turn.message?.memoryAccess || []),
+        error: failed ? failed.turn.error : null, answer: String(outcomes.at(-1).turn.message?.content || "").slice(0, 300),
+        ...(task.turns ? { turns: outcomes.map((o) => ({ prompt: o.prompt, passed: o.passed, ms: o.ms, docs: o.docs.map((d) => d.split(/[\/]/).pop()), answer: String(o.turn.message?.content || o.turn.error || "").slice(0, 300) })) } : {}),
       });
     }
   } finally {
@@ -151,5 +204,7 @@ export function summarizeEval(results) {
   const passed = results.filter((r) => r.passed).length;
   const byArea = {};
   for (const r of results) { byArea[r.area] ||= { passed: 0, total: 0 }; byArea[r.area].total += 1; byArea[r.area].passed += r.passed ? 1 : 0; }
-  return { passed, total: results.length, rate: results.length ? passed / results.length : 0, ms: results.reduce((n, r) => n + r.ms, 0), byArea };
+  // Turns of the long conversations, so one slip doesn't hide 6 good answers.
+  const turns = results.flatMap((r) => r.turns || []);
+  return { passed, total: results.length, rate: results.length ? passed / results.length : 0, ms: results.reduce((n, r) => n + r.ms, 0), byArea, ...(turns.length ? { turns: { passed: turns.filter((t) => t.passed).length, total: turns.length } } : {}) };
 }

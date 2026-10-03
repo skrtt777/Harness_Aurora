@@ -39,7 +39,9 @@ async function ready() {
     CREATE TABLE IF NOT EXISTS knowledge_docs(id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE, path TEXT NOT NULL, rel_path TEXT NOT NULL, mtime_ms REAL NOT NULL, size INTEGER NOT NULL, hash TEXT, category TEXT, card TEXT, chars INTEGER NOT NULL DEFAULT 0, error TEXT, indexed_at TEXT NOT NULL, UNIQUE(source_id, path));
     CREATE TABLE IF NOT EXISTS knowledge_chunks(id TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES knowledge_docs(id) ON DELETE CASCADE, ord INTEGER NOT NULL, text TEXT NOT NULL, embedding BLOB, embedding_model TEXT);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_doc ON knowledge_chunks(doc_id);
-    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_text USING fts5(text, tokenize='unicode61 remove_diacritics 2');`);
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_text USING fts5(text, tokenize='unicode61 remove_diacritics 2');
+    CREATE TABLE IF NOT EXISTS knowledge_suggestions(id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE, doc_id TEXT NOT NULL REFERENCES knowledge_docs(id) ON DELETE CASCADE, field TEXT NOT NULL, previous TEXT, value TEXT NOT NULL, reason TEXT, teacher TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, decided_at TEXT);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_suggestions_source ON knowledge_suggestions(source_id, status);`);
   if (!migrated) {
     migrated = true;
     // 0.1.27 keyed the word index by chunk id (an unindexed column): deleting
@@ -50,6 +52,34 @@ async function ready() {
   }
   return db;
 }
+
+export const knowledgeDb = ready;
+
+/**
+ * Corrections a person approved (from the paid reviewer) are kept in
+ * card.overrides and win over what the local model writes. The category
+ * survives any change to the file; the other fields only while the text is
+ * the same — new content deserves a fresh card.
+ */
+export const CARD_FIELDS = ["title", "summary", "keywords", "type", "category", "flow"];
+export function applyOverrides(mapped, overrides, department) {
+  if (!mapped.card || !overrides || !Object.keys(overrides).length) return mapped;
+  for (const [field, value] of Object.entries(overrides)) {
+    if (field === "category") mapped.category = `${department}/${String(value).replace(/\//g, "-")}`;
+    else if (CARD_FIELDS.includes(field)) mapped.card[field] = value;
+  }
+  mapped.card.overrides = overrides;
+  return mapped;
+}
+
+/** Up to 3 recent approved corrections of the department: the local model's examples. */
+export async function reviewExamples(department, limit = 3) {
+  const db = await ready();
+  return db.prepare("SELECT s.field, s.previous, s.value, s.reason, d.rel_path FROM knowledge_suggestions s JOIN knowledge_docs d ON d.id = s.doc_id JOIN knowledge_sources k ON k.id = s.source_id WHERE s.status = 'accepted' AND k.department = ? ORDER BY s.decided_at DESC LIMIT ?").all(department, limit)
+    .map((r) => ({ field: r.field, file: basename(r.rel_path), before: JSON.parse(r.previous ?? "null"), after: JSON.parse(r.value), reason: r.reason || "" }));
+}
+
+const FIELD_NAMES = { title: "titulo", summary: "resumo", keywords: "palavras_chave", type: "tipo", category: "categoria", flow: "fluxo" };
 
 const mapSource = (row, db) => row && {
   id: row.id, name: row.name, path: row.path, department: row.department, paidAllowed: !!row.paid_allowed,
@@ -142,12 +172,13 @@ async function* walkDocs(root, signal) {
 const CARD_TYPES = ["comunicado", "politica", "procedimento", "planilha", "formulario", "apresentacao", "contatos", "contrato", "relatorio", "outro"];
 
 /** The local model reads a document and files it: category, summary, dates, flow. */
-export async function mapDocument({ relPath, text, department, categories = [], env = process.env, signal, ask = runLocal }) {
+export async function mapDocument({ relPath, text, department, categories = [], examples = [], env = process.env, signal, ask = runLocal }) {
   const folderHint = dirname(relPath) === "." ? "" : dirname(relPath).split(sep).join("/");
   const prompt = [
     `Você organiza os documentos do departamento ${department}. Leia o documento e responda SOMENTE um JSON com os campos categoria (assunto em 1 a 3 palavras), tipo (${CARD_TYPES.join(", ")}), titulo, resumo (2 frases com o essencial: datas, valores, prazos — copie números exatamente como estão), palavras_chave (5 a 8 termos, incluindo sinônimos que alguém usaria para pedir isso), datas (só as do conteúdo) e fluxo (passo a passo, só se for procedimento; senão []).`,
     'Exemplo de formato (de OUTRO documento): {"categoria":"Treinamentos","tipo":"procedimento","titulo":"Inscrição em cursos","resumo":"Cursos externos precisam de aprovação do gestor. O reembolso é de até R$ 500 por ano.","palavras_chave":["curso","capacitação","reembolso","treinamento","educação"],"datas":[{"data":"31/03/2026","o_que":"prazo de inscrição"}],"fluxo":["Escolha o curso","Peça aprovação ao gestor","Envie o comprovante ao RH"]}',
     categories.length ? `Categorias já usadas neste departamento (reutilize se servir): ${categories.join(", ")}.` : "",
+    examples.length ? `Correções que um revisor fez em fichas de OUTROS documentos deste departamento (siga o mesmo critério):\n${examples.map((e) => `- ${e.file}: ${FIELD_NAMES[e.field] || e.field} ${JSON.stringify(e.before)} → ${JSON.stringify(e.after)}${e.reason ? ` (${e.reason})` : ""}`).join("\n")}` : "",
     folderHint ? `Pasta do arquivo: ${folderHint}` : "",
     `Arquivo: ${basename(relPath)}`,
     `Conteúdo:\n${text.slice(0, 6000)}`,
@@ -204,7 +235,8 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
   const db = await ready();
   const source = db.prepare("SELECT * FROM knowledge_sources WHERE id = ?").get(id);
   if (!source) throw httpError(404, "Fonte não encontrada.");
-  const known = new Map(db.prepare("SELECT id, path, mtime_ms, size FROM knowledge_docs WHERE source_id = ?").all(id).map((r) => [r.path, r]));
+  const known = new Map(db.prepare("SELECT id, path, mtime_ms, size, hash, card FROM knowledge_docs WHERE source_id = ?").all(id).map((r) => [r.path, r]));
+  const examples = await reviewExamples(source.department);
   const files = [];
   for await (const path of walkDocs(source.path, signal)) files.push(path);
   const present = new Set(files);
@@ -233,7 +265,10 @@ export async function indexSource(id, { env = process.env, signal, onProgress = 
     catch (e) { error = e.message; }
     const hash = text ? hashText(text) : null;
     let mapped = { category: `${source.department}/${relPath.split(sep).length > 1 ? relPath.split(sep)[0] : "Geral"}`, card: null };
-    if (!error) mapped = await map({ relPath, text, department: source.department, categories: [...categories], env, signal });
+    if (!error) mapped = await map({ relPath, text, department: source.department, categories: [...categories], examples, env, signal });
+    let overrides = {};
+    try { overrides = JSON.parse(previous?.card || "{}")?.overrides || {}; } catch { overrides = {}; }
+    if (!error) applyOverrides(mapped, Object.fromEntries(Object.entries(overrides).filter(([field]) => field === "category" || previous.hash === hash)), source.department);
     if (mapped.card && /^## (Página \d+ \(OCR\)|Imagem \(OCR\))$/m.test(text)) mapped.card.ocr = true;
     if (mapped.category) categories.add(mapped.category.split("/").slice(1).join("/"));
     const chunks = error ? [] : chunkText(text, `${source.department} — ${relPath.split(sep).join("/")}`);
@@ -409,6 +444,43 @@ export async function knowledgeMap({ department, category } = {}) {
     tree.get(row.category).push({ title: card.title || row.rel_path, type: card.type || "outro", summary: card.summary || "", dates: card.dates || [], flow: card.flow || [], keywords: card.keywords || [], ocr: !!card.ocr, relPath: row.rel_path, path: row.path, source: row.name, updatedAt: new Date(row.mtime_ms).toISOString() });
   }
   return [...tree].map(([name, documents]) => ({ category: name, documents }));
+}
+
+const foldName = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\.(docx|xlsx|pptx|pdf|txt|md|csv|rtf|png|jpe?g)\b/g, "").replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+const NAME_JOINERS = new Set(["de", "do", "da", "dos", "das", "e", "em", "para", "com", "sem"]);
+const DOC_FILE =/[^\s"*`'[\]\\/:|<>()]+(?: [^\s"*`'[\]\\/:|<>()]+){0,8}\.(?:docx|xlsx|pptx|pdf|csv)\b/gi;
+
+/**
+ * Documents an answer cites ("Fonte: …", or a file name like "Benefícios
+ * corporativos.pptx") that exist nowhere: not in the company index (by file
+ * name or card title), not among the files of this turn. A small model in a
+ * long conversation invents a plausible document to back a "sim"; the
+ * answer then goes back to it. Web links are not checked.
+ */
+export async function unknownCitations(text, files = []) {
+  const db = await ready();
+  const rows = db.prepare("SELECT rel_path, card FROM knowledge_docs WHERE error IS NULL").all();
+  if (!rows.length) return [];
+  const known = new Set(files.filter(Boolean).map((f) => foldName(basename(String(f)))));
+  for (const row of rows) {
+    known.add(foldName(basename(row.rel_path)));
+    try { const title = JSON.parse(row.card || "{}").title; if (title) known.add(foldName(title)); } catch { /* no card */ }
+  }
+  known.delete("");
+  const matches = (cited) => { const c = foldName(cited); return !c || [...known].some((k) => c.includes(k) || (c.length >= 8 && k.includes(c))); };
+  const body = String(text || "");
+  const cited = [
+    ...[...body.matchAll(/fontes?[*_]*\s*:[*_]*\s*([^\n\]]+)/gi)].flatMap((m) => m[1].split(/;|\s+e\s+(?=[A-ZÀ-Ú])/)),
+    // "Sim! Veja o Manual de Viagens.pdf" → "Manual de Viagens.pdf": the name
+    // starts at the capitalized word after a lowercase one (or the first).
+    ...(body.match(DOC_FILE) || []).map((m) => {
+      const words = m.split(" ");
+      let start = 0;
+      words.forEach((w, i) => { if (i && /^[A-ZÀ-Ú]/.test(w) && /^[a-zà-ú]+$/.test(words[i - 1]) && !NAME_JOINERS.has(words[i - 1])) start = i; });
+      return words.slice(start).join(" ");
+    }),
+  ].map((c) => c.replace(/[*`"]/g, "").replace(/^_+|_+$/g, "").trim()).filter((c) => c && !/https?:|www\.|\.(com|br|org)\b/i.test(c));
+  return [...new Set(cited.filter((c) => !matches(c)))];
 }
 
 export async function sourceForPath(path) {

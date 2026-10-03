@@ -137,6 +137,28 @@ test("knowledge tools answer with sources; paid chats must ask before seeing res
   await kb.updateSource(source.id, { paidAllowed: false });
 });
 
+test("documents an answer cites that exist nowhere are caught (real answers from the long-conversation battery)", async () => {
+  const unknown = (text, files) => kb.unknownCitations(text, files);
+  assert.deepEqual(await unknown("R$ 42,00.\n\nFonte: Política de Benefícios - 2026 (RH/Benefícios)"), []);
+  assert.deepEqual(await unknown("Das 9h às 15h.\n\nFonte: Plantão do recesso.pdf"), [], "a name without its '(escaneado)' is still the real file");
+  assert.deepEqual(await unknown("Fonte: C:\\Users\\x\\compartilhamento-rh\\Eventos\\Confraternização 2026.docx"), []);
+  assert.deepEqual(await unknown("Veja o arquivo Como solicitar férias.docx."), []);
+  assert.deepEqual(await unknown("Dia 10/10.\n\nFonte: C:\\Temp\\rh\\Eventos\\Calendário de eventos 2026.xlsx (RH/Eventos)"), [], "a number inside the name is not where the name starts");
+  assert.deepEqual(await unknown("Segundo o **PROPOSTA_COMERCIAL_ACME.pdf**, custa US$ 1.200.", ["C:\\x\\PROPOSTA_COMERCIAL_ACME.pdf"]), [], "underscores are part of the name");
+  assert.deepEqual(await unknown('Sim, a empresa oferece. Consulte o documento **"Benefícios corporativos.pptx"**.'), ["Benefícios corporativos.pptx"]);
+  assert.deepEqual(await unknown("Sim, a empresa financia [Fonte: Programa de Educação Corporativa 2026]"), ["Programa de Educação Corporativa 2026"]);
+  assert.deepEqual(await unknown("Fonte: https://www.gov.br/trabalho"), [], "web links are not checked");
+  assert.deepEqual(await unknown("Fonte: Proposta ACME.pdf", ["C:\\Downloads\\Proposta ACME.pdf"]), [], "files of the turn count");
+  assert.deepEqual(await unknown("Não encontrei nada sobre isso nos documentos."), []);
+
+  const echo = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "nada" };
+  const replies = [{ ok: true, text: "Sim! Veja o Manual de Viagens.pdf" }, { ok: true, text: "Não encontrei uma política de viagens nos documentos da empresa." }];
+  const seen = [];
+  const result = await runChatAgent({ system: "s", input: "tem política de viagens?", tools: [echo], grounded: true, checkCitations: (text) => unknown(text), callModel: async (messages) => { seen.push(messages.at(-1).content); return replies.shift(); } });
+  assert.match(seen[1], /Não existe nenhum documento chamado "Manual de Viagens\.pdf"/);
+  assert.equal(result.text, "Não encontrei uma política de viagens nos documentos da empresa.");
+});
+
 test("the teacher only sees conversations that used restricted documents if the person agrees", async () => {
   const { runTeachingLoop } = await import("../app/teachingLoop.js");
   const store = await import("../app/store.js");
@@ -164,6 +186,51 @@ test("an answer that cites a source without consulting anything is sent back to 
   assert.equal(result.text, "Diego, ramal 2204.\n\nFonte: real.docx");
   const grounded = await runChatAgent({ system: "s", input: "x", tools: [echo], grounded: true, callModel: async () => ({ ok: true, text: "Fonte: real.docx" }) });
   assert.equal(grounded.steps.length, 0, "documents injected up front count as consulted");
+});
+
+test("the paid teacher reviews the cards (not the text); accepted fixes stick and teach the local model", async () => {
+  const review = await import("../app/knowledgeReview.js");
+  const store = await import("../app/store.js");
+  const [source] = (await kb.listSources()).filter((s) => !s.paidAllowed);
+  await assert.rejects(review.reviewSourceCards(source.id, { call: async () => assert.fail("no call without consent") }), /não está liberada para IA paga/);
+  let prompt = "";
+  const call = async (args) => {
+    prompt = args.prompt;
+    const n = (name) => prompt.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((c) => c?.arquivo?.includes(name)).n;
+    return { ok: true, text: `Segue: {"taxonomia":"Eventos e benefícios separados.","correcoes":[
+      {"n":${n("Confraternização")},"campo":"categoria","valor":"Festas","motivo":"é um evento festivo"},
+      {"n":${n("Benefícios.pdf")},"campo":"palavras_chave","valor":["vale-refeição","VR","plano de saúde"],"motivo":"sinônimos"},
+      {"n":${n("Benefícios.pdf")},"campo":"tipo","valor":"inventado","motivo":"inválido"},
+      {"n":999,"campo":"titulo","valor":"x","motivo":"não existe"}]}` };
+  };
+  const result = await review.reviewSourceCards(source.id, { authorized: true, provider: "codex", call });
+  assert.equal(result.suggestions, 2, "invalid type and unknown document are dropped");
+  assert.match(prompt, /"resumo":"Resumo de Eventos.{1,3}Confraternização 2026\.docx"/, "the teacher sees the cards");
+  assert.doesNotMatch(prompt, /Rua das Palmeiras/, "but never the documents' text");
+  const pending = await review.listSuggestions({ sourceId: source.id });
+  assert.deepEqual(pending.map((s) => s.field).sort(), ["category", "keywords"]);
+  const category = pending.find((s) => s.field === "category");
+  assert.equal(category.previous, "Eventos");
+  await review.decideSuggestion(category.id, "accept");
+  await review.decideSuggestion(pending.find((s) => s.field === "keywords").id, "reject");
+  await assert.rejects(review.decideSuggestion(category.id, "accept"), /já foi decidida/);
+  assert.ok((await kb.knowledgeMap()).some((c) => c.category === "RH/Festas" && c.documents.some((d) => d.relPath.includes("Confraternização"))));
+
+  // Touched but same content: re-indexed, and the approved category stays.
+  const file = join(source.path, "Eventos", "Confraternização 2026.docx");
+  utimesSync(file, new Date(), new Date(Date.now() + 10000));
+  await kb.indexSource(source.id, { map: fakeMap, ocr: fakeOcr });
+  assert.ok((await kb.knowledgeMap()).some((c) => c.category === "RH/Festas"), "an approved category survives re-indexing");
+
+  const examples = await kb.reviewExamples("RH");
+  assert.deepEqual(examples.map((e) => [e.field, e.before, e.after]), [["category", "Eventos", "Festas"]]);
+  let mapPrompt = "";
+  await kb.mapDocument({ relPath: "x.docx", text: "Festa junina dia 20/06.", department: "RH", examples, ask: async (p) => { mapPrompt = p; return { ok: true, text: "{}" }; } });
+  assert.match(mapPrompt, /Correções que um revisor fez[\s\S]*Confraternização 2026\.docx: categoria "Eventos" → "Festas"/);
+
+  await store.setSetting("teacher_daily_limit", "1");
+  await assert.rejects(review.reviewSourceCards(source.id, { authorized: true, call }), /Limite diário/);
+  await store.setSetting("teacher_daily_limit", "30");
 });
 
 test("HTTP: sources are added, listed, cleared for paid AI and removed", async () => {

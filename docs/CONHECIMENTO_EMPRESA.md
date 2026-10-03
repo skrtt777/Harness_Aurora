@@ -65,10 +65,83 @@ Arquivos citados na conversa ("resuma o MARU_MEDIA_KIT_PDF_FINAL", um caminho co
 - caminhos com `$env:`, barras duplicadas ou acentos corrompidos são corrigidos ou encontrados pelo nome;
 - o histórico só repete as ações que deram certo, então um link inventado não volta a ser tentado.
 
+## OCR de documentos escaneados (03/10)
+
+- **Páginas sem texto:** uma página de PDF com menos de 20 caracteres de texto é desenhada pelo pdf.js num canvas (`@napi-rs/canvas`, ~200 dpi) e lida pelo Tesseract local (`por+eng`).
+  - Só essas páginas passam pelo OCR, então um PDF misto mantém o texto real.
+  - No máximo 40 páginas por documento.
+  - O texto lido sai com o cabeçalho `## Página N (OCR)`, e o mapa mostra "lido por OCR".
+- **Imagens:** `.png`, `.jpg`, `.bmp` e `.webp` com texto legível também entram (a partir de 20 KB, o que descarta ícones). Uma foto sem texto não vira documento.
+- **`read_file` e arquivos citados no chat** também leem PDFs escaneados e imagens.
+- **Se o OCR falhar** (por exemplo, sem o arquivo do idioma), a mensagem diz isso, em vez de "documento sem texto".
+- **Medições** (RTX 4090, página A4):
+  - desenhar a página: ~0,3 s;
+  - OCR: ~0,8–1,1 s;
+  - o comunicado escaneado da amostra é lido sem erros ("Marcos Lima, ramal 2210", "26/12/2026").
+
+## Conversas longas na bateria (03/10)
+
+A bateria do agente (`app/agentEval.js`) agora aceita tarefas de vários turnos na mesma conversa. Há três conversas de RH, com 20 turnos no total:
+- seguimentos sem repetir o assunto ("e o auxílio home office?", "quem eu procuro?");
+- "valeu" e "oi, tudo bem?" no meio, que não podem puxar documentos;
+- políticas que não existem (bônus anual, curso de inglês);
+- a pergunta respondida pelo comunicado escaneado;
+- o usuário contradizendo o documento ("me disseram que é dia 20").
+
+Toda "Fonte:" precisa ser um arquivo real do acervo. O resumo mostra os turnos certos além das tarefas.
+
+Erros reais encontrados com `qwen3.5:4b`:
+- **Documento inventado para sustentar um "sim":** "a empresa paga curso de inglês, veja Programa de Educação Corporativa". Motivou a trava de documento inventado (abaixo).
+- **Nome copiado errado do documento escaneado:** "Marcoa Lima"; numa rodada, um nome e um ramal inventados. A busca acha o documento certo (pontuação 2,9), então o erro é da cópia pelo modelo pequeno, não da busca nem do OCR.
+- **Leitura de documento da empresa esperava autorização:** o `read_file` de um documento da pasta de conhecimento caía em "ler fora da pasta do projeto" e ficava 120 s esperando autorização. Agora, a pasta cadastrada como conhecimento é lida como a do projeto. Escrever nela continua pedindo autorização, e a IA paga continua pedindo para ver.
+
+**Trava de documento inventado:** numa conversa local, a resposta que cita ("Fonte: …" ou um nome de arquivo) um documento que não existe no índice volta uma vez para o modelo, com a ordem de responder só com o que os documentos dizem.
+- **O que conta como existente:** os nomes de arquivo, os títulos das fichas e os arquivos lidos no turno.
+- **Exceção:** turnos que usaram a web ou o navegador não são conferidos.
+
+**Régua corrigida:** a primeira versão reprovava respostas honestas. Nos registros das rodadas, as mudanças são estas:
+- o "não encontrei" passa a aceitar as variações ("não foi encontrada informação", "não contém");
+- só um valor atribuído à política inexistente (bônus, viagem) conta como resposta forçada, e citar o vale-refeição real ao lado não conta;
+- a fonte é comparada sem o parêntese do nome ("Plantão do recesso.pdf" é o arquivo real);
+- em "dividir em quantas partes", basta o "3".
+
+### Medições (03/10, `qwen3.5:4b`, bateria inteira de 23 tarefas, cópia do banco real)
+
+| Rodadas | Versão | Tarefas | Turnos das conversas | Conversas inteiras | RH (7 perguntas) |
+|---|---|---|---|---|---|
+| 1–3 | régua antiga, sem a trava | 59/69 | 51/60 | 2/9 | 20/21 |
+| 4–6 | régua corrigida + trava (com 2 bugs de recorte do nome) | 60/69 | 59/60 | 8/9 | 20/21 |
+| 7–9 | régua corrigida + trava corrigida | 61/69 | 58/60 | 7/9 | 20/21 |
+
+Cada rodada leva cerca de 1 minuto. As rodadas 1–3 não podem ser recontadas com a régua nova, porque as respostas ficaram guardadas cortadas.
+
+O que ainda falha:
+- **"Sim" sem citar documento:** "a empresa paga curso de inglês?" virou um "sim" genérico em 2 de 3 rodadas, sem citar nenhum documento, e por isso a trava não pega.
+- **Falhas fora do conhecimento:** a conta "17 vezes 3" e tarefas de código oscilam rodada a rodada. O código anterior a esta versão também errou a conta em 2 de 4 tentativas, então não é regressão.
+
+## IA paga revisa a organização (03/10)
+
+Em Configurações → Conhecimento, o botão **"Revisar com IA paga"** manda ao professor (Codex ou Claude, o mesmo do ensino automático) as **fichas** de até 60 documentos da fonte:
+- **O que vai:** título, tipo, categoria, resumo, palavras-chave, fluxo e o caminho do arquivo. Nunca o texto dos documentos.
+- **Fonte restrita:** se a pasta não está liberada para IA paga, a UI pede confirmação antes do envio.
+- **Custo:** conta no mesmo limite diário do professor.
+- **Resposta:** o professor devolve uma nota sobre a taxonomia e correções campo a campo. Correções inválidas são descartadas: documento inexistente, tipo fora da lista, categoria com mais de 4 palavras, valor igual ao atual.
+- **Decisão:** nada muda até a pessoa **aceitar**. A correção aceita fica guardada na ficha (`card.overrides`):
+  - a categoria vale mesmo depois de o arquivo mudar;
+  - os outros campos valem enquanto o texto do arquivo for o mesmo.
+- **A local aprende:** as três correções aceitas mais recentes do departamento entram como exemplos no prompt que a IA local usa para fichar os próximos documentos.
+
+Teste real (Codex, amostra de RH, fichas escritas pelo `qwen3.5:4b`): 7 fichas revisadas em 27 s, com 10 sugestões. Exemplos:
+- **Título errado:** "Solicitação de licenças" → "Como solicitar férias".
+- **Categoria:** o plantão do recesso sai de "Eventos" para "Contatos".
+- **Palavras-chave:** "férias" e "pedido de férias" entram nas palavras-chave da ficha de férias, que não tinha "férias".
+
+A correção aceita sobreviveu à reindexação e apareceu como exemplo no prompt.
+
 ## Próximos passos
 
 - **Servidor da empresa:** índice e memória por departamento num servidor com GPU e modelo maior; permissões por usuário via Active Directory/Entra ID, filtrando a busca pelas permissões de cada documento.
 - **SharePoint direto pela API do Microsoft Graph**, com login corporativo.
-- **OCR** de PDFs escaneados com o Tesseract, que já está no projeto.
-- **IA paga como auxiliar da organização:** com autorização, propor a taxonomia de categorias e revisar fichas e fluxos extraídos pela local.
+- **"Sim" sem base:** quando a pergunta é sobre a empresa, nenhum documento responde e o modelo afirma algo, a resposta deveria voltar pedindo "não encontrei". É a falha que sobrou nas conversas longas.
+- **Cópia fiel de nomes e números:** o modelo pequeno ainda erra a cópia de nomes ("Marcoa"). Uma conferência dos nomes próprios e números da resposta contra os trechos usados pode mandar a resposta de volta, como a trava de documento inventado.
 - **Escala:** busca por candidatos (FTS + vetores) em vez de pontuar todos os trechos, quando passar de dezenas de milhares.

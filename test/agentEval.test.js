@@ -9,7 +9,7 @@ process.env.HARNESS_DB_FILE = join(temp, "test.db");
 process.env.LOCAL_BASE_URL = "http://127.0.0.1:1";
 process.env.EMBEDDINGS_ENABLED = "false";
 
-const { EVAL_TASKS, summarizeEval, startTestSite } = await import("../app/agentEval.js");
+const { EVAL_TASKS, citesRealFiles, summarizeEval, startTestSite } = await import("../app/agentEval.js");
 const { startEvalRun, listEvalRuns, evalStatus } = await import("../app/agentEvalRuns.js");
 const store = await import("../app/store.js");
 
@@ -18,7 +18,26 @@ const task = (id) => EVAL_TASKS.find((t) => t.id === id);
 test("the benchmark has stable ids, one prompt each and a check per task", () => {
   assert.equal(new Set(EVAL_TASKS.map((t) => t.id)).size, EVAL_TASKS.length);
   assert.ok(EVAL_TASKS.length >= 12);
-  for (const t of EVAL_TASKS) { assert.equal(typeof t.check, "function", t.id); assert.ok(t.prompt, t.id); }
+  for (const t of EVAL_TASKS) {
+    if (t.turns) { assert.ok(t.turns.length >= 5, t.id); for (const turn of t.turns) { assert.equal(typeof turn.check, "function", t.id); assert.ok(turn.prompt, t.id); } }
+    else { assert.equal(typeof t.check, "function", t.id); assert.ok(t.prompt, t.id); }
+  }
+});
+
+test("long conversations: turn checks and the invented-source guard", () => {
+  const [first, , , oncall, , thanks] = task("conversa-fim-de-ano").turns;
+  assert.equal(first.check({ answer: "Confraternização dia 19/12 no Espaço Jardim." }), true);
+  assert.equal(oncall.check({ answer: "O plantão é com Marcos Lima, ramal 2210." }), true);
+  assert.equal(thanks.check({ docs: [], steps: [] }), true);
+  assert.equal(thanks.check({ docs: ["x.docx"], steps: [] }), false, "a thank-you must not pull documents");
+  const files = ["Eventos/Confraternização 2026.docx", "Benefícios/Política de Benefícios.pdf"];
+  assert.equal(citesRealFiles("R$ 42,00.\n\n**Fonte:** C:\\x\\Benefícios\\Política de Benefícios.pdf", files), true);
+  assert.equal(citesRealFiles("Sem fonte nenhuma.", files), true);
+  assert.equal(citesRealFiles("Dia 19.\nFonte: Manual do Colaborador.docx", files), false);
+  assert.equal(task("conversa-beneficios").turns[3].check({ answer: "Não encontrei uma política de bônus nos documentos." }), true);
+  assert.equal(task("conversa-beneficios").turns[3].check({ answer: "Não encontrei a política, mas o bônus costuma ser R$ 1.000." }), false, "a value for the bonus is a forced answer");
+  assert.equal(task("conversa-beneficios").turns[3].check({ answer: "Não foi encontrada informação sobre bônus. Os documentos tratam do vale-refeição (R$ 42,00)." }), true, "honest, citing other real values");
+  assert.equal(citesRealFiles("Fonte: Plantão do recesso.pdf", ["Eventos/Plantão do recesso (escaneado).pdf"]), true);
 });
 
 test("task checks accept a correct outcome and reject a wrong one", async () => {
@@ -50,6 +69,8 @@ test("the local test site answers searches and the contact page", async () => {
 test("summaries count by area", () => {
   const summary = summarizeEval([{ area: "código", passed: true, ms: 10 }, { area: "código", passed: false, ms: 5 }, { area: "navegador", passed: true, ms: 1 }]);
   assert.deepEqual(summary, { passed: 2, total: 3, rate: 2 / 3, ms: 16, byArea: { "código": { passed: 1, total: 2 }, navegador: { passed: 1, total: 1 } } });
+  const long = summarizeEval([{ area: "conversa longa", passed: false, ms: 1, turns: [{ passed: true }, { passed: false }, { passed: true }] }]);
+  assert.deepEqual(long.turns, { passed: 2, total: 3 });
 });
 
 test("a run happens on a database copy in a child process and its result is kept", async () => {

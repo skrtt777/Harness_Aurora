@@ -65,7 +65,8 @@ import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
-import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, updateSource } from "./knowledge.js";
+import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
+import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
@@ -257,6 +258,7 @@ async function chatAgentToolContext({ conversation, project }) {
     conversationId: conversation.id, projectId: conversation.projectId || null,
     browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage(),
     workspaceFile: await workspaceInstructions(workspace),
+    knowledgeRoots: (await listSources().catch(() => [])).map((s) => s.path),
   };
 }
 
@@ -360,6 +362,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentSteps = [];
     let agentPlan = null;
     let agentAttachments = [];
+    let agentDocs = [];
     let agentReview = null;
 
     let result;
@@ -385,6 +388,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // then invents). Paid chats keep asking through knowledge_search.
           const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal) : [];
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
+          agentDocs = [...new Set(autoDocs.map((d) => d.path))];
           // Files the person names ("resuma o MARU_MEDIA_KIT", a pasted path) are
           // found and read up front: a small model guesses folders and links.
           const attached = await mentionedFiles(trimmed, toolContext, history);
@@ -396,6 +400,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const agentEnv = conversation.provider === "local" ? localEnv : env;
           const runAgent = (agentHistoryMessages, input) => runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
+            // Local answers citing a company document that exists nowhere go back once.
+            checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
@@ -461,6 +467,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };
+    if (agentDocs.length) result.execution = { ...(result.execution || {}), knowledgeDocs: agentDocs };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {
@@ -872,6 +879,16 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         return sendJson(response, 201, source);
       }
       if (method === "GET" && pathname === "/api/knowledge/map") return sendJson(response, 200, { map: await knowledgeMap({ department: url.searchParams.get("department") || undefined }) });
+      // The paid teacher reviews the cards the local model wrote; the person decides.
+      const reviewMatch = pathname.match(/^\/api\/knowledge\/sources\/([^/]+)\/review$/);
+      if (reviewMatch && method === "POST") {
+        const body = await readJson(request);
+        if (body.authorized !== undefined && typeof body.authorized !== "boolean") throw httpError(400, "Opção authorized inválida.");
+        return sendJson(response, 200, await reviewSourceCards(reviewMatch[1], { authorized: body.authorized === true, provider: body.provider === "claude" ? "claude" : body.provider === "codex" ? "codex" : undefined }));
+      }
+      if (method === "GET" && pathname === "/api/knowledge/suggestions") return sendJson(response, 200, { suggestions: await listSuggestions({ sourceId: url.searchParams.get("sourceId") || undefined }) });
+      const suggestionMatch = pathname.match(/^\/api\/knowledge\/suggestions\/([^/]+)$/);
+      if (suggestionMatch && method === "POST") return sendJson(response, 200, await decideSuggestion(suggestionMatch[1], (await readJson(request)).action));
       const knowledgeMatch = pathname.match(/^\/api\/knowledge\/sources\/([^/]+)(\/reindex)?$/);
       if (knowledgeMatch) {
         const [, id, reindex] = knowledgeMatch;

@@ -46,6 +46,9 @@ test("the three modes decide reads, writes, commands and launches as documented"
   const outFile = [join(outside, "x.txt")];
   assert.equal(await d({ kind: "read", paths: inFile }, "plan"), "allow");
   assert.equal(await d({ kind: "read", paths: outFile }, "auto"), "ask");
+  assert.equal(await d({ kind: "read", paths: outFile }, "auto", { knowledgeRoots: [outside] }), "allow", "a registered company-knowledge folder is readable");
+  assert.equal(await d({ kind: "read", paths: [...outFile, join(temp, "x.txt")] }, "auto", { knowledgeRoots: [outside] }), "ask");
+  assert.equal(await d({ kind: "write", paths: outFile }, "auto", { knowledgeRoots: [outside] }), "ask", "but not writable");
   assert.equal(await d({ kind: "write", paths: inFile }, "auto"), "allow");
   assert.equal(await d({ kind: "write", paths: outFile }, "auto"), "ask");
   assert.equal(await d({ kind: "write", paths: inFile }, "manual"), "ask");

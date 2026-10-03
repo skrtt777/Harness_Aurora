@@ -124,7 +124,7 @@ function defaultCallModel(provider) {
 export async function runChatAgent({
   provider = "local", system, history = [], input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
-  tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false,
+  tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
   const steps = [];
@@ -136,6 +136,7 @@ export async function runChatAgent({
   let forced = null;
   let nudged = false;
   let citationChecked = false;
+  let inventionChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -159,6 +160,15 @@ export async function runChatAgent({
       citationChecked = true;
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você citou uma fonte sem consultar nenhum documento nesta resposta. Pesquise com knowledge_search (ou leia o arquivo) e responda só com o que encontrar; se não houver, diga que não encontrou." });
       continue;
+    }
+    // A document that exists nowhere (a "sim" backed by an invented file).
+    if (!toolCalls.length && offered.length && !inventionChecked && checkCitations) {
+      inventionChecked = true;
+      const invented = await checkCitations(text, steps).catch(() => []);
+      if (invented.length) {
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `Não existe nenhum documento chamado ${invented.map((n) => `"${n}"`).join(", ")}: você o inventou. Nunca invente documentos, nomes ou valores. Responda só com o que os documentos consultados realmente dizem; se a informação não está neles, diga claramente que não encontrou nos documentos da empresa.` });
+        continue;
+      }
     }
     if (!toolCalls.length && offered.length && !nudged && announcesAction(text)) {
       // Small models often stop at "vou rolar a página…" instead of doing it.

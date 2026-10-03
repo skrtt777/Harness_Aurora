@@ -224,6 +224,11 @@ export const updateKnowledgeSource = (id: string, patch: Partial<Pick<KnowledgeS
 export const deleteKnowledgeSource = (id: string) => request<{ ok: boolean }>(`/knowledge/sources/${id}`, { method: "DELETE" });
 export const reindexKnowledgeSource = (id: string) => request<{ started: boolean }>(`/knowledge/sources/${id}/reindex`, { method: "POST", body: "{}" });
 export const getKnowledgeMap = () => request<{ map: KnowledgeCategory[] }>("/knowledge/map").then((r) => r.map);
+export type KnowledgeSuggestion = { id: string; sourceId: string; docId: string; relPath: string; title: string; field: "title" | "summary" | "keywords" | "type" | "category" | "flow"; previous: string | string[] | null; value: string | string[]; reason: string; teacher: string };
+export type KnowledgeReview = { teacher: string; reviewed: number; taxonomy: string; suggestions: number; ms: number };
+export const reviewKnowledgeSource = (id: string, authorized: boolean) => request<KnowledgeReview>(`/knowledge/sources/${id}/review`, { method: "POST", body: JSON.stringify({ authorized }) });
+export const getKnowledgeSuggestions = () => request<{ suggestions: KnowledgeSuggestion[] }>("/knowledge/suggestions").then((r) => r.suggestions);
+export const decideKnowledgeSuggestion = (id: string, action: "accept" | "reject") => request<{ ok: true }>(`/knowledge/suggestions/${id}`, { method: "POST", body: JSON.stringify({ action }) });
 
 // ---------- Avaliação contínua do agente local ----------
 export type AgentEvalResult = { id: string; area: string; passed: boolean; ms: number; steps: number; error: string | null; answer: string };
