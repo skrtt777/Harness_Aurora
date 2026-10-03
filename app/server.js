@@ -67,6 +67,7 @@ import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
+import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
@@ -387,6 +388,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // go straight into the context (a small model forgets to search and
           // then invents). Paid chats keep asking through knowledge_search.
           const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal) : [];
+          const hasKnowledge = conversation.provider === "local" && (await listSources().catch(() => [])).some((s) => s.documents > 0);
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
           agentDocs = [...new Set(autoDocs.map((d) => d.path))];
           // Files the person names ("resuma o MARU_MEDIA_KIT", a pasted path) are
@@ -401,6 +403,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const runAgent = (agentHistoryMessages, input) => runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
             // Local answers citing a company document that exists nowhere go back once.
+            // Company questions must consult documents; names and numbers must come from them.
+            companyQuestion: conversation.provider === "local" && !autoDocs.length && !attached.length && hasKnowledge && asksForInformation(input) && asksAboutCompany(input),
+            checkFacts: conversation.provider === "local" && hasKnowledge,
+            companyTopic: conversation.provider === "local" && hasKnowledge && asksForInformation(input) && asksAboutCompany(input),
+            documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
             env: agentEnv, signal: controller.signal, toolContext,
             onStage: (stage) => setStage(conversationId, stage),
@@ -468,6 +475,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };
     if (agentDocs.length) result.execution = { ...(result.execution || {}), knowledgeDocs: agentDocs };
+    if (result.checks?.length) result.execution = { ...(result.execution || {}), checks: result.checks };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (!result.ok) {

@@ -119,6 +119,35 @@ O que ainda falha:
 - **"Sim" sem citar documento:** "a empresa paga curso de inglês?" virou um "sim" genérico em 2 de 3 rodadas, sem citar nenhum documento, e por isso a trava não pega.
 - **Falhas fora do conhecimento:** a conta "17 vezes 3" e tarefas de código oscilam rodada a rodada. O código anterior a esta versão também errou a conta em 2 de 4 tentativas, então não é regressão.
 
+### Travas de fidelidade aos documentos (03/10, depois da 0.1.29)
+
+Estão em `app/grounding.js` e não fazem nenhuma chamada paga. Cada trava devolve a resposta ao modelo no máximo uma vez. O resultado do turno registra qual trava atuou (`execution.checks`), e a bateria mostra isso por turno.
+
+1. **Pergunta sobre a empresa sem consulta:**
+   - **Quando atua:** a pergunta fala da empresa (RH, política, benefício, férias…), nenhum documento foi encontrado automaticamente e o modelo respondeu sem pesquisar.
+   - **O que acontece:** ele é mandado usar `knowledge_search`.
+   - **Exceção:** um "não encontrei" honesto passa direto.
+2. **Nome ou número copiado errado:**
+   - **Números:** um número de 4 ou mais dígitos que não está nos documentos nem na conversa (ramal 2200 quando o documento diz 2210).
+   - **Nomes:** um nome quase igual a um real ("Marcoa Lima" no lugar de "Marcos Lima").
+   - **O que não conta:** "R$ 80,00" vale "R$ 80"; acrescentar o ano a uma data não conta; contas feitas pelo modelo não são conferidas; títulos e expressões comuns ("Data do Evento", "Recursos Humanos") não são nomes.
+3. **"Sim" sem base:**
+   - **Quando atua:** uma pergunta de sim/não sobre a empresa ("A empresa paga curso de inglês?") respondida com "sim", sobre um assunto que nenhum documento consultado menciona.
+   - **O que acontece:** a resposta volta pedindo "não encontrei".
+
+**Medições** (`qwen3.5:4b`, só as tarefas de conhecimento, as conversas e `achar-funcao`; 3 rodadas por linha):
+
+| Versão | Tarefas | Turnos | Observação |
+|---|---|---|---|
+| Travas 1 e 2 na primeira versão | 30/33 | 55/60 | A trava 2 checava todo nome em maiúsculas e sinalizou "Data do Evento" e "R$ 80,00". Esses retornos pioraram respostas certas. |
+| Travas 1 e 2 estreitadas | 32/33 | 59/60 | A falha restante foi o "sim, a empresa paga curso de inglês", que motivou a trava 3. |
+
+**A primeira versão da trava 3 piorou o resultado.** Ela considerava qualquer palavra da pergunta ausente dos documentos ("cuida", "fica", "levar"). Nas duas rodadas completas que terminaram, ela fez o modelo trocar três respostas certas por "não encontrei":
+- rodada 13: 19/23 tarefas, 18/20 turnos;
+- rodada 14: 21/23 tarefas, 20/20 turnos.
+
+A trava foi restringida a perguntas de sim/não respondidas com "sim". **Essa versão ainda não foi medida na bateria.** As rodadas foram interrompidas porque o computador ficou sem memória, e o Ollama também foi encerrado.
+
 ## IA paga revisa a organização (03/10)
 
 Em Configurações → Conhecimento, o botão **"Revisar com IA paga"** manda ao professor (Codex ou Claude, o mesmo do ensino automático) as **fichas** de até 60 documentos da fonte:

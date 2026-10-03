@@ -115,7 +115,7 @@ export const EVAL_TASKS = [
   ] },
 ];
 
-const NOT_FOUND = /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta|tenho|identifiquei|cont[ée]m|menciona|foi (poss[íi]vel )?(encontrad|localizad|encontrar|localizar))|nenhum(a)? (documento|informa[çc][ãa]o|pol[íi]tica)/i;
+const NOT_FOUND = /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta|tenho|identifiquei|cont[ée]m|menciona|aparece|constam?|(est[áa]|[ée]|s[ãa]o) mencionad|foi (poss[íi]vel )?(encontrad|localizad|encontrar|localizar))|nenhum(a)? (documento|informa[çc][ãa]o|pol[íi]tica)/i;
 const fold = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\.(docx|xlsx|pptx|pdf|txt)\b/g, "").replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 /** Every "Fonte:" in the answer names a real file of the share (no invented sources). */
 export function citesRealFiles(answer, files) {
@@ -179,7 +179,7 @@ export async function runAgentEval({ tasks = EVAL_TASKS.filter((t) => !process.e
         const memories = await store.listMemories({});
         let passed = false;
         try { passed = turn.ok && Boolean(await step.check({ dir, answer, steps, memories, docs })) && (!task.turns || citesRealFiles(answer, shareFiles)); } catch { passed = false; }
-        outcomes.push({ prompt, passed, turn, steps, docs, ms: Date.now() - turnStarted });
+        outcomes.push({ prompt, passed, turn, steps, docs, checks: turn.message?.execution?.checks || [], ms: Date.now() - turnStarted });
       }
       const all = outcomes.flatMap((o) => o.steps);
       const calls = outcomes.flatMap((o) => o.turn.message?.execution?.calls || []);
@@ -189,8 +189,9 @@ export async function runAgentEval({ tasks = EVAL_TASKS.filter((t) => !process.e
         modelMs: Math.round(calls.reduce((n, c) => n + (c.metrics?.wallMs || 0), 0)), toolMs: all.reduce((n, s) => n + (s.ms || 0), 0),
         actions: all.map((s) => `${s.ok ? "" : "✕ "}${s.tool} ${JSON.stringify(s.args).slice(0, 80)} (${s.ms}ms)`),
         memoryIds: outcomes.flatMap((o) => o.turn.message?.memoryAccess || []),
+        checks: outcomes.flatMap((o) => o.checks),
         error: failed ? failed.turn.error : null, answer: String(outcomes.at(-1).turn.message?.content || "").slice(0, 300),
-        ...(task.turns ? { turns: outcomes.map((o) => ({ prompt: o.prompt, passed: o.passed, ms: o.ms, docs: o.docs.map((d) => d.split(/[\/]/).pop()), answer: String(o.turn.message?.content || o.turn.error || "").slice(0, 300) })) } : {}),
+        ...(task.turns ? { turns: outcomes.map((o) => ({ prompt: o.prompt, passed: o.passed, ms: o.ms, docs: o.docs.map((d) => d.split(/[\/]/).pop()), checks: o.checks, answer: String(o.turn.message?.content || o.turn.error || "").slice(0, 300) })) } : {}),
       });
     }
   } finally {

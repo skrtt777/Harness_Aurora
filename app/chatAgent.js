@@ -1,3 +1,4 @@
+import { NOT_FOUND, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { runClaude } from "./claude.js";
 import { runCodex } from "./codex.js";
 import { runLocalChat } from "./local.js";
@@ -125,6 +126,7 @@ export async function runChatAgent({
   provider = "local", system, history = [], input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
+  companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "",
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
   const steps = [];
@@ -137,6 +139,15 @@ export async function runChatAgent({
   let nudged = false;
   let citationChecked = false;
   let inventionChecked = false;
+  let groundingNudged = false;
+  // Answers sent back by a guard, with what triggered it (telemetry and the battery).
+  const checks = [];
+  let factsChecked = false;
+  // Everything the answer may rely on, kept whole (old tool results get compacted).
+  const evidence = [system, ...history.map((m) => m.content), input];
+  // What the documents (not the rules or the question) say: found up front, read, searched, or said earlier.
+  const documents = [documentsText, ...history.map((m) => m.content)];
+  let topicChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -158,6 +169,7 @@ export async function runChatAgent({
     // A "Fonte:" with nothing consulted this turn is an invented citation.
     if (!toolCalls.length && offered.length && !citationChecked && citesSource(text) && !grounded && !steps.some((s) => GROUNDING_TOOLS.has(s.tool) && s.ok)) {
       citationChecked = true;
+      checks.push({ check: "uncited_source", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você citou uma fonte sem consultar nenhum documento nesta resposta. Pesquise com knowledge_search (ou leia o arquivo) e responda só com o que encontrar; se não houver, diga que não encontrou." });
       continue;
     }
@@ -166,7 +178,36 @@ export async function runChatAgent({
       inventionChecked = true;
       const invented = await checkCitations(text, steps).catch(() => []);
       if (invented.length) {
+        checks.push({ check: "invented_document", items: invented, answer: text.slice(0, 300) });
         messages.push({ role: "assistant", content: text }, { role: "user", content: `Não existe nenhum documento chamado ${invented.map((n) => `"${n}"`).join(", ")}: você o inventou. Nunca invente documentos, nomes ou valores. Responda só com o que os documentos consultados realmente dizem; se a informação não está neles, diga claramente que não encontrou nos documentos da empresa.` });
+        continue;
+      }
+    }
+    const consulted = grounded || steps.some((s) => GROUNDING_TOOLS.has(s.tool) && s.ok);
+    // A question about the company answered without looking at anything.
+    if (!toolCalls.length && offered.length && companyQuestion && !consulted && !groundingNudged && !NOT_FOUND.test(text)) {
+      groundingNudged = true;
+      checks.push({ check: "company_unconsulted", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Essa pergunta é sobre a empresa e você respondeu sem consultar os documentos. Pesquise agora com knowledge_search e responda só com o que encontrar; se não houver nada, diga que não encontrou nos documentos da empresa (não responda \"sim\" nem \"não\" por suposição)." });
+      continue;
+    }
+    // The question's subject appears in no document, yet the answer talks about it.
+    if (!toolCalls.length && offered.length && companyTopic && consulted && !topicChecked) {
+      topicChecked = true;
+      const absent = unsupportedTopic(input, text, documents.join("\n"));
+      if (absent.length) {
+        checks.push({ check: "unsupported_topic", items: absent, answer: text.slice(0, 300) });
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `Nenhum documento consultado fala de ${absent.map((w) => `"${w}"`).join(", ")}. Não afirme nada sobre isso por suposição: diga que não encontrou essa informação nos documentos da empresa (pode citar o que os documentos de fato cobrem).` });
+        continue;
+      }
+    }
+    // Names and numbers must be copied from the documents, not recalled.
+    if (!toolCalls.length && offered.length && checkFacts && consulted && !factsChecked) {
+      factsChecked = true;
+      const missing = unsupportedFacts(text, evidence.join("\n"));
+      if (missing.length) {
+        checks.push({ check: "unsupported_facts", items: missing, answer: text.slice(0, 300) });
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `Estes dados da sua resposta não aparecem em nenhum documento consultado nem na conversa: ${missing.map((m) => `"${m}"`).join(", ")}. Confira nos trechos e copie nomes, ramais, datas e valores exatamente como estão (grafia incluída); o que não estiver neles, não diga.` });
         continue;
       }
     }
@@ -178,7 +219,7 @@ export async function runChatAgent({
     }
     if (!toolCalls.length) {
       messages.push({ role: "assistant", content: text || "Pronto." });
-      return { ok: true, status: 200, text: text || "Pronto.", steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null };
+      return { ok: true, status: 200, text: text || "Pronto.", steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
     }
 
     messages.push({ role: "assistant", content: toolCalls.length && parseTextToolCall(text) ? "" : text, tool_calls: toolCalls.map((c) => ({ function: { name: c.name, arguments: c.arguments } })) });
@@ -203,6 +244,7 @@ export async function runChatAgent({
       steps.push(step);
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
       messages.push({ role: "tool", tool_name: call.name, content: outcome.result });
+      if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
     }
   }
   return { ok: false, status: 500, error: "O agente não conseguiu concluir.", steps, calls };

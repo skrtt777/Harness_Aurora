@@ -143,6 +143,7 @@ test("documents an answer cites that exist nowhere are caught (real answers from
   assert.deepEqual(await unknown("Das 9h às 15h.\n\nFonte: Plantão do recesso.pdf"), [], "a name without its '(escaneado)' is still the real file");
   assert.deepEqual(await unknown("Fonte: C:\\Users\\x\\compartilhamento-rh\\Eventos\\Confraternização 2026.docx"), []);
   assert.deepEqual(await unknown("Veja o arquivo Como solicitar férias.docx."), []);
+  assert.deepEqual(await unknown("**Fonte:** [Como solicitar férias.docx](file://C:/rh/Procedimentos/Como%20solicitar%20f%C3%A9rias.docx)"), [], "an encoded link to a real file");
   assert.deepEqual(await unknown("Dia 10/10.\n\nFonte: C:\\Temp\\rh\\Eventos\\Calendário de eventos 2026.xlsx (RH/Eventos)"), [], "a number inside the name is not where the name starts");
   assert.deepEqual(await unknown("Segundo o **PROPOSTA_COMERCIAL_ACME.pdf**, custa US$ 1.200.", ["C:\\x\\PROPOSTA_COMERCIAL_ACME.pdf"]), [], "underscores are part of the name");
   assert.deepEqual(await unknown('Sim, a empresa oferece. Consulte o documento **"Benefícios corporativos.pptx"**.'), ["Benefícios corporativos.pptx"]);

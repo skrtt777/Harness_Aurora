@@ -479,7 +479,7 @@ export async function unknownCitations(text, files = []) {
       words.forEach((w, i) => { if (i && /^[A-ZÀ-Ú]/.test(w) && /^[a-zà-ú]+$/.test(words[i - 1]) && !NAME_JOINERS.has(words[i - 1])) start = i; });
       return words.slice(start).join(" ");
     }),
-  ].map((c) => c.replace(/[*`"]/g, "").replace(/^_+|_+$/g, "").trim()).filter((c) => c && !/https?:|www\.|\.(com|br|org)\b/i.test(c));
+  ].map((c) => { let v = c; try { v = decodeURIComponent(c); } catch { /* not encoded */ } return v.replace(/[*`"]/g, "").replace(/^_+|_+$/g, "").trim(); }).filter((c) => c && !/https?:|www\.|\.(com|br|org)\b/i.test(c));
   return [...new Set(cited.filter((c) => !matches(c)))];
 }
 
