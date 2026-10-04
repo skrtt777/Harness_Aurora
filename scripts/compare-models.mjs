@@ -68,10 +68,14 @@ for (const model of models) {
   console.log("velocidade", JSON.stringify(entry.speed));
   save();
   for (let i = 0; i < rounds; i += 1) {
-    const copy = join(tmpdir(), `aurora-compare-${process.pid}-${i}.db`);
+    // One name per model and round, and the SQLite sidecars go too: a stale -wal left by an
+    // earlier round gets replayed onto the fresh copy ("database disk image is malformed").
+    const copy = join(tmpdir(), `aurora-compare-${process.pid}-${models.indexOf(model)}-${i}.db`);
+    const removeCopy = () => ["", "-wal", "-shm", "-journal"].forEach((s) => rmSync(copy + s, { force: true }));
+    removeCopy();
     copyFileSync(db, copy);
     const done = await battery(model, copy);
-    rmSync(copy, { force: true });
+    removeCopy();
     const s = done?.summary;
     entry.rounds.push(s ? { passed: s.passed, total: s.total, turns: s.turns, byArea: s.byArea, ms: s.ms, failed: done.results.filter((r) => !r.passed).map((r) => r.id), errors: done.results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`.slice(0, 200)) } : { error: done?.failure || "sem resultado" });
     console.log(`rodada ${i + 1}`, s ? `${s.passed}/${s.total} turnos ${s.turns?.passed}/${s.turns?.total} ${Math.round(s.ms / 1000)}s` : `sem resultado: ${done?.failure}`);

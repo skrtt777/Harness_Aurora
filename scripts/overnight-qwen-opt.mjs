@@ -1,5 +1,5 @@
 // Overnight optimisation study of qwen3.5:4b (docs/COMPARACAO_MODELOS_2026-10-04.md, "Decisão").
-//   node scripts/overnight-qwen-opt.mjs --db <copia.db>
+//   node scripts/overnight-qwen-opt.mjs --db <copia.db> [--only opt-gpu-fa-q8-reteste,especulativa]
 // Runs a private Ollama on 127.0.0.1:11435 (models in F:\Modelos_Aurora\ollama), restarting it
 // with each phase's settings, so the user's own Ollama on 11434 is never touched.
 //  1. Quality on the GPU (fast, several rounds): flash attention + 8-bit KV cache, and the
@@ -31,7 +31,14 @@ const PHASES = [
   // Time (CPU only): what someone without a graphics card would wait.
   { label: "opt-cpu", env: CPU, models: ["qwen3.5:4b"], rounds: 1, timeout: 90 },
   { label: "opt-cpu-fa-q8", env: { ...CPU, ...FAQ8 }, models: ["qwen3.5:4b", "qwen3.5:4b-q3_k_m", "qwen3.5:4b-8t"], rounds: 1, timeout: 90 },
+  // Retests of the rounds lost on 04/10 to the stale -wal of the database copy (run with --only).
+  { label: "opt-gpu-fa-q8-reteste", env: FAQ8, models: ["qwen3.5:4b-q3_k_m", "qwen3.5:4b-q2_k"], rounds: 3, timeout: 20, retest: true },
+  { label: "opt-cpu-fa-q8-reteste", env: { ...CPU, ...FAQ8 }, models: ["qwen3.5:4b-q3_k_m", "qwen3.5:4b-8t"], rounds: 1, timeout: 90, retest: true },
 ];
+// --only picks phases by label ("especulativa" for the last one); without it, every original phase.
+const only = arg("only")?.split(",").map((s) => s.trim()).filter(Boolean);
+const wanted = (label) => (only ? only.includes(label) : true);
+const phases = PHASES.filter((p) => (only ? wanted(p.label) : !p.retest));
 
 function killServer() {
   // Only the test server: the process listening on our port.
@@ -64,8 +71,8 @@ function compare(phase) {
   });
 }
 
-log(`início: ${PHASES.length} fases`);
-for (const phase of PHASES) {
+log(`início: ${phases.length} fases${only ? ` (--only ${only.join(",")})` : ""}`);
+for (const phase of phases) {
   log(`fase ${phase.label}: ${phase.models.join(", ")} × ${phase.rounds} (env ${JSON.stringify(phase.env)})`);
   try {
     await startServer(phase.env);
@@ -75,6 +82,7 @@ for (const phase of PHASES) {
   }
 }
 killServer();
+if (!wanted("especulativa")) { log("fim"); process.exit(0); }
 // Speculative decoding (0.8b drafting for the 4b) on the CPU, with Ollama's own llama-server.
 log("fase decodificação especulativa (CPU, 16 threads)");
 const spec = spawnSync("python", ["F:/Modelos_Aurora/spec_bench.py", "16"], { encoding: "utf8", windowsHide: true, timeout: 90 * 60000 });
