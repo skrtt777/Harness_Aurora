@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getRecentRecalls, probeRecall, type RecallResult, type RecentRecall } from "./api";
-import { constellationLayout } from "./Constellation";
-import { groupKey, memoryHealth, type Memory, type MemoryCluster } from "./data";
+import { clusterColor, groupColor, groupKey, memoryHealth, type Memory, type MemoryCluster } from "./data";
 
 /**
- * The memory map an agent would actually use. Flat and still — nothing
- * spins — so it reads like an instrument:
- *  - territories: one area per topic, a dot per memory (size = use,
- *    colour = health);
- *  - "what would the AI remember?": runs the chat's real selection for a
- *    question and shows what would enter the context, in order and why, plus
- *    what almost did;
- *  - "latest recalls": what recent answers actually used (and created).
+ * The memory map an agent would actually use: a treemap. Every topic is a
+ * block sized by how many memories it holds, with its health bar and the
+ * titles of its memories readable in place; clicking a topic opens it, one
+ * tile per memory. Next to it:
+ *  - "what would the AI remember?" runs the chat's real selection for a
+ *    question and lights up what would enter the context, ranked, plus what
+ *    almost did;
+ *  - "latest recalls" lights up what recent answers actually used.
  */
 type Props = {
   memories: Memory[];
@@ -23,13 +22,15 @@ type Props = {
   onGroup: (key: string) => void;
 };
 
-const HEALTH = {
+type HealthKey = "helpful" | "used" | "unused" | "failing";
+const HEALTH: Record<HealthKey, { color: string; label: string }> = {
   helpful: { color: "#4ade80", label: "Ajuda" },
-  failing: { color: "#f87171", label: "Atrapalha" },
   used: { color: "#5fd4c0", label: "Usada" },
-  unused: { color: "#7c8594", label: "Nunca usada" },
+  unused: { color: "#565d68", label: "Nunca usada" },
+  failing: { color: "#f87171", label: "Atrapalha" },
 };
-function healthOf(m: Memory): keyof typeof HEALTH {
+const HEALTH_ORDER: HealthKey[] = ["helpful", "used", "unused", "failing"];
+function healthOf(m: Memory): HealthKey {
   const h = memoryHealth(m);
   if (h.failing) return "failing";
   if (h.helpful) return "helpful";
@@ -46,69 +47,80 @@ const when = (iso: string) => {
   return d.toLocaleDateString("pt-BR");
 };
 
-type View = { x: number; y: number; k: number };
+// ---------- squarified treemap ----------
+type Rect = { x: number; y: number; w: number; h: number };
+function squarify<T>(input: { value: number; item: T }[], rect: Rect): { item: T; rect: Rect }[] {
+  const total = input.reduce((s, i) => s + i.value, 0);
+  if (!total || rect.w <= 0 || rect.h <= 0) return [];
+  const scale = (rect.w * rect.h) / total;
+  const items = input.map((i) => ({ item: i.item, area: i.value * scale })).sort((a, b) => b.area - a.area);
+  const out: { item: T; rect: Rect }[] = [];
+  const r = { ...rect };
+  const worst = (row: { area: number }[], side: number) => {
+    const s = row.reduce((t, i) => t + i.area, 0);
+    const max = Math.max(...row.map((i) => i.area)), min = Math.min(...row.map((i) => i.area));
+    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min));
+  };
+  const place = (row: typeof items) => {
+    const s = row.reduce((t, i) => t + i.area, 0);
+    if (r.w >= r.h) {
+      const w = s / r.h;
+      let y = r.y;
+      for (const i of row) { const h = i.area / w; out.push({ item: i.item, rect: { x: r.x, y, w, h } }); y += h; }
+      r.x += w; r.w -= w;
+    } else {
+      const h = s / r.w;
+      let x = r.x;
+      for (const i of row) { const w = i.area / h; out.push({ item: i.item, rect: { x, y: r.y, w, h } }); x += w; }
+      r.y += h; r.h -= h;
+    }
+  };
+  let row: typeof items = [];
+  for (let i = 0; i < items.length; ) {
+    const side = Math.min(r.w, r.h);
+    if (!row.length || worst([...row, items[i]], side) <= worst(row, side)) { row.push(items[i]); i += 1; }
+    else { place(row); row = []; }
+  }
+  if (row.length) place(row);
+  return out;
+}
 
-export default function MemoryMap({ memories, visible, clusters, selectedId, onSelect, onCluster, onGroup }: Props) {
-  const layout = useMemo(() => constellationLayout(memories, clusters), [memories, clusters]);
-  const point = useCallback((id: string) => {
-    const p = layout.positions.get(id);
-    return p ? { x: p[0], y: p[2] } : null;
-  }, [layout]);
-  const byId = useMemo(() => new Map(memories.map((m) => [m.id, m])), [memories]);
+type Topic = { key: string; label: string; color: string; clusterId?: number; members: Memory[] };
+const topicKeyOf = (m: Memory) => (m.cluster !== undefined ? `c${m.cluster}` : `g:${groupKey(m)}`);
 
-  // ---------- size, fit, pan & zoom ----------
-  const box = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 800, h: 520 });
+function useSize<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
-    const el = box.current;
+    const el = ref.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => setSize({ w: entry.contentRect.width, h: entry.contentRect.height }));
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const panelOpen = size.w > 760;
-  const panelWidth = panelOpen ? 336 : 0;
-  const bounds = useMemo(() => {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const g of layout.groups) {
-      minX = Math.min(minX, g.center.x - g.radius - 2); maxX = Math.max(maxX, g.center.x + g.radius + 2);
-      minY = Math.min(minY, g.center.z - g.radius - 4); maxY = Math.max(maxY, g.center.z + g.radius + 2);
+  return [ref, size] as const;
+}
+
+export default function MemoryMap({ memories, visible, clusters, selectedId, onSelect, onCluster, onGroup }: Props) {
+  const byId = useMemo(() => new Map(memories.map((m) => [m.id, m])), [memories]);
+  const topics = useMemo<Topic[]>(() => {
+    const map = new Map<string, Topic>();
+    for (const m of memories) {
+      const key = topicKeyOf(m);
+      if (!map.has(key)) {
+        const clusterId = m.cluster;
+        map.set(key, {
+          key,
+          clusterId,
+          label: clusterId !== undefined ? clusters.find((c) => c.id === clusterId)?.label || "sem assunto" : groupKey(m),
+          color: clusterId !== undefined ? clusterColor(clusterId, "#8a93a0") : groupColor(groupKey(m)),
+          members: [],
+        });
+      }
+      map.get(key)!.members.push(m);
     }
-    if (!Number.isFinite(minX)) return { minX: -10, maxX: 10, minY: -10, maxY: 10 };
-    return { minX, maxX, minY, maxY };
-  }, [layout]);
-  const fitView = useCallback((): View => {
-    const left = panelWidth + 24, right = 24, top = 40, bottom = 40;
-    const w = Math.max(100, size.w - left - right), h = Math.max(100, size.h - top - bottom);
-    const k = Math.min(w / (bounds.maxX - bounds.minX), h / (bounds.maxY - bounds.minY));
-    return { k, x: left + (w - (bounds.maxX - bounds.minX) * k) / 2 - bounds.minX * k, y: top + (h - (bounds.maxY - bounds.minY) * k) / 2 - bounds.minY * k };
-  }, [bounds, size, panelWidth]);
-  const [view, setView] = useState<View>({ x: 0, y: 0, k: 10 });
-  const touched = useRef(false);
-  useEffect(() => {
-    if (!touched.current) setView(fitView());
-  }, [fitView]);
-  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const zoomAt = (factor: number, cx: number, cy: number) => {
-    touched.current = true;
-    setView((v) => {
-      const k = Math.min(Math.max(v.k * factor, 2), 120);
-      return { k, x: cx - ((cx - v.x) * k) / v.k, y: cy - ((cy - v.y) * k) / v.k };
-    });
-  };
-  useEffect(() => {
-    const el = box.current?.querySelector("svg");
-    if (!el) return;
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
-    };
-    el.addEventListener("wheel", wheel, { passive: false });
-    return () => el.removeEventListener("wheel", wheel);
-  }, []);
-  const sx = (x: number) => x * view.k + view.x;
-  const sy = (y: number) => y * view.k + view.y;
+    return [...map.values()];
+  }, [memories, clusters]);
 
   // ---------- recall: probe and recent ----------
   const [question, setQuestion] = useState("");
@@ -139,292 +151,253 @@ export default function MemoryMap({ memories, visible, clusters, selectedId, onS
     }
   };
   const clearRecall = () => { setProbe(null); setActiveRecent(null); };
-
-  // What is lit: the probe's picks (ranked) or a recent answer's memories.
   const lit = useMemo(() => {
-    if (probe) {
-      const top = Math.max(...probe.selected.map((s) => s.score ?? 0), 1e-6);
-      return {
-        label: "pergunta",
-        ranked: probe.selected.filter((s) => byId.has(s.id)).map((s) => ({ id: s.id, rank: s.rank, weight: (s.score ?? 0) / top })),
-        near: new Set(probe.near.map((n) => n.id)),
-        created: new Set<string>(),
-      };
-    }
-    if (activeRecent)
-      return {
-        label: "resposta",
-        ranked: activeRecent.used.filter((id) => byId.has(id)).map((id, i) => ({ id, rank: i + 1, weight: 1 })),
-        near: new Set<string>(),
-        created: new Set(activeRecent.created),
-      };
+    if (probe) return { rank: new Map(probe.selected.map((s) => [s.id, s.rank])), near: new Set(probe.near.map((n) => n.id)), created: new Set<string>() };
+    if (activeRecent) return { rank: new Map(activeRecent.used.map((id, i) => [id, i + 1])), near: new Set<string>(), created: new Set(activeRecent.created) };
     return null;
-  }, [probe, activeRecent, byId]);
-  const litIds = useMemo(() => new Set(lit?.ranked.map((r) => r.id) ?? []), [lit]);
-  // The question sits at the centre of what it pulled in; scattered picks read as scattered.
-  const pin = useMemo(() => {
-    if (!lit?.ranked.length) return null;
-    let x = 0, y = 0, w = 0;
-    for (const r of lit.ranked) {
-      const p = point(r.id);
-      if (!p) continue;
-      const weight = 0.3 + r.weight;
-      x += p.x * weight; y += p.y * weight; w += weight;
-    }
-    return w ? { x: x / w, y: y / w } : null;
-  }, [lit, point]);
-  const litGroups = useMemo(() => {
-    if (!lit) return null;
-    const keys = new Set<string>();
-    const all = [...litIds, ...lit.near, ...lit.created];
-    for (const id of all) {
-      const m = byId.get(id);
-      if (m) keys.add(m.cluster !== undefined ? `c${m.cluster}` : `g:${groupKey(m)}`);
-    }
-    return keys;
-  }, [lit, litIds, byId]);
-
+  }, [probe, activeRecent]);
+  const isHit = (id: string) => !!lit && (lit.rank.has(id) || lit.near.has(id) || lit.created.has(id));
   // A good recall is focused: many memories, or memories from many topics, is a smell.
   const spread = useMemo(() => {
-    if (!lit?.ranked.length || !litGroups) return null;
-    const topics = new Set(lit.ranked.map((r) => { const m = byId.get(r.id); return m ? (m.cluster !== undefined ? `c${m.cluster}` : `g:${groupKey(m)}`) : ""; })).size;
-    if (lit.ranked.length >= 8) return `${lit.ranked.length} memórias de ${topics} assuntos: contexto demais para uma resposta.`;
-    if (topics >= 3) return `Espalhada em ${topics} assuntos: a lembrança está pouco focada.`;
+    if (!lit?.rank.size) return null;
+    const ids = [...lit.rank.keys()].filter((id) => byId.has(id));
+    const n = new Set(ids.map((id) => topicKeyOf(byId.get(id)!))).size;
+    if (ids.length >= 8) return `${ids.length} memórias de ${n} assuntos: contexto demais para uma resposta.`;
+    if (n >= 3) return `Espalhada em ${n} assuntos: a lembrança está pouco focada.`;
     return null;
-  }, [lit, litGroups, byId]);
-  const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
-  const selected = selectedId ? byId.get(selectedId) : undefined;
-  const radius = (m: Memory) => Math.max(0.55 + Math.min(1.1, Math.log2(1 + (m.stats?.uses ?? 0)) * 0.4), 2.4 / view.k);
+  }, [lit, byId]);
 
-  const groupOf = (key: string) => layout.groups.find((g) => g.key === key);
-  const counts = useMemo(() => {
-    const c = { helpful: 0, failing: 0, used: 0, unused: 0 };
+  // ---------- treemap ----------
+  const [open, setOpen] = useState<string | null>(null);
+  const openTopic = topics.find((t) => t.key === open) || null;
+  const [area, size] = useSize<HTMLDivElement>();
+  const GAP = 6;
+  const blocks = useMemo(() => {
+    const shown = topics.filter((t) => t.members.some((m) => visible.has(m.id)));
+    return squarify(shown.map((t) => ({ value: t.members.filter((m) => visible.has(m.id)).length, item: t })), { x: 0, y: 0, w: size.w + GAP, h: size.h + GAP });
+  }, [topics, visible, size]);
+  // Narrow: blocks stack in a scrollable column instead of being squeezed.
+  const stacked = size.w > 0 && (size.w < 620 || size.h < 300);
+  useEffect(() => {
+    if (open && !topics.some((t) => t.key === open)) setOpen(null);
+  }, [open, topics]);
+
+  const order = (list: Memory[]) => [...list].sort((a, b) => {
+    const ra = lit?.rank.get(a.id) ?? (lit?.near.has(a.id) || lit?.created.has(a.id) ? 900 : 999);
+    const rb = lit?.rank.get(b.id) ?? (lit?.near.has(b.id) || lit?.created.has(b.id) ? 900 : 999);
+    return ra - rb || (b.stats?.uses ?? 0) - (a.stats?.uses ?? 0) || a.title.localeCompare(b.title);
+  });
+  const mark = (m: Memory) => {
+    const rank = lit?.rank.get(m.id);
+    if (rank) return <b className="rank">{rank}</b>;
+    if (lit?.near.has(m.id)) return <i className="mark near" />;
+    if (lit?.created.has(m.id)) return <i className="mark created" />;
+    return <i className="mark" style={{ background: HEALTH[healthOf(m)].color }} />;
+  };
+  const healthBar = (members: Memory[]) => {
+    const counts = { helpful: 0, used: 0, unused: 0, failing: 0 } as Record<HealthKey, number>;
+    members.forEach((m) => (counts[healthOf(m)] += 1));
+    return (
+      <span className="health-bar" title={HEALTH_ORDER.map((k) => `${HEALTH[k].label}: ${counts[k]}`).join(" · ")}>
+        {HEALTH_ORDER.map((k) => counts[k] > 0 && <i key={k} style={{ flex: counts[k], background: HEALTH[k].color }} />)}
+      </span>
+    );
+  };
+  const totals = useMemo(() => {
+    const c = { helpful: 0, used: 0, unused: 0, failing: 0 } as Record<HealthKey, number>;
     memories.forEach((m) => (c[healthOf(m)] += 1));
     return c;
   }, [memories]);
 
   return (
-    <div className="memory-map" ref={box}>
-      <svg
-        width={size.w}
-        height={size.h}
-        onPointerDown={(e) => {
-          drag.current = { x: e.clientX, y: e.clientY, moved: false };
-          (e.target as Element).setPointerCapture?.(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          const d = drag.current;
-          if (!d) return;
-          const dx = e.clientX - d.x, dy = e.clientY - d.y;
-          if (!d.moved && Math.hypot(dx, dy) < 3) return;
-          d.moved = true;
-          touched.current = true;
-          d.x = e.clientX; d.y = e.clientY;
-          setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
-        }}
-        onPointerUp={() => { setTimeout(() => (drag.current = null), 0); }}
-        className={drag.current?.moved ? "dragging" : ""}
-      >
-        <defs>
-          <radialGradient id="map-pin-glow">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
-          {layout.groups.map((g) => {
-            const dim = litGroups ? !litGroups.has(g.key) : false;
-            return (
-              <circle key={g.key} cx={g.center.x} cy={g.center.z} r={g.radius + 1} fill={g.color} fillOpacity={dim ? 0.02 : 0.06} stroke={g.color} strokeOpacity={dim ? 0.12 : 0.4} strokeWidth={1} vectorEffect="non-scaling-stroke" />
-            );
-          })}
-          {layout.edges.map(([a, b]) => {
-            const p = point(a), q = point(b);
-            if (!p || !q) return null;
-            return <line key={`${a}|${b}`} x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="#9aa4b2" strokeOpacity={lit ? 0.05 : 0.16} strokeWidth={1} vectorEffect="non-scaling-stroke" />;
-          })}
-          {selected?.neighbors?.map((n) => {
-            const p = point(selected.id), q = point(n.id);
-            if (!p || !q) return null;
-            return <line key={`sel-${n.id}`} x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="var(--accent)" strokeOpacity={0.35 + (n.similarity - 0.7) * 1.5} strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />;
-          })}
-          {pin && lit?.ranked.map((r) => {
-            const q = point(r.id);
-            if (!q) return null;
-            return <line key={`pin-${r.id}`} x1={pin.x} y1={pin.y} x2={q.x} y2={q.y} stroke="#ffffff" strokeOpacity={0.25 + r.weight * 0.5} strokeWidth={1 + r.weight * 1.5} vectorEffect="non-scaling-stroke" />;
-          })}
-          {memories.map((m) => {
-            const p = point(m.id);
-            if (!p) return null;
-            const shown = visible.has(m.id);
-            const health = healthOf(m);
-            const isLit = litIds.has(m.id);
-            const faded = !shown || (lit && !isLit && !lit.near.has(m.id) && !lit.created.has(m.id));
-            const r = radius(m) * (isLit ? 1.5 : 1);
-            return (
-              <g key={m.id} opacity={faded ? 0.16 : 1}>
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r={r}
-                  fill={isLit ? "#ffffff" : HEALTH[health].color}
-                  stroke={(m.duplicates?.length ?? 0) > 0 ? "#facc15" : "none"}
-                  strokeWidth={1.5}
-                  vectorEffect="non-scaling-stroke"
-                  className={shown ? "map-dot" : undefined}
-                  onPointerEnter={(e) => shown && setHover({ id: m.id, x: e.clientX, y: e.clientY })}
-                  onPointerLeave={() => setHover(null)}
-                  onClick={() => { if (shown && !drag.current?.moved) onSelect(m.id); }}
-                />
-                {lit?.near.has(m.id) && <circle cx={p.x} cy={p.y} r={r + 1.1} fill="none" stroke="#ffb86b" strokeWidth={1.2} strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />}
-                {lit?.created.has(m.id) && <circle cx={p.x} cy={p.y} r={r + 1.1} fill="none" stroke="#4ade80" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
-                {m.id === selectedId && <circle cx={p.x} cy={p.y} r={r + 1.4} fill="none" stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
-              </g>
-            );
-          })}
-        </g>
-        {/* Screen-space overlay: text stays crisp and the same size at any zoom. */}
-        <g>
-          {layout.groups.map((g) => {
-            const dim = litGroups ? !litGroups.has(g.key) : false;
-            return (
-              <text
-                key={g.key}
-                x={sx(g.center.x)}
-                y={sy(g.center.z - g.radius - 1) - 7}
-                textAnchor="middle"
-                className={`map-territory ${dim ? "dim" : ""}`}
-                onClick={() => (g.clusterId !== undefined ? onCluster(g.clusterId) : onGroup(g.key.slice(2)))}
-              >
-                <tspan fill={g.color}>{g.label}</tspan>
-                <tspan className="count"> {g.count}</tspan>
-              </text>
-            );
-          })}
-          {pin && (
-            <g transform={`translate(${sx(pin.x)} ${sy(pin.y)})`} className="map-pin">
-              <circle r={22} fill="url(#map-pin-glow)" />
-              <rect x={-6} y={-6} width={12} height={12} transform="rotate(45)" />
-              <text y={-14} textAnchor="middle">{lit?.label}</text>
-            </g>
-          )}
-          {(() => {
-            const placed: { x: number; y: number }[] = [];
-            return lit?.ranked.map((r) => {
-            const p = point(r.id);
-            if (!p) return null;
-            const bx = sx(p.x) + 9, by = sy(p.y) - 9;
-            if (placed.some((q) => Math.hypot(q.x - bx, q.y - by) < 15)) return null;
-            placed.push({ x: bx, y: by });
-            return (
-              <g key={`rank-${r.id}`} transform={`translate(${sx(p.x) + 9} ${sy(p.y) - 9})`} className="map-rank">
-                <circle r={8} />
-                <text y={4} textAnchor="middle">{r.rank}</text>
-              </g>
-            );
-            });
-          })()}
-        </g>
-      </svg>
-
-      {panelOpen && (
-        <aside className="map-panel">
-          <section>
-            <div className="overline">O que a IA lembraria?</div>
-            <form onSubmit={runProbe}>
-              <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Escreva uma pergunta como no chat…" />
-              <button type="submit" disabled={probing || !question.trim()}>{probing ? "…" : "Testar"}</button>
-            </form>
-            {probeError && <p className="map-error">{probeError}</p>}
-            {spread && <p className="map-warning">⚠ {spread}</p>}
-            {probe && (
-              <div className="probe-result">
-                <header>
-                  <strong>{probe.selected.length ? `${probe.selected.length} entrariam no contexto` : "Nenhuma memória entraria"}</strong>
-                  <button className="link" onClick={clearRecall}>Limpar</button>
-                </header>
-                {!probe.embeddings && <p className="hint">Sem embeddings agora: só palavras contam.</p>}
-                <ol>
-                  {probe.selected.map((s) => (
-                    <li key={s.id} onClick={() => onSelect(s.id)} className={s.id === selectedId ? "active" : ""}>
-                      <b>{s.rank}</b>
-                      <span>
-                        {s.title}
-                        <small>
-                          {s.titleMatches.length ? `título: ${s.titleMatches.join(", ")} · ` : ""}
-                          {percent(s.similarity)} parecida · nota {s.score?.toFixed(1) ?? "—"}
-                        </small>
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-                {probe.near.length > 0 && (
-                  <>
-                    <div className="overline near">Quase entraram</div>
-                    <ul>
-                      {probe.near.slice(0, 5).map((n) => (
-                        <li key={n.id} onClick={() => onSelect(n.id)}>
-                          <i />
-                          <span>
-                            {n.title}
-                            <small>{n.why}</small>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
-          </section>
-          {!probe && (
-            <section>
-              <div className="overline">Últimas lembranças</div>
-              {!recents.length && <p className="hint">Quando o chat usar memórias, as respostas aparecem aqui.</p>}
-              <ul className="recents">
-                {recents.map((r) => (
-                  <li key={r.id} className={activeRecent?.id === r.id ? "active" : ""} onClick={() => setActiveRecent(activeRecent?.id === r.id ? null : r)}>
-                    <span className="prompt">{r.prompt || "(sem pergunta)"}</span>
-                    <small>
-                      {r.conversationTitle} · {when(r.at)} · <em className={r.used.length >= 8 ? "many" : ""}>usou {r.used.length}</em>
-                      {r.created.length ? ` · criou ${r.created.length}` : ""}
-                    </small>
+    <div className="memory-map">
+      <aside className="map-panel">
+        <section>
+          <div className="overline">O que a IA lembraria?</div>
+          <form onSubmit={runProbe}>
+            <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Escreva uma pergunta como no chat…" />
+            <button type="submit" disabled={probing || !question.trim()}>{probing ? "…" : "Testar"}</button>
+          </form>
+          {probeError && <p className="map-error">{probeError}</p>}
+          {spread && <p className="map-warning">{spread}</p>}
+          {probe && (
+            <div className="probe-result">
+              <header>
+                <strong>{probe.selected.length ? `${probe.selected.length} entrariam no contexto` : "Nenhuma memória entraria"}</strong>
+                <button className="link" onClick={clearRecall}>Limpar</button>
+              </header>
+              {!probe.embeddings && <p className="hint">Sem embeddings agora: só palavras contam.</p>}
+              <ol>
+                {probe.selected.map((s) => (
+                  <li key={s.id} onClick={() => onSelect(s.id)} className={s.id === selectedId ? "active" : ""}>
+                    <b>{s.rank}</b>
+                    <span>
+                      {s.title}
+                      <small>
+                        {s.titleMatches.length ? `título: ${s.titleMatches.join(", ")} · ` : ""}
+                        {percent(s.similarity)} parecida · nota {s.score?.toFixed(1) ?? "—"}
+                      </small>
+                    </span>
                   </li>
                 ))}
-              </ul>
-            </section>
+              </ol>
+              {probe.near.length > 0 && (
+                <>
+                  <div className="overline near">Quase entraram</div>
+                  <ul>
+                    {probe.near.slice(0, 5).map((n) => (
+                      <li key={n.id} onClick={() => onSelect(n.id)}>
+                        <i />
+                        <span>
+                          {n.title}
+                          <small>{n.why}</small>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
           )}
-        </aside>
-      )}
+        </section>
+        {!probe && (
+          <section>
+            <div className="overline">
+              Últimas lembranças
+              {activeRecent && <button className="link" onClick={clearRecall}>Limpar</button>}
+            </div>
+            {!recents.length && <p className="hint">Quando o chat usar memórias, as respostas aparecem aqui.</p>}
+            <ul className="recents">
+              {recents.map((r) => (
+                <li key={r.id} className={activeRecent?.id === r.id ? "active" : ""} onClick={() => setActiveRecent(activeRecent?.id === r.id ? null : r)}>
+                  <span className="prompt">{r.prompt || "(sem pergunta)"}</span>
+                  <small>
+                    {r.conversationTitle} · {when(r.at)} · <em className={r.used.length >= 8 ? "many" : ""}>usou {r.used.length}</em>
+                    {r.created.length ? ` · criou ${r.created.length}` : ""}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </aside>
 
-      <div className="map-legend">
-        {(Object.keys(HEALTH) as (keyof typeof HEALTH)[]).map((k) => (
-          <span key={k}>
-            <i style={{ background: HEALTH[k].color }} /> {HEALTH[k].label} <b>{counts[k]}</b>
+      <div className="map-main">
+        <div className="map-bar">
+          {openTopic ? (
+            <nav className="crumbs">
+              <button onClick={() => setOpen(null)}>← Todos os assuntos</button>
+              <span style={{ color: openTopic.color }}>{openTopic.label}</span>
+              <small>{openTopic.members.length} memórias</small>
+              <button className="filter" onClick={() => (openTopic.clusterId !== undefined ? onCluster(openTopic.clusterId) : onGroup(openTopic.label))}>Filtrar a lista</button>
+            </nav>
+          ) : (
+            <span className="map-title">{topics.length} assuntos · {memories.length} memórias</span>
+          )}
+          <span className="map-legend" hidden={!!openTopic}>
+            {HEALTH_ORDER.map((k) => (
+              <span key={k}>
+                <i style={{ background: HEALTH[k].color }} /> {HEALTH[k].label} <b>{totals[k]}</b>
+              </span>
+            ))}
           </span>
-        ))}
-        <span><i className="ring" /> Repetida</span>
-        <span className="muted">Tamanho = vezes usada</span>
+        </div>
+        <div className={`treemap ${lit ? "lit" : ""} ${stacked || openTopic ? "scroll" : ""}`} ref={area}>
+          {!openTopic && stacked &&
+            order(memories)
+              .reduce<Topic[]>((list, m) => {
+                const t = topics.find((x) => x.key === topicKeyOf(m))!;
+                if (visible.has(m.id) && !list.includes(t)) list.push(t);
+                return list;
+              }, [])
+              .sort((a, b) => (lit ? 0 : b.members.length - a.members.length))
+              .map((t) => {
+                const members = order(t.members.filter((m) => visible.has(m.id)));
+                const hits = lit ? members.filter((m) => isHit(m.id)).length : 0;
+                return (
+                  <section key={t.key} className={`topic-block stacked ${lit && !hits ? "faded" : ""}`} style={{ ["--topic" as string]: t.color }}>
+                    <header onClick={() => setOpen(t.key)}>
+                      <i style={{ background: t.color }} />
+                      <strong>{t.label}</strong>
+                      <small>{members.length}</small>
+                      {hits > 0 && <em>{hits}</em>}
+                    </header>
+                    {healthBar(members)}
+                    <ul>
+                      {members.slice(0, 4).map((m) => (
+                        <li key={m.id} className={`${m.id === selectedId ? "selected" : ""} ${lit && !isHit(m.id) ? "dim" : ""}`} onClick={() => onSelect(m.id)}>
+                          {mark(m)}
+                          <span>{m.title}</span>
+                        </li>
+                      ))}
+                      {members.length > 4 && <li className="more" onClick={() => setOpen(t.key)}>+ {members.length - 4} memórias · abrir</li>}
+                    </ul>
+                  </section>
+                );
+              })}
+          {!openTopic && !stacked &&
+            blocks.map(({ item: t, rect }) => {
+              const members = order(t.members.filter((m) => visible.has(m.id)));
+              const hits = lit ? members.filter((m) => isHit(m.id)).length : 0;
+              const rows = Math.max(0, Math.floor((rect.h - GAP - 62) / 24));
+              const compact = rect.h - GAP < 74;
+              const tiny = rect.w - GAP < 64 || rect.h - GAP < 38;
+              return (
+                <section
+                  key={t.key}
+                  className={`topic-block ${lit && !hits ? "faded" : ""} ${compact ? "compact" : ""} ${tiny ? "tiny" : ""}`}
+                  style={{ left: rect.x, top: rect.y, width: rect.w - GAP, height: rect.h - GAP, ["--topic" as string]: t.color }}
+                >
+                  <header onClick={() => setOpen(t.key)} title="Abrir assunto">
+                    <i style={{ background: t.color }} />
+                    <strong>{t.label}</strong>
+                    <small>{members.length}</small>
+                    {hits > 0 && <em title={`${hits} na lembrança`}>{hits}</em>}
+                  </header>
+                  {!compact && healthBar(members)}
+                  {!compact && (
+                    <ul>
+                      {members.slice(0, members.length > rows ? Math.max(0, rows - 1) : rows).map((m) => (
+                        <li key={m.id} className={`${m.id === selectedId ? "selected" : ""} ${lit && !isHit(m.id) ? "dim" : ""}`} onClick={() => onSelect(m.id)} title={m.title}>
+                          {mark(m)}
+                          <span>{m.title}</span>
+                          {(m.stats?.uses ?? 0) > 0 && <small>{m.stats!.uses}×</small>}
+                        </li>
+                      ))}
+                      {members.length > rows && rows > 0 && (
+                        <li className="more" onClick={() => setOpen(t.key)}>+ {members.length - rows + 1} memórias · abrir</li>
+                      )}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          {openTopic && (
+            <div className="tile-grid">
+              {order(openTopic.members.filter((m) => visible.has(m.id))).map((m) => {
+                const health = healthOf(m);
+                return (
+                  <button
+                    key={m.id}
+                    className={`memory-tile ${m.id === selectedId ? "selected" : ""} ${lit && !isHit(m.id) ? "dim" : ""} ${lit?.near.has(m.id) ? "near" : ""} ${lit?.created.has(m.id) ? "created" : ""} ${(m.duplicates?.length ?? 0) > 0 ? "duplicate" : ""}`}
+                    style={{ ["--health" as string]: HEALTH[health].color }}
+                    onClick={() => onSelect(m.id)}
+                    title={m.title}
+                  >
+                    {lit?.rank.has(m.id) && <b className="rank">{lit.rank.get(m.id)}</b>}
+                    <strong>{m.title}</strong>
+                    <p>{m.content}</p>
+                    <small>
+                      {HEALTH[health].label}
+                      {m.stats ? ` · ${m.stats.uses}× usada · ajudou ${m.stats.helped}${m.stats.failed ? ` · falhou ${m.stats.failed}` : ""}` : ""}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="map-zoom">
-        <button onClick={() => zoomAt(1.3, size.w / 2, size.h / 2)} aria-label="Aproximar">+</button>
-        <button onClick={() => zoomAt(1 / 1.3, size.w / 2, size.h / 2)} aria-label="Afastar">−</button>
-        <button onClick={() => { touched.current = false; setView(fitView()); }} aria-label="Enquadrar tudo">⤢</button>
-      </div>
-      {hover && byId.get(hover.id) && (() => {
-        const m = byId.get(hover.id)!;
-        const rect = box.current!.getBoundingClientRect();
-        const g = groupOf(m.cluster !== undefined ? `c${m.cluster}` : `g:${groupKey(m)}`);
-        return (
-          <div className="map-tip" style={{ left: hover.x - rect.left + 14, top: hover.y - rect.top - 10 }}>
-            <strong>{m.title}</strong>
-            <small>
-              {m.stats ? `${m.stats.uses}× usada · ajudou ${m.stats.helped} · falhou ${m.stats.failed}` : "sem registro de uso"}
-              {g ? ` · ${g.label}` : ""}
-            </small>
-          </div>
-        );
-      })()}
     </div>
   );
 }
