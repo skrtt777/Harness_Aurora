@@ -21,7 +21,7 @@ export async function embedLlama(text,env=process.env,signal){
   try{
     const timeout=AbortSignal.timeout(10_000);
     const response=await fetch(endpoint(env,env.EMBEDDING_BASE_URL)+'/v1/embeddings',{method:'POST',headers:authHeaders(env),
-      body:JSON.stringify({input:text}),signal:signal?AbortSignal.any([signal,timeout]):timeout});
+      body:JSON.stringify({input:text,...(env.EMBEDDING_MODEL?{model:env.EMBEDDING_MODEL}:{})}),signal:signal?AbortSignal.any([signal,timeout]):timeout});
     if(!response.ok)return null;
     const vector=(await response.json()).data?.[0]?.embedding;
     return Array.isArray(vector)&&vector.length&&vector.every(Number.isFinite)?vector:null;
@@ -106,4 +106,46 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
       promptMs:timings?.prompt_ms??null,generationMs:timings?.predicted_ms??null,promptTokensPerSecond:timings?.prompt_per_second??null,
       outputTokensPerSecond:timings?.predicted_per_second??null,cachedInputTokens:cached}};
   }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':error.message,cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started}};}
+}
+
+// Agent turns on llama-server (OpenAI-compatible /v1/chat/completions with
+// tools; start it with --jinja). The agent speaks Ollama's message format,
+// so tool calls get ids here and tool results are matched back to them.
+export function toOpenAiMessages(messages){
+  const pending=[];let n=0;
+  return messages.map((m)=>{
+    if(m.role==='assistant'&&Array.isArray(m.tool_calls)&&m.tool_calls.length){
+      const tool_calls=m.tool_calls.map((c)=>{const id=`call_${++n}`;pending.push(id);return {id,type:'function',function:{name:c.function?.name,arguments:typeof c.function?.arguments==='string'?c.function.arguments:JSON.stringify(c.function?.arguments||{})}};});
+      return {role:'assistant',content:m.content||'',tool_calls};
+    }
+    if(m.role==='tool')return {role:'tool',tool_call_id:pending.shift()||`call_${++n}`,content:String(m.content??'')};
+    return {role:m.role,content:String(m.content??'')};
+  });
+}
+export async function runLlamaChat(messages,tools=[],env=process.env,externalSignal){
+  const started=performance.now(),model=env.LOCAL_MODEL||'local';
+  const timeout=AbortSignal.timeout(Number(env.LOCAL_TIMEOUT_MS||120000));
+  const signal=externalSignal?AbortSignal.any([timeout,externalSignal]):timeout;
+  try{
+    const response=await fetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
+      model,messages:toOpenAiMessages(messages),stream:false,cache_prompt:true,
+      max_tokens:Math.min(8192,Math.max(128,Number(env.LOCAL_MAX_OUTPUT_TOKENS)||2048)),
+      chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'},
+      ...(env.LOCAL_THINK==='true'?{}:{reasoning_effort:'low'}),
+      ...(tools.length?{tools,tool_choice:'auto'}:{}),...sampling(env)})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok){
+      const error=data.error?.message||`Executor local: HTTP ${response.status}`;
+      return {ok:false,status:502,unsupported:/tools? (is )?not supported|jinja/i.test(error),error,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};
+    }
+    const choice=data.choices?.[0],message=choice?.message||{};
+    const toolCalls=(message.tool_calls||[]).map((c)=>{let args={};try{args=typeof c.function?.arguments==='string'?JSON.parse(c.function.arguments||'{}'):c.function?.arguments||{};}catch{args={};}return {name:c.function?.name,arguments:args};}).filter((c)=>c.name);
+    const text=typeof message.content==='string'?message.content:'';
+    const usage=data.usage?{input_tokens:data.usage.prompt_tokens,output_tokens:data.usage.completion_tokens}:null;
+    const timings=data.timings;
+    const metrics={model,wallMs:performance.now()-started,engine:'llama.cpp',promptMs:timings?.prompt_ms??null,generationMs:timings?.predicted_ms??null,
+      promptTokensPerSecond:timings?.prompt_per_second??null,outputTokensPerSecond:timings?.predicted_per_second??null,cachedInputTokens:data.usage?.prompt_tokens_details?.cached_tokens??null};
+    if(!toolCalls.length&&!text.trim())return {ok:false,status:502,error:'O modelo local retornou uma resposta vazia ou inválida.',usage,metrics};
+    return {ok:true,status:200,text,toolCalls,threadId:null,usage,metrics,truncated:choice?.finish_reason==='length'};
+  }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':error.message,cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};}
 }

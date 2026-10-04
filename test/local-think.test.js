@@ -29,3 +29,38 @@ test("reasoning is turned off (or down to low for gpt-oss) only for models that 
     assert.deepEqual(await thinkOption("http://127.0.0.1:1", "outro:1b", {}), {}, "Ollama offline: no flag");
   } finally { server.close(); }
 });
+
+test("agent turns run on llama-server: tool calls get ids and come back in the agent's format", async () => {
+  const { toOpenAiMessages } = await import("../app/localLlama.js");
+  const { runLocalChat } = await import("../app/local.js");
+  const converted = toOpenAiMessages([
+    { role: "system", content: "s" },
+    { role: "user", content: "leia a.txt" },
+    { role: "assistant", content: "", tool_calls: [{ function: { name: "read_file", arguments: { path: "a.txt" } } }] },
+    { role: "tool", tool_name: "read_file", content: "conteúdo" },
+  ]);
+  assert.deepEqual(converted[2].tool_calls, [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.txt"}' } }]);
+  assert.deepEqual(converted[3], { role: "tool", tool_call_id: "call_1", content: "conteúdo" });
+
+  let seen = null;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen = JSON.parse(body);
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [{ id: "x", type: "function", function: { name: "grep", arguments: '{"pattern":"ola"}' } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 }, timings: { predicted_per_second: 42 } }));
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const env = { LOCAL_ENGINE: "llama.cpp", LOCAL_BASE_URL: `http://127.0.0.1:${server.address().port}`, LOCAL_MODEL: "qwen3.6:35b" };
+    const tools = [{ type: "function", function: { name: "grep", parameters: { type: "object", properties: {} } } }];
+    const result = await runLocalChat([{ role: "user", content: "ache ola" }], tools, env);
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(result.toolCalls, [{ name: "grep", arguments: { pattern: "ola" } }]);
+    assert.equal(result.metrics.outputTokensPerSecond, 42);
+    assert.equal(seen.tools.length, 1);
+    assert.deepEqual(seen.chat_template_kwargs, { enable_thinking: false });
+  } finally { server.close(); }
+});

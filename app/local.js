@@ -1,5 +1,5 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
-import {llamaReady,runLlama} from './localLlama.js';
+import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
@@ -114,6 +114,7 @@ function localErrorDetail(error, externalSignal) {
  * Returns {ok, text, toolCalls:[{name, arguments}]}.
  */
 export async function runLocalChat(messages, tools = [], env = process.env, externalSignal) {
+  if (env.LOCAL_ENGINE === 'llama.cpp') return runLlamaChat(messages, tools, env, externalSignal);
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);
