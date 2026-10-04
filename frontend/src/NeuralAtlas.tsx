@@ -137,7 +137,8 @@ export default function NeuralAtlas({ variant }: Props) {
     [scope, setScope] = useState<"all" | MemoryScope>("all"),
     [project, setProject] = useState("all");
   const [cad, setCad] = useState(true),
-    [wireframe, setWireframe] = useState(false),
+    [wireframe] = useState(false),
+    [sceneLayout, setSceneLayout] = useState<"constellation" | "neural">("neural"),
     [orthographic, setOrthographic] = useState(false),
     [focus, setFocus] = useState(false),
     [view, setView] = useState<"map" | "flow" | "list">("map");
@@ -578,6 +579,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 clusters={clusters}
                 pulses={pulses}
                 vitals={vitals}
+                layout={sceneLayout}
                 onCluster={(id) => setClusterFilter(id)}
                 selectedId={selectedId}
                 onSelect={select}
@@ -602,6 +604,7 @@ export default function NeuralAtlas({ variant }: Props) {
               <small>
                 {selected
                   ? clusters.find((c) => c.id === selected.cluster)?.label || groupKey(selected)
+                  : sceneLayout === "neural" ? "Origem → assunto → memória → resultado · a luz corre no ritmo real"
                   : clusters.length ? "Perto = assunto parecido · cores por projeto" : "Cores por projeto · agrupamento visual"}
               </small>
             </div>
@@ -623,7 +626,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 </button>
               ))}
             </div>
-            <div className="scene-legend">
+            <div className="scene-legend" hidden={sceneLayout === "neural"}>
               <span>
                 <i style={{ background: "#75eaff" }} /> Maior = ajudou mais vezes
               </span>
@@ -639,8 +642,14 @@ export default function NeuralAtlas({ variant }: Props) {
               <button aria-pressed={orthographic} onClick={() => setOrthographic(!orthographic)}>
                 {orthographic ? "Ortográfica" : "Perspectiva"}
               </button>
-              <button aria-pressed={wireframe} onClick={() => setWireframe(!wireframe)}>
-                Wireframe
+              <button
+                aria-pressed={sceneLayout === "neural"}
+                onClick={() => {
+                  setSceneLayout(sceneLayout === "neural" ? "constellation" : "neural");
+                  camera("overview");
+                }}
+              >
+                {sceneLayout === "neural" ? "Rede neural" : "Constelação"}
               </button>
               <button aria-pressed={motion} onClick={() => setMotion(!motion)}>
                 {motion ? "Pausar" : "Animar"}

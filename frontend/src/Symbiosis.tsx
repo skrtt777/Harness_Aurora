@@ -115,7 +115,8 @@ function arcMaterial(color: string) {
   });
 }
 
-function Anchor({ origin, position, scale, life, texture, count, detail, motion }: {
+function Anchor({ origin, position, scale, life, texture, count, detail, motion, side }: {
+  side?: "left";
   origin: Origin;
   position: THREE.Vector3;
   scale: number;
@@ -199,8 +200,8 @@ function Anchor({ origin, position, scale, life, texture, count, detail, motion 
             ))}
         </group>
       </Billboard>
-      <Html position={[0, (below ? -7.6 : 7.6) * scale, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
-        <div className={`anchor-label ${origin}`}>
+      <Html position={side ? [-6.5 * scale, 0, 0] : [0, (below ? -7.6 : 7.6) * scale, 0]} center={!side} zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
+        <div className={`anchor-label ${origin} ${side || ""}`}>
           <strong style={{ color }}>{name}</strong>
           <span>{detail}</span>
           <small>{count} {count === 1 ? "memória" : "memórias"}</small>
@@ -327,7 +328,9 @@ function ViewRig({ center, children }: { center: THREE.Vector3; children: ReactN
 
 const percent = (value: number | null | undefined) => (value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`);
 
-export default function Symbiosis({ memories, visible, life, vitals, motion }: {
+export default function Symbiosis({ memories, visible, life, vitals, motion, fixed }: {
+  /** Neural view: anchors sit at these places (the input layer) and the fibres carry the energy. */
+  fixed?: Record<Origin, THREE.Vector3>;
   memories: Memory[];
   visible: Set<string>;
   life: MutableRefObject<Life>;
@@ -347,6 +350,14 @@ export default function Symbiosis({ memories, visible, life, vitals, motion }: {
     aurora: vitals?.aurora.thinking ? (vitals.aurora.stage || "pensando…") : vitals ? "em repouso · aprendeu" : "aprendeu",
     pc: vitals ? `CPU ${percent(vitals.cpu)} · RAM ${percent(vitals.memory)}${vitals.gpu ? ` · GPU ${percent(vitals.gpu.load)}` : ""}` : "material local",
   };
+  if (fixed)
+    return (
+      <>
+        {ORDER.map((origin) => (
+          <Anchor key={origin} origin={origin} position={fixed[origin]} scale={1.15} side="left" life={life} texture={texture} count={counts[origin]} detail={detail[origin]} motion={motion} />
+        ))}
+      </>
+    );
   return (
     <>
       <EnergyFlows memories={memories} visible={visible} layout={layout} life={life} motion={motion} />

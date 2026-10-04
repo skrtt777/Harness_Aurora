@@ -8,6 +8,7 @@ import { groupKey, hash, memoryColor, memoryHealth, clusterColor, type Memory, t
 import { buildGraph, traceOrigin } from "./graph";
 import type { SystemVitals } from "./api";
 import Symbiosis, { LifeDriver, newLife, type Life } from "./Symbiosis";
+import { MEMORY_COLOR, NetHubs, NeuralFibers, neuralLayout } from "./NeuralNet";
 
 export type CameraCommand = {
   serial: number;
@@ -22,6 +23,8 @@ type Props = {
   pulses?: Map<string, number>;
   /** Live PC load and whether Aurora is thinking (symbiosis view). */
   vitals?: SystemVitals | null;
+  /** "neural": origin → topics → memories → outcome, in layers joined by fibres. */
+  layout?: "constellation" | "neural";
   selectedId: string | null;
   onSelect: (id: string) => void;
   onFocus: (id: string) => void;
@@ -93,7 +96,8 @@ const starFragment = /* glsl */ `
 
 type Target = { position: THREE.Vector3; size: number; bright: number; visible: number; color: THREE.Color };
 
-function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimUnused, pulses, motion, life, onSelect, onFocus, onHover }: {
+function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimUnused, pulses, motion, life, tint, onSelect, onFocus, onHover }: {
+  tint?: string;
   memories: Memory[];
   visible: Set<string>;
   selectedId: string | null;
@@ -129,6 +133,7 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
     const health = memoryHealth(m);
     const helped = m.stats?.helped ?? 0;
     const color = new THREE.Color(memoryColor(m));
+    if (tint) color.lerp(new THREE.Color(tint), 0.65);
     if (health.failing) color.lerp(FAILING, 0.8);
     const isSelected = m.id === selectedId;
     const near = highlighted.has(m.id);
@@ -139,7 +144,7 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
       visible: visible.has(m.id) ? 1 : 0.07,
       color: isSelected ? color.clone().lerp(new THREE.Color("#ffffff"), 0.4) : color,
     };
-  }), [memories, selectedId, highlighted, hoveredId, visible, dimUnused]);
+  }), [memories, selectedId, highlighted, hoveredId, visible, dimUnused, tint]);
 
   useEffect(() => {
     const c = new THREE.Vector3();
@@ -294,30 +299,35 @@ function FlowLinks({ memories, visible, selectedId, origin, motion }: { memories
   return <lineSegments geometry={geometry} material={material} />;
 }
 
-function CameraRig({ command, allMemories, motion, drift }: { command: CameraCommand; allMemories: Memory[]; motion: boolean; drift: boolean }) {
+function CameraRig({ command, allMemories, motion, drift, extra, neural }: { command: CameraCommand; allMemories: Memory[]; motion: boolean; drift: boolean; extra?: THREE.Vector3[]; neural?: boolean }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera, size, invalidate } = useThree();
   const travel = useRef<{ position: THREE.Vector3; target: THREE.Vector3; zoom: number } | null>(null);
   const bounds = useMemo(() => {
     const box = new THREE.Box3();
     allMemories.forEach((m) => box.expandByPoint(new THREE.Vector3(...m.position)));
+    extra?.forEach((p) => box.expandByPoint(p));
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 30, 30));
     const extent = box.getSize(new THREE.Vector3());
-    return { center: box.getCenter(new THREE.Vector3()), radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * 0.78) };
-  }, [allMemories]);
+    return { center: box.getCenter(new THREE.Vector3()), size: extent, radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * (neural ? 0.56 : 0.78)) };
+  }, [allMemories, extra, neural]);
   useEffect(() => {
     const selected = allMemories.find((m) => m.id === command.id);
     const inspecting = command.view !== "overview" && selected;
     const target = inspecting ? new THREE.Vector3(...selected.position) : bounds.center.clone();
     const radius = inspecting ? 9 : bounds.radius;
     const aspect = size.width / size.height;
-    const distance = (radius / Math.sin(Math.atan(Math.tan((48 * Math.PI) / 360) * Math.min(1, aspect)))) * 0.92;
+    const tanV = Math.tan((48 * Math.PI) / 360);
+    // The network is wide and flat: frame it by its width and height, not by a sphere.
+    const distance = neural && !inspecting
+      ? Math.max((bounds.size.y / 2) * 1.12 / tanV, (bounds.size.x / 2) * 1.12 / (tanV * aspect)) + bounds.size.z / 2
+      : (radius / Math.sin(Math.atan(tanV * Math.min(1, aspect)))) * 0.92;
     const direction =
       command.view === "front" ? new THREE.Vector3(0, 0, 1)
         : command.view === "top" ? new THREE.Vector3(0, 0.999, 0.001)
           : command.view === "side" ? new THREE.Vector3(1, 0, 0)
             : inspecting ? camera.position.clone().sub(target).normalize()
-              : new THREE.Vector3(0.3, 0.45, 1);
+              : neural ? new THREE.Vector3(0.12, 0.08, 1) : new THREE.Vector3(0.3, 0.45, 1);
     travel.current = { target, position: target.clone().addScaledVector(direction.normalize(), distance), zoom: Math.min(size.width, size.height) / (2.2 * radius) };
     invalidate();
     // The camera position is read once per command (fly from where it is), not tracked.
@@ -394,6 +404,11 @@ function SceneContent(props: Props) {
   const labelRefs = useRef(new Map<string, HTMLButtonElement>());
   const graph = useMemo(() => buildGraph(allMemories), [allMemories]);
   const visible = useMemo(() => new Set(memories.map((m) => m.id)), [memories]);
+  const neural = props.layout === "neural";
+  const net = useMemo(() => (neural ? neuralLayout(allMemories, clusters) : null), [neural, allMemories, clusters]);
+  // Where each star is drawn: its meaning position, or its slot in the network.
+  const placed = useMemo(() => (net ? allMemories.map((m) => ({ ...m, position: net.positions.get(m.id) ?? m.position })) : allMemories), [net, allMemories]);
+  const placedById = useMemo(() => new Map(placed.map((m) => [m.id, m])), [placed]);
   const origin = useMemo(() => traceOrigin(allMemories, selectedId), [allMemories, selectedId]);
   const selected = graph.byId.get(selectedId || "");
   const hovered = graph.byId.get(hoveredId || "");
@@ -428,14 +443,22 @@ function SceneContent(props: Props) {
       {cad && (
         <>
           <Grid position={[0, floor, 0]} args={[200, 200]} cellSize={4} sectionSize={20} cellColor="#14171b" sectionColor="#22272d" cellThickness={0.4} sectionThickness={0.6} fadeDistance={170} infiniteGrid />
-          <axesHelper args={[10]} />
+          {!net && <axesHelper args={[10]} />}
         </>
       )}
       <LifeDriver life={life} vitals={props.vitals} dim={!!selectedId} />
-      <Symbiosis memories={allMemories} visible={visible} life={life} vitals={props.vitals} motion={motion} />
-      <FlowLinks memories={allMemories} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} />
+      <Symbiosis memories={allMemories} visible={visible} life={life} vitals={props.vitals} motion={motion} fixed={net?.origins} />
+      {net ? (
+        <>
+          <NeuralFibers net={net} visible={visible} selectedId={selectedId} life={life} motion={motion} />
+          <NetHubs net={net} onTopic={(key) => (key.startsWith("c") ? onCluster?.(Number(key.slice(1))) : onGroup(key.slice(2)))} />
+        </>
+      ) : (
+        <FlowLinks memories={allMemories} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} />
+      )}
       <StarField
-        memories={allMemories}
+        tint={net ? MEMORY_COLOR : undefined}
+        memories={placed}
         visible={visible}
         selectedId={selectedId}
         highlighted={highlighted}
@@ -448,8 +471,8 @@ function SceneContent(props: Props) {
         onFocus={onFocus}
         onHover={setHoveredId}
       />
-      {!selectedId && <LabelDeclutter labels={labels} refs={labelRefs} />}
-      {!selectedId && labels.map((l) => (
+      {!selectedId && !net && <LabelDeclutter labels={labels} refs={labelRefs} />}
+      {!selectedId && !net && labels.map((l) => (
         <Html key={l.key} position={[l.position[0], l.position[1] + 5, l.position[2]]} center zIndexRange={[20, 0]}>
           <button className="topic-label" ref={(el) => { if (el) labelRefs.current.set(l.key, el); else labelRefs.current.delete(l.key); }} onClick={l.onClick}>
             <i style={{ background: l.color }} />
@@ -459,7 +482,7 @@ function SceneContent(props: Props) {
         </Html>
       ))}
       {focusMemory && visible.has(focusMemory.id) && (
-        <Html position={focusMemory.position} zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
+        <Html position={placedById.get(focusMemory.id)?.position ?? focusMemory.position} zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
           <div className="star-tooltip">
             <strong>{focusMemory.title}</strong>
             {focusMemory.stats && (
@@ -470,7 +493,7 @@ function SceneContent(props: Props) {
           </div>
         </Html>
       )}
-      <CameraRig command={command} allMemories={allMemories} motion={motion} drift={motion && !selectedId && !hoveredId} />
+      <CameraRig command={command} allMemories={placed} motion={motion} drift={motion && !net && !selectedId && !hoveredId} extra={net?.extent} neural={neural} />
       <GizmoHelper alignment="bottom-right" margin={[58, 100]}>
         <GizmoViewport axisColors={["#e75e78", "#55a583", "#6aa6ff"]} labelColor="white" />
       </GizmoHelper>
