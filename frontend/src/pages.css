@@ -279,3 +279,484 @@
     gap: var(--gap-2);
   }
 }
+
+/* ---------- Content pages (Memory, Skills): one column, flat ---------- */
+.app-shell .page-skin {
+  width: 100%;
+  max-width: calc(var(--page-width) + 96px);
+  margin: 0 auto;
+  padding: 36px 48px 72px;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+.app-shell .page-skin .page-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap-5);
+}
+.app-shell .page-skin h2:not(.page-title) {
+  margin: var(--gap-6) 0 var(--gap-3);
+  color: var(--text-1);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.app-shell .page-skin h3 {
+  margin: var(--gap-4) 0 var(--gap-2);
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.app-shell .page-skin p {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.app-shell .page-skin small {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.app-shell .page-skin pre {
+  max-height: 360px;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid var(--stroke-3);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sidebar);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+}
+.app-shell .page-skin code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+/* Legacy controls inside these pages, onto the tokens. */
+.app-shell .page-skin button:not(.btn):not(.btn-icon):not(.switch):not(.link-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--fill-soft);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+.app-shell .page-skin button:not(.btn):not(.btn-icon):not(.switch):not(.link-button):hover:not(:disabled) {
+  background: var(--fill-active);
+}
+.app-shell .page-skin button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.app-shell .page-skin :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  padding: 6px 10px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  outline: none;
+}
+.app-shell .page-skin :is(input, select, textarea):focus {
+  border-color: var(--accent-line);
+}
+.app-shell .page-skin label {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.app-shell .page-skin details > summary {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.app-shell .page-skin details > summary:hover {
+  color: var(--text-1);
+}
+.app-shell .page-skin .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+/* ---------- Memory ---------- */
+.memory-atlas-links {
+  display: flex;
+  flex: none;
+  gap: var(--gap-2);
+}
+.app-shell .memory-page .central-memory {
+  margin: 0 0 var(--gap-5);
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.app-shell .memory-page .memory-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-4);
+  margin: 0 0 var(--gap-4);
+}
+.app-shell .memory-page .memory-levels article {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-left: 2px solid var(--stroke-2);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.app-shell .memory-page .memory-levels b {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.app-shell .memory-page .memory-levels span {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.app-shell .memory-page .central-memory > details {
+  padding: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--stroke-4);
+  border-bottom: 1px solid var(--stroke-4);
+  border-radius: 0;
+  background: none;
+}
+.app-shell .memory-page .central-memory > details > summary {
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+.app-shell .memory-page :is(.central-options, .central-actions) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.app-shell .memory-page .central-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.app-shell .memory-page .personal-memory-heading {
+  margin: var(--gap-5) 0 var(--gap-3);
+}
+.app-shell .memory-page .memory-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-6);
+  margin: 0 0 var(--gap-4);
+}
+.app-shell .memory-page .memory-stats .card {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.app-shell .memory-page .stat-label {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.app-shell .memory-page .stat-value {
+  color: var(--text-1);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.app-shell .memory-page .filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-2);
+  margin: 0 0 var(--gap-3);
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.app-shell .memory-page .filterbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.app-shell .memory-page .filterbar .search {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  gap: 8px;
+  max-width: none;
+  padding: 0 10px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-4);
+}
+.app-shell .memory-page .filterbar .search input {
+  flex: 1;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+}
+.app-shell .memory-page .result-count {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.app-shell .memory-page .memory-actions {
+  display: flex;
+  gap: 4px;
+}
+.app-shell .memory-page .memory-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.app-shell .memory-page .memory-action:hover,
+.app-shell .memory-page .memory-action.on {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.app-shell .memory-page .memory-action input[type="file"] {
+  display: none;
+}
+.app-shell .memory-page .memory-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--gap-3);
+}
+.app-shell .memory-page .memory-row {
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--stroke-4);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.app-shell .memory-page .memory-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-shell .memory-page .memory-row-head strong {
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+.app-shell .memory-page .memory-row-spacer {
+  flex: 1;
+}
+.app-shell .memory-page .memory-row-head .btn-icon {
+  opacity: 0;
+}
+.app-shell .memory-page .memory-row:hover .btn-icon,
+.app-shell .memory-page .memory-row:focus-within .btn-icon {
+  opacity: 1;
+}
+.app-shell .memory-page :is(.scope-badge, .kind-badge) {
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--fill-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.app-shell .memory-page .kind-badge.kind-extracted {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.app-shell .memory-page .memory-row > p {
+  margin: 6px 0 6px;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+.app-shell .memory-page .memory-row-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.app-shell .memory-page .memory-tag {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.app-shell .memory-page .memory-row-foot .btn-text {
+  font-size: var(--fs-xs);
+}
+.app-shell .memory-page .community-panel,
+.app-shell .memory-page .new-memory-form,
+.app-shell .memory-page .memory-new {
+  margin: var(--gap-3) 0;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--stroke-4);
+  border-radius: 0;
+  background: none;
+}
+
+/* ---------- Skills ---------- */
+.app-shell .skills-view .skills-hub,
+.app-shell .skills-view .skill-review,
+.app-shell .skills-view .engine-panel,
+.app-shell .skills-view > details {
+  margin: var(--gap-4) 0;
+  padding: var(--gap-4) 0 0;
+  border: 0;
+  border-top: 1px solid var(--stroke-4);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.app-shell .skills-view .skills-hub-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap-4);
+}
+.app-shell .skills-view .skills-hub-heading h2 {
+  margin-top: 0;
+}
+.app-shell .skills-view .skills-hub-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-2);
+  margin: var(--gap-3) 0;
+}
+.app-shell .skills-view .skills-hub-search label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.app-shell .skills-view .skills-hub-search label:first-child {
+  flex: 1 1 260px;
+}
+.app-shell .skills-view .skills-hub-notice {
+  padding: 8px 12px;
+  border: 0;
+  border-left: 2px solid var(--yellow);
+  border-radius: 0;
+  background: var(--yellow-soft);
+  color: var(--text-2);
+}
+.app-shell .skills-view .skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--gap-2);
+  margin: var(--gap-3) 0;
+}
+.app-shell .skills-view .skill-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: none;
+}
+.app-shell .skills-view .skill-grid article:hover {
+  background: var(--bg-elevated);
+}
+.app-shell .skills-view .skill-grid article h3 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.app-shell .skills-view .skill-grid article p {
+  flex: 1;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.app-shell .skills-view .skill-grid article button {
+  align-self: flex-start;
+  padding: 3px 8px;
+  font-size: var(--fs-xs);
+}
+.app-shell .skills-view .source-badge {
+  align-self: flex-start;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--fill-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.app-shell .skills-view .source-badge.source-curated {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.app-shell .skills-view .catalog-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-3);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.app-shell .skills-view .workflow-actions {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 900px) {
+  .app-shell .page-skin {
+    padding: 24px 16px 56px;
+  }
+  .app-shell .page-skin .page-header-row {
+    flex-direction: column;
+  }
+  .app-shell .memory-page .memory-levels {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Legacy overrides on content pages. */
+.app-shell .page-skin .page-title {
+  color: var(--text-1);
+  font-size: var(--fs-2xl);
+}
+.app-shell .page-skin .btn-text {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+}
+.app-shell .page-skin .btn-text:hover:not(:disabled) {
+  background: none;
+  color: var(--text-1);
+}
+.app-shell .page-skin.memory-page .filterbar .search input:not([type="checkbox"]) {
+  border: 0;
+  background: none;
+  padding: 6px 0;
+}

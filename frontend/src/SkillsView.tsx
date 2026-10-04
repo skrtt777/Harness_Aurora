@@ -14,8 +14,8 @@ export default function SkillsView() {
   const curatedSources=hub?.sources.filter(s=>s.curated)??[],bulkSources=hub?.sources.filter(s=>!s.curated)??[];
   useEffect(()=>{void listSkills().then(setSkills).catch(e=>setError(e.message));void getRuntimePolicy().then(r=>setRules(r.rules)).catch(e=>setError(e.message));},[]);
   const action=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn();setSkills(await listSkills());}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar skills.');}finally{setBusy(false);}};
-  return <section className="skills-view"><h1>Skills e regras</h1>
-    <p>Procedimentos reutilizáveis, carregados conforme a tarefa. Importações ficam inativas até você revisar e ativar. Ler uma skill não instala ferramentas nem executa seus scripts.</p>
+  return <section className="skills-view page-skin"><header className="page-header"><h1 className="page-title">Skills e regras</h1>
+    <p className="page-desc">Procedimentos reutilizáveis, carregados conforme a tarefa. Importações ficam inativas até você revisar e ativar. Ler uma skill não instala ferramentas nem executa scripts.</p></header>
     {error&&<p role="alert" className="memory-form-error">{error}</p>}
     <EnginePanel onChange={()=>void listSkills().then(setSkills).catch(e=>setError(e.message))}/>
     <section className="skills-hub" aria-label="Catálogo de skills"><div className="skills-hub-heading"><div><h2>Explore o catálogo Hermes</h2><p>{hub?.meta?`${hub.meta.total.toLocaleString('pt-BR')} entradas no índice`:'Carregue o índice para descobrir skills de várias fontes.'}</p></div><button disabled={busy} onClick={()=>void action(async()=>{await syncSkillCatalog();setHub(await searchSkillCatalog(hubFilter.q,hubFilter.source,0,hubFilter.includeAll));})}>{busy?'Aguarde…':'Atualizar catálogo'}</button></div>

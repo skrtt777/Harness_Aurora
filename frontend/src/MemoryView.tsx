@@ -199,6 +199,7 @@ function MemoryRow({
         <strong>{memory.title}</strong>
         <span className="memory-row-spacer" />
         <button
+          className="btn-icon"
           aria-label="Editar"
           onClick={() => {
             setContent(memory.content);
@@ -208,6 +209,7 @@ function MemoryRow({
           <Icon name="edit" size={13} />
         </button>
         <button
+          className="btn-icon"
           aria-label="Excluir"
           onClick={() => {
             if (confirm("Excluir esta memória?")) onDeleted();
@@ -239,7 +241,7 @@ function MemoryRow({
         <p>{memory.content}</p>
       )}
       <div className="memory-row-foot">
-        <button onClick={onShare}>Compartilhar cópia</button>
+        <button className="btn btn-text btn-sm" onClick={onShare}>Compartilhar cópia</button>
         {(projectName || conversationName) && <span>{projectName || conversationName}</span>}
         {memory.tags.map((t) => (
           <span className="memory-tag" key={t}>#{t}</span>
@@ -359,14 +361,11 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
   };
 
   return (
-    <section className="memory-page">
-      <div className="titlebar">
+    <section className="memory-page page-skin">
+      <div className="page-header page-header-row">
         <div>
-          <div className="overline">MEMÓRIA DO HARNESS</div>
-          <h1>
-            Tudo que a IA <span>lembra</span>
-          </h1>
-          <p>Central compartilhada, contexto de cada chat e sua coleção pessoal. Somente referências relevantes entram nas respostas.</p>
+          <h1 className="page-title">Memória</h1>
+          <p className="page-desc">O que a Aurora lembra: a central compartilhada, o contexto de cada chat e a sua coleção pessoal. Só o que é relevante entra nas respostas.</p>
         </div>
         {onOpenAtlas && (
           <div className="memory-atlas-links">
@@ -377,7 +376,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
       </div>
 
       <CentralMemoryPanel draft={shareDraft} onCloseDraft={()=>setShareDraft(null)} />
-      <h2 className="personal-memory-heading">Memória pessoal · todos os chats</h2>
+      <h2 className="section-title personal-memory-heading">Memória pessoal</h2>
       <div className="memory-stats">
         <div className="card stat">
           <div className="stat-label">Total</div>
@@ -420,7 +419,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
             <option value="imported">Importada</option>
           </select>
         </label>
-        <div className="search" style={{ flex: 1, maxWidth: 320 }}>
+        <div className="search">
           <Icon name="search" size={14} />
           <input placeholder="Pesquisar memórias…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
