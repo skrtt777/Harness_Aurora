@@ -208,6 +208,7 @@ test("real UI: navigation races, drafts, errors, settings and opaque executable 
     assert.equal(await composer.inputValue(), "Rascunho A");
 
     await page.getByRole("button", { name: /Configurações/ }).click();
+    await page.getByRole('button', { name: 'IA local', exact: true }).click();
     await page.getByText('Escolha manual avançada', {exact:true}).click();
     const custom = page.getByRole('textbox', { name: 'Modelo avançado do Ollama', exact: true });
     await custom.fill("qwen:custom-test"); assert.equal(await custom.inputValue(), "qwen:custom-test");

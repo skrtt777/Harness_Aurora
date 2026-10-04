@@ -72,7 +72,8 @@ export function knownFolders() {
   const fallback = { desktop: join(homedir(), "Desktop"), documents: join(homedir(), "Documents"), downloads: join(homedir(), "Downloads"), home: homedir() };
   if (process.platform !== "win32") return Promise.resolve(fallback);
   foldersPromise ||= new Promise((resolve) => {
-    const script = "[Environment]::GetFolderPath('Desktop');[Environment]::GetFolderPath('MyDocuments');(New-Object -ComObject Shell.Application).Namespace('shell:Downloads').Self.Path";
+    // UTF-8 out: in the console's OEM code page "Área de Trabalho" arrives as "�rea".
+    const script = "[Console]::OutputEncoding=[Text.Encoding]::UTF8;[Environment]::GetFolderPath('Desktop');[Environment]::GetFolderPath('MyDocuments');(New-Object -ComObject Shell.Application).Namespace('shell:Downloads').Self.Path";
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 15000 }, (error, stdout) => {
       const [desktop, documents, downloads] = String(stdout || "").split(/\r?\n/).map((s) => s.trim());
       resolve(error ? fallback : { desktop: desktop || fallback.desktop, documents: documents || fallback.documents, downloads: downloads || fallback.downloads, home: homedir() });

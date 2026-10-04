@@ -1,0 +1,281 @@
+/* Settings, Memory and Skills pages (docs/DESIGN.md). */
+
+/* ---------- Settings: section nav + content ---------- */
+.app-shell .settings-page {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-chrome);
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 28px 12px;
+  border-right: 1px solid var(--stroke-4);
+  overflow-y: auto;
+}
+.settings-nav-title {
+  margin: 0 8px 14px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.settings-nav-item {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  text-align: left;
+}
+.settings-nav-item:hover {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.settings-nav-item.active {
+  background: var(--fill-active);
+  color: var(--text-1);
+}
+.settings-content {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 36px 48px 64px;
+}
+.settings-content > * {
+  max-width: 720px;
+}
+.settings-content .page-title {
+  font-size: var(--fs-xl);
+}
+.settings-content .page-header {
+  margin-bottom: var(--gap-5);
+}
+.settings-content .section {
+  padding: var(--gap-4) 0;
+}
+.settings-content .row-control .segmented {
+  flex-wrap: wrap;
+}
+.provider-status {
+  gap: var(--gap-4);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.provider-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.app-shell .status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.app-shell .status-dot.ready {
+  background: var(--green);
+}
+.app-shell .status-dot.pending {
+  background: var(--yellow);
+}
+.num-field {
+  width: 96px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-2);
+  margin-top: var(--gap-3);
+}
+.settings-saved {
+  color: var(--green);
+  font-size: var(--fs-sm);
+}
+.settings-error {
+  margin: var(--gap-2) 0;
+  color: var(--red);
+  font-size: var(--fs-sm);
+}
+.settings-content textarea.field {
+  resize: vertical;
+  min-height: 72px;
+}
+.app-shell .update-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--fill-active);
+  overflow: hidden;
+}
+.app-shell .update-progress-bar {
+  height: 100%;
+  background: var(--accent);
+}
+.disclosure {
+  margin-top: var(--gap-2);
+}
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  list-style: none;
+  cursor: pointer;
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.12s var(--ease);
+}
+.disclosure[open] > summary::before {
+  transform: rotate(45deg);
+}
+.disclosure > summary:hover {
+  color: var(--text-1);
+}
+
+/* Panels not yet rebuilt (knowledge, evaluation, training, model picker):
+   pull their legacy controls onto the tokens so they read as one app. */
+.settings-content :is(.legacy-panel, .model-picker) {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(h2, h3, strong) {
+  color: var(--text-1);
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(.settings-hint, small, .hint) {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.settings-content :is(.legacy-panel, .model-picker) button:not(.btn):not(.btn-icon):not(.switch) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--fill-soft);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.settings-content :is(.legacy-panel, .model-picker) button:not(.btn):not(.btn-icon):not(.switch):hover:not(:disabled) {
+  background: var(--fill-active);
+}
+.settings-content :is(.legacy-panel, .model-picker) button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  padding: 6px 10px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  outline: none;
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(input, select, textarea):focus {
+  border-color: var(--accent-line);
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+.settings-content :is(.legacy-panel, .model-picker) :is(th, td) {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--stroke-4);
+  text-align: left;
+}
+.settings-content .model-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--gap-2);
+}
+.settings-content .model-picker > p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+}
+.settings-content .model-picker form {
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+  margin-top: 6px;
+}
+.settings-content .model-picker form input {
+  flex: 1;
+}
+.settings-content .knowledge-source {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--stroke-4);
+}
+.settings-content .knowledge-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.settings-content .knowledge-add > input {
+  flex: 1 1 200px;
+}
+.settings-content .knowledge-map {
+  margin-top: 16px;
+}
+.settings-content .settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .settings-nav {
+    flex-direction: row;
+    gap: 4px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--stroke-4);
+  }
+  .settings-nav-title {
+    display: none;
+  }
+  .settings-nav-item {
+    flex: none;
+  }
+  .settings-content {
+    padding: 24px 16px 48px;
+  }
+  .settings-content .row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--gap-2);
+  }
+}

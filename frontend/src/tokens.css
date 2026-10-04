@@ -368,3 +368,9 @@ select.field {
 .mono {
   font-family: var(--font-mono);
 }
+
+/* The legacy sheet paints every pressed button teal with !important. */
+.segmented > button[aria-pressed="true"] {
+  border-color: transparent !important;
+  background: var(--bg-elevated) !important;
+}

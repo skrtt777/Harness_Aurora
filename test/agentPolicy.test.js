@@ -170,3 +170,12 @@ test("commands use Windows' own tools first and print UTF-8", { skip: process.pl
   const out = await executeTool("run_command", { command: "Write-Output 'ação não é exceção'" }, c);
   assert.match(out.result, /ação não é exceção/);
 });
+
+test("the user's folders are real paths, accents included (Área de Trabalho)", { skip: process.platform !== "win32" && "Windows only" }, async () => {
+  const { knownFolders } = await import("../app/agentTools/index.js");
+  const folders = await knownFolders();
+  for (const key of ["desktop", "documents", "downloads"]) {
+    assert.doesNotMatch(folders[key], /�/, `${key}: ${folders[key]}`);
+    assert.ok(existsSync(folders[key]), `${key} exists: ${folders[key]}`);
+  }
+});

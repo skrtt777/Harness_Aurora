@@ -8,5 +8,6 @@ import './conversation.css';
 import './atlas.css';
 import './layout.css';
 import './chat.css';
+import './pages.css';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><AppShell /></React.StrictMode>);
