@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
-import { buildProviderConfig as buildLocalProviderConfig, runLocal, AGENT_MIN_CONTEXT_TOKENS, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
+import { buildProviderConfig as buildLocalProviderConfig, runLocal, ollamaContextTokens, AGENT_MIN_CONTEXT_TOKENS, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import {
   CURATED_MODELS,
   getLocalStatus,
@@ -74,11 +74,14 @@ import { systemVitals } from "./systemVitals.js";
 import { recallProbe, recentRecalls } from "./memoryRecall.js";
 import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
-import { knownFolders } from "./agentTools/index.js";
+import { AGENT_TOOLS, knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
+import { ensureLlamaServer } from "./llamaServer.js";
+import { agentForProject, agentToolOverrides } from "./agents.js";
+import * as taskAgents from "./agents.js";
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
 const FULL_SHEET_CHARS = 12000;
 
@@ -90,14 +93,26 @@ async function localCopies(env) {
   const model = await resolveLocalModel(env).catch(() => null);
   let saved = null;
   try { saved = JSON.parse(await getSetting("local_copies") || "null"); } catch { saved = null; }
-  if (saved && saved.model === model) return saved.max;
+  const engine = env.LOCAL_CHAT_BASE_URL ? "llama-server" : "ollama";
+  if (saved && saved.model === model && (saved.engine || "ollama") === engine) return saved.max;
   if (model && !copiesProbe) {
-    copiesProbe = probeParallelCopies({ baseUrl: env.LOCAL_BASE_URL || "http://127.0.0.1:11434", model })
+    copiesProbe = probeParallelCopies({ baseUrl: env.LOCAL_CHAT_BASE_URL || env.LOCAL_BASE_URL || "http://127.0.0.1:11434", model, engine })
       .then((result) => setSetting("local_copies", JSON.stringify(result)))
       .catch(() => {})
       .finally(() => { copiesProbe = null; });
   }
   return 1;
+}
+
+// The agent on llama-server when it can run here (parallel copies; llamaServer.js). Only with the
+// default local Ollama or when asked (LOCAL_CHAT_ENGINE=llama-server): a custom LOCAL_BASE_URL
+// (tests, a remote Ollama) keeps everything on Ollama. Setting local_chat_engine=ollama turns it off.
+async function localChatServer(env) {
+  if (env.LOCAL_CHAT_BASE_URL) return env.LOCAL_CHAT_BASE_URL;
+  const wanted = env.LOCAL_CHAT_ENGINE || (env.LOCAL_BASE_URL ? "ollama" : (await getSetting("local_chat_engine")) || "llama-server");
+  if (wanted !== "llama-server" || env.LOCAL_ENGINE === "llama.cpp") return null;
+  const model = await resolveLocalModel(env).catch(() => null);
+  return ensureLlamaServer({ model, contextTokens: ollamaContextTokens(env), env }).catch(() => null);
 }
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
@@ -301,7 +316,14 @@ async function chatAgentToolContext({ conversation, project }) {
     browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage(),
     workspaceFile: await workspaceInstructions(workspace),
     knowledgeRoots: (await listSources().catch(() => [])).map((s) => s.path),
+    // A task agent's chat (agents.js): Auto mode in its folder, its department, its tools.
+    ...(await agentToolContext(conversation.projectId)),
   };
+}
+
+async function agentToolContext(projectId) {
+  const agent = await agentForProject(projectId).catch(() => null);
+  return agent ? { ...(await agentToolOverrides(agent, { listSources })), agentId: agent.id } : {};
 }
 
 const MODE_TEXT = {
@@ -450,7 +472,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
-          const agentEnv = conversation.provider === "local" ? localEnv : env;
+          const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
+          const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
           const runAgent = (agentHistoryMessages, input, overrides = {}) => runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
             // Local answers citing a company document that exists nowhere go back once.
@@ -461,6 +484,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
             env: agentEnv, signal: controller.signal, toolContext,
+            ...(toolContext.agentTools ? { tools: AGENT_TOOLS.filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") } : {}),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
@@ -944,6 +968,29 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
 
       // ---------- Conhecimento da empresa (pastas da rede / SharePoint) ----------
+      // Task agents (agents.js): list, create, change, remove, run, history.
+      if (method === "GET" && pathname === "/api/agents") return sendJson(response, 200, { agents: await taskAgents.listAgents(), runs: await taskAgents.listRuns({ limit: 20 }) });
+      if (method === "POST" && pathname === "/api/agents") return sendJson(response, 201, { agent: await taskAgents.createAgent(await readJson(request)) });
+      if (method === "POST" && pathname === "/api/agents/sector") {
+        const body = await readJson(request);
+        const departments = [...new Set((await listSources()).map((s) => s.department).filter(Boolean))];
+        return sendJson(response, 201, { agents: await taskAgents.createSectorAgents({ baseDir: body.baseDir, departments: body.departments || departments }) });
+      }
+      const taskAgentMatch = pathname.match(/^\/api\/agents\/([^/]+)(\/run|\/runs)?$/);
+      if (taskAgentMatch) {
+        const [, id, sub] = taskAgentMatch;
+        if (!sub && method === "PATCH") return sendJson(response, 200, { agent: await taskAgents.updateAgent(id, await readJson(request)) });
+        if (!sub && method === "DELETE") { await taskAgents.deleteAgent(id); return sendJson(response, 200, { deleted: true }); }
+        if (sub === "/runs" && method === "GET") return sendJson(response, 200, { runs: await taskAgents.listRuns({ agentId: id }) });
+        if (sub === "/run" && method === "POST") {
+          const body = await readJson(request);
+          if (!(await taskAgents.getAgent(id))) throw httpError(404, "Agente não encontrado.");
+          if (taskAgents.isAgentRunning(id)) throw httpError(409, "O agente já está trabalhando.");
+          // Runs in the background; the history (GET /runs) shows it running and then its delivery.
+          void taskAgents.runAgent(id, { request: body.request, trigger: "manual", handleChatTurn }).catch(() => {});
+          return sendJson(response, 202, { started: true });
+        }
+      }
       if (method === "GET" && pathname === "/api/knowledge/sources") return sendJson(response, 200, { sources: await listSources() });
       if (method === "POST" && pathname === "/api/knowledge/sources") {
         const body = await readJson(request);

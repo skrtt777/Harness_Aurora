@@ -52,12 +52,21 @@ const round = (n) => Math.round(n * 100) / 100;
  * generation alone, then 4 at the same time. With Ollama's parallel slots on a GPU the 4 cost
  * little more than one; on a CPU (or without slots) they queue and cost ~4×, so the answer is 1.
  */
-export async function probeParallelCopies({ baseUrl = "http://127.0.0.1:11434", model, fetchImpl = fetch, budget = 1.6, signal } = {}) {
+export async function probeParallelCopies({ baseUrl = "http://127.0.0.1:11434", model, engine = "ollama", fetchImpl = fetch, budget = 1.6, signal } = {}) {
+  const prompt = "Escreva os números de 1 a 30 por extenso, separados por vírgula.";
+  // Ollama's /api/generate or llama-server's /completion: the same short generation.
+  const request = engine === "llama-server"
+    ? { url: `${baseUrl}/completion`, body: { prompt: `<|im_start|>user
+${prompt}<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+`, n_predict: 96, temperature: 0, cache_prompt: false } }
+    : { url: `${baseUrl}/api/generate`, body: { model, prompt, stream: false, think: false, options: { num_predict: 96, temperature: 0 } } };
   const generate = async () => {
-    const response = await fetchImpl(`${baseUrl}/api/generate`, {
-      method: "POST", headers: { "content-type": "application/json" }, signal,
-      body: JSON.stringify({ model, prompt: "Escreva os números de 1 a 30 por extenso, separados por vírgula.", stream: false, think: false, options: { num_predict: 96, temperature: 0 } }),
-    });
+    const response = await fetchImpl(request.url, { method: "POST", headers: { "content-type": "application/json" }, signal, body: JSON.stringify(request.body) });
     if (!response.ok) throw new Error(`Ollama respondeu ${response.status}`);
     await response.json();
   };
@@ -69,5 +78,5 @@ export async function probeParallelCopies({ baseUrl = "http://127.0.0.1:11434", 
   // Estimated wall time of n copies, linear between 1 (×1) and 4 (×ratio).
   const wall = (n) => 1 + ((ratio - 1) * (n - 1)) / 3;
   const max = [5, 4, 3, 2].find((n) => wall(n) <= budget) || 1;
-  return { max, ratio: round(ratio), singleMs: Math.round(single), fourMs: Math.round(four), model, probedAt: new Date().toISOString() };
+  return { max, ratio: round(ratio), singleMs: Math.round(single), fourMs: Math.round(four), model, engine, probedAt: new Date().toISOString() };
 }

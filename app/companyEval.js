@@ -72,6 +72,7 @@ export async function runCompanyEval({ questions, root, workDir, samples = 1, en
       docSectors, docs: docs.map((d) => String(d).split(/[\\/]/).pop()), tools: steps.map((s) => s.tool),
       steps: steps.map((s) => `${s.ok ? "" : "✕ "}${s.tool} ${JSON.stringify(s.args).slice(0, 120)} → ${String(s.result ?? s.summary ?? "").replace(/\s+/g, " ").slice(0, 300)}`),
       checks: turn.message?.execution?.checks || [],
+      copies: turn.message?.execution?.copies || null,
       ms: Date.now() - started, error: turn.ok ? null : turn.error, answer: answer.slice(0, 600),
     };
   };
@@ -112,7 +113,9 @@ export function summarizeCompanyEval(results) {
   const located = results.filter((r) => r.rightSector !== null);
   const sampled = results.filter((r) => r.samples);
   const count = (f) => sampled.filter(f).length;
+  const escalated = results.filter((r) => r.copies);
   return {
+    ...(escalated.length ? { appCopies: { questions: escalated.length, average: Math.round((escalated.reduce((n, r) => n + r.copies.used, 0) / escalated.length) * 100) / 100, disagree: escalated.filter((r) => r.copies.disagree).length } } : {}),
     ...(sampled.length ? { samples: sampled[0].samples.length, single: count((r) => r.passed), consensus3: count((r) => r.consensus3), consensusN: count((r) => r.consensusN),
       escalated: count((r) => r.escalated.passed), escalatedCost: Math.round((sampled.reduce((n, r) => n + r.escalated.used, 0) / sampled.length) * 100) / 100,
       anyPassed: count((r) => r.anyPassed) } : {}),

@@ -123,6 +123,8 @@ function localErrorDetail(error, externalSignal) {
  */
 export async function runLocalChat(messages, tools = [], env = process.env, externalSignal) {
   if (env.LOCAL_ENGINE === 'llama.cpp') return runLlamaChat(messages, tools, env, externalSignal);
+  // Desktop agent on llama-server (llamaServer.js): same model, parallel slots for the copies.
+  if (env.LOCAL_CHAT_BASE_URL) return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: await resolveLocalModel(env), LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal);
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);

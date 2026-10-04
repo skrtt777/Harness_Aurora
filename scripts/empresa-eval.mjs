@@ -49,6 +49,7 @@ const md = [
   `Modelo **${model}**, ${new Date().toLocaleString("pt-BR")}. Índice: ${Math.round(indexMs / 1000)} s.`, "",
   `**Respostas certas: ${summary.passed}/${summary.total} (${pct(summary.passed, summary.total)})** · documentos do setor certo: ${summary.rightSector}/${summary.located} · tempo médio ${Math.round(summary.ms / results.length / 1000)} s`, "",
   ...(summary.samples ? [`**Várias cópias (${summary.samples} ao mesmo tempo):** 1 resposta ${summary.single}/${summary.total} · consenso de 3 ${summary.consensus3}/${summary.total} · consenso de ${summary.samples} ${summary.consensusN}/${summary.total} · escalada 1→2→4→${summary.samples} ${summary.escalated}/${summary.total} com ${summary.escalatedCost} cópias em média · alguma certa ${summary.anyPassed}/${summary.total}`, ""] : []),
+  ...(summary.appCopies ? [`**Escalada do app:** ${summary.appCopies.questions} perguntas conferidas com cópias, ${summary.appCopies.average} cópias em média, ${summary.appCopies.disagree} sem acordo (vão para o professor).`, ""] : []),
   "| Setor | Certas | Setor certo | Tempo médio |", "|---|---|---|---|",
   ...Object.entries(summary.bySector).map(([s, v]) => `| ${s} | ${v.passed}/${v.total} | ${v.located ? `${v.rightSector}/${v.located}` : "—"} | ${Math.round(v.ms / v.total / 1000)} s |`),
   "", "## Erros", "",
