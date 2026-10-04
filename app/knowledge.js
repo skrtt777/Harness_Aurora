@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 import { getDb } from "./db.js";
-import { embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
+import { embedText, embeddingPlacement, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 import { IMAGE_EXTENSIONS, extractText, isDocument } from "./docText.js";
 import { httpError } from "./httpSecurity.js";
 import { runLocal } from "./local.js";
@@ -217,7 +217,7 @@ async function embedDocuments(chunks, env, signal) {
   for (let i = 0; i < chunks.length; i += 16) {
     const input = chunks.slice(i, i + 16).map((c) => `search_document: ${c}`);
     try {
-      const response = await fetch(`${base}/api/embed`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, input, keep_alive: "30m" }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
+      const response = await fetch(`${base}/api/embed`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, input, keep_alive: "30m", ...embeddingPlacement(env) }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
       const data = response.ok ? await response.json() : null;
       if (Array.isArray(data?.embeddings) && data.embeddings.length === input.length) { out.push(...data.embeddings); continue; }
     } catch { /* older Ollama or offline: one by one below */ }

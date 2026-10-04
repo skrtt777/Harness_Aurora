@@ -71,6 +71,12 @@ export function cosineSimilarity(a, b) {
  * a ~274 MB download; that memory/search simply proceeds without a vector
  * this time, and later calls succeed once the pull finishes.
  */
+// The embedding model runs on the CPU by default: on the GPU it competes with
+// the chat model for VRAM, and Ollama evicts the big model to load it — with
+// a 22 GB MoE on a 24 GB card, every search reloaded the MoE (~60 s each).
+// It is small (~274 MB) and fast enough on the CPU. EMBEDDINGS_GPU=true keeps it on the GPU.
+export const embeddingPlacement = (env = process.env) => (env.EMBEDDINGS_GPU === "true" ? {} : { options: { num_gpu: 0 } });
+
 export async function embedText(text, env = process.env, signal) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
@@ -91,7 +97,7 @@ export async function embedText(text, env = process.env, signal) {
       response = await fetch(`${baseUrl}/api/embeddings`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, prompt: trimmed }),
+        body: JSON.stringify({ model, prompt: trimmed, keep_alive: "30m", ...embeddingPlacement(env) }),
         signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       });
       if (!response.ok) return null;
