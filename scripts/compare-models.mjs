@@ -1,5 +1,5 @@
 // Compares local models on the agent battery (docs/ESTUDO_IA_LEVE_2026-10-03.md, passo 1).
-//   node scripts/compare-models.mjs --db <copia.db> --models qwen3.5:4b,gpt-oss:20b [--rounds 3] [--label gpu-24gb]
+//   node scripts/compare-models.mjs --db <copia.db> --models qwen3.5:4b,gpt-oss:20b [--rounds 3] [--label gpu-24gb] [--round-timeout 90]
 // Per model: decode speed on a fixed prompt, then N full battery rounds, each on a
 // fresh copy of the database, plus the memory Ollama reports (RAM vs VRAM).
 // Results: reports/model-compare/<label>.json and .md (appended per model).
@@ -13,6 +13,8 @@ const db = arg("db");
 const models = String(arg("models", "")).split(",").filter(Boolean);
 const rounds = Number(arg("rounds", 3));
 const label = arg("label", "padrao");
+// A round that runs past this is stopped and recorded as too slow (minutes; 0 = no limit).
+const roundTimeoutMin = Number(arg("round-timeout", 0));
 const base = process.env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
 if (!db || !existsSync(db) || !models.length) { console.error("Uso: --db <copia.db> --models a,b [--rounds 3] [--label x]"); process.exit(2); }
 
@@ -44,9 +46,13 @@ function battery(model, copy) {
     const child = spawn(process.execPath, ["app/agentEvalRunner.mjs"], { env: { ...process.env, HARNESS_DB_FILE: copy, LOCAL_MODEL: model }, windowsHide: true });
     let out = "";
     let err = "";
+    let timedOut = false;
+    const timer = roundTimeoutMin > 0 ? setTimeout(() => { timedOut = true; child.kill(); }, roundTimeoutMin * 60000) : null;
     child.stdout.on("data", (c) => { out += c; });
     child.stderr.on("data", (c) => { err = (err + c).slice(-1500); });
     child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      if (timedOut) return resolve({ failure: `passou de ${roundTimeoutMin} min (lento demais)` });
       const events = out.trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
       const done = events.find((e) => e.done)?.done;
       // Keep why a round produced nothing (runner error, crash, last stderr lines).
