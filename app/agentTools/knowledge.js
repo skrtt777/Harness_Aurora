@@ -1,7 +1,8 @@
 import { createMemory, selectRelevantMemories } from "../store.js";
 import { allSkills, importSkill } from "../skills.js";
 import { importCatalogSkill, searchSkillCatalog } from "../skillCatalog.js";
-import { knowledgeMap, listSources, searchKnowledge } from "../knowledge.js";
+import { createSource, knowledgeMap, listSources, searchKnowledge, startIndexing } from "../knowledge.js";
+import { discoverCompanyFolders } from "../fileAccess.js";
 
 // Paid providers (Claude/Codex chats) only see restricted company documents
 // when the person approves; the local model sees everything it indexed.
@@ -50,6 +51,39 @@ export const knowledgeTools = [
       const map = await knowledgeMap({ department, category });
       if (!map.length) return "Nenhum documento indexado ainda. As pastas são cadastradas em Configurações → Conhecimento da empresa.";
       return map.map((c) => `# ${c.category}\n${c.documents.map((d) => `- ${d.title} (${d.relPath})${d.summary ? `: ${clip(d.summary, 220)}` : ""}${d.flow.length ? `\n  Fluxo: ${d.flow.map((s, i) => `${i + 1}) ${clip(s, 80)}`).join(" ")}` : ""}`).join("\n")}`).join("\n\n").slice(0, 8000);
+    },
+  },
+  {
+    name: "knowledge_setup",
+    description: "Configura as pastas da empresa que a Aurora conhece. action=list mostra as pastas cadastradas; action=discover procura pastas de setor (RH, Financeiro, Jurídico…) dentro de root (a pasta que o usuário disse, ex.: F:\\Empresa ou \\\\servidor\\dados) ou, sem root, na rede e no SharePoint sincronizado; action=add cadastra folders=[{path, department}] depois que o usuário confirmar a lista. Use quando o usuário disser onde ficam os arquivos da empresa.",
+    parameters: { type: "object", properties: { action: { type: "string", enum: ["list", "discover", "add"] }, root: { type: "string" }, folders: { type: "array", items: { type: "object", properties: { path: { type: "string" }, department: { type: "string" } }, required: ["path", "department"] } } }, required: ["action"] },
+    stage: (a) => (a.action === "add" ? "Cadastrando pastas da empresa…" : a.action === "discover" ? "Procurando pastas de setor…" : "Consultando as pastas cadastradas…"),
+    // Adding folders changes what Aurora reads and indexes: the person confirms the list.
+    describe: (a) => (a.action === "add"
+      ? { kind: "configure", summary: `Cadastrar ${(a.folders || []).length} pasta(s) no conhecimento da empresa: ${(a.folders || []).map((f) => `${f.department} (${f.path})`).join("; ").slice(0, 400)}` }
+      : a.action === "discover" && a.root ? { kind: "read", paths: [String(a.root)] } : { kind: "meta" }),
+    async run({ action, root, folders }) {
+      if (action === "list") {
+        const sources = await listSources();
+        return sources.length ? sources.map((s) => `- ${s.department}: ${s.path} (${s.documents} documentos)`).join("\n") : "Nenhuma pasta da empresa cadastrada ainda.";
+      }
+      if (action === "discover") {
+        const found = await discoverCompanyFolders({ roots: root ? [String(root)] : [] });
+        if (!found.length) return root ? `Não achei pastas com nome de setor em ${root}. Pergunte ao usuário o setor de cada pasta.` : "Não achei unidades de rede nem SharePoint sincronizado. Pergunte ao usuário onde ficam os arquivos da empresa.";
+        return `${found.map((f) => `- ${f.department}: ${f.path} (${f.documents} documentos)`).join("\n")}\n\nMostre esta lista ao usuário e pergunte se pode cadastrar; só depois use action=add.`;
+      }
+      if (action === "add") {
+        const existing = new Set((await listSources()).map((s) => s.path.toLowerCase()));
+        const added = [];
+        for (const f of (folders || []).slice(0, 40)) {
+          if (!f?.path || !f?.department || existing.has(String(f.path).toLowerCase())) continue;
+          const source = await createSource({ name: `${f.department} (${String(f.path).split(/[\\/]/).filter(Boolean).pop()})`, path: f.path, department: f.department });
+          void startIndexing(source.id).catch(() => {});
+          added.push(`${f.department}: ${f.path}`);
+        }
+        return added.length ? `Cadastradas ${added.length} pasta(s); a indexação roda em segundo plano:\n${added.join("\n")}` : "Essas pastas já estavam cadastradas.";
+      }
+      return "Ação inválida: use list, discover ou add.";
     },
   },
   {

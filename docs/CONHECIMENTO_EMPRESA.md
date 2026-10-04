@@ -211,3 +211,20 @@ A correção aceita sobreviveu à reindexação e apareceu como exemplo no promp
 - **"Sim" sem base:** quando a pergunta é sobre a empresa, nenhum documento responde e o modelo afirma algo, a resposta deveria voltar pedindo "não encontrei". É a falha que sobrou nas conversas longas.
 - **Cópia fiel de nomes e números:** o modelo pequeno ainda erra a cópia de nomes ("Marcoa"). Uma conferência dos nomes próprios e números da resposta contra os trechos usados pode mandar a resposta de volta, como a trava de documento inventado.
 - **Escala:** busca por candidatos (FTS + vetores) em vez de pontuar todos os trechos, quando passar de dezenas de milhares.
+
+## Configuração das pastas: pessoal e empresa (04/10)
+
+Fica em **Primeiros passos → Seus arquivos** e no topo de **Configurações → Conhecimento** (`frontend/src/FolderSetup.tsx`). Primeiro a pessoa escolhe como vai usar a Aurora: **Uso pessoal**, **Empresa** ou **Os dois**.
+
+**Uso pessoal:**
+- **Acesso a todo o computador** (`full_computer_access`, desligado por padrão): a Aurora lê e procura em qualquer disco sem pedir.
+  - Continuam pedindo autorização: senhas e chaves (`.ssh`, `.kdbx`, `.pem`, `.env`), perfis de navegador, `Windows`, `Program Files` e `ProgramData` (`isSensitivePath` em `app/fileAccess.js`).
+  - Alterar, apagar ou rodar comandos fora da pasta do projeto também continua pedindo, como no modo Auto.
+- **Lembrar pelo assunto:** indexa Documentos, Área de Trabalho e Downloads como fontes do setor "Pessoal".
+
+**Empresa:**
+- **Descoberta automática:** `discoverCompanyFolders` procura dentro da pasta indicada ou, sem pasta, nas unidades de rede e nas bibliotecas do SharePoint sincronizadas pelo OneDrive.
+- **Setor pelo nome da pasta:** "RH", "02 - Recursos Humanos", "SESMT", "Tributário", com 16 setores e suas variações.
+- **Confirmação:** a pessoa confere o setor de cada pasta e cadastra todas de uma vez (`POST /api/knowledge/sources/bulk`). Nada é lido antes disso.
+- **Pelo chat:** a ferramenta `knowledge_setup` (list, discover, add) permite dizer "minhas pastas da empresa ficam em F:\Empresa". A Aurora mostra a lista e só cadastra com a aprovação da pessoa.
+- **Manual:** o formulário de sempre (pasta + setor) continua abaixo.

@@ -4,6 +4,7 @@ import { createKnowledgeSource, decideKnowledgeSuggestion, deleteKnowledgeSource
 const FIELD_LABEL: Record<KnowledgeSuggestion['field'], string> = { title: 'Título', summary: 'Resumo', keywords: 'Palavras-chave', type: 'Tipo', category: 'Categoria', flow: 'Passo a passo' };
 const shown = (value: string | string[] | null) => (Array.isArray(value) ? value.join(', ') : value || '—');
 import Icon from './Icon';
+import FolderSetup from './FolderSetup';
 
 // Company knowledge: folders on the network (\\servidor\RH) or SharePoint
 // libraries synced by OneDrive, indexed and organized by the local model.
@@ -28,6 +29,7 @@ export default function KnowledgePanel() {
   }, [indexing, refresh]);
   const act = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'Falha.'); } };
   return <div className="knowledge-panel">
+    <FolderSetup onChange={() => void refresh()} />
     {sources.map(source => <div key={source.id} className="knowledge-source">
       <div><strong>{source.department}</strong> · {source.name}<br /><small>{source.path}</small></div>
       <small>

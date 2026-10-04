@@ -256,6 +256,11 @@ export type KnowledgeReview = { teacher: string; reviewed: number; taxonomy: str
 export const reviewKnowledgeSource = (id: string, authorized: boolean) => request<KnowledgeReview>(`/knowledge/sources/${id}/review`, { method: "POST", body: JSON.stringify({ authorized }) });
 export const getKnowledgeSuggestions = () => request<{ suggestions: KnowledgeSuggestion[] }>("/knowledge/suggestions").then((r) => r.suggestions);
 export const decideKnowledgeSuggestion = (id: string, action: "accept" | "reject") => request<{ ok: true }>(`/knowledge/suggestions/${id}`, { method: "POST", body: JSON.stringify({ action }) });
+/** Sector folder found automatically (network drive, SharePoint or a folder the person named). */
+export type DiscoveredFolder = { path: string; department: string; name: string; origin: string; documents: number; registered: boolean };
+export const discoverKnowledgeFolders = (roots: string[]) => request<{ folders: DiscoveredFolder[] }>("/knowledge/discover", { method: "POST", body: JSON.stringify({ roots }) }).then((r) => r.folders);
+export const createKnowledgeSourcesBulk = (folders: { path: string; department: string; name?: string }[]) => request<{ sources: KnowledgeSource[] }>("/knowledge/sources/bulk", { method: "POST", body: JSON.stringify({ folders }) }).then((r) => r.sources);
+export const getPersonalFolders = () => request<{ folders: { name: string; path: string }[]; drives: string[] }>("/setup/personal-folders");
 
 // ---------- Avaliação contínua do agente local ----------
 export type AgentEvalResult = { id: string; area: string; passed: boolean; ms: number; steps: number; error: string | null; answer: string };
@@ -284,6 +289,10 @@ export type Settings = {
   browserBackend: "aurora" | "chrome";
   /** Pastas onde o chat lê e salva arquivos sem pedir autorização. */
   agentAllowedRoots: string[];
+  /** Uso pessoal: ler e procurar em qualquer disco sem pedir (senhas e sistema continuam pedindo). */
+  fullComputerAccess: boolean;
+  /** Como a pessoa usa a Aurora, escolhido nos primeiros passos. */
+  usageProfile: "pessoal" | "empresa" | "ambos" | null;
   /** manual: pergunta toda alteração; auto: livre na pasta do projeto; plan: só olha. */
   agentMode: AgentMode;
   /** Comandos que o usuário escolheu "sempre permitir". */
@@ -295,7 +304,7 @@ export type Settings = {
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "fullComputerAccess" | "usageProfile">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------

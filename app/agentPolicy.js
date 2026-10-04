@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from "node:path";
 import { realpath } from "node:fs/promises";
+import { isSensitivePath } from "./fileAccess.js";
 
 /**
  * Permission modes, decided once per tool call instead of inside each tool:
@@ -85,8 +86,16 @@ export async function decide(access, ctx) {
       return { action: "ask", reason: "Enviar trechos de documentos internos para a IA paga" };
     case "import":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano nada é instalado." } : { action: "ask", reason: "Usar instruções de uma skill de terceiros" };
+    case "configure":
+      return mode === "plan" ? { action: "deny", reason: "No modo Plano a configuração não muda; proponha ao usuário." } : { action: "ask", reason: "Mudar as pastas que a Aurora conhece" };
     case "read": {
       if (await inside(access.paths)) return { action: "allow" };
+      // "Full computer access" (personal use): any drive, except secrets and the system.
+      if (access.paths?.length && ctx.readRoots?.length && access.paths.every((p) => !isSensitivePath(p))) {
+        let all = true;
+        for (const path of access.paths) if (!(await insideWorkspace(path, ctx.readRoots))) { all = false; break; }
+        if (all) return { action: "allow" };
+      }
       // Company knowledge folders the person registered are read like the
       // project (the indexer already reads them); paid chats still ask (share).
       const knowledge = ctx.knowledgeRoots || [];

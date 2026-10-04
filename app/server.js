@@ -80,6 +80,7 @@ import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
+import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
 import * as taskAgents from "./agents.js";
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
@@ -282,7 +283,7 @@ async function rememberAlwaysAllow(rule) {
 async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))) };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))) };
 }
 
 // Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
@@ -316,6 +317,8 @@ async function chatAgentToolContext({ conversation, project }) {
     browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage(),
     workspaceFile: await workspaceInstructions(workspace),
     knowledgeRoots: (await listSources().catch(() => [])).map((s) => s.path),
+    // Personal use with "full computer access": read and search any drive without asking.
+    readRoots: (await getSetting("full_computer_access")) === "true" ? computerRoots() : [],
     // A task agent's chat (agents.js): Auto mode in its folder, its department, its tools.
     ...(await agentToolContext(conversation.projectId)),
   };
@@ -332,11 +335,12 @@ const MODE_TEXT = {
   plan: "Modo Plano: você só pode olhar (ler arquivos, pesquisar, navegar sem clicar). Não altere nada; termine com um plano do que faria.",
 };
 
-function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile }) {
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [] }) {
   return [
     `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
     workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (ex.: "soma.js", "src/app.js"), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
+    ...(readRoots.length ? [`Acesso a todo o computador: você pode ler e procurar arquivos em ${readRoots.join(", ")} sem pedir (search_files com path, read_file). Senhas, chaves, perfis de navegador e pastas do sistema continuam pedindo autorização.`] : []),
     MODE_TEXT[mode] || MODE_TEXT.auto,
     `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,
     openPage ? `No navegador agora: "${openPage.title}" — ${openPage.url}. "Lá", "nele" ou "nessa página" se referem a ela.` : "",
@@ -848,6 +852,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (!Array.isArray(body.agentAlwaysAllow) || body.agentAlwaysAllow.length > 50 || body.agentAlwaysAllow.some((r) => !r || r.tool !== "run_command" || typeof r.prefix !== "string" || !r.prefix.trim() || r.prefix.length > 120)) throw httpError(400, "Regras de permissão inválidas.");
           values.agent_always_allow = JSON.stringify(body.agentAlwaysAllow.map((r) => ({ tool: r.tool, prefix: r.prefix.trim().toLowerCase() })));
         }
+        if (body.fullComputerAccess !== undefined) {
+          if (typeof body.fullComputerAccess !== "boolean") throw httpError(400, "Opção de acesso inválida.");
+          values.full_computer_access = String(body.fullComputerAccess);
+        }
+        if (body.usageProfile !== undefined) {
+          if (!["pessoal", "empresa", "ambos"].includes(body.usageProfile)) throw httpError(400, "Perfil de uso inválido.");
+          values.usage_profile = body.usageProfile;
+        }
         if (body.agentAllowedRoots !== undefined) {
           if (!Array.isArray(body.agentAllowedRoots) || body.agentAllowedRoots.length > 20 || body.agentAllowedRoots.some((p) => typeof p !== "string" || !/^(\/|[a-zA-Z]:[\\/])/.test(p.trim()))) throw httpError(400, "Informe pastas absolutas.");
           values.agent_allowed_roots = JSON.stringify(body.agentAllowedRoots.map((p) => p.trim()));
@@ -999,6 +1011,28 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         void startIndexing(source.id).catch(() => {});
         return sendJson(response, 201, source);
       }
+      // Folder setup (fileAccess.js): company sector folders found automatically, confirmed in
+      // bulk; personal folders indexed by meaning.
+      if (method === "POST" && pathname === "/api/knowledge/discover") {
+        const body = await readJson(request);
+        const roots = Array.isArray(body.roots) ? body.roots.filter((r) => typeof r === "string" && r.trim()).slice(0, 10) : [];
+        const existing = new Set((await listSources()).map((s) => s.path.toLowerCase()));
+        return sendJson(response, 200, { folders: (await discoverCompanyFolders({ roots })).map((f) => ({ ...f, registered: existing.has(f.path.toLowerCase()) })) });
+      }
+      if (method === "POST" && pathname === "/api/knowledge/sources/bulk") {
+        const body = await readJson(request);
+        if (!Array.isArray(body.folders) || !body.folders.length || body.folders.length > 40) throw httpError(400, "Envie de 1 a 40 pastas.");
+        const existing = new Set((await listSources()).map((s) => s.path.toLowerCase()));
+        const created = [];
+        for (const f of body.folders) {
+          if (!f || existing.has(String(f.path).toLowerCase())) continue;
+          const source = await createSource({ name: f.name || `${f.department} (${String(f.path).split(/[\\/]/).filter(Boolean).pop()})`, path: f.path, department: f.department, paidAllowed: f.paidAllowed === true });
+          void startIndexing(source.id).catch(() => {});
+          created.push(source);
+        }
+        return sendJson(response, 201, { sources: created });
+      }
+      if (method === "GET" && pathname === "/api/setup/personal-folders") return sendJson(response, 200, { folders: personalFolders(), drives: computerRoots() });
       if (method === "GET" && pathname === "/api/knowledge/map") return sendJson(response, 200, { map: await knowledgeMap({ department: url.searchParams.get("department") || undefined }) });
       // The paid teacher reviews the cards the local model wrote; the person decides.
       const reviewMatch = pathname.match(/^\/api\/knowledge\/sources\/([^/]+)\/review$/);

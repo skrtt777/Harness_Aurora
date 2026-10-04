@@ -56,6 +56,14 @@ test('first-run guide persists across restart, reopens, handles failures and exp
     await page.keyboard.press('Escape'); await guide.waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Abrir guia de boas-vindas', exact: true }).click();
     await page.getByRole('button', { name: '4 Memórias', exact: true }).click();
+    await page.getByRole('button', { name: 'Continuar →', exact: true }).click();
+    // Last step: where the files are. Choosing a use shows its options; "Os dois" shows both.
+    await guide.getByText('Como você vai usar a Aurora?').waitFor();
+    await guide.getByText('Os dois', { exact: true }).click();
+    await guide.getByText('Acesso a todo o computador').waitFor();
+    await guide.getByRole('button', { name: 'Procurar setores', exact: true }).waitFor();
+    assert.equal(await getSetting('usage_profile'), 'ambos');
+    assert.notEqual(await getSetting('full_computer_access'), 'true', 'full access is never turned on by itself');
     await page.getByRole('button', { name: 'Começar a usar', exact: true }).click(); await guide.waitFor({ state: 'hidden' });
     assert.equal(inference, 0);
     const invalid = await page.evaluate(async () => { const { token } = await fetch('/api/session').then(r => r.json()); return (await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-harness-token': token }, body: JSON.stringify({ onboardingCompleted: 'true', defaultProvider: 'claude' }) })).status; });

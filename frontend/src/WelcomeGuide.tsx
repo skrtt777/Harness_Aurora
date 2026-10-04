@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { getProviders, openExternalUrl, updateSettings, type ProviderInfo } from './api';
 import BrandMark from './BrandMark';
+import FolderSetup from './FolderSetup';
 import Icon from './Icon';
 import './welcome.css';
 
-const steps = ['Boas-vindas', 'Como usar', 'Conectar uma IA', 'Memórias'];
+const steps = ['Boas-vindas', 'Como usar', 'Conectar uma IA', 'Memórias', 'Seus arquivos'];
 const docs = {
   codex: 'https://developers.openai.com/codex/cli',
   claude: 'https://code.claude.com/docs/en/setup',
@@ -47,8 +48,8 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
     <header className="guide-header"><BrandMark /><button disabled={saving} onClick={() => void finish()} aria-label="Fechar guia"><Icon name="close" size={14} /></button></header>
     <nav className="guide-steps" aria-label="Etapas do guia">{steps.map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{" "}{label}</button>)}</nav>
     <div className="guide-content" ref={content}>
-      <p className="guide-eyebrow">SEU PRIMEIRO PASSO COM A AURORA · {step + 1} DE 4</p>
-      <h1 id="guide-title" ref={title} tabIndex={-1}>{['Uma ideia. Um lugar para criar.', 'Peça, acompanhe e refine.', 'Escolha quem vai responder.', 'Conhecimento que você pode reutilizar.'][step]}</h1>
+      <p className="guide-eyebrow">SEU PRIMEIRO PASSO COM A AURORA · {step + 1} DE {steps.length}</p>
+      <h1 id="guide-title" ref={title} tabIndex={-1}>{['Uma ideia. Um lugar para criar.', 'Peça, acompanhe e refine.', 'Escolha quem vai responder.', 'Conhecimento que você pode reutilizar.', 'Onde estão os seus arquivos.'][step]}</h1>
       {step === 0 && <>
         <p className="guide-lead">Bem-vindo à Aurora. Converse com uma IA para criar jogos, páginas, aplicativos e analisar ideias, mantendo seus projetos organizados.</p>
         <div className="guide-cards"><article><h2>Você pede</h2><p>Descreva o resultado, os dados e o que precisa funcionar.</p></article><article><h2>A IA trabalha</h2><p>A Aurora reúne o contexto disponível e encaminha seu pedido ao modelo escolhido.</p></article><article><h2>Você evolui</h2><p>Veja os arquivos, confira o resultado e peça ajustes na mesma conversa.</p></article></div>
@@ -84,8 +85,13 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
         <p>Compartilhar é opcional: você revisa e aprova uma cópia pública, e o mantenedor revisa a contribuição antes de distribuí-la. Conversas privadas não são publicadas automaticamente.</p>
         <button onClick={() => void finish(true)} disabled={saving}>Abrir configurações</button>
       </>}
+      {step === 4 && <>
+        <p className="guide-lead">Para responder sobre os seus documentos, a Aurora precisa saber onde eles estão. Tudo é lido e organizado pela IA local, neste computador.</p>
+        <FolderSetup />
+        <p className="guide-note">Você muda isso quando quiser em <strong>Configurações → Conhecimento</strong>.</p>
+      </>}
       {error && <p role="alert" className="guide-error">{error}</p>}
     </div>
-    <footer className="guide-footer"><button disabled={saving} onClick={() => void finish()}>Ver depois</button><div>{step > 0 && <button onClick={() => setStep(step - 1)}>Voltar</button>}{step < 3 ? <button className="guide-primary" onClick={() => setStep(step + 1)}>Continuar →</button> : <button className="guide-primary" disabled={saving} onClick={() => void finish()}>{saving ? 'Salvando…' : 'Começar a usar'}</button>}</div></footer>
+    <footer className="guide-footer"><button disabled={saving} onClick={() => void finish()}>Ver depois</button><div>{step > 0 && <button onClick={() => setStep(step - 1)}>Voltar</button>}{step < steps.length - 1 ? <button className="guide-primary" onClick={() => setStep(step + 1)}>Continuar →</button> : <button className="guide-primary" disabled={saving} onClick={() => void finish()}>{saving ? 'Salvando…' : 'Começar a usar'}</button>}</div></footer>
   </dialog>;
 }
