@@ -10,6 +10,12 @@ import { randomUUID } from "node:crypto";
  */
 const pending = new Map();
 
+/** How many turns are being worked on right now, and the stage of one of them. */
+export function activeTurns() {
+  const stages = [...pending.values()].map((entry) => entry.stage).filter(Boolean);
+  return { count: pending.size, stage: stages[0] || null };
+}
+
 export function startTurn(conversationId) {
   if (pending.has(conversationId)) throw Object.assign(new Error("Esta conversa já tem uma resposta em andamento."), { status: 409 });
   const controller = new AbortController();

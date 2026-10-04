@@ -1,11 +1,13 @@
-import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Grid, OrbitControls, PerspectiveCamera, OrthographicCamera, GizmoHelper, GizmoViewport, Html, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
+import { EffectComposer, Vignette } from "@react-three/postprocessing";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import { groupKey, hash, memoryColor, memoryHealth, clusterColor, type Memory, type MemoryCluster } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
+import type { SystemVitals } from "./api";
+import Symbiosis, { LifeDriver, newLife, type Life } from "./Symbiosis";
 
 export type CameraCommand = {
   serial: number;
@@ -18,6 +20,8 @@ type Props = {
   clusters: MemoryCluster[];
   /** Memories the chat just used: their stars pulse (id → time it was noticed). */
   pulses?: Map<string, number>;
+  /** Live PC load and whether Aurora is thinking (symbiosis view). */
+  vitals?: SystemVitals | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onFocus: (id: string) => void;
@@ -45,6 +49,10 @@ const starVertex = /* glsl */ `
   attribute vec3 aColor;
   uniform float uTime;
   uniform float uScale;
+  uniform vec2 uMouse;
+  uniform float uUser;
+  uniform float uThink;
+  uniform vec3 uCenter;
   varying vec3 vColor;
   varying float vAlpha;
   varying float vPulse;
@@ -52,10 +60,18 @@ const starVertex = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     float twinkle = 1.0 + 0.12 * sin(uTime * 1.7 + aPhase);
     float pulse = 1.0 + aPulse * 1.6;
-    gl_PointSize = aSize * twinkle * pulse * uScale / max(-mv.z, 0.1);
-    gl_Position = projectionMatrix * mv;
+    vec4 clip = projectionMatrix * mv;
+    // You: stars near the pointer light up and lean toward it.
+    vec2 ndc = clip.xy / clip.w;
+    vec2 toMouse = uMouse - ndc;
+    float touch = uUser * exp(-dot(toMouse, toMouse) * 30.0);
+    clip.xy += toMouse * touch * 0.08 * clip.w;
+    // Aurora thinking: waves of light sweep the memory from the centre out.
+    float wave = uThink * pow(0.5 + 0.5 * sin(length(position - uCenter) * 0.32 - uTime * 4.0), 10.0);
+    gl_PointSize = aSize * twinkle * pulse * (1.0 + touch * 1.1 + wave * 0.9) * uScale / max(-mv.z, 0.1);
+    gl_Position = clip;
     vColor = aColor;
-    vAlpha = aBright * aVisible;
+    vAlpha = aBright * aVisible * (1.0 + touch * 1.4 + wave * 1.8);
     vPulse = aPulse;
   }
 `;
@@ -77,7 +93,7 @@ const starFragment = /* glsl */ `
 
 type Target = { position: THREE.Vector3; size: number; bright: number; visible: number; color: THREE.Color };
 
-function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimUnused, pulses, motion, onSelect, onFocus, onHover }: {
+function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimUnused, pulses, motion, life, onSelect, onFocus, onHover }: {
   memories: Memory[];
   visible: Set<string>;
   selectedId: string | null;
@@ -89,6 +105,7 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
   onSelect: (id: string) => void;
   onFocus: (id: string) => void;
   onHover: (id: string | null) => void;
+  life: MutableRefObject<Life>;
 }) {
   const { gl, size, invalidate } = useThree();
   const n = memories.length;
@@ -103,7 +120,7 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: starVertex, fragmentShader: starFragment, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uScale: { value: 300 } },
+    uniforms: { uTime: { value: 0 }, uScale: { value: 300 }, uMouse: { value: new THREE.Vector2() }, uUser: { value: 0 }, uThink: { value: 0 }, uCenter: { value: new THREE.Vector3() } },
   }), []);
   useEffect(() => () => material.dispose(), [material]);
 
@@ -124,6 +141,12 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
     };
   }), [memories, selectedId, highlighted, hoveredId, visible, dimUnused]);
 
+  useEffect(() => {
+    const c = new THREE.Vector3();
+    targets.forEach((t) => c.add(t.position));
+    material.uniforms.uCenter.value.copy(c.divideScalar(Math.max(1, targets.length)));
+  }, [targets, material]);
+
   // With the render loop on demand (animation paused), changes still need a frame.
   useEffect(() => { invalidate(); }, [targets, invalidate]);
 
@@ -139,6 +162,9 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
   useFrame((_, delta) => {
     material.uniforms.uTime.value += motion ? delta : 0;
     material.uniforms.uScale.value = size.height * gl.getPixelRatio() * 0.62;
+    material.uniforms.uMouse.value.copy(life.current.mouse);
+    material.uniforms.uUser.value = life.current.user * (1 - life.current.dim);
+    material.uniforms.uThink.value = life.current.think;
     const k = 1 - Math.exp(-Math.min(delta, 0.1) * (motion ? 4.5 : 60));
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     const col = geometry.getAttribute("aColor") as THREE.BufferAttribute;
@@ -324,7 +350,7 @@ function CameraRig({ command, allMemories, motion, drift }: { command: CameraCom
     allMemories.forEach((m) => box.expandByPoint(new THREE.Vector3(...m.position)));
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 30, 30));
     const extent = box.getSize(new THREE.Vector3());
-    return { center: box.getCenter(new THREE.Vector3()), radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * 0.62) };
+    return { center: box.getCenter(new THREE.Vector3()), radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * 0.95) };
   }, [allMemories]);
   useEffect(() => {
     const selected = allMemories.find((m) => m.id === command.id);
@@ -411,6 +437,7 @@ function Metrics({ onStats }: { onStats: Props["onStats"] }) {
 function SceneContent(props: Props) {
   const { memories, allMemories, clusters, pulses, selectedId, onSelect, onFocus, onGroup, onCluster, cad, orthographic, motion, command, onStats } = props;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const life = useRef<Life>(newLife());
   const graph = useMemo(() => buildGraph(allMemories), [allMemories]);
   const visible = useMemo(() => new Set(memories.map((m) => m.id)), [memories]);
   const origin = useMemo(() => traceOrigin(allMemories, selectedId), [allMemories, selectedId]);
@@ -450,6 +477,8 @@ function SceneContent(props: Props) {
           <axesHelper args={[10]} />
         </>
       )}
+      <LifeDriver life={life} vitals={props.vitals} dim={!!selectedId} />
+      <Symbiosis memories={allMemories} visible={visible} life={life} vitals={props.vitals} motion={motion} />
       <Nebulae clusters={clusters} memories={allMemories} visible={visible} dim={!!selectedId} motion={motion} />
       <FlowLinks memories={allMemories} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} />
       <StarField
@@ -461,6 +490,7 @@ function SceneContent(props: Props) {
         dimUnused={dimUnused}
         pulses={pulses}
         motion={motion}
+        life={life}
         onSelect={onSelect}
         onFocus={onFocus}
         onHover={setHoveredId}
@@ -493,7 +523,6 @@ function SceneContent(props: Props) {
       <Metrics onStats={onStats} />
       {props.quality === "high" && (
         <EffectComposer multisampling={0}>
-          <Bloom intensity={0.9} luminanceThreshold={0.25} luminanceSmoothing={0.6} mipmapBlur radius={0.75} />
           <Vignette eskil={false} offset={0.22} darkness={0.6} />
         </EffectComposer>
       )}

@@ -372,3 +372,31 @@
     transition: none;
   }
 }
+
+/* ---------- Symbiosis anchors (você · Aurora · este PC) ---------- */
+.anchor-label {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 120px;
+  font-family: var(--font-sans);
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 1px 6px #000;
+  pointer-events: none;
+}
+.anchor-label strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.anchor-label span {
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.anchor-label small {
+  color: var(--text-4);
+  font-size: 11px;
+}

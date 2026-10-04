@@ -69,6 +69,7 @@ import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEv
 import { contentWords, createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
 import { memoryAtlas } from "./memoryAtlas.js";
+import { systemVitals } from "./systemVitals.js";
 import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
@@ -1193,6 +1194,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       // ---------- Memories ----------
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
+      if (method === "GET" && pathname === "/api/system/vitals") return sendJson(response, 200, systemVitals());
       if (method === "GET" && pathname === "/api/memories/stats") {
         return sendJson(response, 200, { stats: await countMemories() });
       }

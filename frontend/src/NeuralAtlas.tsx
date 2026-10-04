@@ -15,7 +15,7 @@ import {
   type MemoryScope,
 } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
-import { deleteMemory, getCentralMemories, getMemoryAtlas, listConversations, listMemories, listProjects, setMemoryStatus, updateMemory } from "./api";
+import { deleteMemory, getCentralMemories, getMemoryAtlas, getSystemVitals, listConversations, listMemories, listProjects, setMemoryStatus, updateMemory, type SystemVitals } from "./api";
 
 const MemoryScene = lazy(() => import("./MemoryScene"));
 const MemoryFlow = lazy(() => import("./MemoryFlow"));
@@ -129,7 +129,8 @@ export default function NeuralAtlas({ variant }: Props) {
     [busy, setBusy] = useState(false),
     [railOpen, setRailOpen] = useState(false),
     [pulses, setPulses] = useState<Map<string, number>>(() => new Map()),
-    [liveNote, setLiveNote] = useState("");
+    [liveNote, setLiveNote] = useState(""),
+    [vitals, setVitals] = useState<SystemVitals | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null),
     [query, setQuery] = useState(""),
     [kind, setKind] = useState<"all" | MemoryKind>("all"),
@@ -327,6 +328,15 @@ export default function NeuralAtlas({ variant }: Props) {
     }, 8000);
     return () => { stopped = true; clearInterval(timer); };
   }, [variant, connected]);
+  // Symbiosis: the PC's load and whether Aurora is thinking, read live.
+  useEffect(() => {
+    if (!connected) return;
+    let stopped = false;
+    const read = () => getSystemVitals().then((v) => { if (!stopped) setVitals(v); }).catch(() => {});
+    read();
+    const timer = setInterval(read, 1500);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [connected]);
   useEffect(() => {
     if (!liveNote) return;
     const timer = setTimeout(() => setLiveNote(""), 6000);
@@ -567,6 +577,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 allMemories={memories}
                 clusters={clusters}
                 pulses={pulses}
+                vitals={vitals}
                 onCluster={(id) => setClusterFilter(id)}
                 selectedId={selectedId}
                 onSelect={select}

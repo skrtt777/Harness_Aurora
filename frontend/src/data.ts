@@ -35,6 +35,19 @@ export function clusterColor(cluster: number | undefined, fallback: string) {
 }
 export const memoryColor = (m: Memory) => clusterColor(m.cluster, groupColor(groupKey(m)));
 
+/**
+ * Who a memory came from, for the symbiosis view: you (decisions, approvals,
+ * manual notes), Aurora (what the AI learned: lessons, distillation,
+ * extraction) or this PC (imported/curated material and local results).
+ */
+export type Origin = "user" | "aurora" | "pc";
+export function memoryOrigin(m: Memory): Origin {
+  const s = (m.source || "").toLowerCase();
+  if (/usu[aá]rio|lucas|manual|aprovad|decis[aã]o expl/.test(s)) return "user";
+  if (/claude|li[cç][aã]o|destila|extra[ií]d|ia|ensinad|aprendid|revis[aã]o autom/.test(s)) return "aurora";
+  return "pc";
+}
+
 /** How useful a memory has proven: drives size, brightness and the health filters. */
 export type Health = "all" | "helpful" | "unused" | "failing" | "duplicates";
 export function memoryHealth(m: Memory) {

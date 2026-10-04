@@ -205,6 +205,15 @@ export const setMemoryStatus = (id: string, status: "active" | "archived") => re
 export type MemoryUsage = { uses: number; helped: number; failed: number };
 export type AtlasMemory = { id: string; position: [number, number, number]; cluster: number; neighbors: { id: string; similarity: number }[]; duplicates: string[]; stats: MemoryUsage };
 export type AtlasCluster = { id: number; label: string; count: number; center: [number, number, number] };
+export type SystemVitals = {
+  cpu: number | null;
+  memory: number;
+  gpu: { load: number; memory: number; name: string } | null;
+  cores: number;
+  aurora: { thinking: boolean; stage: string | null; active: number };
+  at: number;
+};
+export const getSystemVitals = () => request<SystemVitals>("/system/vitals");
 export const getMemoryAtlas = () => request<{ model: string; memories: AtlasMemory[]; clusters: AtlasCluster[] }>("/memories/atlas");
 export const getMemoryStats = () => request<{ stats: MemoryStat[] }>("/memories/stats").then((r) => r.stats);
 export const createMemoryRelation = (fromId: string, toId: string, type: MemoryRelationType) =>
