@@ -45,6 +45,7 @@ import {
   selectRelevantMemories,
   updateConversation,
   updateMemory,
+  setMemoryStatus,
   updateProject,
   getProject,
   getSetting,
@@ -67,6 +68,7 @@ import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { contentWords, createSource, deleteSource, knowledgeMap, listSources, searchKnowledge, sourceForPath, startIndexing, unknownCitations, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
+import { memoryAtlas } from "./memoryAtlas.js";
 import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
@@ -1190,6 +1192,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Memories ----------
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
+      if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       if (method === "GET" && pathname === "/api/memories/stats") {
         return sendJson(response, 200, { stats: await countMemories() });
       }
@@ -1237,6 +1240,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const [, id] = match;
         if (method === "PATCH") {
           const body = await readJson(request);
+          if (body.status !== undefined) {
+            const archived = await setMemoryStatus(id, body.status);
+            return archived ? sendJson(response, 200, archived) : sendJson(response, 404, { error: "Memória não encontrada." });
+          }
           const memory = await updateMemory(id, body);
           return memory ? sendJson(response, 200, memory) : sendJson(response, 404, { error: "Memória não encontrada." });
         }

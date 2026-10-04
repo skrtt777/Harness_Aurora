@@ -441,6 +441,14 @@ export async function updateMemory(id, patch, env = process.env) {
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 
+/** Archive (kept, out of the prompt and the Atlas) or bring back a memory. */
+export async function setMemoryStatus(id, status) {
+  if (!["active", "archived"].includes(status)) throw Object.assign(new Error("Estado inválido (use active ou archived)."), { status: 400 });
+  const db = await getDb();
+  const info = db.prepare("UPDATE memories SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), id);
+  return info.changes > 0 ? mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id)) : null;
+}
+
 export async function deleteMemory(id) {
   const db = await getDb();
   const info = db.prepare("DELETE FROM memories WHERE id = ?").run(id);

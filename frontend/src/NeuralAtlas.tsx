@@ -7,12 +7,15 @@ import {
   importMemories,
   layoutMemories,
   linkMemories,
+  memoryHealth,
+  type Health,
   type Memory,
+  type MemoryCluster,
   type MemoryKind,
   type MemoryScope,
 } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
-import { listConversations, listMemories, listProjects, getCentralMemories } from "./api";
+import { deleteMemory, getCentralMemories, getMemoryAtlas, listConversations, listMemories, listProjects, setMemoryStatus, updateMemory } from "./api";
 
 const MemoryScene = lazy(() => import("./MemoryScene"));
 const MemoryFlow = lazy(() => import("./MemoryFlow"));
@@ -49,12 +52,13 @@ function initialMemories() {
  * Returns [] when there is nothing real yet, so the caller can fall back to
  * the demo collection.
  */
-async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
-  const [entries, projects, conversations, shared] = await Promise.all([listMemories(), listProjects(), listConversations(), getCentralMemories('',500)]);
-  if (!entries.length && !shared.length) return [];
+async function loadRealMemoriesAsAtlas(): Promise<{ memories: Memory[]; clusters: MemoryCluster[] }> {
+  const [entries, projects, conversations, shared, atlas] = await Promise.all([listMemories(), listProjects(), listConversations(), getCentralMemories('',500), getMemoryAtlas().catch(() => null)]);
+  if (!entries.length && !shared.length) return { memories: [], clusters: [] };
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const conversationById = new Map(conversations.map((c) => [c.id, c]));
-  const mapped: Memory[] = entries.map((entry) => {
+  // Archived memories stay in the database but leave the atlas (and the prompt).
+  const mapped: Memory[] = entries.filter((entry) => entry.status !== "archived").map((entry) => {
     const conversation = entry.conversationId ? conversationById.get(entry.conversationId) : undefined;
     const projectId = entry.projectId || conversation?.projectId || undefined;
     return {
@@ -74,7 +78,15 @@ async function loadRealMemoriesAsAtlas(): Promise<Memory[]> {
     };
   });
   mapped.push(...shared.map((m):Memory=>({id:m.id,title:m.title,content:m.content,tags:m.tags,scope:'central',kind:'context',source:m.source,date:new Date(m.updatedAt).toLocaleDateString('pt-BR'),position:[0,0,0],relations:[],relationTypes:{}})));
-  return layoutMemories(mapped, new Set(mapped.map((m) => m.id)));
+  // Meaning map from the backend: position by embedding, topic cluster, usage, neighbours.
+  // Memories it doesn't cover (central cache, archived) keep the grouped layout.
+  const placed = new Map((atlas?.memories ?? []).map((a) => [a.id, a]));
+  const withMap = mapped.map((m): Memory => {
+    const a = placed.get(m.id);
+    return a ? { ...m, position: a.position, cluster: a.cluster, stats: a.stats, neighbors: a.neighbors, duplicates: a.duplicates } : m;
+  });
+  const missing = new Set(withMap.filter((m) => !placed.has(m.id)).map((m) => m.id));
+  return { memories: layoutMemories(withMap, missing), clusters: atlas?.clusters ?? [] };
 }
 
 function downloadJSON(memories: Memory[]) {
@@ -109,6 +121,12 @@ export default function NeuralAtlas({ variant }: Props) {
   const [memories, setMemories] = useState<Memory[]>(() => (variant === "test" ? initialMemories() : []));
   const [connected, setConnected] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [clusters, setClusters] = useState<MemoryCluster[]>([]),
+    [health, setHealth] = useState<Health>("all"),
+    [clusterFilter, setClusterFilter] = useState<number | null>(null),
+    [editing, setEditing] = useState(false),
+    [editDraft, setEditDraft] = useState(""),
+    [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null),
     [query, setQuery] = useState(""),
     [kind, setKind] = useState<"all" | MemoryKind>("all"),
@@ -159,13 +177,31 @@ export default function NeuralAtlas({ variant }: Props) {
           (kind === "all" || m.kind === kind) &&
           (scope === "all" || m.scope === scope) &&
           (project === "all" || groupKey(m) === project) &&
+          (clusterFilter === null || m.cluster === clusterFilter) &&
+          (health === "all" ||
+            (health === "helpful" && memoryHealth(m).helpful) ||
+            (health === "unused" && memoryHealth(m).unused) ||
+            (health === "failing" && memoryHealth(m).failing) ||
+            (health === "duplicates" && memoryHealth(m).duplicate)) &&
           (!query ||
             `${m.title} ${m.content} ${m.project || ""} ${m.folder || ""} ${m.conversation || ""} ${m.tags.join(" ")}`
               .toLocaleLowerCase()
               .includes(query.toLocaleLowerCase())),
       ),
-    [memories, kind, scope, project, query],
+    [memories, kind, scope, project, query, health, clusterFilter],
   );
+  const healthCounts = useMemo(() => {
+    const counts = { helpful: 0, unused: 0, failing: 0, duplicates: 0 };
+    for (const m of memories) {
+      const h = memoryHealth(m);
+      if (h.helpful) counts.helpful++;
+      if (h.unused) counts.unused++;
+      if (h.failing) counts.failing++;
+      if (h.duplicate) counts.duplicates++;
+    }
+    return counts;
+  }, [memories]);
+  const hasUsage = memories.some((m) => m.stats);
   useEffect(() => {
     setPage(0);
   }, [filtered]);
@@ -178,7 +214,19 @@ export default function NeuralAtlas({ variant }: Props) {
   const datasetLabel =
     memories.length === 0 ? "Coleção vazia" : demos === memories.length ? "Demonstração sintética" : demos ? "Coleção mista" : "Memórias de contexto";
   const camera = (view: CameraCommand["view"], id?: string) => setCommand((c) => ({ serial: c.serial + 1, view, id }));
-  const select = (id: string) => setSelectedId(id);
+  const select = (id: string) => { setSelectedId(id); setEditing(false); };
+  const runAction = async (fn: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      await syncRealMemory();
+      setNotice(done);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Não foi possível concluir.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const inspect = (id: string) => {
     setSelectedId(id);
     setView("map");
@@ -190,6 +238,8 @@ export default function NeuralAtlas({ variant }: Props) {
     setKind("all");
     setScope("all");
     setProject("all");
+    setHealth("all");
+    setClusterFilter(null);
   };
   const selectRelated = (id: string) => {
     clearFilters();
@@ -223,9 +273,10 @@ export default function NeuralAtlas({ variant }: Props) {
     const generation = ++syncGeneration.current;
     setSyncing(true);
     try {
-      const real = await loadRealMemoriesAsAtlas();
+      const { memories: real, clusters: realClusters } = await loadRealMemoriesAsAtlas();
       if (generation !== syncGeneration.current) return;
       setMemories(real);
+      setClusters(realClusters);
       setSelectedId(null);
       if (real.length) {
         setMemories(real);
@@ -307,6 +358,34 @@ export default function NeuralAtlas({ variant }: Props) {
               </button>
             ))}
           </div>
+          {hasUsage && (
+            <div className="rail-section">
+              <label>SAÚDE DA MEMÓRIA</label>
+              {([
+                ["helpful", "Ajudam", "#55a583"],
+                ["unused", "Nunca usadas", "#5c6370"],
+                ["failing", "Mais falham", "#e75e78"],
+                ["duplicates", "Possíveis duplicadas", "#d6a24a"],
+              ] as const).map(([id, label, color]) => (
+                <button key={id} className={`rail-link ${health === id ? "active" : ""}`} onClick={() => { setHealth(health === id ? "all" : id); setView("map"); }}>
+                  <i style={{ background: color }} />
+                  <span>{label}</span>
+                  <b>{healthCounts[id]}</b>
+                </button>
+              ))}
+            </div>
+          )}
+          {clusters.length > 0 && (
+            <div className="rail-section">
+              <label>ASSUNTOS (POR SIGNIFICADO)</label>
+              {clusters.filter((c) => c.id >= 0).sort((a, b) => b.count - a.count).map((c) => (
+                <button key={c.id} className={`rail-link ${clusterFilter === c.id ? "active" : ""}`} onClick={() => setClusterFilter(clusterFilter === c.id ? null : c.id)}>
+                  <span>{c.label}</span>
+                  <b>{c.count}</b>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="rail-section categories">
             <label>ASSUNTOS</label>
             <div className="topic-buttons">
@@ -351,7 +430,8 @@ export default function NeuralAtlas({ variant }: Props) {
               aria-label="Pesquisar memórias"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Pesquisar memórias, projetos, decisões…"
+              onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) inspect(filtered[0].id); }}
+              placeholder="Pesquisar memórias, projetos, decisões… (Enter vai até a primeira)"
             />
             <kbd>Ctrl K</kbd>
           </div>
@@ -399,7 +479,7 @@ export default function NeuralAtlas({ variant }: Props) {
               ◉ Mapa 3D
             </button>
             <button className={view === "flow" ? "selected" : ""} onClick={() => setView("flow")}>
-              ⌗ Fluxograma
+              ⌗ Vizinhança
             </button>
             <button className={view === "list" ? "selected" : ""} onClick={() => setView("list")}>
               ☷ Lista
@@ -435,7 +515,7 @@ export default function NeuralAtlas({ variant }: Props) {
               ))}
             </select>
           </label>
-          {(query || scope !== "all" || kind !== "all" || project !== "all") && (
+          {(query || scope !== "all" || kind !== "all" || project !== "all" || health !== "all" || clusterFilter !== null) && (
             <button className="clear-filter" onClick={clearFilters}>
               Limpar filtros ×
             </button>
@@ -450,6 +530,8 @@ export default function NeuralAtlas({ variant }: Props) {
               <MemoryScene
                 memories={filtered}
                 allMemories={memories}
+                clusters={clusters}
+                onCluster={(id) => setClusterFilter(id)}
                 selectedId={selectedId}
                 onSelect={select}
                 onFocus={inspect}
@@ -469,11 +551,11 @@ export default function NeuralAtlas({ variant }: Props) {
             </Suspense>
             <div className="scene-caption">
               <div className="overline">{selected ? "ESTRUTURA SELECIONADA" : "REDE DE CONTEXTOS"}</div>
-              <strong>{selected?.title || `${graph.groups.length} grupos · ${graph.edges.length} conexões`}</strong>
+              <strong>{selected?.title || (clusters.length ? `${clusters.filter((c) => c.id >= 0).length} assuntos · ${memories.length} memórias` : `${graph.groups.length} grupos · ${graph.edges.length} conexões`)}</strong>
               <small>
                 {selected
-                  ? `X ${selected.position[0].toFixed(2)} · Y ${selected.position[1].toFixed(2)} · Z ${selected.position[2].toFixed(2)} u.c.`
-                  : "Cores por projeto · agrupamento visual"}
+                  ? clusters.find((c) => c.id === selected.cluster)?.label || groupKey(selected)
+                  : clusters.length ? "Perto = assunto parecido · cores por projeto" : "Cores por projeto · agrupamento visual"}
               </small>
             </div>
             {filtered.length === 0 && (
@@ -491,12 +573,15 @@ export default function NeuralAtlas({ variant }: Props) {
             </div>
             <div className="scene-legend">
               <span>
-                <i style={{ background: "#75eaff" }} /> Neurônio / memória
+                <i style={{ background: "#75eaff" }} /> Maior = ajudou mais vezes
               </span>
               <span>
-                <i style={{ background: "#d49bff" }} /> Relação selecionada
+                <i style={{ background: "#3b4048" }} /> Apagada = nunca usada
               </span>
-              <small>Pulsos ilustrativos · {motion ? "ativos" : "pausados"}</small>
+              <span>
+                <i style={{ background: "#e75e78" }} /> Vermelha = mais falha que ajuda
+              </span>
+              <small>Linhas ligam memórias parecidas</small>
             </div>
             <div className="scene-controls">
               <button aria-pressed={orthographic} onClick={() => setOrthographic(!orthographic)}>
@@ -520,7 +605,7 @@ export default function NeuralAtlas({ variant }: Props) {
           </div>
         ) : view === "flow" ? (
           <Suspense fallback={<div className="scene-fallback">Preparando o fluxograma…</div>}>
-            <MemoryFlow memories={filtered} allMemories={memories} selectedId={selectedId} onSelect={select} />
+            <MemoryFlow memories={filtered} allMemories={memories} clusters={clusters} selectedId={selectedId} onSelect={select} />
           </Suspense>
         ) : (
           <div className="list-view">
@@ -575,7 +660,7 @@ export default function NeuralAtlas({ variant }: Props) {
           <div className="inspector-head">
             <div>
               <span className="overline">INSPEÇÃO DA MEMÓRIA</span>
-              <h2>{selected ? "Neurônio selecionado" : "Explore uma conexão"}</h2>
+              <h2>{selected ? "Memória selecionada" : "Explore uma conexão"}</h2>
             </div>
             {selected && (
               <button aria-label="Fechar inspeção" onClick={() => setSelectedId(null)}>
@@ -607,9 +692,52 @@ export default function NeuralAtlas({ variant }: Props) {
                       <dd>{selected.date}</dd>
                     </>
                   )}
-                  <dt>Coordenadas</dt>
-                  <dd>{selected.position.map((v) => v.toFixed(2)).join(" / ")} u.c.</dd>
+                  {selected.cluster !== undefined && selected.cluster >= 0 && (
+                    <>
+                      <dt>Assunto</dt>
+                      <dd>{clusters.find((c) => c.id === selected.cluster)?.label}</dd>
+                    </>
+                  )}
                 </dl>
+                {selected.stats && (
+                  <div className="usage">
+                    <div className="usage-numbers">
+                      <span><b>{selected.stats.uses}</b> usos</span>
+                      <span className="ok"><b>{selected.stats.helped}</b> ajudou</span>
+                      <span className="bad"><b>{selected.stats.failed}</b> falhou</span>
+                    </div>
+                    <div className="usage-bar" aria-hidden="true">
+                      <i className="ok" style={{ flex: selected.stats.helped }} />
+                      <i className="bad" style={{ flex: selected.stats.failed }} />
+                      <i style={{ flex: Math.max(0, selected.stats.uses - selected.stats.helped - selected.stats.failed) || (selected.stats.uses ? 0 : 1) }} />
+                    </div>
+                    <small>
+                      {memoryHealth(selected).failing ? "Esta memória mais atrapalha do que ajuda: considere editar ou arquivar."
+                        : memoryHealth(selected).unused ? "Ainda não entrou em nenhuma resposta."
+                          : memoryHealth(selected).helpful ? "Esteve em respostas que deram certo." : "Usada em respostas, sem veredito do professor."}
+                    </small>
+                  </div>
+                )}
+                {(selected.duplicates?.length ?? 0) > 0 && (
+                  <p className="duplicate-warning">Quase igual a {selected.duplicates!.length === 1 ? "outra memória" : `${selected.duplicates!.length} memórias`}: veja em Parecidas e arquive a repetida.</p>
+                )}
+                {variant === "real" && selected.scope !== "central" && (
+                  editing ? (
+                    <div className="memory-edit-inline">
+                      <textarea rows={5} value={editDraft} onChange={(e) => setEditDraft(e.target.value)} aria-label="Conteúdo da memória" />
+                      <div>
+                        <button disabled={busy} onClick={() => setEditing(false)}>Cancelar</button>
+                        <button className="primary" disabled={busy || !editDraft.trim()} onClick={() => void runAction(async () => { await updateMemory(selected.id, { content: editDraft }); setEditing(false); }, "Memória atualizada.")}>Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="memory-actions-inline">
+                      <button disabled={busy} onClick={() => { setEditDraft(selected.content); setEditing(true); }}>Editar</button>
+                      <button disabled={busy} onClick={() => void runAction(() => setMemoryStatus(selected.id, "archived").then(() => undefined), "Memória arquivada: sai das respostas e do mapa, mas não é apagada.")}>Arquivar</button>
+                      <button disabled={busy} className="danger" onClick={() => { if (confirm(`Excluir "${selected.title}"? Esta ação não pode ser desfeita.`)) void runAction(() => deleteMemory(selected.id).then(() => undefined), "Memória excluída."); }}>Excluir</button>
+                    </div>
+                  )
+                )}
                 <div className="tags">
                   {selected.tags.map((t) => (
                     <span key={t}>#{t}</span>
@@ -618,6 +746,23 @@ export default function NeuralAtlas({ variant }: Props) {
                 <button className="inspect-button" onClick={() => inspect(selected.id)}>
                   ◎ Inspecionar em 3D
                 </button>
+                {(selected.neighbors?.length ?? 0) > 0 && (
+                  <div className="related">
+                    <label>
+                      PARECIDAS <b>{selected.neighbors!.length}</b>
+                    </label>
+                    {selected.neighbors!.map((n) => {
+                      const r = graph.byId.get(n.id);
+                      return r && (
+                        <button key={`n:${n.id}`} onClick={() => selectRelated(n.id)}>
+                          <i />
+                          {r.title}
+                          <small>{Math.round(n.similarity * 100)}% parecida{selected.duplicates?.includes(n.id) ? " · duplicada?" : ""}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="related">
                   <label>
                     REDE DE ORIGEM <b>{origin.order.length}</b>
@@ -668,20 +813,20 @@ export default function NeuralAtlas({ variant }: Props) {
                 <div className="empty-glyph"><img className="atlas-symbol" src="/brand/aurora-symbol.png" alt="" /></div>
                 <h3>Uma rede que você pode explorar.</h3>
                 <p>Clique em uma memória para ver seu conteúdo, origem e conexões.</p>
-                <small>Duplo clique aproxima o neurônio.</small>
+                <small>Duplo clique aproxima a memória.</small>
               </div>
               <div className="anatomy-guide">
-                <div className="overline">ANATOMIA VISUAL</div>
+                <div className="overline">COMO LER O MAPA</div>
                 <p>
-                  <b>01</b> Núcleo <span>Conteúdo da memória</span>
+                  <b>01</b> Posição <span>Memórias perto falam de assuntos parecidos</span>
                 </p>
                 <p>
-                  <b>02</b> Dendritos <span>Ramificações orgânicas</span>
+                  <b>02</b> Tamanho e brilho <span>Maior = ajudou mais; apagada = nunca usada</span>
                 </p>
                 <p>
-                  <b>03</b> Sinapses <span>Relações entre registros</span>
+                  <b>03</b> Linhas <span>Ligam as memórias mais parecidas</span>
                 </p>
-                <small>Representação conceitual. Grupos são organizadores visuais; medidas em unidades da cena.</small>
+                <small>Use Saúde da memória, à esquerda, para achar as que nunca são usadas, as que atrapalham e as repetidas.</small>
               </div>
             </>
           )}

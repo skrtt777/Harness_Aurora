@@ -20,7 +20,25 @@ export type Memory = {
   position: [number, number, number];
   relations: string[];
   relationTypes?: Record<string, RelationType>;
+  /** Real memories only (from /api/memories/atlas): meaning-based map data. */
+  stats?: { uses: number; helped: number; failed: number };
+  cluster?: number;
+  neighbors?: { id: string; similarity: number }[];
+  duplicates?: string[];
 };
+export type MemoryCluster = { id: number; label: string; count: number; center: [number, number, number] };
+
+/** How useful a memory has proven: drives size, brightness and the health filters. */
+export type Health = "all" | "helpful" | "unused" | "failing" | "duplicates";
+export function memoryHealth(m: Memory) {
+  const s = m.stats;
+  return {
+    helpful: !!s && s.helped > 0 && s.helped >= s.failed,
+    unused: !!s && s.uses === 0 && s.helped === 0 && s.failed === 0,
+    failing: !!s && s.failed >= 2 && s.failed > s.helped,
+    duplicate: (m.duplicates?.length ?? 0) > 0,
+  };
+}
 export const palette = [
   "#75eaff",
   "#83a8ff",

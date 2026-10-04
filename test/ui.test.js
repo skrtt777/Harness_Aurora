@@ -160,7 +160,7 @@ test("Atlas retains full viewport and real memories after the chat layout change
     await page.getByRole('button', { name: 'Cena de teste', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.result-count')?.textContent?.trim() === '1.000 / 1.000');
     assert.ok((await page.locator('.scene-wrap').boundingBox()).width > 800);
-    await page.getByRole('button', { name: '⌗ Fluxograma', exact: true }).click();
+    await page.getByRole('button', { name: '⌗ Vizinhança', exact: true }).click();
     await page.locator('.react-flow').waitFor();
     assert.ok((await page.locator('.react-flow').boundingBox()).width > 800);
     await page.getByRole('button', { name: '← Voltar para o chat', exact: true }).click();
@@ -273,5 +273,33 @@ test("local setup finishes once without reconnecting or restarting downloads", {
     await browser.close();
     server.closeAllConnections(); ollama.closeAllConnections();
     await Promise.all([new Promise(resolve => server.close(resolve)), new Promise(resolve => ollama.close(resolve))]);
+  }
+});
+
+test("Atlas: inspector shows usage, the health filter finds failing memories and archiving takes one off the map", { skip, timeout: 30000 }, async () => {
+  const { getDb } = await import("../app/db.js");
+  const keep = await createMemory({ title: "Memória que atrapalha", content: "Sempre usar caminho fixo C:\\temp.", env: { EMBEDDINGS_ENABLED: "false" } });
+  (await getDb()).prepare("UPDATE memories SET uses = 5, helped = 0, failed = 4 WHERE id = ?").run(keep.id);
+  const server = createServer({ allowDev: false });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const browser = await chromium.launch({ executablePath: executable, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.getByRole("button", { name: /Memória/ }).first().click();
+    await page.getByRole("button", { name: /Ver no Atlas 3D/ }).click();
+    await page.getByRole("button", { name: /Mais falham/ }).click();
+    await page.getByRole("button", { name: "☷ Lista", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".list-row").length === 1);
+    await page.locator(".list-row", { hasText: "Memória que atrapalha" }).click();
+    await page.locator(".usage-numbers").waitFor();
+    assert.match(await page.locator(".usage").innerText(), /5\s*usos[\s\S]*0\s*ajudou[\s\S]*4\s*falhou[\s\S]*atrapalha/);
+    await page.getByRole("button", { name: "Arquivar", exact: true }).click();
+    await page.getByText(/Memória arquivada/).waitFor();
+    assert.equal(await page.locator(".list-row", { hasText: "Memória que atrapalha" }).count(), 0, "archived leaves the atlas");
+    const row = (await getDb()).prepare("SELECT status FROM memories WHERE id = ?").get(keep.id);
+    assert.equal(row.status, "archived", "kept, not deleted");
+  } finally {
+    await browser.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve));
   }
 });

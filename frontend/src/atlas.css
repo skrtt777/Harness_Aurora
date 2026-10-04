@@ -97,3 +97,168 @@
   .aurora-atlas .inspector.has-selection { top: auto; border-color: #665487; }
 }
 @media (forced-colors: active) { .aurora-atlas .logo strong { background: none; color: CanvasText; } }
+
+/* ---------- Constellation (meaning map) ---------- */
+.topic-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, #08090b 72%, transparent);
+  color: var(--text-2);
+  font: 500 12px/18px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.topic-label small {
+  color: var(--text-4);
+  font-size: 11px;
+}
+.topic-label:hover {
+  color: var(--text-1);
+  background: color-mix(in srgb, #08090b 88%, transparent);
+}
+.star-tooltip {
+  transform: translate(14px, -50%);
+  width: max-content;
+  max-width: 300px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-1);
+  font: 13px/1.4 var(--font-sans);
+  pointer-events: none;
+}
+.star-tooltip strong {
+  display: block;
+  font-weight: 500;
+}
+.star-tooltip small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ---------- Inspector: usage, duplicates, actions ---------- */
+.inspector .usage {
+  margin: 14px 0;
+}
+.inspector .usage-numbers {
+  display: flex;
+  gap: 14px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.inspector .usage-numbers b {
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 600;
+  margin-right: 3px;
+}
+.inspector .usage-numbers .ok b {
+  color: var(--green);
+}
+.inspector .usage-numbers .bad b {
+  color: var(--red);
+}
+.inspector .usage-bar {
+  display: flex;
+  height: 4px;
+  margin: 8px 0 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--fill-active);
+}
+.inspector .usage-bar i {
+  display: block;
+  min-width: 0;
+  background: var(--stroke-1);
+}
+.inspector .usage-bar i.ok {
+  background: var(--green);
+}
+.inspector .usage-bar i.bad {
+  background: var(--red);
+}
+.inspector .usage small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.inspector .duplicate-warning {
+  padding: 8px 10px;
+  border-left: 2px solid var(--yellow);
+  background: var(--yellow-soft);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.inspector :is(.memory-actions-inline, .memory-edit-inline > div) {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.inspector :is(.memory-actions-inline, .memory-edit-inline) button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--fill-soft);
+  color: var(--text-1);
+  font: 500 13px var(--font-sans);
+  cursor: pointer;
+}
+.inspector :is(.memory-actions-inline, .memory-edit-inline) button:hover:not(:disabled) {
+  background: var(--fill-active);
+}
+.inspector :is(.memory-actions-inline, .memory-edit-inline) button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.inspector :is(.memory-actions-inline, .memory-edit-inline) button.danger {
+  color: var(--red);
+}
+.inspector .memory-edit-inline textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: 13px/1.5 var(--font-sans);
+  resize: vertical;
+}
+
+/* ---------- Neighbourhood (flow) ---------- */
+.memory-flow {
+  position: relative;
+}
+.memory-flow .flow-node {
+  width: 220px;
+}
+.memory-flow .flow-node.ok {
+  box-shadow: inset 2px 0 var(--green);
+}
+.memory-flow .flow-node.bad {
+  box-shadow: inset 2px 0 var(--red);
+}
+.memory-flow .flow-node.dim {
+  opacity: 0.62;
+}
+.memory-flow .flow-node strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memory-flow .flow-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 5;
+  margin: 0;
+  transform: translateX(-50%);
+  color: var(--text-4);
+  font-size: 12px;
+  pointer-events: none;
+}

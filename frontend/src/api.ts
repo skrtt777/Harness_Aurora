@@ -71,6 +71,8 @@ export type MemoryEntry = {
   updatedAt: string;
   relations?: string[];
   relationTypes?: Record<string, MemoryRelationType>;
+  status?: "active" | "archived";
+  stats?: { uses: number; helped: number; failed: number };
 };
 
 export type MemoryStat = { scope: MemoryScope; kind: MemoryKind; count: number };
@@ -199,6 +201,11 @@ export const createMemory = (data: {
 export const updateMemory = (id: string, patch: Partial<Pick<MemoryEntry, "title" | "content" | "tags">>) =>
   request<MemoryEntry>(`/memories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteMemory = (id: string) => request<{ ok: true }>(`/memories/${id}`, { method: "DELETE" });
+export const setMemoryStatus = (id: string, status: "active" | "archived") => request<MemoryEntry>(`/memories/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+export type MemoryUsage = { uses: number; helped: number; failed: number };
+export type AtlasMemory = { id: string; position: [number, number, number]; cluster: number; neighbors: { id: string; similarity: number }[]; duplicates: string[]; stats: MemoryUsage };
+export type AtlasCluster = { id: number; label: string; count: number; center: [number, number, number] };
+export const getMemoryAtlas = () => request<{ model: string; memories: AtlasMemory[]; clusters: AtlasCluster[] }>("/memories/atlas");
 export const getMemoryStats = () => request<{ stats: MemoryStat[] }>("/memories/stats").then((r) => r.stats);
 export const createMemoryRelation = (fromId: string, toId: string, type: MemoryRelationType) =>
   request<{ ok: true }>(`/memories/${fromId}/relations`, { method: "POST", body: JSON.stringify({ toId, type }) });
