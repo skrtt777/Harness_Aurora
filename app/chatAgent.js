@@ -1,4 +1,5 @@
 import { NOT_FOUND, unsupportedFacts, unsupportedTopic } from "./grounding.js";
+import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { runClaude } from "./claude.js";
 import { runCodex } from "./codex.js";
 import { runLocalChat } from "./local.js";
@@ -7,6 +8,8 @@ import { AGENT_TOOLS, executeTool, stageFor, toolCatalogue, toolSchemas } from "
 
 export const DEFAULT_MAX_STEPS = 15;
 const REPEAT_LIMIT = 3;
+const SEARCH_TOOLS = new Set(["web_search", "web_fetch"]);
+const SEARCH_NUDGE = 4;
 
 const stripThinking = (text) => String(text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 
@@ -123,7 +126,7 @@ function defaultCallModel(provider) {
  * user always gets a summary instead of a silent stop.
  */
 export async function runChatAgent({
-  provider = "local", system, history = [], input, env = process.env, signal,
+  provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "",
@@ -148,6 +151,9 @@ export async function runChatAgent({
   // What the documents (not the rules or the question) say: found up front, read, searched, or said earlier.
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
+  let deliveryChecked = false;
+  let searches = 0;
+  let confirmChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -194,7 +200,7 @@ export async function runChatAgent({
     // The question's subject appears in no document, yet the answer talks about it.
     if (!toolCalls.length && offered.length && companyTopic && consulted && !topicChecked) {
       topicChecked = true;
-      const absent = unsupportedTopic(input, text, documents.join("\n"));
+      const absent = unsupportedTopic(question, text, documents.join("\n"));
       if (absent.length) {
         checks.push({ check: "unsupported_topic", items: absent, answer: text.slice(0, 300) });
         messages.push({ role: "assistant", content: text }, { role: "user", content: `Nenhum documento consultado fala de ${absent.map((w) => `"${w}"`).join(", ")}. Não afirme nada sobre isso por suposição: diga que não encontrou essa informação nos documentos da empresa (pode citar o que os documentos de fato cobrem).` });
@@ -211,6 +217,21 @@ export async function runChatAgent({
         continue;
       }
     }
+    // "Documento criado com sucesso" with nothing written: the person goes looking for it.
+    if (!toolCalls.length && offered.length && !deliveryChecked && claimsDelivery(text, steps)) {
+      deliveryChecked = true;
+      checks.push({ check: "claimed_delivery", answer: text.slice(0, 300) });
+      const writer = offered.some((t) => t.name === "write_document") ? "write_document" : "write_file";
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Você disse que criou ou salvou um arquivo, mas nenhuma ferramenta escreveu arquivo nesta resposta: ele não existe. Crie agora de verdade com ${writer}, usando o conteúdo real da conversa, e informe o caminho completo. Se não puder, diga claramente que não criou o arquivo.` });
+      continue;
+    }
+    // Asked to create a file, it answers with "quer que eu crie?": the request already says so.
+    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (/\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer)|deseja que|precisa confirmar|confirme)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
+      confirmChecked = true;
+      checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });
+      continue;
+    }
     if (!toolCalls.length && offered.length && !nudged && announcesAction(text)) {
       // Small models often stop at "vou rolar a página…" instead of doing it.
       nudged = true;
@@ -222,8 +243,9 @@ export async function runChatAgent({
       return { ok: true, status: 200, text: text || "Pronto.", steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
     }
 
-    messages.push({ role: "assistant", content: toolCalls.length && parseTextToolCall(text) ? "" : text, tool_calls: toolCalls.map((c) => ({ function: { name: c.name, arguments: c.arguments } })) });
-    for (const call of toolCalls) {
+    // One call per assistant message (some chat templates refuse several in one).
+    for (const [index, call] of toolCalls.entries()) {
+      messages.push({ role: "assistant", content: index || parseTextToolCall(text) ? "" : text, tool_calls: [{ function: { name: call.name, arguments: call.arguments } }] });
       const key = `${call.name}:${JSON.stringify(call.arguments)}`;
       const count = (seen.get(key) || 0) + 1;
       seen.set(key, count);
@@ -243,7 +265,11 @@ export async function runChatAgent({
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
-      messages.push({ role: "tool", tool_name: call.name, content: outcome.result });
+      // Ten near-identical searches used up the step limit and the turn ended with
+      // nothing delivered: after a few, the model is told to work with what it has.
+      if (SEARCH_TOOLS.has(call.name)) searches += 1;
+      const searchNote = SEARCH_TOOLS.has(call.name) && searches >= SEARCH_NUDGE ? `\n\n(Você já fez ${searches} pesquisas nesta resposta. Pare de pesquisar: entregue agora o que foi pedido com o que já tem, marcando como estimativa o que não confirmou.)` : "";
+      messages.push({ role: "tool", tool_name: call.name, content: outcome.result + searchNote });
       if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
     }
   }

@@ -1,7 +1,8 @@
 import { createMemory, getSetting, recordMemoryOutcome, setSetting } from "./store.js";
 import { enableSkill, importSkill } from "./skills.js";
-import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, parseReview, redoMessage, shouldReview } from "./teacher.js";
+import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, narratesCorrection, parseReview, redoMessage, shouldReview } from "./teacher.js";
 
+const REDO_TOOL_CHARS = 600;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export async function teacherSettings() {
@@ -28,7 +29,7 @@ export async function spendTeacherCall() {
  */
 export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher, needsConsent = () => false, approve = async () => false }) {
   const settings = await teacherSettings();
-  const signals = detectSignals({ userMessage, result: first });
+  const signals = detectSignals({ userMessage, result: first, history });
   const reason = shouldReview({ mode: settings.mode, signals, steps: first.steps });
   const review = { reason, signals: signals.map((s) => s.code), teacher: teacherProvider };
   if (!reason) {
@@ -76,9 +77,17 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   }
 
   onStage("Refazendo com as lições do professor…");
-  const second = await rerun(first.messages.slice(1), redoMessage(verdict));
+  // The guards judge the redo against the person's request, not the teacher's message.
+  // The first attempt's tool results are cut short: whole PDFs and pages pushed the
+  // redo past a llama-server slot (13k of 12k tokens). If it still doesn't fit, the
+  // redo starts clean: the teacher's message already carries the request.
+  const transcript = first.messages.slice(1).map((m) => (m.role === "tool" && String(m.content).length > REDO_TOOL_CHARS ? { ...m, content: `${String(m.content).slice(0, REDO_TOOL_CHARS)}\n… (resultado anterior resumido)` } : m));
+  const redo = redoMessage(verdict, userMessage);
+  let second = await rerun(transcript, redo, { question: userMessage });
+  if (!second.ok && !second.cancelled && /context|contexto|exceeds/i.test(String(second.error))) second = await rerun([], redo, { question: userMessage });
   if (!second.ok) return { result: first, review: { ...review, redo: "falhou", redoError: second.error } };
   const stillWrong = detectSignals({ userMessage: "", result: second });
+  if (narratesCorrection(second.text)) stillWrong.push({ code: "narrated_correction" });
   await recordMemoryOutcome(review.lessonIds, stillWrong.length ? "failed" : "helped").catch(() => {});
   review.redo = stillWrong.length ? "com_erros" : "ok";
   return {

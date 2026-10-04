@@ -43,9 +43,15 @@ export async function compactContext({ input, instructions = '', memories = [], 
     if(selectiveContext()&&(memoryIds.length >= 3 || memoryChars+block.length+2>1800)) continue;
     if(add(block)){memoryIds.push(memory.id);memoryChars+=block.length+2;}
   }
+  // Newest turns win the space, but they are shown in order and labelled as a
+  // dialogue: "Histórico assistant:" was copied by a 3B model into its answer.
+  const turns = [];
   for (const message of (includeOptional ? history : []).filter(m => ['user','assistant'].includes(m.role) && m.provider !== 'Sistema').slice(-4).reverse()) {
-    if (!add(`Histórico ${message.role}: ${message.content}`)) break;
+    const line = `${message.role === 'user' ? 'Usuário' : 'Aurora'}: ${message.content}`;
+    if (line.length + 2 > remaining) break;
+    turns.unshift(line); remaining -= line.length + 2;
   }
+  if (turns.length) optional.push(`Conversa até agora (mais antiga primeiro):\n${turns.join('\n')}`);
   const task = essential.pop();
   const prompt = [...essential, ...optional, ...(withTask ? [task] : [])].join('\n\n');
   return { prompt, skills: skillIds, referenceOptions, browserAgentOffered, memoryIds, memoryChars, memoryEstimatedTokens:Math.ceil(memoryChars/3), selectionVersion:selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy', estimatedInputTokens: Math.ceil(prompt.length / 3), omittedMemories: memories.length - memoryIds.length };

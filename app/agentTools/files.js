@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
+import { DOCUMENT_FORMATS, renderDocument } from "../documentWriter.js";
 
 // Binary office formats are read as their text; everything else as UTF-8.
 const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf", ...IMAGE_EXTENSIONS]);
@@ -96,6 +97,19 @@ export async function isInsideRoots(path, roots = []) {
 }
 
 const full = (path, ctx) => expandPath(path, ctx.knownFolders, ctx.workspace);
+// Documents write_document created while the app runs: those (only those) may be replaced.
+const OWN_DOCUMENTS = new Set();
+// The format wins over a missing or wrong extension ("proposta" + docx → proposta.docx).
+function documentPath(args, ctx) {
+  // Small models name the field after other tools ("file_path", "filename").
+  const path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
+  const format = args.format;
+  if (!String(path || "").trim()) throw new Error('Falta "path": informe o caminho com o nome do arquivo (ex.: C:\\Users\\voce\\Documents\\proposta_atualizada.docx) e o "content" completo em markdown.');
+  const file = full(path, ctx);
+  const ext = extname(file).slice(1).toLowerCase();
+  const wanted = DOCUMENT_FORMATS.includes(String(format || "").toLowerCase()) ? String(format).toLowerCase() : DOCUMENT_FORMATS.includes(ext) ? ext : "docx";
+  return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
+}
 
 // Explicit folder, else the project, else the person's usual folders.
 const searchRoots = ({ path }, ctx) => (path ? [full(path, ctx)] : ctx.workspace ? [ctx.workspace] : (ctx.workspaceRoots?.length ? ctx.workspaceRoots : personalFolders(ctx)).filter((p) => existsSync(p)));
@@ -300,6 +314,24 @@ export const fileTools = [
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, String(content ?? ""), "utf8");
       return `Salvei ${file} (${Buffer.byteLength(String(content ?? ""))} bytes).`;
+    },
+  },
+  {
+    name: "write_document",
+    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
+    parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" } }, required: ["path", "content"] },
+    stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
+    describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
+    async run(args, ctx) {
+      let file = documentPath(args, ctx);
+      const format = extname(file).slice(1).toLowerCase();
+      // A file Aurora created is updated in place (a redo made "... (2).md" next to its own first try).
+      for (let n = 2; existsSync(file) && !OWN_DOCUMENTS.has(file.toLowerCase()); n += 1) file = documentPath(args, ctx).replace(/(\.[^.\\/]+)$/, ` (${n})$1`);
+      const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "");
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, bytes);
+      OWN_DOCUMENTS.add(file.toLowerCase());
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).`;
     },
   },
   {

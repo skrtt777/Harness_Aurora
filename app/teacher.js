@@ -11,16 +11,43 @@ import { runCodex } from "./codex.js";
  */
 
 // Tools whose success changes the world; a delivery using them gets reviewed.
-export const ACTION_TOOLS = new Set(["write_file", "edit_file", "run_command", "browser_click", "browser_type", "browser_key", "open", "skill_create"]);
+export const ACTION_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command", "browser_click", "browser_type", "browser_key", "open", "skill_create"]);
 export const TEACHER_MODES = ["actions", "errors", "off"];
 export const DEFAULT_TEACHER_MODE = "actions";
 export const DEFAULT_DAILY_LIMIT = 30;
 
-const COMPLAINT = /\b(n[ãa]o (funcionou|funciona|deu certo|abriu|fez|era isso|rodou|salvou|mudou)|(t[áa]|est[áa]|ficou|continua) (errado|com erro|quebrado)|deu erro|errou|de novo|tente (de )?novo|refa[çz]a|corrija)\b/i;
+const COMPLAINT = /\b(n[ãa]o (funcionou|funciona|deu certo|abriu|fez|era isso|rodou|salvou|mudou|achei|encontrei|criou|gerou)|(t[áa]|est[áa]|ficou|continua) (errado|com erro|quebrado)|deu erro|errou|de novo|tente (de )?novo|refa[çz]a|corrija)\b/i;
+// "Onde está?" is a complaint only when the previous answer wrote nothing it could point to.
+const WHERE_IS = /\bcad[êe]\b|^\s*(e\s+)?onde\s+(est[áa]|ficou|foi parar|salvou)(?![a-zà-ú])\s*(ele|ela|o arquivo|o documento|a planilha)?\?*\s*$/i;
 const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa]o tenho como|n[ãa]o posso)\b/i;
 
+// Tools that leave a file behind; a claim of a created file needs one of them.
+export const WRITE_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command"]);
+const DELIVERABLE = "(?:documento|arquivo|planilha|relat[óo]rio|pdf|docx|xlsx|csv|tabela|apresenta[çc][ãa]o|vers[ãa]o atualizada)";
+const CLAIM = new RegExp([
+  `\\b(?:criei|salvei|gerei|escrevi|elaborei|montei|produzi|atualizei)\\b[^.\\n]{0,60}\\b${DELIVERABLE}`,
+  `\\bconsegui (?:criar|gerar|salvar|montar|elaborar)\\b`,
+  `\\b${DELIVERABLE}\\b[^.\\n]{0,40}\\b(?:criad[oa]|salv[oa]|gerad[oa]|pront[oa] para|atualizad[oa] com sucesso)\\b`,
+  `\\bfoi salv[oa] (?:em|na pasta)\\b`,
+].join("|"), "i");
+
+/** "Crie um novo documento…", "gere uma planilha…": the person asked for a file. */
+export function requestsFile(text) {
+  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|monte|elabore|escreva|salve|produza|prepare)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+}
+
+/**
+ * "Criei o documento", "Documento criado com sucesso" with no tool that wrote
+ * a file: a delivery the person will look for and not find. Negations
+ * ("não criei") and offers ("posso criar") don't count.
+ */
+export function claimsDelivery(text, steps = []) {
+  if (steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) return false;
+  return String(text || "").split(/(?<=[.!?\n])\s+/).some((sentence) => CLAIM.test(sentence) && !/\bn[ãa]o\s+(\w+\s+)?(criei|salvei|gerei|consegui|foi)\b/i.test(sentence));
+}
+
 /** Error signals found without any paid call. */
-export function detectSignals({ userMessage = "", result }) {
+export function detectSignals({ userMessage = "", result, history = [] }) {
   const signals = [];
   const steps = result?.steps || [];
   const failed = steps.filter((s) => !s.ok && !s.denied);
@@ -28,10 +55,13 @@ export function detectSignals({ userMessage = "", result }) {
   if (unrecovered.length) signals.push({ code: "failed_actions", detail: unrecovered.map((s) => `${s.tool}: ${s.summary}`).join(" | ").slice(0, 600) });
   if (result?.forced === "limit") signals.push({ code: "step_limit", detail: "Atingiu o limite de ações sem concluir." });
   if (result?.forced === "repeat") signals.push({ code: "repetition", detail: "Repetiu a mesma ação sem progresso." });
+  if (claimsDelivery(result?.text, steps)) signals.push({ code: "claimed_delivery", detail: "A resposta diz que criou ou salvou um arquivo, mas nenhuma ação escreveu arquivo." });
   if (GAVE_UP.test(String(result?.text || "").slice(-600))) signals.push({ code: "gave_up", detail: "A resposta admite que não conseguiu." });
   // Several copies answered differently (copies.js): the local model is unsure here.
   if (result?.copies?.disagree) signals.push({ code: "copies_disagree", detail: `${result.copies.used} cópias do modelo local deram respostas diferentes (concordância ${Math.round(result.copies.support * 100)}%).` });
-  if (COMPLAINT.test(userMessage)) signals.push({ code: "user_complaint", detail: `O usuário reclamou do resultado anterior: "${userMessage.slice(0, 200)}"` });
+  const previous = history.filter((m) => m.role === "assistant").at(-1);
+  const delivered = (previous?.execution?.toolSteps || []).some((s) => s.ok && WRITE_TOOLS.has(s.tool));
+  if (COMPLAINT.test(userMessage) || (WHERE_IS.test(userMessage) && !delivered)) signals.push({ code: "user_complaint", detail: `O usuário reclamou do resultado anterior: "${userMessage.slice(0, 200)}"` });
   return signals;
 }
 
@@ -93,12 +123,20 @@ export async function callTeacher({ provider, prompt, workspace, env = process.e
 }
 
 /** The message the local model gets for its second attempt. */
-export function redoMessage(review) {
+export function redoMessage(review, userMessage = "") {
   return [
     "Um revisor conferiu sua entrega e encontrou problemas. Corrija agora usando as ferramentas e confira o resultado antes de responder.",
     review.problems.length ? `Problemas:\n${review.problems.map((p) => `- ${p}`).join("\n")}` : "",
     review.guidance ? `Orientação:\n${review.guidance}` : "",
     review.lessons.length ? `Lições para guardar:\n${review.lessons.map((l) => `- ${l.content}`).join("\n")}` : "",
-    "Na resposta final, diga ao usuário o que foi corrigido.",
+    userMessage ? `Pedido do usuário: ${clip(userMessage, 1000)}` : "",
+    // The app already shows that the answer was revised; narrating it ("Corrigi a
+    // situação: agora, após a leitura…") replaced the summary the person asked for.
+    "A resposta final é a entrega pedida pelo usuário, completa, como se fosse a primeira: não fale do revisor, da correção nem das tentativas anteriores.",
   ].filter(Boolean).join("\n\n");
+}
+
+/** A redo that talks about itself instead of delivering. */
+export function narratesCorrection(text) {
+  return /^\s*(\*\*)?\s*(corrigi|corrigido|corrigindo|corre[çc][ãa]o|agora,? ap[óo]s|ap[óo]s (a |o )?(revis|corre|leitura)|refiz|revisei)/i.test(String(text || ""));
 }

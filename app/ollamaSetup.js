@@ -31,6 +31,11 @@ export function isRetiredLocalModel(model) {
   return /^qwen(?:1|2)(?:[.:-]|$)/.test(name) || /^aurora-(?:local|control):1\.5b-v[12](?:-|$)/.test(name);
 }
 
+// Old built-in defaults saved by early versions, not a choice the person made:
+// installs kept answering with llama3.2:3b (which also breaks on multi-call
+// tool history) long after qwen3.5:4b became the measured default.
+const LEGACY_DEFAULTS = new Set(["llama3.2:3b"]);
+
 function defaultBaseUrl(env) {
   return env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
 }
@@ -44,7 +49,7 @@ function defaultBaseUrl(env) {
 export async function resolveLocalModel(env = process.env) {
   if (env.LOCAL_MODEL) return env.LOCAL_MODEL;
   const stored = await getSetting("local_model");
-  if(stored && stored!=='auto')return isRetiredLocalModel(stored) ? DEFAULT_LOCAL_MODEL : stored;
+  if(stored && stored!=='auto')return isRetiredLocalModel(stored) || LEGACY_DEFAULTS.has(stored) ? DEFAULT_LOCAL_MODEL : stored;
   const approved = await automaticLocalModel(env);
   return approved && !isRetiredLocalModel(approved) ? approved : DEFAULT_LOCAL_MODEL;
 }
@@ -114,21 +119,44 @@ export async function waitForServerUp(baseUrl, timeoutMs = 25_000) {
 
 export async function startOllamaServer(env = process.env) {
   const bin = await resolveOllamaBin(env);
-  const child = spawn(bin, ["serve"], {
-    detached: true,
+  const options = {
     stdio: "ignore",
     windowsHide: true,
     // Measured 04/10/2026 (docs/COMPARACAO_MODELOS_2026-10-04.md): flash attention + 8-bit KV cache keep
     // the quality at less than half the memory, and parallel slots let several copies answer at
     // once (copies.js). Only defaults: whatever the person configured wins.
     env: { OLLAMA_FLASH_ATTENTION: "1", OLLAMA_KV_CACHE_TYPE: "q8_0", OLLAMA_NUM_PARALLEL: "4", ...process.env, ...env },
-  });
+  };
+  // Windows: a detached child has NO console, so every runner Ollama starts (one
+  // per model load) opened its own visible terminal: 24 windows for a single
+  // embedding, measured 04/10/2026. An attached child dies with the app (libuv's
+  // job object). `start /b` from a hidden cmd gives Ollama a hidden console its
+  // runners inherit, and as a grandchild it leaves the job, so it outlives the app.
+  // cmd would hide a missing executable behind its own exit code.
+  if (process.platform === "win32" && !existsSync(bin) && !(await which(bin, env))) throw Object.assign(new Error(`Ollama não encontrado: ${bin}`), { code: "ENOENT" });
+  const child = process.platform === "win32"
+    ? spawn(env.ComSpec || process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `start "" /b "${bin}" serve`], { ...options, windowsVerbatimArguments: true })
+    : spawn(bin, ["serve"], { ...options, detached: true });
   await new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
-  // Detached + unref: the server keeps running as its own background
-  // process even after the Harness app (and this Node process) closes,
-  // which is what makes the next launch instant instead of repeating setup.
+  // The server keeps running as its own background process after the app
+  // closes, which is what makes the next launch instant instead of repeating setup.
   child.unref();
   return child;
+}
+
+/**
+ * Once per install (Windows): an Ollama an older Aurora started detached keeps
+ * flashing a terminal on every model load until it restarts. If the running
+ * server isn't the Ollama tray app's, it is stopped here and the setup starts
+ * it again the new way. Never throws.
+ */
+async function restartConsolelessOllama(env) {
+  if (process.platform !== "win32" || env.LOCAL_BASE_URL || (await getSetting("ollama_console_fix")) === "1") return;
+  await setSetting("ollama_console_fix", "1");
+  const script = "$all = Get-CimInstance Win32_Process; foreach ($p in $all | Where-Object { $_.Name -eq 'ollama.exe' -and $_.CommandLine -match '\\bserve\\b' }) { $parent = $all | Where-Object { $_.ProcessId -eq $p.ParentProcessId }; if (-not $parent -or $parent.Name -ne 'ollama app.exe') { $p.ProcessId } }";
+  const pids = await new Promise((resolve) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 15_000 }, (error, stdout) => resolve(error ? [] : String(stdout).split(/\s+/).filter((s) => /^\d+$/.test(s)))));
+  for (const pid of pids) await new Promise((resolve) => execFile("taskkill", ["/PID", pid, "/T", "/F"], { windowsHide: true, timeout: 10_000 }, () => resolve()));
+  if (pids.length) await new Promise((resolve) => setTimeout(resolve, 1000));
 }
 
 async function installOllamaWindows(onProgress) {
@@ -314,6 +342,7 @@ async function runSetupOnce(env, onProgress) {
   const model = await resolveLocalModel(env);
 
   onProgress({ stage: "checking" });
+  if (await isServerUp(baseUrl)) await restartConsolelessOllama(env);
   if (!(await isServerUp(baseUrl))) {
     if (!(await isOllamaInstalled(env))) {
       const installResult = await installOllama(onProgress);

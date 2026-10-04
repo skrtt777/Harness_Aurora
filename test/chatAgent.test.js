@@ -72,8 +72,11 @@ test("tool errors are reported to the model instead of crashing the turn", async
   const { call, seen } = scripted([{ ok: true, text: "", toolCalls: [{ name: "boom", arguments: {} }, { name: "nope", arguments: {} }] }, { ok: true, text: "Tentei, mas falhou." }]);
   const result = await runChatAgent({ system: "s", input: "x", tools: [boom], callModel: call });
   assert.equal(result.ok, true);
-  assert.match(seen[1].messages.at(-2).content, /^ERRO: não achei o botão/);
-  assert.match(seen[1].messages.at(-1).content, /^ERRO: a ferramenta "nope" não existe/);
+  const results = seen[1].messages.filter((m) => m.role === "tool");
+  assert.match(results[0].content, /^ERRO: não achei o botão/);
+  assert.match(results[1].content, /^ERRO: a ferramenta "nope" não existe/);
+  // One call per assistant message: Llama 3.2's template refuses several in one.
+  assert.deepEqual(seen[1].messages.filter((m) => m.tool_calls).map((m) => m.tool_calls.length), [1, 1]);
   assert.deepEqual(result.steps.map((s) => s.ok), [false, false]);
 });
 

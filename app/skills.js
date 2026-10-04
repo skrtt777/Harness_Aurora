@@ -11,7 +11,8 @@ import { skillRelevance, selectiveContext } from './contextSelection.js';
 const bundled = join(dirname(fileURLToPath(import.meta.url)), 'skills');
 export const digest = text => createHash('sha256').update(text).digest('hex');
 const normalize = text => String(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const stop = new Set('para com como uma criar crie fazer faca este esta esse essa quero preciso usar use pelo pela dos das por que the and for with from create make'.split(' '));
+// Grammar words matched skills by accident ("crie um novo documento" → browser-agent, via "um").
+const stop = new Set('para com como uma criar crie fazer faca este esta esse essa quero preciso usar use pelo pela dos das por que the and for with from create make um uns umas de do da em no na nos nas os as ao aos se me eu ou mas sim nao isso isto novo nova novos novas mais muito pra pro meu minha seu sua ele ela tem ter ser foi sao vai of to in on is it an or'.split(' '));
 export const terms = text => [...new Set(normalize(text).match(/[a-z0-9-]{2,}/g) || [])].filter(w=>!stop.has(w));
 
 export function parseSkill(text) {

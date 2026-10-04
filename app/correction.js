@@ -14,7 +14,7 @@ function isPatchableArtifact(wrongAnswer) {
   return /<html[\s>]/i.test(wrongAnswer || "");
 }
 
-export function buildCorrectionPrompt(question, wrongAnswer, note) {
+export function buildCorrectionPrompt(question, wrongAnswer, note, context = "") {
   const patchable = isPatchableArtifact(wrongAnswer);
   const answerField = patchable
     ? '"edits": [{"before": "trecho literal único e exato da resposta errada", "after": "trecho corrigido"}]'
@@ -28,9 +28,14 @@ export function buildCorrectionPrompt(question, wrongAnswer, note) {
     patchable
       ? 'A resposta errada é um documento HTML completo — NÃO reescreva o documento inteiro. Em "edits", no máximo 3 edições, cada "before" um trecho literal único (copie exatamente, incluindo espaços) que existe na resposta errada, e "after" só o trecho corrigido. Preserve tudo fora dos trechos editados, incluindo todos os atributos id existentes.'
       : "",
+    'Você não tem acesso ao computador e não cria arquivos: se o pedido era criar um documento, escreva o conteúdo completo dele em "answer" (não peça dados que estão no contexto) e diga ao usuário que pode pedir à Aurora para salvá-lo.',
     'No máximo 3 itens em "memories". Cada memória deve ser uma regra ou fato reutilizável — não um resumo desta troca.',
     '"template" é OPCIONAL: inclua só quando a tarefa envolve gerar um artefato de código estruturado (ex: um jogo, uma página) e vale a pena guardar um ESQUELETO/BOILERPLATE correto e reutilizável (setup de cena/câmera/loop de animação, sem a mecânica específica deste pedido) para o modelo pequeno adaptar da próxima vez em vez de reescrever tudo do zero. Se não fizer sentido, responda "template": null.',
     "",
+    // Without the conversation and the file the person attached, the teacher asked
+    // "qual documento?" about a PDF summarized two messages earlier.
+    context ? `Contexto da conversa (use-o; não pergunte o que já está aqui):
+${context}` : "",
     `Pergunta original do usuário: ${question}`,
     `Resposta errada do modelo local: ${wrongAnswer}`,
     note ? `O que estava errado, segundo o usuário: ${note}` : "",
@@ -83,10 +88,10 @@ export function parseCorrectionResponse(text, wrongAnswer) {
  * distills the lesson into memory candidates, in a single call — this is
  * what lets the local model "learn" via memory instead of fine-tuning.
  */
-export async function correctLocalAnswer({ question, wrongAnswer, note, teacherProvider = "codex", env = process.env, signal }) {
+export async function correctLocalAnswer({ question, wrongAnswer, note, context = "", teacherProvider = "codex", env = process.env, signal }) {
   const runProvider = teacherProvider === "claude" ? runClaude : runCodex;
   const timeoutKey = teacherProvider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
-  const prompt = buildCorrectionPrompt(question, wrongAnswer, note);
+  const prompt = buildCorrectionPrompt(question, wrongAnswer, note, context);
   const result = await runProvider(prompt, {
     ...env,
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,

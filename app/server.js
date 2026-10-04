@@ -263,6 +263,27 @@ async function mentionedFiles(text, ctx, history = []) {
   return files;
 }
 
+/**
+ * What a correction by the paid teacher needs to know: the last turns and the
+ * text of the file the person was talking about (not one restricted to local AI).
+ */
+async function correctionContext(conversation, before, question) {
+  const turns = before.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-5, -1)
+    .map((m) => `${m.role === "user" ? "Usuário" : "Aurora"}: ${String(m.content).slice(0, 600)}`);
+  let files = [];
+  try {
+    const project = conversation.projectId ? await getProject(conversation.projectId) : null;
+    const ctx = await chatAgentToolContext({ conversation, project });
+    ctx.provider = "teacher";
+    ctx.isRestricted = async (file) => { const source = await sourceForPath(file).catch(() => null); return Boolean(source && !source.paid_allowed); };
+    files = await mentionedFiles(question, ctx, before);
+  } catch { /* the turns alone still help */ }
+  return [
+    turns.length ? `Mensagens anteriores:\n${turns.join("\n")}` : "",
+    ...files.map((f) => `Arquivo citado na conversa (${f.path}):\n${f.text}`),
+  ].filter(Boolean).join("\n\n");
+}
+
 async function agentMode() {
   const mode = await getSetting("agent_mode");
   return AGENT_MODES.includes(mode) ? mode : DEFAULT_AGENT_MODE;
@@ -354,16 +375,22 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
  * model was trained on — a follow-up like "agora pesquise lá" then knows
  * where "lá" is without the model imitating an ad-hoc annotation.
  */
-function agentHistory(history, limit = 8) {
+export function agentHistory(history, limit = 8, { replaySteps = true } = {}) {
   return history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-limit).flatMap((m) => {
     // Only what worked is replayed: a small model imitates past calls, so a
-    // failed guess (a made-up link, a wrong folder) would be repeated.
-    const steps = (m.execution?.toolSteps || []).filter((step) => step.ok).slice(-6);
+    // failed guess (a made-up link, a wrong folder) would be repeated. The
+    // same call twice (a re-read) is replayed once.
+    const steps = replaySteps ? (m.execution?.toolSteps || []).filter((step, i, all) => step.ok && all.findIndex((s) => s.ok && s.tool === step.tool && JSON.stringify(s.args) === JSON.stringify(step.args)) === i).slice(-6) : [];
     const content = String(m.content).slice(0, 1500);
     if (m.role !== "assistant" || !steps.length) return [{ role: m.role, content }];
+    // One call per assistant message: Llama 3.2's template refuses several
+    // ("This model only supports single tool-calls at once!"), and the whole
+    // turn then fell back to plain chat with no tools.
     return [
-      { role: "assistant", content: "", tool_calls: steps.map((step) => ({ function: { name: step.tool, arguments: step.args || {} } })) },
-      ...steps.map((step) => ({ role: "tool", tool_name: step.tool, content: step.summary || (step.ok ? "ok" : "falhou") })),
+      ...steps.flatMap((step) => [
+        { role: "assistant", content: "", tool_calls: [{ function: { name: step.tool, arguments: step.args || {} } }] },
+        { role: "tool", tool_name: step.tool, content: step.summary || "ok" },
+      ]),
       { role: "assistant", content },
     ];
   });
@@ -433,6 +460,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentAttachments = [];
     let agentDocs = [];
     let agentReview = null;
+    // Why the agent was dropped for plain chat (saved in the turn's diagnostics).
+    let agentFallbackError = null;
+    let fallbackFiles = "";
 
     let result;
     try {
@@ -478,13 +508,13 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
           const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
           const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
-          const runAgent = (agentHistoryMessages, input, overrides = {}) => runChatAgent({
-            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
+          const runAgent = (agentHistoryMessages, input, { question = input, ...overrides } = {}) => runChatAgent({
+            provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, question, grounded: autoDocs.length > 0 || attached.length > 0,
             // Local answers citing a company document that exists nowhere go back once.
             // Company questions must consult documents; names and numbers must come from them.
-            companyQuestion: conversation.provider === "local" && !autoDocs.length && !attached.length && hasKnowledge && asksForInformation(input) && asksAboutCompany(input),
+            companyQuestion: conversation.provider === "local" && !autoDocs.length && !attached.length && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             checkFacts: conversation.provider === "local" && hasKnowledge,
-            companyTopic: conversation.provider === "local" && hasKnowledge && asksForInformation(input) && asksAboutCompany(input),
+            companyTopic: conversation.provider === "local" && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
             env: agentEnv, signal: controller.signal, toolContext,
@@ -495,6 +525,12 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             ...overrides,
           });
           let agent = await runAgent(agentHistory(history), trimmed);
+          // A template that refuses the replayed calls still gets the agent (tools,
+          // attachments, guards) with the past turns as plain text.
+          if (agent.unsupported && !agent.steps.length && history.length) {
+            agentFallbackError = agent.error;
+            agent = await runAgent(agentHistory(history, 8, { replaySteps: false }), trimmed);
+          }
           // Several copies on company questions and exact facts (docs/AVALIACAO_EMPRESA_2026-10-04.md).
           // The extra copies only read (plan mode, no approvals, steps not shown) and run together.
           if (conversation.provider === "local") {
@@ -518,7 +554,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             agent = loop.result;
             agentReview = loop.review;
           }
-          if (agent.unsupported && !agent.steps.length) agentContext = null;
+          if (agent.unsupported && !agent.steps.length) {
+            agentFallbackError = agent.error || agentFallbackError;
+            agentContext = null;
+            fallbackFiles = filesBlock;
+          }
           else {
             agentSteps = agent.steps;
             const telemetry = summarizeLocalCalls(agent.calls);
@@ -526,7 +566,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           }
         }
         if (!result) {
-          localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, scope, limit: contextLimit || 12000 }) : null;
+          localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, required: [...promptArgs.required, ...(fallbackFiles ? [fallbackFiles] : [])], scope, limit: contextLimit || 12000 }) : null;
           const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
           result = conversation.provider === "local"
             ? await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) })
@@ -566,6 +606,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
+    if (agentFallbackError) result.execution = { ...(result.execution || {}), agentFallback: String(agentFallbackError).slice(0, 300) };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };
     if (agentDocs.length) result.execution = { ...(result.execution || {}), knowledgeDocs: agentDocs };
     if (result.copies) result.execution = { ...(result.execution || {}), copies: result.copies };
@@ -1197,9 +1238,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const correctionController = startTurn(conversationId);
         setStage(conversationId, "Consultando o professor…");
         try {
-          const teacherProvider = conversation.teacherProvider === "claude" ? "claude" : "codex";
+          const teacherProvider = (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
           const correction = await correctLocalAnswer({
             question: question.content,
+            context: await correctionContext(conversation, messages.slice(0, flaggedIndex), question.content),
             // An agent answer is only half the story: the teacher needs what it did.
             wrongAnswer: flagged.execution?.toolSteps?.length ? `${flagged.content}\n\nAções que o modelo executou:\n${flagged.execution.toolSteps.map((s, i) => `${i + 1}. ${s.tool} ${JSON.stringify(s.args).slice(0, 300)} → ${s.ok ? "ok" : "falhou"}: ${String(s.result ?? s.summary).slice(0, 400)}`).join("\n")}` : flagged.content,
             note: body.note,

@@ -62,7 +62,7 @@ test("a 'fix' saves lessons, the local model redoes with them, and memory stats 
   const reviews = [];
   const call = async ({ prompt }) => { reviews.push(prompt); return { ok: true, text: JSON.stringify({ verdict: "fix", problems: ["Não imprime"], guidance: "Use console.log", lessons: [{ title: "Imprimir", content: "Scripts de linha de comando devem imprimir o resultado com console.log.", tags: ["node"] }] }) }; };
   const reruns = [];
-  const rerun = async (history, input) => { reruns.push({ history, input }); return { ok: true, text: "Corrigido: agora imprime 42.", steps: [step("edit_file"), step("run_command")], calls: [{ usage: null }], messages: [] }; };
+  const rerun = async (history, input) => { reruns.push({ history, input }); return { ok: true, text: "soma.js agora imprime 42.", steps: [step("edit_file"), step("run_command")], calls: [{ usage: null }], messages: [] }; };
   const first = { ok: true, text: "Pronto", steps: [step("write_file")], calls: [{ usage: null }], messages: [{ role: "system", content: "s" }, { role: "user", content: "crie" }, { role: "assistant", content: "Pronto" }] };
   const { result, review } = await runTeachingLoop({ userMessage: "crie soma.js", history: [], first, teacherProvider: "codex", conversation, memoryIds: [old.id], rerun, call });
   assert.equal(review.verdict, "fix");
@@ -70,7 +70,9 @@ test("a 'fix' saves lessons, the local model redoes with them, and memory stats 
   assert.equal(reviews.length, 1);
   assert.deepEqual(reruns[0].history.map((m) => m.role), ["user", "assistant"], "the redo sees the first attempt (minus the system prompt)");
   assert.match(reruns[0].input, /Use console\.log/);
-  assert.equal(result.text, "Corrigido: agora imprime 42.");
+  assert.match(reruns[0].input, /Pedido do usuário: crie soma\.js/);
+  assert.match(reruns[0].input, /não fale do revisor/, "the redo delivers instead of narrating the fix");
+  assert.equal(result.text, "soma.js agora imprime 42.");
   assert.deepEqual(result.steps.map((s) => [s.tool, !!s.redo]), [["write_file", false], ["edit_file", true], ["run_command", true]]);
   const memories = await store.listMemories({});
   const lesson = memories.find((m) => m.id === review.lessonIds[0]);
@@ -139,7 +141,7 @@ test("end to end: local agent writes a file, the teacher (CLI) reviews in the pr
       call("write_file", { path: "soma.js", content: "const r = 7 + 35;" }),
       say("Pronto, criei soma.js."),
       call("write_file", { path: "soma.js", content: "const r = 7 + 35;\nconsole.log(r);" }),
-      say("Corrigi: agora soma.js imprime 42."),
+      say("soma.js imprime 42."),
     ][round - 1] || say("fim")));
   });
   await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
@@ -147,7 +149,7 @@ test("end to end: local agent writes a file, the teacher (CLI) reviews in the pr
   try {
     const result = await handleChatTurn({ conversationId: conversation.id, message: "crie soma.js que imprime 7+35", env: { ...process.env, LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}`, LOCAL_MODEL: "qwen3.5:4b", CODEX_BIN: fakeCli, FAKE_REVIEW_LOG: log } });
     assert.equal(result.ok, true, result.error);
-    assert.equal(result.message.content, "Corrigi: agora soma.js imprime 42.");
+    assert.equal(result.message.content, "soma.js imprime 42.");
     assert.equal(readFileSync(join(workspace, "soma.js"), "utf8"), "const r = 7 + 35;\nconsole.log(r);");
     const review = result.message.execution.review;
     assert.deepEqual([review.reason, review.verdict, review.redo, review.teacher], ["actions", "fix", "ok", "codex"]);
@@ -163,4 +165,17 @@ test("end to end: local agent writes a file, the teacher (CLI) reviews in the pr
   } finally {
     await new Promise((resolve) => stub.close(resolve));
   }
+});
+
+test("a redo that doesn't fit the context starts clean, and old tool results are cut short", async () => {
+  const conversation = await store.createConversation({ provider: "local" });
+  const call = async () => ({ ok: true, text: JSON.stringify({ verdict: "fix", problems: ["Não criou o arquivo"], guidance: "Crie com write_document", lessons: [] }) });
+  const reruns = [];
+  const rerun = async (history, input) => { reruns.push(history); return reruns.length === 1 ? { ok: false, status: 502, error: "request (13792 tokens) exceeds the available context size (12288 tokens)" } : { ok: true, text: "Criei C:/x.docx.", steps: [step("write_document")], calls: [{ usage: null }], messages: [] }; };
+  const first = { ok: true, text: "Quer que eu crie?", steps: [step("web_search", false)], calls: [{ usage: null }], messages: [{ role: "system", content: "s" }, { role: "user", content: "crie" }, { role: "tool", content: "x".repeat(5000) }, { role: "assistant", content: "Quer que eu crie?" }] };
+  const { result, review } = await runTeachingLoop({ userMessage: "crie um documento", history: [], first, teacherProvider: "codex", conversation, rerun, call });
+  assert.equal(review.redo, "ok");
+  assert.ok(reruns[0].find((m) => m.role === "tool").content.length < 700, "the first attempt's tool results are cut short");
+  assert.deepEqual(reruns[1], [], "the second try starts clean");
+  assert.equal(result.text, "Criei C:/x.docx.");
 });

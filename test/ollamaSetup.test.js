@@ -72,8 +72,12 @@ async function withStub(options, run) {
 test("resolveLocalModel falls back default -> saved setting -> env override, in that priority", async () => {
   assert.equal(await resolveLocalModel({}), DEFAULT_LOCAL_MODEL);
 
+  await setLocalModel("qwen3.5:9b");
+  assert.equal(await resolveLocalModel({}), "qwen3.5:9b");
+
+  // The old built-in default saved by early versions is not a choice: it follows the current default.
   await setLocalModel("llama3.2:3b");
-  assert.equal(await resolveLocalModel({}), "llama3.2:3b");
+  assert.equal(await resolveLocalModel({}), DEFAULT_LOCAL_MODEL);
 
   // An explicit LOCAL_MODEL env var (dev/packaging override) still wins over
   // whatever the user picked in the UI.

@@ -85,10 +85,15 @@ function countDocuments(dir, limit = 2000) {
 }
 
 /** Network drives (Windows), as \\server\share → letter, so suggestions show where they live. */
+// Asked once per 5 min: each call is a PowerShell process, and folder lookups happen on many turns.
+let drivesCache = null;
 export function networkDrives() {
   if (process.platform !== "win32") return Promise.resolve([]);
-  return new Promise((resolve) => execFile("powershell", ["-NoProfile", "-Command", "Get-PSDrive -PSProvider FileSystem | Where-Object { $_.DisplayRoot -like '\\\\*' } | ForEach-Object { $_.Root + '|' + $_.DisplayRoot }"], { timeout: 15_000, windowsHide: true },
+  if (drivesCache && Date.now() - drivesCache.at < 300_000) return drivesCache.drives;
+  const drives = new Promise((resolve) => execFile("powershell", ["-NoProfile", "-Command", "Get-PSDrive -PSProvider FileSystem | Where-Object { $_.DisplayRoot -like '\\\\*' } | ForEach-Object { $_.Root + '|' + $_.DisplayRoot }"], { timeout: 15_000, windowsHide: true },
     (error, stdout) => resolve(error ? [] : String(stdout).split(/\r?\n/).filter(Boolean).map((line) => { const [root, share] = line.split("|"); return { root: root.trim(), share: share?.trim() }; }))));
+  drivesCache = { at: Date.now(), drives };
+  return drives;
 }
 
 /** Folders that usually hold company documents on this computer. */
