@@ -43,7 +43,12 @@ export function constellationLayout(memories: Memory[], clusters: MemoryCluster[
     return {
       key,
       list,
-      offsets: offsets.map((o) => o.multiplyScalar(scale)),
+      // Scaled to the target size; the few outliers are pulled back inside the ring.
+      offsets: offsets.map((o) => {
+        o.multiplyScalar(scale);
+        const len = o.length(), max = radius * 0.9;
+        return len > max ? o.multiplyScalar((max + (len - max) * 0.15) / len) : o;
+      }),
       center: new THREE.Vector3(original.x, 0, original.z),
       radius,
       clusterId,

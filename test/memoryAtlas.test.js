@@ -69,3 +69,33 @@ test("HTTP: the atlas route and archiving a memory from it", async () => {
     assert.equal((await api(`/memories/${target}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) })).body.status, "active");
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+test("recall probe shows what the chat would remember, without counting it as use; recent recalls list what answers used", async () => {
+  const { createServer } = await import("../app/server.js");
+  const db = await getDb();
+  const created = await store.createMemory({ scope: "global", title: "Pausar a partida com a tecla P", content: "Ao pressionar P, congele a simulação e mostre o menu de pausa.", tags: ["pausa"], kind: "manual", env: { EMBEDDINGS_ENABLED: "false" } });
+  const loop = db.prepare("SELECT id, uses FROM memories WHERE id = ?").get(created.id);
+  const conversation = await store.createConversation({ title: "Jogo de teste" });
+  await store.addMessage({ conversationId: conversation.id, role: "user", content: "como fazer o loop do jogo?" });
+  await store.addMessage({ conversationId: conversation.id, role: "assistant", content: "Use requestAnimationFrame.", memoryAccess: [loop.id] });
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const api = (path, options = {}) => fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { headers: { "content-type": "application/json", "x-harness-token": server.apiToken }, ...options }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  try {
+    const probe = await api("/memories/recall", { method: "POST", body: JSON.stringify({ query: "como pausar a partida?" }) });
+    assert.equal(probe.status, 200);
+    assert.ok(probe.body.selected.length > 0, "something would be remembered");
+    assert.equal(probe.body.selected[0].id, loop.id, "the on-topic memory comes first");
+    assert.ok(probe.body.selected.every((s, i) => s.rank === i + 1), "ranked");
+    assert.ok(probe.body.selected[0].score > 0, "says how strongly");
+    assert.equal(db.prepare("SELECT uses FROM memories WHERE id = ?").get(loop.id).uses, loop.uses, "a probe is not a use");
+    assert.deepEqual((await api("/memories/recall", { method: "POST", body: JSON.stringify({ query: "  " }) })).body.selected, []);
+
+    const recent = await api("/memories/recent-recalls");
+    const entry = recent.body.recalls.find((r) => r.conversationId === conversation.id);
+    assert.ok(entry, "the answer is listed");
+    assert.deepEqual(entry.used, [loop.id]);
+    assert.equal(entry.prompt, "como fazer o loop do jogo?");
+    assert.equal(entry.conversationTitle, "Jogo de teste");
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});

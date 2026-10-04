@@ -70,6 +70,7 @@ import { contentWords, createSource, deleteSource, knowledgeMap, listSources, se
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
 import { memoryAtlas } from "./memoryAtlas.js";
 import { systemVitals } from "./systemVitals.js";
+import { recallProbe, recentRecalls } from "./memoryRecall.js";
 import { asksAboutCompany } from "./grounding.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
@@ -1195,6 +1196,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       if (method === "GET" && pathname === "/api/system/vitals") return sendJson(response, 200, systemVitals());
+      if (method === "POST" && pathname === "/api/memories/recall") {
+        const body = await readJson(request);
+        return sendJson(response, 200, await recallProbe(body.query, { projectId: body.projectId || undefined, conversationId: body.conversationId || undefined }));
+      }
+      if (method === "GET" && pathname === "/api/memories/recent-recalls") return sendJson(response, 200, { recalls: await recentRecalls(Number(url.searchParams.get("limit")) || 12) });
       if (method === "GET" && pathname === "/api/memories/stats") {
         return sendJson(response, 200, { stats: await countMemories() });
       }

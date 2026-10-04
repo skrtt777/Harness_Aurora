@@ -19,6 +19,7 @@ import { deleteMemory, getCentralMemories, getMemoryAtlas, getSystemVitals, list
 
 const MemoryScene = lazy(() => import("./MemoryScene"));
 const MemoryFlow = lazy(() => import("./MemoryFlow"));
+const MemoryMap = lazy(() => import("./MemoryMap"));
 const scopeLabels: Record<MemoryScope, string> = {
   central: "Central compartilhada",
   general: "Geral",
@@ -138,7 +139,7 @@ export default function NeuralAtlas({ variant }: Props) {
     [project, setProject] = useState("all");
   const [cad, setCad] = useState(true),
     [wireframe] = useState(false),
-    [sceneLayout, setSceneLayout] = useState<"constellation" | "neural">("neural"),
+    [sceneLayout, setSceneLayout] = useState<"map" | "neural">("map"),
     [orthographic, setOrthographic] = useState(false),
     [focus, setFocus] = useState(false),
     [view, setView] = useState<"map" | "flow" | "list">("map");
@@ -197,6 +198,7 @@ export default function NeuralAtlas({ variant }: Props) {
       ),
     [memories, kind, scope, project, query, health, clusterFilter],
   );
+  const filteredIds = useMemo(() => new Set(filtered.map((m) => m.id)), [filtered]);
   const healthCounts = useMemo(() => {
     const counts = { helpful: 0, unused: 0, failing: 0, duplicates: 0 };
     for (const m of memories) {
@@ -522,7 +524,7 @@ export default function NeuralAtlas({ variant }: Props) {
           </div>
           <div className="view-toggle">
             <button className={view === "map" ? "selected" : ""} onClick={() => setView("map")}>
-              ◉ Mapa 3D
+              ◉ Mapa
             </button>
             <button className={view === "flow" ? "selected" : ""} onClick={() => setView("flow")}>
               ⌗ Vizinhança
@@ -571,7 +573,23 @@ export default function NeuralAtlas({ variant }: Props) {
           </span>
         </div>
         {view === "map" ? (
-          <div className="scene-wrap">
+          <div className={`scene-wrap ${sceneLayout === "map" ? "flat-map" : ""}`}>
+            {sceneLayout === "map" ? (
+              <Suspense fallback={<div className="scene-fallback">Preparando o mapa…</div>}>
+                <MemoryMap
+                  memories={memories}
+                  visible={filteredIds}
+                  clusters={clusters}
+                  selectedId={selectedId}
+                  onSelect={select}
+                  onCluster={(id) => setClusterFilter(id)}
+                  onGroup={(key) => {
+                    clearFilters();
+                    setProject(key);
+                  }}
+                />
+              </Suspense>
+            ) : (
             <Suspense fallback={<div className="scene-fallback">Preparando a rede 3D…</div>}>
               <MemoryScene
                 memories={filtered}
@@ -579,7 +597,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 clusters={clusters}
                 pulses={pulses}
                 vitals={vitals}
-                layout={sceneLayout}
+                layout="neural"
                 onCluster={(id) => setClusterFilter(id)}
                 selectedId={selectedId}
                 onSelect={select}
@@ -598,6 +616,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 onStats={setStats}
               />
             </Suspense>
+            )}
             <div className="scene-caption">
               <div className="overline">{selected ? "ESTRUTURA SELECIONADA" : "REDE DE CONTEXTOS"}</div>
               <strong>{selected?.title || (clusters.length ? `${clusters.filter((c) => c.id >= 0).length} assuntos · ${memories.length} memórias` : `${graph.groups.length} grupos · ${graph.edges.length} conexões`)}</strong>
@@ -643,13 +662,14 @@ export default function NeuralAtlas({ variant }: Props) {
                 {orthographic ? "Ortográfica" : "Perspectiva"}
               </button>
               <button
+                className="layout-toggle"
                 aria-pressed={sceneLayout === "neural"}
                 onClick={() => {
-                  setSceneLayout(sceneLayout === "neural" ? "constellation" : "neural");
+                  setSceneLayout(sceneLayout === "neural" ? "map" : "neural");
                   camera("overview");
                 }}
               >
-                {sceneLayout === "neural" ? "Rede neural" : "Constelação"}
+                {sceneLayout === "neural" ? "Ver mapa" : "Rede neural 3D"}
               </button>
               <button aria-pressed={motion} onClick={() => setMotion(!motion)}>
                 {motion ? "Pausar" : "Animar"}
@@ -879,16 +899,16 @@ export default function NeuralAtlas({ variant }: Props) {
               <div className="anatomy-guide">
                 <div className="overline">COMO LER O MAPA</div>
                 <p>
-                  <b>01</b> Posição <span>Memórias perto falam de assuntos parecidos</span>
+                  <b>01</b> Áreas <span>Cada círculo é um assunto; perto = assunto parecido</span>
                 </p>
                 <p>
-                  <b>02</b> Tamanho e brilho <span>Maior = ajudou mais; apagada = nunca usada</span>
+                  <b>02</b> Pontos <span>Cor = saúde (ajuda, atrapalha, usada, nunca usada); tamanho = vezes usada</span>
                 </p>
                 <p>
-                  <b>03</b> Linhas <span>Ligam as memórias mais parecidas</span>
+                  <b>03</b> Testar lembrança <span>Escreva uma pergunta e veja o que entraria no contexto, em ordem e por quê, e o que quase entrou</span>
                 </p>
                 <p>
-                  <b>04</b> Você · Aurora · Este PC <span>A energia corre de cada um às memórias que vieram dele: acelera quando você mexe no mapa, quando a Aurora pensa e com a carga real do PC</span>
+                  <b>04</b> Últimas lembranças <span>Clique numa resposta recente para ver as memórias que ela usou. Muitas, ou de muitos assuntos, é sinal de lembrança pouco focada</span>
                 </p>
                 <small>Use Saúde da memória, à esquerda, para achar as que nunca são usadas, as que atrapalham e as repetidas.</small>
               </div>

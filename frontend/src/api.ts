@@ -214,6 +214,17 @@ export type SystemVitals = {
   at: number;
 };
 export const getSystemVitals = () => request<SystemVitals>("/system/vitals");
+export type RecallResult = {
+  query: string;
+  selective: boolean;
+  limit: number;
+  embeddings: boolean;
+  selected: { id: string; title: string; scope: string; rank: number; score: number | null; similarity: number | null; titleMatches: string[]; contentMatches: number }[];
+  near: { id: string; title: string; scope: string; similarity: number; why: string }[];
+};
+export type RecentRecall = { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] };
+export const probeRecall = (query: string, projectId?: string) => request<RecallResult>("/memories/recall", { method: "POST", body: JSON.stringify({ query, projectId }) });
+export const getRecentRecalls = () => request<{ recalls: RecentRecall[] }>("/memories/recent-recalls?limit=12");
 export const getMemoryAtlas = () => request<{ model: string; memories: AtlasMemory[]; clusters: AtlasCluster[] }>("/memories/atlas");
 export const getMemoryStats = () => request<{ stats: MemoryStat[] }>("/memories/stats").then((r) => r.stats);
 export const createMemoryRelation = (fromId: string, toId: string, type: MemoryRelationType) =>
