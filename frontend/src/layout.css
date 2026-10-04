@@ -1,0 +1,418 @@
+/* Shell + sidebar (docs/DESIGN.md). Loaded after the legacy sheets. */
+
+:root {
+  color: var(--text-1);
+  background: var(--bg-chrome);
+}
+
+.app-shell,
+.app-shell:not(.atlas-takeover) {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-chrome);
+  font-family: var(--font-sans);
+}
+.app-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--bg-chrome);
+}
+
+/* ---------- Brand ---------- */
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-mark-badge {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.brand-mark-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.brand-mark-text small {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* ---------- Sidebar ---------- */
+.sb {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 10px 10px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--stroke-4);
+}
+.sb-top {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  margin-bottom: 14px;
+}
+
+.sb-new {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.sb-new-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  text-align: left;
+}
+.sb-new-main:hover {
+  background: var(--fill-hover);
+}
+.sb-model > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.sb-model > summary::-webkit-details-marker {
+  display: none;
+}
+.sb-model > summary:hover,
+.sb-model[open] > summary {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.sb-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 40;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop);
+}
+.sb-popover-label {
+  padding: 6px 8px 4px;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.sb-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.sb-popover-item:hover {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.sb-popover-item.selected {
+  color: var(--text-1);
+}
+.sb-popover-item.selected .icon {
+  color: var(--accent);
+}
+
+.sb-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-4);
+  cursor: text;
+}
+.sb-search:focus-within {
+  background: var(--fill-hover);
+  color: var(--text-2);
+}
+.sb-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  outline: none;
+}
+.sb-search input::placeholder {
+  color: var(--text-3);
+}
+
+.sb-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--stroke-4);
+}
+.sb-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  text-align: left;
+}
+.sb-link:hover {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.sb-link.active {
+  background: var(--fill-active);
+  color: var(--text-1);
+}
+.sb-link .icon {
+  flex: none;
+  color: var(--text-3);
+}
+.sb-link.active .icon {
+  color: var(--accent);
+}
+.sb-link > span:not(.sb-count) {
+  flex: 1;
+}
+.sb-count {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.sb-group {
+  padding: 8px 0 4px;
+}
+.sb-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  list-style: none;
+  cursor: default;
+}
+.sb-group-head::-webkit-details-marker {
+  display: none;
+}
+.sb-archived > summary {
+  cursor: pointer;
+}
+.sb-archived > summary:hover {
+  color: var(--text-2);
+}
+.sb-archived:not([open]) .sb-caret {
+  transform: rotate(-90deg);
+}
+.sb-group-action {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+}
+.sb-group:hover .sb-group-action,
+.sb-group-action:focus-visible {
+  opacity: 1;
+}
+.sb-empty {
+  margin: 2px 8px 6px;
+  color: var(--text-4);
+  font-size: var(--fs-sm);
+}
+
+.sb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+}
+.sb-row:hover {
+  background: var(--fill-hover);
+}
+.sb-row.active {
+  background: var(--fill-active);
+}
+.sb-row.editing {
+  padding: 2px 0;
+}
+.sb-row.editing:hover {
+  background: none;
+}
+.sb-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  text-align: left;
+}
+.sb-row.active .sb-row-main,
+.sb-row-main:hover {
+  color: var(--text-1);
+}
+.sb-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-row-meta {
+  flex: none;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.sb-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: none;
+  gap: 0;
+  padding-left: 16px;
+  transform: translateY(-50%);
+  background: linear-gradient(to right, transparent, var(--bg-sidebar) 14px);
+}
+.sb-row-actions .btn-icon {
+  width: 24px;
+  height: 24px;
+}
+.sb-row:hover .sb-row-actions,
+.sb-row:focus-within .sb-row-actions {
+  display: flex;
+}
+.sb-row:hover .sb-row-meta,
+.sb-row:focus-within .sb-row-meta {
+  visibility: hidden;
+}
+
+.sb-project-row .sb-row-main {
+  gap: 6px;
+  color: var(--text-2);
+}
+.sb-caret {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--text-4);
+  transition: transform 0.12s var(--ease);
+}
+.sb-caret.closed {
+  transform: rotate(-90deg);
+}
+.sb-project-items {
+  margin-left: 14px;
+  padding-left: 6px;
+  border-left: 1px solid var(--stroke-4);
+}
+
+.sb-bottom {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--stroke-4);
+}
+
+/* Narrow windows: the sidebar becomes a drawer (AppShell toggles .mobile-open). */
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell:not(.atlas-takeover) {
+    grid-template-columns: 1fr;
+  }
+  .sb {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(280px, 85vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s var(--ease);
+    box-shadow: var(--shadow-pop);
+  }
+  .sb.mobile-open {
+    transform: translateX(0);
+  }
+}
+
+/* The brand text sits on one line in the sidebar. */
+.sb-top .brand-mark-text {
+  display: flex;
+  flex-direction: row;
+  font-size: var(--fs-md);
+}
+.sb-top .brand-mark-text small {
+  display: inline;
+  margin: 0;
+}
+
+/* Only the action buttons take clicks; the fade strip behind them doesn't
+   cover the title (a click on the middle of a hovered row opens it). */
+.sb-row-actions {
+  pointer-events: none;
+}
+.sb-row-actions .btn-icon {
+  pointer-events: auto;
+}

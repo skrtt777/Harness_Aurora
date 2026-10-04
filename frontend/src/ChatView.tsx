@@ -78,10 +78,11 @@ function AgentModeSelect() {
   const [mode, setMode] = useState<AgentMode | null>(null);
   useEffect(() => { getSettings().then(s => setMode(s.agentMode)).catch(() => {}); }, []);
   if (!mode) return null;
-  return <label className="agent-mode" title={MODE_HINT[mode]}>Modo
-    <select value={mode} onChange={async event => { const next = event.target.value as AgentMode; setMode(next); await updateSettings({ agentMode: next }).catch(() => {}); }}>
+  return <label className="composer-pill" title={MODE_HINT[mode]}>
+    <select aria-label="Modo do agente" value={mode} onChange={async event => { const next = event.target.value as AgentMode; setMode(next); await updateSettings({ agentMode: next }).catch(() => {}); }}>
       {(Object.keys(MODE_LABEL) as AgentMode[]).map(m => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
     </select>
+    <Icon name="down" size={11} />
   </label>;
 }
 
@@ -93,7 +94,7 @@ function ReviewNote({ review }: { review: TeacherReview }) {
     : review.verdict === 'ok' ? `Conferido por ${teacher}: aprovado.`
     : review.verdict === 'fix' ? `${teacher} encontrou ${review.problems?.length || 0} problema(s)${review.lessonIds?.length ? ` e ensinou ${review.lessonIds.length} lição(ões)` : ''}; a Aurora ${review.redo === 'ok' ? 'refez e corrigiu' : review.redo === 'com_erros' ? 'refez, mas ainda há erros' : 'não conseguiu refazer'}.` : '';
   if (!text) return null;
-  return <details className={`teacher-review ${review.verdict || 'none'}`}><summary>🎓 {text}</summary>
+  return <details className={`teacher-review ${review.verdict || 'none'}`}><summary><span className="teacher-dot" aria-hidden="true" />{text}</summary>
     {!!review.problems?.length && <ul>{review.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
   </details>;
 }
@@ -149,11 +150,11 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <div className="message-actions">
-        <button onClick={async () => {
+        <button className="btn btn-text btn-sm" onClick={async () => {
           try { await navigator.clipboard.writeText(message.content); setFeedback('Resposta copiada'); }
           catch { setFeedback('Não foi possível copiar.'); }
-        }}>Copiar</button>
-        {correctable && <button onClick={() => setReview(value => !value)}>Revisar com <span className="provider-name">{teacher}</span></button>}
+        }}><Icon name="copy" size={13} /> Copiar</button>
+        {correctable && <button className="btn btn-text btn-sm" onClick={() => setReview(value => !value)}>Revisar com {teacher}</button>}
         {(message.execution?.context?.skills?.length ?? 0) > 0 && <span className="used-skills" aria-label="Skills usadas nesta resposta">
           {message.execution!.context!.skills!.map(s => <span key={s.id} className="skill-chip" title={s.partial ? `Skill "${s.name}" — trecho relevante usado` : `Skill "${s.name}" — texto completo usado`}>🧩 {s.name}</span>)}
         </span>}
@@ -168,9 +169,9 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
         try { await onCorrect(message.id, note); setReview(false); setNote(''); }
         catch (error) { setFeedback(error instanceof Error ? error.message : 'Falha ao revisar.'); }
         finally { setBusy(false); }
-      }}><label>O que precisa melhorar?<textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Descreva o ajuste que você precisa" disabled={busy} /></label>
+      }}><label>O que precisa melhorar?<textarea className="field" value={note} onChange={event => setNote(event.target.value)} placeholder="Descreva o ajuste que você precisa" disabled={busy} /></label>
         <small>Esta revisão usa {teacher}. Para ajustar com a IA atual, escreva no chat.</small>
-        <div><button type="button" disabled={busy} onClick={() => setReview(false)}>Cancelar</button><button disabled={busy}>{busy ? 'Revisando…' : 'Pedir revisão'}</button></div>
+        <div><button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setReview(false)}>Cancelar</button><button className="btn btn-primary btn-sm" disabled={busy}>{busy ? 'Revisando…' : 'Pedir revisão'}</button></div>
       </form>}
       {feedback && <small role="status">{feedback}</small>}
     </div>
@@ -254,13 +255,13 @@ export default function ChatView({ conversation, project, loading, sending, pend
           {editingTitle ? <form onSubmit={event => { event.preventDefault(); onRenameTitle(titleDraft.trim() || conversation.title); setEditingTitle(false); }}>
             <input autoFocus aria-label="Título da conversa" className="title-input" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setEditingTitle(false); }} onBlur={() => setEditingTitle(false)} />
           </form> : <button className="conversation-title" onClick={() => { setTitleDraft(conversation.title); setEditingTitle(true); }} title="Renomear conversa">{conversation.title}</button>}
-          <span className="conversation-provider provider-name">{provider}</span>
+          <span className="badge">{provider}</span>
         </div>
         <div className="conversation-controls">
-          <button ref={filesButton} className="quiet-button" aria-expanded={panel === 'files'} onClick={() => {
+          <button ref={filesButton} className="btn btn-ghost btn-sm" aria-expanded={panel === 'files'} onClick={() => {
             if (panel === 'files') closePanel(); else { setSelectedId(selectedId || artifacts.at(-1)?.id || null); setPanel('files'); }
-          }}>Arquivos{artifacts.length > 0 && <span className="file-count">{artifacts.length}</span>}</button>
-          <button className="quiet-button" aria-label="Ajustes da conversa" title="Ajustes da conversa" aria-expanded={panel === 'tools'} onClick={() => setPanel(panel === 'tools' ? null : 'tools')}>•••</button>
+          }}><Icon name="folder" size={14} /> Arquivos{artifacts.length > 0 && <span className="sb-count">{artifacts.length}</span>}</button>
+          <button className="btn-icon" aria-label="Ajustes da conversa" aria-expanded={panel === 'tools'} onClick={() => setPanel(panel === 'tools' ? null : 'tools')}><Icon name="more" size={18} /></button>
         </div>
       </header>
       <LocalSetupPanel active={conversation.provider === 'local'} compact />
@@ -276,17 +277,22 @@ export default function ChatView({ conversation, project, loading, sending, pend
             <p>A Aurora quer {pendingTurn.approval.tool === 'run_command' ? 'executar este comando' : 'fazer isto'}:</p>
             <code>{pendingTurn.approval.summary}</code>
             {pendingTurn.approval.detail && <small>{pendingTurn.approval.detail}</small>}
-            <div><button type="button" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, false)}>Negar</button>{pendingTurn.approval.rule && <button type="button" title="Não perguntar de novo para comandos que começam assim" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true, true)}>Sempre permitir “{pendingTurn.approval.rule}”</button>}<button type="button" className="primary" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true)}>Permitir</button></div>
+            <div className="agent-approval-actions"><button type="button" className="btn btn-ghost btn-sm" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, false)}>Negar</button>{pendingTurn.approval.rule && <button type="button" className="btn btn-sm" title="Não perguntar de novo para comandos que começam assim" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true, true)}>Sempre permitir “{pendingTurn.approval.rule}”</button>}<button type="button" className="btn btn-primary btn-sm" onClick={() => onResolveApproval?.(pendingTurn.approval!.id, true)}>Permitir</button></div>
           </div> : <span className="pending-stage">{pendingStage && pendingStage !== 'Gerando resposta…' && <small>{pendingStage}</small>}<span className="typing-dots" aria-hidden="true"><span /><span /><span /></span></span>}
         </div></div>}
       </div>
-      <div className="composer-area"><AgentModeSelect /><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+      <div className="composer-area"><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
         <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
           if (event.key === 'Escape' && composerExpanded) { event.preventDefault(); setComposerExpanded(false); }
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
         }} disabled={loading} />
-        {sending ? <button type="button" className="cancel-send" aria-label="Parar resposta" title="Parar resposta" onClick={onCancel}>■</button> : <button type="submit" aria-label="Enviar mensagem" title="Enviar mensagem" disabled={loading || !draft.trim()}>↑</button>}
-      </form><div className="composer-footer"><p className="composer-hint">Enter para enviar · Shift + Enter para uma nova linha</p><button type="button" className="composer-expand" aria-expanded={composerExpanded} onClick={() => { setComposerExpanded(value => !value); textareaRef.current?.focus(); }}>{composerExpanded ? '↙ Recolher campo' : '↗ Ampliar campo'}</button></div></div>
+        <div className="composer-toolbar">
+          <AgentModeSelect />
+          <span className="composer-hint">Enter envia · Shift + Enter quebra linha</span>
+          <button type="button" className="btn-icon" aria-label={composerExpanded ? 'Recolher campo' : 'Ampliar campo'} aria-expanded={composerExpanded} onClick={() => { setComposerExpanded(value => !value); textareaRef.current?.focus(); }}><Icon name={composerExpanded ? 'collapse' : 'expand'} size={14} /></button>
+          {sending ? <button type="button" className="composer-send stop" aria-label="Parar resposta" onClick={onCancel}><span className="stop-square" /></button> : <button type="submit" className="composer-send" aria-label="Enviar mensagem" disabled={loading || !draft.trim()}><Icon name="send" size={15} /></button>}
+        </div>
+      </form></div>
     </section>
     {panel === 'files' && <div className="artifact-panel-wrap">{fileError && <p role="alert" className="artifact-error">{fileError}<button onClick={() => setFileRetry(x => x + 1)}>Tentar novamente</button></p>}<ArtifactPanel conversationId={conversation.id} artifacts={artifacts} selectedId={selectedId} onSelect={setSelectedId} onClose={closePanel} /></div>}
     {panel === 'tools' && <aside className="conversation-tools" aria-label="Ajustes da conversa"><header className="artifact-heading"><strong>Ajustes da conversa</strong><button className="quiet-button" onClick={closePanel} aria-label="Fechar ajustes">✕</button></header>

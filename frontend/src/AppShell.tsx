@@ -431,7 +431,7 @@ export default function AppShell() {
           />
         )}
         {view === "memory" && (
-          <MemoryView projects={projects} conversations={conversations} onMemoriesChanged={refreshMemoryTotal} />
+          <MemoryView projects={projects} conversations={conversations} onMemoriesChanged={refreshMemoryTotal} onOpenAtlas={(variant) => setView(variant)} />
         )}
         {view === "settings" && (
           <SettingsView

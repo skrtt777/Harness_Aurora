@@ -21,6 +21,14 @@ const PATHS: Record<string, string> = {
   refresh: "M4 12a8 8 0 0 1 14-5.2M20 12a8 8 0 0 1-14 5.2 M17.5 7h3V4 M6.5 17H3.5V20",
   chevron: "M9 6l6 6-6 6",
   close: "M6 6l12 12 M18 6 6 18",
+  compose: "M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6 M18.4 3.6a1.9 1.9 0 0 1 2.7 2.7L12 15.4 8.5 16l.6-3.5Z",
+  down: "M6 9l6 6 6-6",
+  more: "M5 12h.01 M12 12h.01 M19 12h.01",
+  chat: "M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z",
+  sidebar: "M4 5h16v14H4Z M9 5v14",
+  send: "M12 19V5 M6 11l6-6 6 6",
+  expand: "M14 4h6v6 M10 20H4v-6 M20 4l-7 7 M4 20l7-7",
+  collapse: "M20 10h-6V4 M4 14h6v6 M14 10l7-7 M10 14l-7 7",
 };
 
 type IconName = keyof typeof PATHS;

@@ -41,16 +41,7 @@ function timeAgo(iso: string) {
   return `${Math.floor(hours / 24)} d`;
 }
 
-function ConversationRow({
-  conversation,
-  active,
-  projects,
-  onSelect,
-  onRename,
-  onMove,
-  onArchive,
-  onDelete,
-}: {
+type RowProps = {
   conversation: Conversation;
   active: boolean;
   projects: Project[];
@@ -59,14 +50,17 @@ function ConversationRow({
   onMove: (projectId: string | null) => void;
   onArchive: (archived: boolean) => void;
   onDelete: () => void;
-}) {
+};
+
+function ConversationRow({ conversation, active, projects, onSelect, onRename, onMove, onArchive, onDelete }: RowProps) {
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
   if (moving) {
     return (
-      <div className="conv-row editing">
+      <div className="sb-row editing">
         <select
+          className="field"
           autoFocus
           aria-label={`Mover "${conversation.title}" para outro projeto`}
           defaultValue={conversation.projectId ?? ""}
@@ -89,7 +83,7 @@ function ConversationRow({
   if (editing) {
     return (
       <form
-        className="conv-row editing"
+        className="sb-row editing"
         onSubmit={(e) => {
           e.preventDefault();
           onRename(draft.trim() || conversation.title);
@@ -97,6 +91,7 @@ function ConversationRow({
         }}
       >
         <input
+          className="field"
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -109,33 +104,33 @@ function ConversationRow({
     );
   }
   return (
-    <div className={`conv-row ${active ? "active" : ""}`}>
-      <button className="conv-title" onClick={onSelect} title={conversation.title}>
-        <span>{conversation.title}</span>
-        <small>{timeAgo(conversation.updatedAt)}</small>
+    <div className={`sb-row ${active ? "active" : ""}`}>
+      <button className="sb-row-main" onClick={onSelect}>
+        <span className="sb-row-title">{conversation.title}</span>
+        <span className="sb-row-meta">{timeAgo(conversation.updatedAt)}</span>
       </button>
-      <div className="conv-actions">
-        <button aria-label="Renomear conversa" onClick={() => setEditing(true)} title="Renomear">
+      <div className="sb-row-actions">
+        <button className="btn-icon" aria-label="Renomear conversa" onClick={() => setEditing(true)}>
           <Icon name="edit" size={13} />
         </button>
-        <button aria-label="Mover para outro projeto" onClick={() => setMoving(true)} title="Mover para projeto">
+        <button className="btn-icon" aria-label="Mover para outro projeto" onClick={() => setMoving(true)}>
           <Icon name="folder" size={13} />
         </button>
         {conversation.archivedAt ? (
-          <button aria-label="Desarquivar conversa" onClick={() => onArchive(false)} title="Desarquivar">
+          <button className="btn-icon" aria-label="Desarquivar conversa" onClick={() => onArchive(false)}>
             <Icon name="unarchive" size={13} />
           </button>
         ) : (
-          <button aria-label="Arquivar conversa" onClick={() => onArchive(true)} title="Arquivar">
+          <button className="btn-icon" aria-label="Arquivar conversa" onClick={() => onArchive(true)}>
             <Icon name="archive" size={13} />
           </button>
         )}
         <button
+          className="btn-icon"
           aria-label="Excluir conversa"
           onClick={() => {
             if (confirm(`Excluir "${conversation.title}"? Esta ação não pode ser desfeita.`)) onDelete();
           }}
-          title="Excluir"
         >
           <Icon name="trash" size={13} />
         </button>
@@ -150,7 +145,6 @@ export default function Sidebar({
   activeConversationId,
   activeView,
   memoryCount,
-  savings,
   newConversationProvider,
   onSelectNewConversationProvider,
   newConversationTeacher,
@@ -242,212 +236,181 @@ export default function Sidebar({
     return { map, ungrouped };
   }, [filtered]);
 
+  const providerLabel = newConversationProvider === "local" ? "Local" : newConversationProvider === "claude" ? "Claude" : "Codex";
+  const rowProps = (conversation: Conversation): RowProps => ({
+    conversation,
+    active: activeView === "chat" && conversation.id === activeConversationId,
+    projects,
+    onSelect: () => onSelectConversation(conversation.id),
+    onRename: (title) => onRenameConversation(conversation.id, title),
+    onMove: (projectId) => onMoveConversation(conversation.id, projectId),
+    onArchive: (archived) => handleArchiveToggle(conversation.id, archived),
+    onDelete: () => onDeleteConversation(conversation.id),
+  });
+
   return (
-    <aside id="app-sidebar" className={`app-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
-      <div className="app-logo">
+    <aside id="app-sidebar" className={`sb ${mobileOpen ? "mobile-open" : ""}`}>
+      <div className="sb-top">
         <BrandMark />
       </div>
 
-      <details className="sidebar-model-settings">
-        <summary>Modelo <span className="model-selection"><span className="provider-name">{newConversationProvider === 'local' ? 'Local' : newConversationProvider === 'claude' ? 'Claude' : 'Codex'}</span><span aria-hidden="true">⌄</span></span></summary>
-      {providers.length > 1 && (
-        <div className="provider-picker" role="group" aria-label="Provedor da próxima conversa">
-          {providers.map((p) => (
-            <button
-              key={p.id}
-              className={newConversationProvider === p.id ? "selected" : ""}
-              onClick={() => onSelectNewConversationProvider(p.id)}
-              title={`Novas conversas vão usar ${p.name}`}
-            >
-              <span className="provider-name">{p.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {newConversationProvider === "local" && (
-        <label className="teacher-picker">
-          Assistente para revisões
-          <select value={newConversationTeacher} onChange={(e) => onSelectNewConversationTeacher(e.target.value)}>
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-      )}
-      </details>
-      <button className="new-conversation" onClick={() => onNewConversation(null)}>
-        <Icon name="plus" size={13} /> Nova conversa
-      </button>
-
-      <div className="sidebar-search">
-        <Icon name="search" size={13} />
-        <input placeholder="Buscar conversas…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar conversas" />
-      </div>
-
-      <nav className="sidebar-scroll">
-        <div className="sidebar-block">
-          <div className="sidebar-block-head">
-            <label>PROJETOS</label>
-            {creatingProject ? (
-              <form
-                className="project-new-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (projectDraft.trim()) onNewProject(projectDraft.trim());
-                  setProjectDraft("");
-                  setCreatingProject(false);
-                }}
+      <div className="sb-new">
+        <button className="sb-new-main" onClick={() => onNewConversation(null)}>
+          <Icon name="compose" size={15} />
+          <span>Nova conversa</span>
+        </button>
+        <details className="sb-model">
+          <summary aria-label="Modelo das próximas conversas">
+            {providerLabel} <Icon name="down" size={12} />
+          </summary>
+          <div className="sb-popover" role="group" aria-label="Modelo das próximas conversas">
+            <div className="sb-popover-label">Modelo das próximas conversas</div>
+            {providers.map((p) => (
+              <button
+                key={p.id}
+                className={`sb-popover-item ${newConversationProvider === p.id ? "selected" : ""}`}
+                onClick={() => onSelectNewConversationProvider(p.id)}
               >
-                <input
-                  autoFocus
-                  placeholder="Nome do projeto"
-                  value={projectDraft}
-                  onChange={(e) => setProjectDraft(e.target.value)}
-                  onBlur={() => setCreatingProject(false)}
-                />
-              </form>
-            ) : (
-              <button className="mini-action" onClick={() => setCreatingProject(true)} aria-label="Novo projeto">
-                <Icon name="plus" size={12} />
+                <span>{p.name}</span>
+                {newConversationProvider === p.id && <Icon name="check" size={13} />}
               </button>
+            ))}
+            {newConversationProvider === "local" && (
+              <>
+                <div className="sb-popover-label">Professor que revisa a IA local</div>
+                {["codex", "claude"].map((id) => (
+                  <button key={id} className={`sb-popover-item ${newConversationTeacher === id ? "selected" : ""}`} onClick={() => onSelectNewConversationTeacher(id)}>
+                    <span>{id === "codex" ? "Codex" : "Claude"}</span>
+                    {newConversationTeacher === id && <Icon name="check" size={13} />}
+                  </button>
+                ))}
+              </>
             )}
           </div>
-          {projects.length === 0 && !creatingProject && <p className="sidebar-empty">Nenhum projeto ainda.</p>}
+        </details>
+      </div>
+
+      <label className="sb-search">
+        <Icon name="search" size={14} />
+        <input placeholder="Buscar" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar conversas" />
+      </label>
+
+      <nav className="sb-nav" aria-label="Páginas">
+        <button className={`sb-link ${activeView === "memory" ? "active" : ""}`} onClick={() => onSelectView("memory")}>
+          <Icon name="memory" size={15} />
+          <span>Memória</span>
+          <span className="sb-count">{memoryCount.toLocaleString("pt-BR")}</span>
+        </button>
+        <button className={`sb-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
+          <Icon name="puzzle" size={15} />
+          <span>Skills e regras</span>
+        </button>
+      </nav>
+
+      <div className="sb-scroll">
+        <section className="sb-group">
+          <div className="sb-group-head">
+            <span>Projetos</span>
+            <button className="btn-icon sb-group-action" onClick={() => setCreatingProject(true)} aria-label="Novo projeto">
+              <Icon name="plus" size={13} />
+            </button>
+          </div>
+          {creatingProject && (
+            <form
+              className="sb-row editing"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (projectDraft.trim()) onNewProject(projectDraft.trim());
+                setProjectDraft("");
+                setCreatingProject(false);
+              }}
+            >
+              <input className="field" autoFocus placeholder="Nome do projeto" value={projectDraft} onChange={(e) => setProjectDraft(e.target.value)} onBlur={() => setCreatingProject(false)} />
+            </form>
+          )}
+          {projects.length === 0 && !creatingProject && <p className="sb-empty">Nenhum projeto ainda.</p>}
           {projects.map((project) => {
             const items = byProject.map.get(project.id) || [];
             const isCollapsed = collapsed[project.id];
             return (
-              <div className="project-group" key={project.id}>
-                <div className="project-head">
-                  <button className="project-toggle" onClick={() => setCollapsed((c) => ({ ...c, [project.id]: !c[project.id] }))}>
-                    <i className={isCollapsed ? "chevron closed" : "chevron"} />
-                    <span>{project.name}</span>
-                    <b>{items.length}</b>
+              <div className="sb-project" key={project.id}>
+                <div className="sb-row sb-project-row">
+                  <button className="sb-row-main" onClick={() => setCollapsed((c) => ({ ...c, [project.id]: !c[project.id] }))} aria-expanded={!isCollapsed}>
+                    <span className={`sb-caret ${isCollapsed ? "closed" : ""}`}>
+                      <Icon name="down" size={12} />
+                    </span>
+                    <span className="sb-row-title">{project.name}</span>
+                    {items.length > 0 && <span className="sb-row-meta">{items.length}</span>}
                   </button>
-                  <div className="project-actions">
-                    <button
-                      title="Nova conversa neste projeto"
-                      onClick={() => onNewConversation(project.id)}
-                      aria-label="Nova conversa neste projeto"
-                    >
-                      <Icon name="plus" size={12} />
+                  <div className="sb-row-actions">
+                    <button className="btn-icon" onClick={() => onNewConversation(project.id)} aria-label="Nova conversa neste projeto">
+                      <Icon name="plus" size={13} />
                     </button>
                     <button
-                      title="Renomear projeto"
+                      className="btn-icon"
                       onClick={() => {
                         const name = prompt("Novo nome do projeto:", project.name);
                         if (name?.trim()) onRenameProject(project.id, name.trim());
                       }}
                       aria-label="Renomear projeto"
                     >
-                      <Icon name="edit" size={12} />
+                      <Icon name="edit" size={13} />
+                    </button>
+                    <button className="btn-icon" onClick={() => onConfigureProject(project)} aria-label="Configurar pasta e instruções do projeto">
+                      <Icon name="gear" size={13} />
                     </button>
                     <button
-                      title="Configurar pasta e instruções do projeto"
-                      onClick={() => onConfigureProject(project)}
-                      aria-label="Configurar projeto"
-                    >
-                      <Icon name="folder" size={12} />
-                    </button>
-                    <button
-                      title="Excluir projeto"
+                      className="btn-icon"
                       onClick={() => {
-                        if (confirm(`Excluir o projeto "${project.name}"? As conversas continuam existindo, sem projeto.`))
-                          onDeleteProject(project.id);
+                        if (confirm(`Excluir o projeto "${project.name}"? As conversas continuam existindo, sem projeto.`)) onDeleteProject(project.id);
                       }}
                       aria-label="Excluir projeto"
                     >
-                      <Icon name="trash" size={12} />
+                      <Icon name="trash" size={13} />
                     </button>
                   </div>
                 </div>
-                {!isCollapsed &&
-                  items.map((conversation) => (
-                    <ConversationRow
-                      key={conversation.id}
-                      conversation={conversation}
-                      active={activeView === "chat" && conversation.id === activeConversationId}
-                      projects={projects}
-                      onSelect={() => onSelectConversation(conversation.id)}
-                      onRename={(title) => onRenameConversation(conversation.id, title)}
-                      onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
-                      onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
-                      onDelete={() => onDeleteConversation(conversation.id)}
-                    />
-                  ))}
+                {!isCollapsed && (
+                  <div className="sb-project-items">
+                    {items.map((conversation) => (
+                      <ConversationRow key={conversation.id} {...rowProps(conversation)} />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
-        </div>
+        </section>
 
-        <div className="sidebar-block">
-          <label>CONVERSAS</label>
-          {byProject.ungrouped.length === 0 && <p className="sidebar-empty">Nenhuma conversa por aqui.</p>}
-          {byProject.ungrouped.map((conversation) => (
-            <ConversationRow
-              key={conversation.id}
-              conversation={conversation}
-              active={activeView === "chat" && conversation.id === activeConversationId}
-              projects={projects}
-              onSelect={() => onSelectConversation(conversation.id)}
-              onRename={(title) => onRenameConversation(conversation.id, title)}
-              onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
-              onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
-              onDelete={() => onDeleteConversation(conversation.id)}
-            />
-          ))}
-        </div>
-
-        <details className="sidebar-block archived-block" onToggle={(e) => setArchivedOpen(e.currentTarget.open)}>
-          <summary>
-            Arquivadas <span aria-hidden="true">⌄</span>
-          </summary>
-          {archivedLoading && <p className="sidebar-empty">Carregando…</p>}
-          {!archivedLoading && archivedList?.length === 0 && <p className="sidebar-empty">Nenhuma conversa arquivada.</p>}
-          {!archivedLoading &&
-            archivedList?.map((conversation) => (
-              <ConversationRow
-                key={conversation.id}
-                conversation={conversation}
-                active={activeView === "chat" && conversation.id === activeConversationId}
-                projects={projects}
-                onSelect={() => onSelectConversation(conversation.id)}
-                onRename={(title) => onRenameConversation(conversation.id, title)}
-                onMove={(projectId) => onMoveConversation(conversation.id, projectId)}
-                onArchive={(archived) => handleArchiveToggle(conversation.id, archived)}
-                onDelete={() => onDeleteConversation(conversation.id)}
-              />
-            ))}
-        </details>
-      </nav>
-
-      <div className="sidebar-bottom">
-        <label className="sidebar-tools-label">Ferramentas</label>
-        <button className={`rail-link ${activeView === "memory" ? "active" : ""}`} onClick={() => onSelectView("memory")}>
-          <Icon name="memory" /> <span>Memória</span>
-          <b>{memoryCount.toLocaleString("pt-BR")}</b>
-        </button>
-        <button className={`rail-link ${activeView === "atlas" ? "active" : ""}`} onClick={() => onSelectView("atlas")}>
-          <Icon name="atlas" /> <span>Atlas 3D</span>
-          <b className="beta-tag">beta</b>
-        </button>
-        <button className={`rail-link ${activeView === "test" ? "active" : ""}`} onClick={() => onSelectView("test")}>
-          <Icon name="flask" /> <span>Teste</span>
-        </button>
-        <button className={`rail-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
-          <Icon name="puzzle" /> <span>Skills e regras</span>
-        </button>
-        <button className={`rail-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
-          <Icon name="gear" /> <span>Configurações</span>
-        </button>
-        {savings && savings.localTurns > 0 && (
-          <div
-            className="savings-indicator"
-            title={`${savings.localTurns} resposta${savings.localTurns > 1 ? "s" : ""} do modelo local, ${savings.corrections} corrigida${savings.corrections === 1 ? "" : "s"} pelo professor. Comparado a mandar tudo direto pro Codex/Claude: ${savings.actualCalls} chamada${savings.actualCalls === 1 ? "" : "s"} paga${savings.actualCalls === 1 ? "" : "s"} em vez de ${savings.baselineCalls}.`}
-          >
-            <Icon name="coin" size={12} /> {savings.savingsPercent}% de chamadas estimadas evitadas
+        <section className="sb-group">
+          <div className="sb-group-head">
+            <span>Conversas</span>
           </div>
-        )}
-        {appVersion && <div className="sidebar-version">v{appVersion}</div>}
+          {byProject.ungrouped.length === 0 && <p className="sb-empty">Nenhuma conversa por aqui.</p>}
+          {byProject.ungrouped.map((conversation) => (
+            <ConversationRow key={conversation.id} {...rowProps(conversation)} />
+          ))}
+        </section>
+
+        <details className="sb-group sb-archived" onToggle={(e) => setArchivedOpen(e.currentTarget.open)}>
+          <summary className="sb-group-head">
+            <span>Arquivadas</span>
+            <span className="sb-caret">
+              <Icon name="down" size={12} />
+            </span>
+          </summary>
+          {archivedLoading && <p className="sb-empty">Carregando…</p>}
+          {!archivedLoading && archivedList?.length === 0 && <p className="sb-empty">Nenhuma conversa arquivada.</p>}
+          {!archivedLoading && archivedList?.map((conversation) => <ConversationRow key={conversation.id} {...rowProps(conversation)} />)}
+        </details>
+      </div>
+
+      <div className="sb-bottom">
+        <button className={`sb-link ${activeView === "settings" ? "active" : ""}`} onClick={() => onSelectView("settings")}>
+          <Icon name="gear" size={15} />
+          <span>Configurações</span>
+          {appVersion && <span className="sb-count">v{appVersion}</span>}
+        </button>
       </div>
     </aside>
   );

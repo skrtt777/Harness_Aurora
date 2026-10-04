@@ -113,7 +113,7 @@ test('long conversations and drafts stay in a readable column, not full-bleed, a
     const input=page.getByRole('textbox',{name:'Mensagem para Aurora'});
     await input.fill(draft);
     await page.waitForFunction(()=>document.querySelector('.chat-composer textarea').clientHeight>180);
-    await page.getByRole('button',{name:'↗ Ampliar campo',exact:true}).click();
+    await page.getByRole('button',{name:'Ampliar campo',exact:true}).click();
     assert.equal(await page.locator('.chat-messages').isVisible(),false);
     assert.ok((await input.boundingBox()).height>800);
     assert.equal(await input.inputValue(),draft);
@@ -122,11 +122,11 @@ test('long conversations and drafts stay in a readable column, not full-bleed, a
     assert.equal(await input.inputValue(),draft);
     await page.setViewportSize({width:390,height:700});
     await page.waitForFunction(()=>document.querySelector('.chat-composer textarea').clientHeight<=window.innerHeight*.52+2);
-    await page.getByRole('button',{name:'↗ Ampliar campo',exact:true}).click();
-    const mobile=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,bottom:document.querySelector('.composer-footer').getBoundingClientRect().bottom,height:innerHeight}));
+    await page.getByRole('button',{name:'Ampliar campo',exact:true}).click();
+    const mobile=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,bottom:document.querySelector('.chat-composer').getBoundingClientRect().bottom,height:innerHeight}));
     assert.equal(mobile.overflow,false);assert.ok(mobile.bottom<=mobile.height);
     assert.equal(await input.inputValue(),draft);
-    await page.getByRole('button',{name:'↙ Recolher campo',exact:true}).click();
+    await page.getByRole('button',{name:'Recolher campo',exact:true}).click();
     await input.fill('');
     await page.waitForFunction(()=>document.querySelector('.chat-composer textarea').clientHeight<80);
   } finally {await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
@@ -140,7 +140,8 @@ test("Atlas retains full viewport and real memories after the chat layout change
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.getByRole('button', { name: /Atlas 3D/ }).click();
+    await page.getByRole('button', { name: /Memória/ }).click();
+    await page.getByRole('button', { name: /Ver no Atlas 3D/ }).click();
     await page.waitForFunction(() => document.querySelector('.result-count')?.textContent?.trim() === '1 / 1');
     for (const width of [1440, 1100, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -155,14 +156,15 @@ test("Atlas retains full viewport and real memories after the chat layout change
     await page.getByRole('button', { name: '☷ Lista', exact: true }).click();
     await page.locator('.list-row', { hasText: 'Atlas layout regression' }).waitFor();
     await page.getByRole('button', { name: '← Voltar para o chat', exact: true }).click();
-    await page.getByRole('button', { name: 'Teste', exact: true }).click();
+    await page.getByRole('button', { name: /Memória/ }).click();
+    await page.getByRole('button', { name: 'Cena de teste', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.result-count')?.textContent?.trim() === '1.000 / 1.000');
     assert.ok((await page.locator('.scene-wrap').boundingBox()).width > 800);
     await page.getByRole('button', { name: '⌗ Fluxograma', exact: true }).click();
     await page.locator('.react-flow').waitFor();
     assert.ok((await page.locator('.react-flow').boundingBox()).width > 800);
     await page.getByRole('button', { name: '← Voltar para o chat', exact: true }).click();
-    assert.ok((await page.locator('.app-sidebar').boundingBox()).width > 200);
+    assert.ok((await page.locator('.sb').boundingBox()).width > 200);
     assert.equal(await page.locator('.chat-composer').isVisible(), true);
   } finally {
     await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
@@ -182,14 +184,14 @@ test("real UI: navigation races, drafts, errors, settings and opaque executable 
   page.on("pageerror", error => errors.push(error.message));
   try {
     await page.goto(base);
-    await page.locator(".conv-title", { hasText: "Audit B" }).click();
+    await page.locator(".sb-row-main", { hasText: "Audit B" }).click();
     await page.waitForFunction(() => document.querySelector(".conversation-title")?.textContent === "Audit B");
     let release;
     const held = new Promise(resolve => { release = resolve; });
     await page.route(`**/api/conversations/${a.id}`, async route => { await held; await route.continue(); });
     const requestA = page.waitForRequest(r => r.url().endsWith(`/api/conversations/${a.id}`));
-    await page.locator(".conv-title", { hasText: "Audit A" }).click(); await requestA;
-    await page.locator(".conv-title", { hasText: "Audit B" }).click();
+    await page.locator(".sb-row-main", { hasText: "Audit A" }).click(); await requestA;
+    await page.locator(".sb-row-main", { hasText: "Audit B" }).click();
     await page.waitForFunction(() => document.querySelector(".conversation-title")?.textContent === "Audit B");
     const responseA = page.waitForResponse(r => r.url().endsWith(`/api/conversations/${a.id}`)); release(); await responseA;
     await page.waitForTimeout(100);
@@ -197,9 +199,9 @@ test("real UI: navigation races, drafts, errors, settings and opaque executable 
     await page.unroute(`**/api/conversations/${a.id}`);
 
     const composer = page.locator(".chat-composer textarea");
-    await page.locator(".conv-title", { hasText: "Audit A" }).click(); await composer.fill("Rascunho A");
-    await page.locator(".conv-title", { hasText: "Audit B" }).click(); await composer.fill("Rascunho B");
-    await page.locator(".conv-title", { hasText: "Audit A" }).click();
+    await page.locator(".sb-row-main", { hasText: "Audit A" }).click(); await composer.fill("Rascunho A");
+    await page.locator(".sb-row-main", { hasText: "Audit B" }).click(); await composer.fill("Rascunho B");
+    await page.locator(".sb-row-main", { hasText: "Audit A" }).click();
     await page.waitForFunction(() => document.querySelector(".chat-composer textarea")?.value === "Rascunho A");
     await page.getByRole("button", { name: "Enviar mensagem" }).click();
     await page.getByRole("alert").waitFor();
@@ -212,7 +214,7 @@ test("real UI: navigation races, drafts, errors, settings and opaque executable 
 
     const html = `<html><body><script>(async()=>{let parentReadable=false,apiReadable=false,bridge=false;try{parentReadable=Boolean(parent.document.body)}catch{}try{bridge=Boolean(parent.harness)}catch{}try{const r=await fetch('/api/projects');apiReadable=r.ok}catch{}document.body.textContent=JSON.stringify({parentReadable,apiReadable,bridge});})();</script></body></html>`;
     await addMessage({ conversationId: b.id, role: "assistant", content: `\`\`\`html\n${html}\n\`\`\``, provider: "Codex" });
-    await page.locator(".conv-title", { hasText: "Audit B" }).click();
+    await page.locator(".sb-row-main", { hasText: "Audit B" }).click();
     await page.locator(".artifact-card").click();
     const frame = page.frameLocator(".artifact-surface iframe");
     await frame.locator("body").filter({ hasText: "parentReadable" }).waitFor();

@@ -41,6 +41,8 @@ type Props = {
   projects: Project[];
   conversations: Conversation[];
   onMemoriesChanged?: () => void;
+  /** Atlas 3D: the memories as a 3D scene (real data or the test scene). */
+  onOpenAtlas?: (variant: "atlas" | "test") => void;
 };
 
 const scopeLabels: Record<MemoryScope, string> = {
@@ -248,7 +250,7 @@ function MemoryRow({
   );
 }
 
-export default function MemoryView({ projects, conversations, onMemoriesChanged }: Props) {
+export default function MemoryView({ projects, conversations, onMemoriesChanged, onOpenAtlas }: Props) {
   const [shareDraft, setShareDraft] = useState<MemoryEntry|null>(null);
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [stats, setStats] = useState<MemoryStat[]>([]);
@@ -366,6 +368,12 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged 
           </h1>
           <p>Central compartilhada, contexto de cada chat e sua coleção pessoal. Somente referências relevantes entram nas respostas.</p>
         </div>
+        {onOpenAtlas && (
+          <div className="memory-atlas-links">
+            <button className="btn btn-sm" onClick={() => onOpenAtlas("atlas")}>Ver no Atlas 3D <span className="badge badge-warn">beta</span></button>
+            <button className="btn btn-ghost btn-sm" onClick={() => onOpenAtlas("test")}>Cena de teste</button>
+          </div>
+        )}
       </div>
 
       <CentralMemoryPanel draft={shareDraft} onCloseDraft={()=>setShareDraft(null)} />
