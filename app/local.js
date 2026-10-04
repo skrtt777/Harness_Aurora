@@ -4,6 +4,14 @@ import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
 export const LOCAL_SETTINGS_DEFAULTS = { contextTokens: 8192, maxFixAttempts: 2 };
+// One context size for every Ollama call (agent, plain generation, document
+// cards, repair): Ollama reloads the model whenever num_ctx changes, and a
+// 22 GB MoE takes 60-170 s to load — document indexing at 8192 and the agent
+// at 12288 reloaded it every minute. The agent needs at least 12288.
+export const AGENT_MIN_CONTEXT_TOKENS = 12288;
+export const ollamaContextTokens = (env = process.env) => Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, AGENT_MIN_CONTEXT_TOKENS, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens));
+// Includes loading the model: a large one takes minutes on a cold start.
+const LOCAL_TIMEOUT_DEFAULT_MS = 300_000;
 export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
 export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
 
@@ -62,7 +70,7 @@ export async function runLocal(prompt, env = process.env, externalSignal, {onTex
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);
   const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || 60_000));
+  const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
   try {
     const response = await fetch(`${baseUrl}/api/generate`, {
@@ -71,7 +79,7 @@ export async function runLocal(prompt, env = process.env, externalSignal, {onTex
       body: JSON.stringify({ model, prompt, stream: false, keep_alive: keepAlive(env),
         ...(await thinkOption(baseUrl, model, env)),
         ...(env.LOCAL_OUTPUT_SCHEMA ? { format:JSON.parse(env.LOCAL_OUTPUT_SCHEMA) } : env.LOCAL_OUTPUT_FORMAT === 'json' ? { format:'json' } : {}), options: {
-        num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
+        num_ctx: ollamaContextTokens(env),
         num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
         ...(env.LOCAL_SEED !== undefined && Number.isInteger(Number(env.LOCAL_SEED)) ? {seed:Number(env.LOCAL_SEED)} : {}),
         ...(env.LOCAL_TEMPERATURE !== undefined && Number.isFinite(Number(env.LOCAL_TEMPERATURE)) ? {temperature:Math.min(2,Math.max(0,Number(env.LOCAL_TEMPERATURE)))} : {}),
@@ -119,7 +127,7 @@ export async function runLocalChat(messages, tools = [], env = process.env, exte
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);
   const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || 120_000));
+  const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
   try {
     const response = await fetch(`${baseUrl}/api/chat`, {
@@ -129,7 +137,7 @@ export async function runLocalChat(messages, tools = [], env = process.env, exte
         ...(tools.length ? { tools } : {}),
         ...(await thinkOption(baseUrl, model, env)),
         options: {
-          num_ctx: Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens)),
+          num_ctx: ollamaContextTokens(env),
           num_predict: Math.min(8192, Math.max(128, Number(env.LOCAL_MAX_OUTPUT_TOKENS) || 2048)),
           ...(env.LOCAL_SEED !== undefined && Number.isInteger(Number(env.LOCAL_SEED)) ? {seed:Number(env.LOCAL_SEED)} : {}),
           ...(env.LOCAL_TEMPERATURE !== undefined && Number.isFinite(Number(env.LOCAL_TEMPERATURE)) ? {temperature:Math.min(2,Math.max(0,Number(env.LOCAL_TEMPERATURE)))} : {}),

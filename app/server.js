@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildProviderConfig, parseCodexOutput, runCodex } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig, runClaude } from "./claude.js";
-import { buildProviderConfig as buildLocalProviderConfig, runLocal, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
+import { buildProviderConfig as buildLocalProviderConfig, runLocal, AGENT_MIN_CONTEXT_TOKENS, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import {
   CURATED_MODELS,
   getLocalStatus,
@@ -135,7 +135,6 @@ export function buildPrompt({ input, memories = [], instructions = "", history =
 }
 
 // Page snapshots and tool results need more room than a plain answer.
-const AGENT_MIN_CONTEXT_TOKENS = 12288;
 
 async function chatAgentEnabled(env) {
   if (env.HARNESS_AGENT_TOOLS === "false" || env.LOCAL_ENGINE === "llama.cpp" || env.HARNESS_PLATFORM === "quest") return false;

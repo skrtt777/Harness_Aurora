@@ -64,3 +64,26 @@ test("agent turns run on llama-server: tool calls get ids and come back in the a
     assert.deepEqual(seen.chat_template_kwargs, { enable_thinking: false });
   } finally { server.close(); }
 });
+
+test("plain generation and agent chat use the same context size (no model reload between them)", async () => {
+  const { runLocal, runLocalChat, ollamaContextTokens } = await import("../app/local.js");
+  const contexts = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/api/show") return res.end("{}");
+      contexts.push(JSON.parse(body).options.num_ctx);
+      res.end(JSON.stringify(req.url === "/api/chat" ? { message: { content: "ok" }, done: true } : { response: "ok", done: true }));
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const env = { LOCAL_BASE_URL: `http://127.0.0.1:${server.address().port}`, LOCAL_MODEL: "qwen3.6:35b", LOCAL_CONTEXT_TOKENS: "8192" };
+    await runLocal("ficha do documento", env);
+    await runLocalChat([{ role: "user", content: "oi" }], [], env);
+    assert.deepEqual(contexts, [12288, 12288]);
+    assert.equal(ollamaContextTokens({ LOCAL_CONTEXT_TOKENS: "20480" }), 20480, "a larger setting is kept");
+  } finally { server.close(); }
+});
