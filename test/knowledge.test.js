@@ -11,7 +11,7 @@ process.env.LOCAL_BASE_URL = "http://127.0.0.1:1";
 process.env.CODEX_BIN = join(temp, "missing-codex.exe");
 process.env.CLAUDE_BIN = join(temp, "missing-claude.exe");
 
-const { extractText, docxText, readZip } = await import("../app/docText.js");
+const { extractText, docxText, xlsxText, readZip } = await import("../app/docText.js");
 const { makeDocx, makeXlsx, makePptx, makePdf, makeScannedPdf, SCANNED_ON_CALL, writeSampleHrShare } = await import("../app/sampleDocs.js");
 const kb = await import("../app/knowledge.js");
 const { executeTool } = await import("../app/agentTools/index.js");
@@ -36,6 +36,23 @@ test("Word, Excel, PowerPoint, PDF and text documents become plain text", async 
   await assert.rejects(extractText(join(dir, "x.exe")), /não suportado/);
   assert.throws(() => readZip(Buffer.from("não é zip")), /ZIP inválido/);
   assert.equal(docxText(makeDocx(["a"])), "a");
+});
+
+test("Excel dates, percentages and gaps come out the way the sheet shows them", async () => {
+  const { zipStore } = await import("../app/sampleDocs.js");
+  // As Excel/openpyxl save them: dates are serial days, styled by a number format.
+  const xml = (body) => `<?xml version="1.0" encoding="UTF-8"?>${body}`;
+  const buffer = zipStore({
+    "xl/workbook.xml": xml('<workbook><sheets><sheet name="Férias" sheetId="1"/></sheets></workbook>'),
+    "xl/sharedStrings.xml": xml("<sst><si><t>Ana</t></si><si><t>Total</t></si></sst>"),
+    "xl/styles.xml": xml('<styleSheet><numFmts count="2"><numFmt numFmtId="164" formatCode="DD/MM/YYYY"/><numFmt numFmtId="165" formatCode="&quot;R$&quot; #,##0.00"/></numFmts>'
+      + '<cellXfs count="5"><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="10"/><xf numFmtId="14"/></cellXfs></styleSheet>'),
+    "xl/worksheets/sheet1.xml": xml('<worksheet><sheetData>'
+      + '<row r="2"><c r="A2" t="s"><v>0</v></c><c r="B2" s="1"><v>46299</v></c><c r="C2" s="2"><v>8344.639999999999</v></c><c r="D2" s="3"><v>0.874</v></c><c r="E2" s="4"><v>46664</v></c></row>'
+      + '<row r="3"><c r="A3" t="s"><v>1</v></c><c r="D3" s="2"><v>1500</v></c></row>'
+      + "</sheetData></worksheet>"),
+  });
+  assert.equal(xlsxText(buffer), "## Férias\nAna | 04/10/2026 | 8344.64 | 87.4% | 04/10/2027\nTotal |  |  | 1500");
 });
 
 test("scanned PDF pages and images are read by OCR; pages with text keep their text", async () => {

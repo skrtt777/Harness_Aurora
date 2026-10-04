@@ -65,18 +65,63 @@ export function docxText(buffer) {
     .replace(/ \| \n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+// Built-in number formats (ECMA-376 18.8.30) that are dates, and those that are percentages.
+const DATE_FORMAT_IDS = new Set([14, 15, 16, 17, 22, 27, 30, 36, 45, 46, 47, 50, 57]);
+const PERCENT_FORMAT_IDS = new Set([9, 10]);
+
+/** Style index → "date" | "percent" | undefined, from xl/styles.xml. */
+function cellKinds(stylesXml) {
+  const custom = new Map([...stylesXml.matchAll(/<numFmt [^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)].map((m) => [Number(m[1]), xmlText(m[2])]));
+  const xfs = stylesXml.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] || "";
+  return [...xfs.matchAll(/<xf ([^>]*?)\/?>/g)].map(([, attrs]) => {
+    const id = Number(attrs.match(/numFmtId="(\d+)"/)?.[1] || 0);
+    // Quoted text and [colour]/[locale] parts do not count: "R$" #,##0.00 has no date letter.
+    const code = (custom.get(id) || "").replace(/"[^"]*"|\[[^\]]*\]|\\./g, "");
+    if (DATE_FORMAT_IDS.has(id) || /[dy]|m{1,4}(?![^;]*[hs])/i.test(code) && !/^[#0,.\s%-]*$/.test(code)) return "date";
+    if (PERCENT_FORMAT_IDS.has(id) || code.includes("%")) return "percent";
+    return undefined;
+  });
+}
+
+/** Excel's serial day (1900 system, with its fake 29/02/1900) as dd/mm/yyyy. */
+function serialDate(serial) {
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+}
+
+// 8344.639999999999 (a binary float as written by the program) → 8344.64.
+const tidyNumber = (n) => String(Number(n.toFixed(6)));
+
+/** Column index (0-based) of a cell reference such as "C12". */
+const columnIndex = (ref) => [...ref.replace(/\d+$/, "")].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+
 export function xlsxText(buffer) {
   const zip = readZip(buffer);
   const shared = [...entryText(zip, "xl/sharedStrings.xml").matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xmlText([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
   const names = [...entryText(zip, "xl/workbook.xml").matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => xmlText(m[1]));
+  const kinds = cellKinds(entryText(zip, "xl/styles.xml"));
   const out = [];
   numbered([...zip.keys()], "xl/worksheets/sheet").forEach((sheet, index) => {
     out.push(`## ${names[index] || `Planilha ${index + 1}`}`);
     for (const row of entryText(zip, sheet).matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
-      const cells = [...row[1].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(([, attrs, body = ""]) => {
-        const value = body.match(/<v>([^<]*)<\/v>/)?.[1] ?? body.match(/<t[^>]*>([^<]*)<\/t>/)?.[1] ?? "";
-        return /t="s"/.test(attrs) ? shared[Number(value)] ?? "" : xmlText(value);
-      });
+      // Empty cells are not stored at all, so place each value by its reference ("C12").
+      const cells = [];
+      for (const [, attrs, body = ""] of row[1].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const raw = body.match(/<v>([^<]*)<\/v>/)?.[1] ?? body.match(/<t[^>]*>([^<]*)<\/t>/)?.[1] ?? "";
+        const type = attrs.match(/\bt="(\w+)"/)?.[1];
+        const kind = kinds[Number(attrs.match(/\bs="(\d+)"/)?.[1] || 0)];
+        const number = raw !== "" && (!type || type === "n") ? Number(raw) : NaN;
+        let value = type === "s" ? shared[Number(raw)] ?? "" : xmlText(raw);
+        if (Number.isFinite(number)) {
+          if (kind === "date" && number > 0 && number < 2958466) value = serialDate(number);
+          else if (kind === "percent") value = `${tidyNumber(number * 100)}%`;
+          else value = tidyNumber(number);
+        }
+        const ref = attrs.match(/\br="([A-Z]+\d+)"/)?.[1];
+        const at = ref ? columnIndex(ref) : cells.length;
+        while (cells.length < at) cells.push("");
+        cells[at] = value;
+      }
       if (cells.some((c) => String(c).trim())) out.push(cells.join(" | "));
     }
   });

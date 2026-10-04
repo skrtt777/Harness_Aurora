@@ -1,0 +1,562 @@
+{
+  "empresa": "Alvorada Alimentos Ltda",
+  "hoje": "2026-10-04",
+  "pasta": "F:\\EmpresaIA",
+  "perguntas": [
+    {
+      "id": "rh-1",
+      "setor": "RH",
+      "prompt": "Mostre pra mim quantos funcionários vão entrar de férias esse mês?",
+      "expect": [
+        "\\b9\\b|\\bnove\\b",
+        "Marcos",
+        "Vinícius",
+        "Larissa"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": "referência outubro/2026: 9 começam em outubro; 4 já estão em gozo desde setembro e não contam"
+    },
+    {
+      "id": "rh-2",
+      "setor": "RH",
+      "prompt": "Quem está de férias agora?",
+      "expect": [
+        "Sabrina",
+        "Alice",
+        "\\b4\\b|quatro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": "status 'Em gozo' em 04/10/2026"
+    },
+    {
+      "id": "rh-3",
+      "setor": "RH",
+      "prompt": "Quantos funcionários a empresa tem hoje e qual setor tem mais gente?",
+      "expect": [
+        "\\b113\\b",
+        "Produ[çc][ãa]o"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "rh-4",
+      "setor": "RH",
+      "prompt": "Quanto é o vale-refeição por dia?",
+      "expect": [
+        "45,00|R\\$\\s*45"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "rh-5",
+      "setor": "RH",
+      "prompt": "Posso vender parte das minhas férias? Quantos dias?",
+      "expect": [
+        "\\b10\\b|dez dias"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "rh-6",
+      "setor": "RH",
+      "prompt": "Quando são as férias coletivas da fábrica?",
+      "expect": [
+        "22/12",
+        "02/01|2/1/2027|2 de janeiro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "rh-7",
+      "setor": "RH",
+      "prompt": "Quem foi desligado esse ano?",
+      "expect": [
+        "Marcelo",
+        "Juliana",
+        "Ot[áa]vio"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "rh-8",
+      "setor": "RH",
+      "prompt": "Qual é a política de home office da empresa?",
+      "expect": [],
+      "avoid": [
+        "home office[^.\\n]{0,60}(\\d+ dias|permitid)"
+      ],
+      "notFound": true,
+      "note": "não existe nenhum documento sobre home office"
+    },
+    {
+      "id": "controladoria-1",
+      "setor": "Controladoria",
+      "prompt": "Como está o budget esse ano?",
+      "expect": [
+        "(23\\.?350\\.?000|23[,.][34]\\d*\\s*(mi|milh)|23\\.?350\\s*mil)",
+        "(17\\.?781\\.?003|17[,.][78]\\d*\\s*(mi|milh)|17\\.?781\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": "orçado 2026 total, realizado Jan-Set e desvio"
+    },
+    {
+      "id": "controladoria-2",
+      "setor": "Controladoria",
+      "prompt": "Qual área está mais acima do orçamento?",
+      "expect": [
+        "\\bTI\\b|Tecnologia"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "controladoria-3",
+      "setor": "Controladoria",
+      "prompt": "Quanto foi o EBITDA acumulado até setembro?",
+      "expect": [
+        "(7\\.?104\\.?504|7[,.][11]\\d*\\s*(mi|milh)|7\\.?105\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "controladoria-4",
+      "setor": "Controladoria",
+      "prompt": "Qual foi o orçamento de Logística em 2025?",
+      "expect": [
+        "(3\\.?321\\.?500|3[,.][33]\\d*\\s*(mi|milh)|3\\.?322\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": "distrator: não confundir com 2026"
+    },
+    {
+      "id": "controladoria-5",
+      "setor": "Controladoria",
+      "prompt": "Quando o orçamento de 2027 vai ser apresentado?",
+      "expect": [
+        "24/11|24 de novembro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "financeiro-1",
+      "setor": "Financeiro",
+      "prompt": "Quanto ainda temos a pagar de fornecedores em outubro?",
+      "expect": [
+        "(1\\.?614\\.?449|1[,.][66]\\d*\\s*(mi|milh)|1\\.?614\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "financeiro-2",
+      "setor": "Financeiro",
+      "prompt": "Qual cliente deve mais pra gente com atraso acima de 30 dias?",
+      "expect": [
+        "Empório"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "financeiro-3",
+      "setor": "Financeiro",
+      "prompt": "Qual o limite de diária de hotel numa capital?",
+      "expect": [
+        "320"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "financeiro-4",
+      "setor": "Financeiro",
+      "prompt": "Qual foi o saldo de caixa no fim de setembro?",
+      "expect": [
+        "(4\\.?315\\.?164|4[,.][33]\\d*\\s*(mi|milh)|4\\.?315\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "comercial-1",
+      "setor": "Comercial",
+      "prompt": "Quem é o vendedor que mais vendeu no ano?",
+      "expect": [
+        "Camila"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "comercial-2",
+      "setor": "Comercial",
+      "prompt": "Qual o preço da farinha de mandioca de 1 kg?",
+      "expect": [
+        "7,90"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "comercial-3",
+      "setor": "Comercial",
+      "prompt": "Qual é o pedido mínimo para entrega?",
+      "expect": [
+        "1\\.?500"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "comercial-4",
+      "setor": "Comercial",
+      "prompt": "Quem é nosso maior cliente?",
+      "expect": [
+        "Padaria"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "marketing-1",
+      "setor": "Marketing",
+      "prompt": "Qual campanha trouxe mais leads esse ano?",
+      "expect": [
+        "S[ãa]o Jo[ãa]o"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "marketing-2",
+      "setor": "Marketing",
+      "prompt": "Qual é a verba anual de marketing?",
+      "expect": [
+        "(960\\.?000|960[,.]?\\d*\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "compras-1",
+      "setor": "Compras",
+      "prompt": "Quem precisa aprovar uma compra de 50 mil reais?",
+      "expect": [
+        "Gerente",
+        "Controller"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "compras-2",
+      "setor": "Compras",
+      "prompt": "Quantas cotações preciso para comprar algo de 5 mil?",
+      "expect": [
+        "\\b3\\b|tr[êe]s"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "compras-3",
+      "setor": "Compras",
+      "prompt": "Quantos pedidos de compra estão em aberto?",
+      "expect": [
+        "\\b14\\b|catorze|quatorze"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "logistica-1",
+      "setor": "Logística",
+      "prompt": "Qual veículo da frota está com a revisão atrasada?",
+      "expect": [
+        "OZT-?6F34|Ducato"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "logistica-2",
+      "setor": "Logística",
+      "prompt": "Como foi o OTIF de setembro?",
+      "expect": [
+        "87[,.]4"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "logistica-3",
+      "setor": "Logística",
+      "prompt": "Quais produtos estão abaixo do estoque mínimo?",
+      "expect": [
+        "Farinha",
+        "5 kg|Farinha"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "logistica-4",
+      "setor": "Logística",
+      "prompt": "Até que horas o pedido precisa ser liberado para sair no dia seguinte?",
+      "expect": [
+        "14\\s*h|14:00|14 horas"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "producao-1",
+      "setor": "Produção",
+      "prompt": "Qual linha teve o pior OEE em setembro e por quê?",
+      "expect": [
+        "Linha 2",
+        "embaladora"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "producao-2",
+      "setor": "Produção",
+      "prompt": "Quanto de farinha de 1 kg vamos produzir por dia em outubro?",
+      "expect": [
+        "9\\.?000"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "qualidade-1",
+      "setor": "Qualidade",
+      "prompt": "Qual o motivo mais comum de reclamação dos clientes?",
+      "expect": [
+        "Sabor\\ alterado"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "qualidade-2",
+      "setor": "Qualidade",
+      "prompt": "Quantas não conformidades a auditoria interna encontrou?",
+      "expect": [
+        "\\b4\\b|quatro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "ssma-1",
+      "setor": "SSMA",
+      "prompt": "Há quantos dias estamos sem acidente com afastamento?",
+      "expect": [
+        "\\b150\\b"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "ssma-2",
+      "setor": "SSMA",
+      "prompt": "Quem está com o treinamento de empilhadeira vencendo?",
+      "expect": [
+        "Otávio"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "ti-1",
+      "setor": "TI",
+      "prompt": "Qual foi o tipo de chamado mais comum em setembro?",
+      "expect": [
+        "Impressora"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "ti-2",
+      "setor": "TI",
+      "prompt": "Quantos caracteres a senha precisa ter?",
+      "expect": [
+        "\\b12\\b|doze"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "ti-3",
+      "setor": "TI",
+      "prompt": "Quantos chamados ainda estão abertos de setembro?",
+      "expect": [
+        "\\b18\\b"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "juridico-1",
+      "setor": "Jurídico",
+      "prompt": "Qual contrato vence primeiro?",
+      "expect": [
+        "galp[ãa]o|Loca[çc][ãa]o",
+        "31/10"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "juridico-2",
+      "setor": "Jurídico",
+      "prompt": "Quantos processos trabalhistas a empresa tem?",
+      "expect": [
+        "\\b3\\b|tr[êe]s"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": "distrator: 'férias' aparece num processo, não confundir com RH"
+    },
+    {
+      "id": "fiscal-1",
+      "setor": "Fiscal",
+      "prompt": "Qual é o próximo imposto a vencer?",
+      "expect": [
+        "ICMS",
+        "09/10|9 de outubro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "fiscal-2",
+      "setor": "Fiscal",
+      "prompt": "Quanto deu o ICMS de setembro?",
+      "expect": [
+        "(612\\.?480|612[,.]?\\d*\\s*mil)"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "diretoria-1",
+      "setor": "Diretoria",
+      "prompt": "Qual é a meta de faturamento para 2028?",
+      "expect": [
+        "95"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "diretoria-2",
+      "setor": "Diretoria",
+      "prompt": "O que a diretoria decidiu na última reunião?",
+      "expect": [
+        "embaladora",
+        "4,5"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "diretoria-3",
+      "setor": "Diretoria",
+      "prompt": "Quando é a próxima reunião da diretoria?",
+      "expect": [
+        "13/10|13 de outubro"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "administrativo-1",
+      "setor": "Administrativo",
+      "prompt": "Qual é o ramal do suporte de TI?",
+      "expect": [
+        "2800"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "administrativo-2",
+      "setor": "Administrativo",
+      "prompt": "Quem é o gerente de logística?",
+      "expect": [
+        "Cláudio"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    },
+    {
+      "id": "administrativo-3",
+      "setor": "Administrativo",
+      "prompt": "Qual o horário de trabalho do administrativo?",
+      "expect": [
+        "17h?:?48"
+      ],
+      "avoid": [],
+      "notFound": false,
+      "note": ""
+    }
+  ]
+}
