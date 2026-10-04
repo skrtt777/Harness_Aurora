@@ -17,3 +17,21 @@ Bateria do agente (23 tarefas, 3 rodadas por modelo, cópia do banco real), mode
 Mesmo sem as recargas, a melhor rodada dele levou 160 s, o dobro do 4B, e ele ocupa quase toda uma GPU de 24 GB. Para o objetivo de rodar em computador comum, **não serve como padrão**.
 
 **Decisão (04/10):** otimizar o **qwen3.5:4b**, que já acerta 67/69 com 3,5 GB.
+
+## Otimização do qwen3.5:4b (estudo noturno de 04/10, refeito à tarde)
+
+O PC desligou na última fase; as rodadas perdidas por cópia de banco corrompida (`-wal` velho reaproveitado) foram refeitas com `overnight-qwen-opt.mjs --only`.
+
+| Configuração | Tarefas | Memória | Geração |
+|---|---|---|---|
+| 4b, padrão, GPU | 44/46 | 8,4 GB | 139 tok/s |
+| **4b + flash attention + cache KV q8, GPU** | **64/69** | **3,3 GB** | **157 tok/s** |
+| 4b Q8_0 (mais preciso), GPU | 42/46 | 5,2 GB | 107 tok/s |
+| 4b Q3_K_M, GPU | 60/69 | 2,9 GB | 141 tok/s |
+| 4b Q2_K, GPU | 0/69 | 2,6 GB | quebra o modelo |
+| 4b, só CPU (16 threads) | 21/23 | 3,3 GB | ~11 tok/s, ~20 min por rodada |
+| 4b Q3_K_M, só CPU | 21/23 | 2,9 GB | ~13 tok/s |
+| 4b, só CPU, 8 threads | 21/23 | 3,3 GB | ~11 tok/s |
+| Decodificação especulativa (0.8b de rascunho), CPU | — | — | 10,2 tok/s contra 10,7 sem rascunho: não ajuda |
+
+**Decisão:** padrão = qwen3.5:4b com `OLLAMA_FLASH_ATTENTION=1` e `OLLAMA_KV_CACHE_TYPE=q8_0` (mesma qualidade, menos da metade da memória). Q3_K_M só para máquina com pouca RAM; Q2_K descartado. Num PC sem placa de vídeo, 8 threads bastam. (O llama-server do Ollama renomeou `--draft-max` para `--spec-draft-n-max`.)

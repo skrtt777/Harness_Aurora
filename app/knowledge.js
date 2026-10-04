@@ -414,8 +414,12 @@ export async function searchKnowledge(query, { category, sourceIds, limit = 6, e
     const cardText = `${card?.title || ""} ${card?.topic || ""} ${card?.summary || ""} ${(card?.keywords || []).join(" ")} ${row.category || ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const body = row.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const cardHits = stems.filter((s) => hasStem(cardText, s)).length;
+    // The file's own name ("Controle de Férias 2026.xlsx"): a sheet's later chunks are bare rows
+    // without the subject's word, and "férias esse mês" otherwise ranked the cash-flow sheet first.
+    const fileName = basename(row.rel_path).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const fileHits = stems.filter((s) => idf.get(s) > 0 && hasStem(fileName, s)).length;
     const semantic = sims?.all.get(row.r) ?? 0;
-    const score = coverage(body) * 1.5 + Math.max(0, semantic - 0.35) * 3 + Math.min(cardHits, 4) * 0.25;
+    const score = coverage(body) * 1.5 + Math.max(0, semantic - 0.35) * 3 + Math.min(cardHits, 4) * 0.25 + Math.min(fileHits, 2) * 0.4;
     return { row, card, score, semantic, specificity: specificity(body) };
   }).filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
   const perDoc = new Map();
