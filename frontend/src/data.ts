@@ -28,6 +28,13 @@ export type Memory = {
 };
 export type MemoryCluster = { id: number; label: string; count: number; center: [number, number, number] };
 
+/** One hue per topic cluster (meaning), distinct on a near-black background. */
+const CLUSTER_PALETTE = ["#5fd4c0", "#6aa6ff", "#b18cff", "#ff8fc7", "#ffb86b", "#9be36d", "#4fd1e8", "#f472b6", "#facc15", "#a3e635", "#38bdf8", "#c084fc"];
+export function clusterColor(cluster: number | undefined, fallback: string) {
+  return cluster === undefined || cluster < 0 ? fallback : CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length];
+}
+export const memoryColor = (m: Memory) => clusterColor(m.cluster, groupColor(groupKey(m)));
+
 /** How useful a memory has proven: drives size, brightness and the health filters. */
 export type Health = "all" | "helpful" | "unused" | "failing" | "duplicates";
 export function memoryHealth(m: Memory) {

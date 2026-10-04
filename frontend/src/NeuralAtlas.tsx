@@ -126,7 +126,10 @@ export default function NeuralAtlas({ variant }: Props) {
     [clusterFilter, setClusterFilter] = useState<number | null>(null),
     [editing, setEditing] = useState(false),
     [editDraft, setEditDraft] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [railOpen, setRailOpen] = useState(false),
+    [pulses, setPulses] = useState<Map<string, number>>(() => new Map()),
+    [liveNote, setLiveNote] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null),
     [query, setQuery] = useState(""),
     [kind, setKind] = useState<"all" | MemoryKind>("all"),
@@ -167,6 +170,8 @@ export default function NeuralAtlas({ variant }: Props) {
   }, []);
 
   const graph = useMemo(() => buildGraph(memories), [memories]);
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories;
   const selected = graph.byId.get(selectedId || "");
   const origin = useMemo(() => traceOrigin(memories, selectedId), [memories, selectedId]);
   const topics = useMemo(() => [...new Set(memories.flatMap((m) => m.tags))].slice(0, 8), [memories]);
@@ -302,8 +307,35 @@ export default function NeuralAtlas({ variant }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant]);
 
+  // Live: while the Atlas is open, usage is re-read every few seconds; a memory
+  // the chat just used pulses, without losing the selection or the filters.
+  useEffect(() => {
+    if (variant !== "real" || !connected) return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      const atlas = await getMemoryAtlas().catch(() => null);
+      if (!atlas || stopped) return;
+      const fresh = new Map(atlas.memories.map((a) => [a.id, a]));
+      const changed = (m: Memory) => { const a = fresh.get(m.id); return !!a && (a.stats.uses !== m.stats?.uses || a.stats.helped !== m.stats?.helped || a.stats.failed !== m.stats?.failed); };
+      const used = memoriesRef.current.filter((m) => m.stats && (fresh.get(m.id)?.stats.uses ?? 0) > m.stats.uses);
+      if (memoriesRef.current.some(changed)) setMemories((current) => current.map((m) => (changed(m) ? { ...m, stats: fresh.get(m.id)!.stats } : m)));
+      if (used.length) {
+        const now = performance.now();
+        setPulses((previous) => { const next = new Map(previous); used.forEach((m) => next.set(m.id, now)); return next; });
+        setLiveNote(`Usada agora: ${used[0].title}${used.length > 1 ? ` e mais ${used.length - 1}` : ""}`);
+      }
+    }, 8000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [variant, connected]);
+  useEffect(() => {
+    if (!liveNote) return;
+    const timer = setTimeout(() => setLiveNote(""), 6000);
+    return () => clearTimeout(timer);
+  }, [liveNote]);
+
   return (
-    <div className={`shell aurora-atlas ${focus ? "focus-mode" : ""}`}>
+    <div className={`shell aurora-atlas ${focus ? "focus-mode" : ""} ${railOpen ? "rail-open" : ""}`}>
+      {railOpen && <div className="rail-backdrop" onClick={() => setRailOpen(false)} />}
       {!focus && (
         <aside className="rail">
           <div className="logo">
@@ -436,6 +468,9 @@ export default function NeuralAtlas({ variant }: Props) {
             <kbd>Ctrl K</kbd>
           </div>
           <div className="toolbar-actions">
+            <button className="tool-button filters-toggle" aria-expanded={railOpen} onClick={() => setRailOpen(!railOpen)}>
+              ☰ Filtros
+            </button>
             <button onClick={() => setCad(!cad)} aria-pressed={cad} className={cad ? "tool-button on" : "tool-button"}>
               ⌗ CAD
             </button>
@@ -531,6 +566,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 memories={filtered}
                 allMemories={memories}
                 clusters={clusters}
+                pulses={pulses}
                 onCluster={(id) => setClusterFilter(id)}
                 selectedId={selectedId}
                 onSelect={select}
@@ -558,6 +594,11 @@ export default function NeuralAtlas({ variant }: Props) {
                   : clusters.length ? "Perto = assunto parecido · cores por projeto" : "Cores por projeto · agrupamento visual"}
               </small>
             </div>
+            {liveNote && (
+              <div className="live-note" role="status">
+                <i className="live-dot" /> {liveNote}
+              </div>
+            )}
             {filtered.length === 0 && (
               <div className="no-results">
                 <h2>Nenhuma memória encontrada</h2>
