@@ -60,14 +60,15 @@ export function anchorLayout(memories: Memory[]) {
   memories.forEach((m) => box.expandByPoint(new THREE.Vector3(...m.position)));
   if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 30, 30));
   const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const d = Math.max(16, Math.max(size.x, size.y) * 0.66);
+  // Just outside the farthest memory: the anchors never sit on top of a group.
+  const far = memories.reduce((max, m) => Math.max(max, center.distanceTo(new THREE.Vector3(...m.position))), 0);
+  const d = Math.max(16, far + 5);
   // Offsets in view space: the anchors stay around the map however the camera turns.
-  const at = (angle: number) => new THREE.Vector3(Math.cos(angle) * d * 1.05, Math.sin(angle) * d * 0.78, 0);
+  const at = (angle: number) => new THREE.Vector3(Math.cos(angle) * d * 1.2, Math.sin(angle) * d * 0.72, 0);
   return {
     center,
     reach: d,
-    offsets: { user: at(Math.PI / 2).multiplyScalar(0.85), aurora: at(Math.PI * 1.17), pc: at(-Math.PI * 0.17) } as Record<Origin, THREE.Vector3>,
+    offsets: { user: at(Math.PI / 2), aurora: at(Math.PI * 1.04), pc: at(-Math.PI * 0.04) } as Record<Origin, THREE.Vector3>,
   };
 }
 
@@ -116,7 +117,7 @@ function arcMaterial(color: string) {
 }
 
 function Anchor({ origin, position, scale, life, texture, count, detail, motion, side }: {
-  side?: "left";
+  side?: "left" | "right";
   origin: Origin;
   position: THREE.Vector3;
   scale: number;
@@ -174,7 +175,7 @@ function Anchor({ origin, position, scale, life, texture, count, detail, motion,
       gauges.forEach((g) => (g.uniforms.uOpacity.value = 0.6 * fade));
     }
   });
-  const below = origin !== "user";
+  const below = true;
   return (
     <group position={position}>
       <Billboard scale={scale}>
@@ -200,7 +201,7 @@ function Anchor({ origin, position, scale, life, texture, count, detail, motion,
             ))}
         </group>
       </Billboard>
-      <Html position={side ? [-6.5 * scale, 0, 0] : [0, (below ? -7.6 : 7.6) * scale, 0]} center={!side} zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
+      <Html position={side ? [(side === "left" ? -6.5 : 6.5) * scale, 0, 0] : [0, (below ? -7.6 : 7.6) * scale, 0]} center={!side} zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
         <div className={`anchor-label ${origin} ${side || ""}`}>
           <strong style={{ color }}>{name}</strong>
           <span>{detail}</span>
@@ -251,7 +252,7 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
     for (const origin of ORDER) {
       const targets = memories.filter((m) => visible.has(m.id) && memoryOrigin(m) === origin);
       if (!targets.length) continue;
-      const count = Math.min(90, Math.max(12, targets.length * 2));
+      const count = Math.min(36, Math.max(8, targets.length));
       for (let i = 0; i < count; i += 1) {
         const m = targets[i % targets.length];
         const to = new THREE.Vector3(...m.position);
@@ -306,7 +307,7 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
         curve.getPoint(inward ? 1 - tk : tk, point);
         pos.setXYZ(idx, point.x, point.y, point.z);
         const ends = Math.min(1, tk / 0.08) * Math.min(1, (1 - tk) / 0.1);
-        alpha.setX(idx, (1 - k / TRAIL) * ends * (0.3 + Math.min(1, a) * 0.6) * fade);
+        alpha.setX(idx, (1 - k / TRAIL) * ends * (0.16 + Math.min(1, a) * 0.5) * fade);
       }
     });
     pos.needsUpdate = alpha.needsUpdate = true;
@@ -363,7 +364,7 @@ export default function Symbiosis({ memories, visible, life, vitals, motion, fix
       <EnergyFlows memories={memories} visible={visible} layout={layout} life={life} motion={motion} />
       <ViewRig center={layout.center}>
         {ORDER.map((origin) => (
-          <Anchor key={origin} origin={origin} position={layout.offsets[origin]} scale={layout.reach / 24} life={life} texture={texture} count={counts[origin]} detail={detail[origin]} motion={motion} />
+          <Anchor key={origin} origin={origin} side={origin === "user" ? "right" : undefined} position={layout.offsets[origin]} scale={Math.min(1.6, layout.reach / 30)} life={life} texture={texture} count={counts[origin]} detail={detail[origin]} motion={motion} />
         ))}
       </ViewRig>
     </>

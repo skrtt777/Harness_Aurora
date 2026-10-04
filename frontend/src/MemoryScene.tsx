@@ -7,8 +7,9 @@ import * as THREE from "three";
 import { groupKey, hash, memoryColor, memoryHealth, clusterColor, type Memory, type MemoryCluster } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
 import type { SystemVitals } from "./api";
-import Symbiosis, { LifeDriver, newLife, type Life } from "./Symbiosis";
+import Symbiosis, { anchorLayout, LifeDriver, newLife, type Life } from "./Symbiosis";
 import { MEMORY_COLOR, NetHubs, NeuralFibers, neuralLayout } from "./NeuralNet";
+import { constellationLayout, type ConstellationGroup } from "./Constellation";
 
 export type CameraCommand = {
   serial: number;
@@ -247,16 +248,16 @@ const linkFragment = /* glsl */ `
   }
 `;
 
-function FlowLinks({ memories, visible, selectedId, origin, motion }: { memories: Memory[]; visible: Set<string>; selectedId: string | null; origin: Set<string>; motion: boolean }) {
+function FlowLinks({ memories, visible, selectedId, origin, motion, shape }: { memories: Memory[]; visible: Set<string>; selectedId: string | null; origin: Set<string>; motion: boolean; shape?: [string, string][] }) {
   const material = useMemo(() => new THREE.ShaderMaterial({ vertexShader: linkVertex, fragmentShader: linkFragment, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: { value: 0 } } }), []);
   useEffect(() => () => material.dispose(), [material]);
   const geometry = useMemo(() => {
     const byId = new Map(memories.map((m) => [m.id, m]));
     const positions: number[] = [], colors: number[] = [], ts: number[] = [], actives: number[] = [];
     const SEG = 10;
-    const add = (a: Memory, b: Memory, color: THREE.Color, active: boolean, strength: number) => {
+    const add = (a: Memory, b: Memory, color: THREE.Color, active: boolean, strength: number, bend = 0.12) => {
       const from = new THREE.Vector3(...a.position), to = new THREE.Vector3(...b.position);
-      const mid = from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, from.distanceTo(to) * 0.12, 0));
+      const mid = from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, from.distanceTo(to) * bend, 0));
       const pts = new THREE.QuadraticBezierCurve3(from, mid, to).getPoints(SEG);
       const c = color.clone().multiplyScalar(active ? 1 : strength);
       for (let i = 0; i < SEG; i += 1) {
@@ -267,7 +268,14 @@ function FlowLinks({ memories, visible, selectedId, origin, motion }: { memories
       }
     };
     const seen = new Set<string>();
-    for (const m of memories) {
+    // At rest, only each topic's own shape is drawn: straight, calm lines.
+    if (!selectedId && shape) {
+      for (const [a, b] of shape) {
+        const from = byId.get(a), to = byId.get(b);
+        if (from && to && visible.has(a) && visible.has(b)) add(from, to, new THREE.Color(memoryColor(from)), false, 0.55, 0);
+      }
+    }
+    for (const m of !selectedId && shape ? [] : memories) {
       if (!visible.has(m.id)) continue;
       const list = m.id === selectedId ? m.neighbors : m.neighbors?.slice(0, 1);
       for (const nb of list ?? []) {
@@ -293,13 +301,13 @@ function FlowLinks({ memories, visible, selectedId, origin, motion }: { memories
     g.setAttribute("aT", new THREE.Float32BufferAttribute(ts, 1));
     g.setAttribute("aActive", new THREE.Float32BufferAttribute(actives, 1));
     return g;
-  }, [memories, visible, selectedId, origin]);
+  }, [memories, visible, selectedId, origin, shape]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   useFrame((_, delta) => { if (motion) material.uniforms.uTime.value += delta; });
   return <lineSegments geometry={geometry} material={material} />;
 }
 
-function CameraRig({ command, allMemories, motion, drift, extra, neural }: { command: CameraCommand; allMemories: Memory[]; motion: boolean; drift: boolean; extra?: THREE.Vector3[]; neural?: boolean }) {
+function CameraRig({ command, allMemories, motion, drift, extra, neural, fit = 0.78 }: { command: CameraCommand; allMemories: Memory[]; motion: boolean; drift: boolean; extra?: THREE.Vector3[]; neural?: boolean; fit?: number }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera, size, invalidate } = useThree();
   const travel = useRef<{ position: THREE.Vector3; target: THREE.Vector3; zoom: number } | null>(null);
@@ -309,8 +317,8 @@ function CameraRig({ command, allMemories, motion, drift, extra, neural }: { com
     extra?.forEach((p) => box.expandByPoint(p));
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 30, 30));
     const extent = box.getSize(new THREE.Vector3());
-    return { center: box.getCenter(new THREE.Vector3()), size: extent, radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * (neural ? 0.56 : 0.78)) };
-  }, [allMemories, extra, neural]);
+    return { center: box.getCenter(new THREE.Vector3()), size: extent, radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * (neural ? 0.56 : fit)) };
+  }, [allMemories, extra, neural, fit]);
   useEffect(() => {
     const selected = allMemories.find((m) => m.id === command.id);
     const inspecting = command.view !== "overview" && selected;
@@ -327,7 +335,7 @@ function CameraRig({ command, allMemories, motion, drift, extra, neural }: { com
         : command.view === "top" ? new THREE.Vector3(0, 0.999, 0.001)
           : command.view === "side" ? new THREE.Vector3(1, 0, 0)
             : inspecting ? camera.position.clone().sub(target).normalize()
-              : neural ? new THREE.Vector3(0.12, 0.08, 1) : new THREE.Vector3(0.3, 0.45, 1);
+              : neural ? new THREE.Vector3(0.12, 0.08, 1) : new THREE.Vector3(0.25, 0.85, 1);
     travel.current = { target, position: target.clone().addScaledVector(direction.normalize(), distance), zoom: Math.min(size.width, size.height) / (2.2 * radius) };
     invalidate();
     // The camera position is read once per command (fly from where it is), not tracked.
@@ -407,7 +415,18 @@ function SceneContent(props: Props) {
   const neural = props.layout === "neural";
   const net = useMemo(() => (neural ? neuralLayout(allMemories, clusters) : null), [neural, allMemories, clusters]);
   // Where each star is drawn: its meaning position, or its slot in the network.
-  const placed = useMemo(() => (net ? allMemories.map((m) => ({ ...m, position: net.positions.get(m.id) ?? m.position })) : allMemories), [net, allMemories]);
+  const constellation = useMemo(() => (neural ? null : constellationLayout(allMemories, clusters)), [neural, allMemories, clusters]);
+  const placed = useMemo(() => {
+    const at = net?.positions ?? constellation?.positions;
+    return at ? allMemories.map((m) => ({ ...m, position: at.get(m.id) ?? m.position })) : allMemories;
+  }, [net, constellation, allMemories]);
+  // The symbiosis anchors circle the galaxy: frame that whole ring.
+  const ringExtent = useMemo(() => {
+    if (!constellation) return undefined;
+    const { center, reach } = anchorLayout(placed);
+    const r = reach * 0.78 + 9;
+    return [new THREE.Vector3(r, 0, 0), new THREE.Vector3(-r, 0, 0), new THREE.Vector3(0, r, 0), new THREE.Vector3(0, -r, 0), new THREE.Vector3(0, 0, r), new THREE.Vector3(0, 0, -r)].map((p) => p.add(center));
+  }, [constellation, placed]);
   const placedById = useMemo(() => new Map(placed.map((m) => [m.id, m])), [placed]);
   const origin = useMemo(() => traceOrigin(allMemories, selectedId), [allMemories, selectedId]);
   const selected = graph.byId.get(selectedId || "");
@@ -428,8 +447,12 @@ function SceneContent(props: Props) {
     const tracked = allMemories.filter((m) => m.stats);
     return tracked.length > 0 && tracked.filter((m) => (m.stats?.uses ?? 0) > 0).length >= tracked.length * 0.2;
   }, [allMemories]);
-  const floor = useMemo(() => Math.min(-14, ...allMemories.map((m) => m.position[1])) - 4, [allMemories]);
-  const labels = clusters.length
+  const floor = useMemo(() => Math.min(-14, ...placed.map((m) => m.position[1])) - 4, [placed]);
+  const labels = constellation
+    ? constellation.groups
+        .filter((g) => memories.some((m) => (g.clusterId !== undefined ? m.cluster === g.clusterId : groupKey(m) === g.key.slice(2))))
+        .map((g) => ({ key: g.key, text: g.label, count: g.count, color: g.color, position: [g.center.x, g.center.y - 3.2, g.center.z - g.radius - 1.2] as [number, number, number], onClick: () => (g.clusterId !== undefined ? onCluster?.(g.clusterId) : onGroup(g.key.slice(2))) }))
+    : clusters.length
     ? clusters.filter((c) => c.id >= 0 && c.count > 0 && memories.some((m) => m.cluster === c.id)).map((c) => ({ key: `c${c.id}`, text: c.label, count: c.count, color: clusterColor(c.id, "#5fd4c0"), position: c.center, onClick: () => onCluster?.(c.id) }))
     : graph.groups.filter((g) => memories.some((m) => groupKey(m) === g.label)).map((g) => ({ key: g.id, text: g.label, count: g.count, color: g.color, position: g.position, onClick: () => onGroup(g.label) }));
   const focusMemory = hovered || selected;
@@ -443,18 +466,21 @@ function SceneContent(props: Props) {
       {cad && (
         <>
           <Grid position={[0, floor, 0]} args={[200, 200]} cellSize={4} sectionSize={20} cellColor="#14171b" sectionColor="#22272d" cellThickness={0.4} sectionThickness={0.6} fadeDistance={170} infiniteGrid />
-          {!net && <axesHelper args={[10]} />}
+
         </>
       )}
       <LifeDriver life={life} vitals={props.vitals} dim={!!selectedId} />
-      <Symbiosis memories={allMemories} visible={visible} life={life} vitals={props.vitals} motion={motion} fixed={net?.origins} />
+      <Symbiosis memories={placed} visible={visible} life={life} vitals={props.vitals} motion={motion} fixed={net?.origins} />
       {net ? (
         <>
           <NeuralFibers net={net} visible={visible} selectedId={selectedId} life={life} motion={motion} />
           <NetHubs net={net} onTopic={(key) => (key.startsWith("c") ? onCluster?.(Number(key.slice(1))) : onGroup(key.slice(2)))} />
         </>
       ) : (
-        <FlowLinks memories={allMemories} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} />
+        <>
+          <FlowLinks memories={placed} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} shape={constellation?.edges} />
+          {constellation && <GroupRings groups={constellation.groups} dim={!!selectedId} />}
+        </>
       )}
       <StarField
         tint={net ? MEMORY_COLOR : undefined}
@@ -493,7 +519,7 @@ function SceneContent(props: Props) {
           </div>
         </Html>
       )}
-      <CameraRig command={command} allMemories={placed} motion={motion} drift={motion && !net && !selectedId && !hoveredId} extra={net?.extent} neural={neural} />
+      <CameraRig command={command} allMemories={placed} motion={motion} drift={motion && !net && !selectedId && !hoveredId} extra={net?.extent ?? ringExtent} neural={neural} fit={ringExtent ? 0.5 : 0.78} />
       <GizmoHelper alignment="bottom-right" margin={[58, 100]}>
         <GizmoViewport axisColors={["#e75e78", "#55a583", "#6aa6ff"]} labelColor="white" />
       </GizmoHelper>
@@ -503,6 +529,20 @@ function SceneContent(props: Props) {
           <Vignette eskil={false} offset={0.22} darkness={0.6} />
         </EffectComposer>
       )}
+    </>
+  );
+}
+
+/** A thin ring around each topic: where one group ends and the next begins. */
+function GroupRings({ groups, dim }: { groups: ConstellationGroup[]; dim: boolean }) {
+  return (
+    <>
+      {groups.map((g) => (
+        <mesh key={g.key} position={g.center} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[g.radius + 0.9, g.radius + 1.1, 96]} />
+          <meshBasicMaterial color={g.color} transparent opacity={dim ? 0.06 : 0.22} depthWrite={false} blending={THREE.AdditiveBlending} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
     </>
   );
 }

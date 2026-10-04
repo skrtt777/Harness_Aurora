@@ -462,3 +462,14 @@
 .net-label {
   filter: brightness(1.35) saturate(1.1);
 }
+.anchor-label.right {
+  justify-items: start;
+  min-width: 0;
+  text-align: left;
+  transform: translate(0, -50%);
+}
+@media (max-width: 1100px) {
+  .aurora-atlas .scene-legend {
+    display: none;
+  }
+}
