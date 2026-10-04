@@ -148,6 +148,9 @@ test("knowledge tools answer with sources; paid chats must ask before seeing res
   assert.equal(local.ok, true, local.result);
   assert.match(local.result, /Fonte: .*Política de Benefícios\.pdf \(RH\/Benefícios/);
   assert.match(local.result, /R\$ 42,00/);
+  // A category the model remembered from another share must not hide the answer.
+  const guessed = await executeTool("knowledge_search", { query: "vale refeição", category: "Financeiro/Inexistente" }, { ...ctx, provider: "local" });
+  assert.match(guessed.result, /R\$ 42,00/);
   assert.equal(ctx.restrictedSources.size, 1, "a restricted source used in the turn is remembered");
   const asked = [];
   const paid = await executeTool("knowledge_search", { query: "vale refeição" }, { ...ctx, provider: "codex", approve: async (r) => { asked.push(r); return false; } });
@@ -174,6 +177,9 @@ test("documents an answer cites that exist nowhere are caught (real answers from
   assert.deepEqual(await unknown("Sim, a empresa financia [Fonte: Programa de Educação Corporativa 2026]"), ["Programa de Educação Corporativa 2026"]);
   assert.deepEqual(await unknown("Fonte: https://www.gov.br/trabalho"), [], "web links are not checked");
   assert.deepEqual(await unknown("Fonte: Proposta ACME.pdf", ["C:\\Downloads\\Proposta ACME.pdf"]), [], "files of the turn count");
+  assert.deepEqual(await unknown("Marcelo, Juliana e Otávio.\n\nFonte: F:\\EmpresaIA\\RH\\Admissões e Desligamentos 2026.xlsx", ["F:\\EmpresaIA\\RH\\Admissões e Desligamentos 2026.xlsx"]), [], "an ' e ' inside one file name");
+  assert.deepEqual(await unknown("Fonte: Proposta ACME.pdf e Manual Inventado.pdf", ["C:\\Downloads\\Proposta ACME.pdf"]), ["Manual Inventado.pdf"], "two sources, one invented");
+  assert.deepEqual(await unknown("Dia 13/10.\n\nFonte: Ata da Reunião de Diretoria - 15-09-2026.pdf", ["F:\\EmpresaIA\\Diretoria\\Atas\\Ata Reunião de Diretoria - 15-09-2026.pdf"]), [], "the title inside the file, with an extra 'da'");
   assert.deepEqual(await unknown("Não encontrei nada sobre isso nos documentos."), []);
 
   const echo = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "nada" };

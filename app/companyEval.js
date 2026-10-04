@@ -57,13 +57,21 @@ export async function runCompanyEval({ questions, root, workDir, samples = 1, en
     try { turn = await handleChatTurn({ conversationId: conversation.id, message: question.prompt, env }); }
     catch (error) { turn = { ok: false, error: error.message }; }
     const answer = turn.message?.content || "";
-    const docs = turn.message?.execution?.knowledgeDocs || [];
+    const steps = turn.message?.execution?.toolSteps || [];
+    // Documents of the automatic search plus those the agent found with its tools.
+    const docs = [...new Set([
+      ...(turn.message?.execution?.knowledgeDocs || []),
+      ...steps.filter((s) => s.ok && s.tool === "knowledge_search").flatMap((s) => [...String(s.result ?? "").matchAll(/Fonte: (.+?) \(/g)].map((m) => m[1])),
+      ...steps.filter((s) => s.ok && s.tool === "read_file").map((s) => s.args?.path).filter(Boolean),
+    ])];
     const docSectors = [...new Set(docs.map((d) => sectorOf(d, root)).filter(Boolean))];
     return {
       passed: Boolean(turn.ok) && checkAnswer(question, answer),
       // Not-found questions have no sector to find; everything else should read its own sector.
       rightSector: question.notFound ? null : docSectors.some((s) => fold(s) === fold(question.setor)),
-      docSectors, docs: docs.map((d) => String(d).split(/[\\/]/).pop()), tools: (turn.message?.execution?.toolSteps || []).map((s) => s.tool),
+      docSectors, docs: docs.map((d) => String(d).split(/[\\/]/).pop()), tools: steps.map((s) => s.tool),
+      steps: steps.map((s) => `${s.ok ? "" : "✕ "}${s.tool} ${JSON.stringify(s.args).slice(0, 120)} → ${String(s.result ?? s.summary ?? "").replace(/\s+/g, " ").slice(0, 300)}`),
+      checks: turn.message?.execution?.checks || [],
       ms: Date.now() - started, error: turn.ok ? null : turn.error, answer: answer.slice(0, 600),
     };
   };

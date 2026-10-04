@@ -15,6 +15,9 @@ const rememberRestricted = (ctx, items) => { for (const item of items) if (!item
 
 const clip = (text, max) => (String(text).length > max ? `${String(text).slice(0, max)}…` : String(text));
 
+/** A spreadsheet hit is only a slice of its rows: say how to count or list them all. */
+export const sheetHint = (path) => (/\.(xlsx|csv|tsv)$/i.test(String(path)) ? `\n(Planilha: isto é só um trecho. Para contar ou listar linhas — quem, quantos, quais — use read_file com path="${path}" e filter="Coluna=texto".)` : "");
+
 async function findLocalSkill(id) {
   const skills = await allSkills();
   return skills.find((s) => s.id === id) || skills.find((s) => s.name === id) || null;
@@ -24,14 +27,17 @@ export const knowledgeTools = [
   {
     name: "knowledge_search",
     description: "Procura nos documentos da empresa (pastas da rede e SharePoint indexados: políticas, procedimentos, comunicados, planilhas, contatos). Use para QUALQUER pergunta sobre a empresa ou um departamento. Devolve trechos com o arquivo de origem para citar.",
-    parameters: { type: "object", properties: { query: { type: "string", description: "o que procurar, com as palavras do usuário" }, category: { type: "string", description: "opcional, ex.: RH/Eventos" } }, required: ["query"] },
+    parameters: { type: "object", properties: { query: { type: "string", description: "o que procurar, com as palavras do usuário" }, category: { type: "string", description: "opcional; só uma categoria que apareceu no knowledge_map ou numa busca anterior" } }, required: ["query"] },
     stage: (a) => `Procurando nos documentos da empresa: "${clip(a.query, 40)}"…`,
     describe: (a, ctx) => shareAccess(ctx, `Buscar "${clip(a.query, 60)}" nos documentos da empresa`),
     async run({ query, category }, ctx) {
-      const hits = await searchKnowledge(String(query || ""), { category, env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
+      const search = (cat) => searchKnowledge(String(query || ""), { category: cat, env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
+      // A remembered or guessed category ("RH/Eventos" from another share) must not hide the answer.
+      let hits = await search(category);
+      if (!hits.length && category) hits = await search(undefined);
       if (!hits.length) return "Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.";
       rememberRestricted(ctx, hits);
-      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem.";
+      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem.";
     },
   },
   {

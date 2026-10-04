@@ -9,6 +9,44 @@ const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf", ...IMAGE_E
 
 const MAX_READ = 12000;
 const MAX_WALK = 20000;
+
+const foldText = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/**
+ * Rows of a sheet (as docText writes it: "## Planilha", then "a | b | c" lines) that match
+ * "Coluna=texto", or lines containing a text. A small model reading 120 rows page by page
+ * stops at the first page ("ninguém entra de férias em outubro"); a filter gives it the
+ * header, only the rows that count and the total.
+ */
+export function filterRows(lines, filter) {
+  const [, colPart, valuePart] = filter.match(/^([^=]{1,60}?)\s*=\s*(.+)$/) || [];
+  const wanted = foldText(valuePart ?? filter);
+  const column = colPart ? foldText(colPart) : null;
+  const sheets = [];
+  let sheet = { name: "", header: null, rows: [] };
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) { sheets.push(sheet = { name: line, header: null, rows: [] }); return; }
+    if (!line.trim()) return;
+    if (!sheet.header && line.includes(" | ")) { sheet.header = { line, i, cells: line.split(" | ").map(foldText) }; return; }
+    sheet.rows.push({ line, i });
+  });
+  if (!sheets.includes(sheet)) sheets.unshift(sheet);
+  const anyColumn = column && sheets.some((s) => s.header?.cells.some((c) => c.includes(column)));
+  const out = [];
+  let total = 0;
+  for (const s of sheets) {
+    const at = anyColumn ? (s.header?.cells.findIndex((c) => c === column) ?? -1) : -1;
+    const index = anyColumn ? (at >= 0 ? at : s.header?.cells.findIndex((c) => c.includes(column)) ?? -1) : -1;
+    if (anyColumn && index < 0) continue;
+    const hits = s.rows.filter(({ line }) => (index >= 0 ? foldText(line.split(" | ")[index] ?? "").includes(wanted) : foldText(line).includes(wanted)));
+    if (!hits.length) continue;
+    total += hits.length;
+    out.push(...[s.name, s.header?.line].filter(Boolean), ...hits.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`), "");
+  }
+  const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
+  if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}`;
+  return `${out.join("\n")}\n${total} linha(s) com "${filter}"${column && !anyColumn ? ` (coluna "${colPart}" não existe; procurei o texto na linha inteira)` : ""}.`;
+}
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "$recycle.bin", "appdata"]);
 
 export function expandPath(input, knownFolders = {}, base) {
@@ -223,8 +261,8 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas).",
-    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"] },
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Início das férias=/10/2026\", \"Situação=Aberto\") ou só um texto; devolve o cabeçalho, as linhas que batem e o total.",
+    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\" ou texto que a linha precisa conter" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
       const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
@@ -232,12 +270,13 @@ export const fileTools = [
       if (ctx.provider && ctx.provider !== "local" && (await ctx.isRestricted?.(path))) return { kind: "share", summary: `Ler ${path} (documento interno não liberado para IA paga)` };
       return { kind: "read", paths: [path] };
     },
-    async run({ path, offset = 1, limit = 400 }, ctx) {
+    async run({ path, offset = 1, limit = 400, filter }, ctx) {
       const file = await resolveExisting(path, ctx);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
+      if (String(filter || "").trim()) return `${file}\n${filterRows(lines, String(filter))}`.slice(0, MAX_READ);
       const start = Math.max(1, Number(offset) || 1);
       const count = Math.min(Math.max(1, Number(limit) || 400), 2000);
       let text = "";

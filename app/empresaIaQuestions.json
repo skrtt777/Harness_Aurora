@@ -9,9 +9,9 @@
       "prompt": "Mostre pra mim quantos funcionários vão entrar de férias esse mês?",
       "expect": [
         "\\b9\\b|\\bnove\\b",
-        "Marcos",
-        "Vinícius",
-        "Larissa"
+        "Marcos Esteves",
+        "Vinícius Freitas",
+        "Larissa Batista"
       ],
       "avoid": [],
       "notFound": false,
@@ -22,8 +22,8 @@
       "setor": "RH",
       "prompt": "Quem está de férias agora?",
       "expect": [
-        "Sabrina",
-        "Alice",
+        "Sabrina Vieira",
+        "Alice Lopes",
         "\\b4\\b|quatro"
       ],
       "avoid": [],
@@ -69,8 +69,8 @@
       "setor": "RH",
       "prompt": "Quando são as férias coletivas da fábrica?",
       "expect": [
-        "22/12",
-        "02/01|2/1/2027|2 de janeiro"
+        "22/12|22 de dezembro",
+        "0?2/0?1|2 de janeiro"
       ],
       "avoid": [],
       "notFound": false,
@@ -106,7 +106,7 @@
       "prompt": "Como está o budget esse ano?",
       "expect": [
         "(23\\.?350\\.?000|23[,.][34]\\d*\\s*(mi|milh)|23\\.?350\\s*mil)",
-        "(17\\.?781\\.?003|17[,.][78]\\d*\\s*(mi|milh)|17\\.?781\\s*mil)"
+        "(17\\.?781\\.?003|17\\.?781\\.?002|17[,.][78]\\d*\\s*(mi|milh)|17\\.?781\\s*mil)"
       ],
       "avoid": [],
       "notFound": false,
@@ -451,7 +451,7 @@
       "prompt": "Qual contrato vence primeiro?",
       "expect": [
         "galp[ãa]o|Loca[çc][ãa]o",
-        "31/10"
+        "31/10|31 de outubro"
       ],
       "avoid": [],
       "notFound": false,
@@ -474,7 +474,7 @@
       "prompt": "Qual é o próximo imposto a vencer?",
       "expect": [
         "ICMS",
-        "09/10|9 de outubro"
+        "0?9/10|0?9 de outubro"
       ],
       "avoid": [],
       "notFound": false,

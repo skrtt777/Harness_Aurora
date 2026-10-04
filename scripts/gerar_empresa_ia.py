@@ -52,6 +52,8 @@ def money_re(v):
     """Aceita 1.234.567 / 1234567 / 1,23 milhão / 1,2 mi / 1.234 mil."""
     inteiro = int(round(v))
     alts = [num(inteiro).replace(".", r"\.?")]
+    if int(v) != inteiro:  # "17.781.002,77" também vale, além do arredondado
+        alts.append(num(int(v)).replace(".", r"\.?"))
     if inteiro >= 1_000_000:
         m = inteiro / 1_000_000
         frac = (m - int(m)) * 10  # 23,35 mi pode aparecer como "23,35" ou "23,4"
@@ -388,14 +390,14 @@ xlsx(RH / "Treinamentos" / "Calendário de Treinamentos 2º Semestre 2026.xlsx",
 
 out_names = [p["nome"] for p, ini, d, st in ferias if ini.month == 10]
 q("RH", "Mostre pra mim quantos funcionários vão entrar de férias esse mês?",
-  [r"\b9\b|\bnove\b"] + [jsre(n.split()[0]) for n in out_names[:3]],
+  [r"\b9\b|\bnove\b"] + [jsre(" ".join(n.split()[:2])) for n in out_names[:3]],
   "referência outubro/2026: 9 começam em outubro; 4 já estão em gozo desde setembro e não contam")
-q("RH", "Quem está de férias agora?", [jsre(p["nome"].split()[0]) for p, ini, d, st in ferias if st == "Em gozo"][:2] + [r"\b4\b|quatro"],
+q("RH", "Quem está de férias agora?", [jsre(" ".join(p["nome"].split()[:2])) for p, ini, d, st in ferias if st == "Em gozo"][:2] + [r"\b4\b|quatro"],
   "status 'Em gozo' em 04/10/2026")
 q("RH", "Quantos funcionários a empresa tem hoje e qual setor tem mais gente?", [rf"\b{ativos}\b", "Produ[çc][ãa]o"])
 q("RH", "Quanto é o vale-refeição por dia?", [r"45,00|R\$\s*45"])
 q("RH", "Posso vender parte das minhas férias? Quantos dias?", [r"\b10\b|dez dias"])
-q("RH", "Quando são as férias coletivas da fábrica?", [r"22/12", r"02/01|2/1/2027|2 de janeiro"])
+q("RH", "Quando são as férias coletivas da fábrica?", [r"22/12|22 de dezembro", r"0?2/0?1|2 de janeiro"])
 q("RH", "Quem foi desligado esse ano?", ["Marcelo", "Juliana", "Ot[áa]vio"])
 q("RH", "Qual é a política de home office da empresa?", [], "não existe nenhum documento sobre home office", not_found=True,
   avoid=[r"home office[^.\n]{0,60}(\d+ dias|permitid)"])
@@ -743,7 +745,7 @@ proc = [("0001234-55.2025.5.05.0193", "Trabalhista", "Ex-motorista", "Horas extr
         ("0007890-22.2026.5.05.0193", "Trabalhista", "Ex-vendedora", "Comissões e verbas rescisórias", 58_000.0, "Possível")]
 xlsx(OUT / "Jurídico" / "Processos Judiciais.xlsx", [
     ("Processos", ["Número", "Tipo", "Parte contrária", "Assunto", "Valor da causa", "Risco"], proc, {"E": MOEDA})])
-q("Jurídico", "Qual contrato vence primeiro?", [r"galp[ãa]o|Loca[çc][ãa]o", r"31/10"])
+q("Jurídico", "Qual contrato vence primeiro?", [r"galp[ãa]o|Loca[çc][ãa]o", r"31/10|31 de outubro"])
 q("Jurídico", "Quantos processos trabalhistas a empresa tem?", [r"\b3\b|tr[êe]s"], "distrator: 'férias' aparece num processo, não confundir com RH")
 
 # ================================================================ Fiscal
@@ -754,7 +756,7 @@ xlsx(OUT / "Fiscal" / "Calendário de Obrigações - Outubro 2026.xlsx", [
 imp = [("ICMS", 612_480.37), ("PIS", 61_210.90), ("COFINS", 281_940.15), ("IRPJ (estimativa)", 98_300.00), ("CSLL (estimativa)", 37_150.00), ("INSS patronal", 214_660.42)]
 xlsx(OUT / "Fiscal" / "Apuração de Impostos - Set 2026.xlsx", [
     ("Setembro 2026", ["Tributo", "Valor apurado"], imp + [("TOTAL", round(sum(v for _, v in imp), 2))], {"B": MOEDA})])
-q("Fiscal", "Qual é o próximo imposto a vencer?", [r"ICMS", r"09/10|9 de outubro"])
+q("Fiscal", "Qual é o próximo imposto a vencer?", [r"ICMS", r"0?9/10|0?9 de outubro"])
 q("Fiscal", "Quanto deu o ICMS de setembro?", [money_re(612_480.37)])
 
 # ================================================================ Diretoria

@@ -473,10 +473,23 @@ export async function unknownCitations(text, files = []) {
     try { const title = JSON.parse(row.card || "{}").title; if (title) known.add(foldName(title)); } catch { /* no card */ }
   }
   known.delete("");
-  const matches = (cited) => { const c = foldName(cited); return !c || [...known].some((k) => c.includes(k) || (c.length >= 8 && k.includes(c))); };
+  // Word by word too: the title inside "Ata Reunião de Diretoria - 15-09-2026.pdf" is
+  // "Ata da Reunião de Diretoria", and citing it is citing the real file.
+  const words = (s) => s.split(" ").filter((w) => w && !NAME_JOINERS.has(w));
+  const knownWords = [...known].map(words).filter((w) => w.length >= 3);
+  const matches = (cited) => {
+    const c = foldName(cited);
+    if (!c || [...known].some((k) => c.includes(k) || (c.length >= 8 && k.includes(c)))) return true;
+    const citedWords = new Set(words(c));
+    return knownWords.some((k) => k.every((w) => citedWords.has(w)));
+  };
+  // The whole line is one real file (a path or name ending in it), so its " e " is part of the name.
+  const endsWithKnown = (line) => { const c = foldName(line); return [...known].some((k) => c === k || c.endsWith(` ${k}`)); };
   const body = String(text || "");
   const cited = [
-    ...[...body.matchAll(/fontes?[*_]*\s*:[*_]*\s*([^\n\]]+)/gi)].flatMap((m) => m[1].split(/;|\s+e\s+(?=[A-ZÀ-Ú])/)),
+    // Several sources are split on ";" or " e Nome", unless the whole line already names a real
+    // file: "Admissões e Desligamentos 2026.xlsx" is one name, not "Admissões" plus another.
+    ...[...body.matchAll(/fontes?[*_]*\s*:[*_]*\s*([^\n\]]+)/gi)].flatMap((m) => (endsWithKnown(m[1]) ? [] : m[1].split(/;|\s+e\s+(?=[A-ZÀ-Ú])/))),
     // "Sim! Veja o Manual de Viagens.pdf" → "Manual de Viagens.pdf": the name
     // starts at the capitalized word after a lowercase one (or the first).
     ...(body.match(DOC_FILE) || []).map((m) => {

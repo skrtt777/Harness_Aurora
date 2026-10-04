@@ -76,6 +76,9 @@ import { TEACHER_MODES } from "./teacher.js";
 import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { resolveExisting } from "./agentTools/files.js";
+import { sheetHint } from "./agentTools/knowledge.js";
+// A spreadsheet up to this size goes whole into the context when the automatic search finds it.
+const FULL_SHEET_CHARS = 12000;
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
@@ -416,7 +419,13 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           agentAttachments = attached.map((f) => f.path);
           for (const file of attached) { const source = await sourceForPath(file.path).catch(() => null); if (source && !source.paid_allowed) toolContext.restrictedSources.add(source.id); }
           const filesBlock = attached.length ? `ARQUIVOS DO USUÁRIO JÁ LIDOS PARA VOCÊ — o texto abaixo é o conteúdo real do(s) arquivo(s) que o usuário mencionou nesta conversa. Responda a partir dele (resumir, explicar, achar valores); não procure em outro lugar, não use knowledge_search nem abra o arquivo de novo:\n${attached.map((f) => `=== ${f.path} ===\n${f.text}`).join("\n\n")}` : "";
-          const docsBlock = autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${d.text.slice(0, 900)}`).join("\n\n")}` : "";
+          // "Quantos entram de férias esse mês?", "qual contrato vence primeiro?": a 900-character
+          // slice of a sheet holds a few rows, and the small model answers from those. The first
+          // small spreadsheet found goes in whole (a sector's sheets usually fit).
+          const fullSheets = new Map();
+          const sheet = autoDocs.find((d) => /\.(xlsx|csv|tsv)$/i.test(d.path));
+          if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, text); }
+          const docsBlock = autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "";
           agentContext = await compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           const agentEnv = conversation.provider === "local" ? localEnv : env;
           const runAgent = (agentHistoryMessages, input) => runChatAgent({

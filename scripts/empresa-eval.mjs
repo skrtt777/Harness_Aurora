@@ -19,6 +19,11 @@ const label = arg("label", `empresa-${new Date().toISOString().slice(0, 16).repl
 process.env.HARNESS_DB_FILE = db;
 // The sample company is dated: "esse mês" is October 2026 whatever day this runs.
 process.env.HARNESS_NOW ||= `${spec.hoje}T12:00:00-03:00`;
+// No one is there to approve: a request for permission (searching Documents, say) counts as
+// unanswered after 1 s. The approval timer is unref'd, so something must keep the process
+// alive meanwhile, or Node exits mid-question ("unsettled top-level await").
+process.env.AGENT_APPROVAL_TIMEOUT_MS ||= "1000";
+setInterval(() => {}, 60_000);
 const { getDb } = await import("../app/db.js");
 await getDb();
 const { prepareCompanySources, runCompanyEval, summarizeCompanyEval } = await import("../app/companyEval.js");
