@@ -29,6 +29,8 @@ export function detectSignals({ userMessage = "", result }) {
   if (result?.forced === "limit") signals.push({ code: "step_limit", detail: "Atingiu o limite de ações sem concluir." });
   if (result?.forced === "repeat") signals.push({ code: "repetition", detail: "Repetiu a mesma ação sem progresso." });
   if (GAVE_UP.test(String(result?.text || "").slice(-600))) signals.push({ code: "gave_up", detail: "A resposta admite que não conseguiu." });
+  // Several copies answered differently (copies.js): the local model is unsure here.
+  if (result?.copies?.disagree) signals.push({ code: "copies_disagree", detail: `${result.copies.used} cópias do modelo local deram respostas diferentes (concordância ${Math.round(result.copies.support * 100)}%).` });
   if (COMPLAINT.test(userMessage)) signals.push({ code: "user_complaint", detail: `O usuário reclamou do resultado anterior: "${userMessage.slice(0, 200)}"` });
   return signals;
 }

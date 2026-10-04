@@ -30,11 +30,12 @@ Rodar: `LOCAL_MODEL=qwen3.5:4b node scripts/empresa-eval.mjs --db <cópia.db> [-
 | Escalada 1→2→4→5 (para quando as primeiras concordam) | 44/49 (90%) | **2,7 em média** |
 | Pelo menos uma das 5 certa (teto) | 47/49 (96%) | — |
 
-- **Tempo:** com as 5 cópias em paralelo na GPU, foram 11,3 s por pergunta, contra 7,9 s com uma só.
+- **Tempo (corrigido em 04/10 à noite):** o Ollama **não roda o qwen3.5 em paralelo** ("model architecture does not currently support parallel requests"), então as cópias entram em fila. A mediana foi de 9,8 s com 5 cópias, contra 1,8 s com uma resposta. O "11,3 s contra 7,9 s" anterior estava errado: os 7,9 s por cópia já incluíam a espera na fila.
+- **Paralelo de verdade:** o llama-server que vem no Ollama, rodado de dentro de `lib/ollama/cuda_v13` (senão não acha a GPU), faz 4 respostas juntas em **1,6×** o tempo de uma na GPU e em 1,4× na CPU. No Ollama, o mesmo teste deu 3,4–3,7×. O llama.cpp CUDA de `F:\Modelos_Aurora` não carrega o GGUF do qwen3.5 baixado pelo Ollama (`rope.dimension_sections`).
 - **Setor certo:** os documentos usados vieram do setor da pergunta em 47/48.
 - **Como escolhe:** o consenso (`app/consensus.js`) fica com a resposta que mais concorda com as outras em números, datas e nomes.
 
-**Conclusão:** a ideia de várias cópias do 4b funciona. Ganha uns 9 pontos e, na GPU, custa só ~40% a mais de tempo. A escalada fica quase no mesmo nível com metade das cópias. Só na CPU as cópias dividem a velocidade (~11 tok/s), então lá o limite prático é 1 ou 2.
+**Conclusão:** a ideia de várias cópias do 4b funciona em acerto: ganha uns 9 pontos, e a escalada fica quase no mesmo nível com metade das cópias. Em tempo, ela só compensa se as cópias rodarem juntas, e para isso é preciso servir o modelo pelo llama-server com vagas paralelas, não pelo Ollama. Com o Ollama, a escalada custa ~2,7× o tempo de uma resposta.
 
 **Ainda erram:**
 - O agente às vezes procura o arquivo na pasta do projeto em vez de usar os documentos da empresa (producao-1, fiscal-2).

@@ -19,6 +19,7 @@ import { buildProviderConfig as buildLocalProviderConfig, runLocal, AGENT_MIN_CO
 import {
   CURATED_MODELS,
   getLocalStatus,
+  resolveLocalModel,
   runOllamaSetup,
   setLocalModel,
 } from "./ollamaSetup.js";
@@ -77,8 +78,27 @@ import { knownFolders } from "./agentTools/index.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
+import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
 const FULL_SHEET_CHARS = 12000;
+
+// How many local copies may answer at once: LOCAL_COPIES wins; otherwise the result of measuring
+// this computer once (in the background, so the first question is not slower) per model.
+let copiesProbe = null;
+async function localCopies(env) {
+  if (env.LOCAL_COPIES !== undefined) return Math.max(1, Math.min(7, Number(env.LOCAL_COPIES) || 1));
+  const model = await resolveLocalModel(env).catch(() => null);
+  let saved = null;
+  try { saved = JSON.parse(await getSetting("local_copies") || "null"); } catch { saved = null; }
+  if (saved && saved.model === model) return saved.max;
+  if (model && !copiesProbe) {
+    copiesProbe = probeParallelCopies({ baseUrl: env.LOCAL_BASE_URL || "http://127.0.0.1:11434", model })
+      .then((result) => setSetting("local_copies", JSON.stringify(result)))
+      .catch(() => {})
+      .finally(() => { copiesProbe = null; });
+  }
+  return 1;
+}
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
@@ -431,7 +451,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // falls back to the usual slices instead of failing the turn.
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
           const agentEnv = conversation.provider === "local" ? localEnv : env;
-          const runAgent = (agentHistoryMessages, input) => runChatAgent({
+          const runAgent = (agentHistoryMessages, input, overrides = {}) => runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, grounded: autoDocs.length > 0 || attached.length > 0,
             // Local answers citing a company document that exists nowhere go back once.
             // Company questions must consult documents; names and numbers must come from them.
@@ -444,8 +464,22 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
+            ...overrides,
           });
           let agent = await runAgent(agentHistory(history), trimmed);
+          // Several copies on company questions and exact facts (docs/AVALIACAO_EMPRESA_2026-10-04.md).
+          // The extra copies only read (plan mode, no approvals, steps not shown) and run together.
+          if (conversation.provider === "local") {
+            const companyQuestion = hasKnowledge && asksForInformation(trimmed) && (asksAboutCompany(trimmed) || autoDocs.length > 0);
+            // The question qualifies first: plain chat never measures the computer nor waits for copies.
+            const eligible = shouldVote({ first: agent, companyQuestion, factQuestion: observation?.source === "calculator" });
+            const maxCopies = eligible ? await localCopies(localEnv) : 1;
+            if (maxCopies > 1) {
+              const copyContext = { ...toolContext, mode: "plan", onPlan: () => {} };
+              const rerun = () => runAgent(agentHistory(history), trimmed, { toolContext: copyContext, onStep: () => {}, onStage: () => {}, approve: async () => false });
+              agent = (await escalateAnswer({ first: agent, rerun, maxCopies, onStage: (stage) => setStage(conversationId, stage) })).result;
+            }
+          }
           // Local deliveries with errors or changes are reviewed by the paid
           // teacher; its lessons become memories and the local model redoes.
           if (agent.ok && conversation.provider === "local") {
@@ -506,6 +540,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };
     if (agentDocs.length) result.execution = { ...(result.execution || {}), knowledgeDocs: agentDocs };
+    if (result.copies) result.execution = { ...(result.execution || {}), copies: result.copies };
     if (result.checks?.length) result.execution = { ...(result.execution || {}), checks: result.checks };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 

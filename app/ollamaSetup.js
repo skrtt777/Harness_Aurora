@@ -118,7 +118,10 @@ export async function startOllamaServer(env = process.env) {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
-    env: { ...process.env, ...env },
+    // Measured 04/10/2026 (docs/COMPARACAO_MODELOS_2026-10-04.md): flash attention + 8-bit KV cache keep
+    // the quality at less than half the memory, and parallel slots let several copies answer at
+    // once (copies.js). Only defaults: whatever the person configured wins.
+    env: { OLLAMA_FLASH_ATTENTION: "1", OLLAMA_KV_CACHE_TYPE: "q8_0", OLLAMA_NUM_PARALLEL: "4", ...process.env, ...env },
   });
   await new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
   // Detached + unref: the server keeps running as its own background
