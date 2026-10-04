@@ -43,11 +43,15 @@ function battery(model, copy) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["app/agentEvalRunner.mjs"], { env: { ...process.env, HARNESS_DB_FILE: copy, LOCAL_MODEL: model }, windowsHide: true });
     let out = "";
+    let err = "";
     child.stdout.on("data", (c) => { out += c; });
-    child.stderr.on("data", () => {});
-    child.on("close", () => {
-      const done = out.trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((e) => e?.done)?.done;
-      resolve(done || null);
+    child.stderr.on("data", (c) => { err = (err + c).slice(-1500); });
+    child.on("close", (code) => {
+      const events = out.trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      const done = events.find((e) => e.done)?.done;
+      // Keep why a round produced nothing (runner error, crash, last stderr lines).
+      const stderr = err.split("\n").filter((l) => l.trim() && !/ExperimentalWarning|trace-warnings/.test(l)).join("\n").slice(-600);
+      resolve(done || { failure: events.find((e) => e.error)?.error || `saída ${code}: ${stderr || "sem mensagem"}` });
     });
   });
 }
@@ -63,8 +67,8 @@ for (const model of models) {
     const done = await battery(model, copy);
     rmSync(copy, { force: true });
     const s = done?.summary;
-    entry.rounds.push(s ? { passed: s.passed, total: s.total, turns: s.turns, byArea: s.byArea, ms: s.ms, failed: done.results.filter((r) => !r.passed).map((r) => r.id) } : { error: "sem resultado" });
-    console.log(`rodada ${i + 1}`, s ? `${s.passed}/${s.total} turnos ${s.turns?.passed}/${s.turns?.total} ${Math.round(s.ms / 1000)}s` : "sem resultado");
+    entry.rounds.push(s ? { passed: s.passed, total: s.total, turns: s.turns, byArea: s.byArea, ms: s.ms, failed: done.results.filter((r) => !r.passed).map((r) => r.id), errors: done.results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`.slice(0, 200)) } : { error: done?.failure || "sem resultado" });
+    console.log(`rodada ${i + 1}`, s ? `${s.passed}/${s.total} turnos ${s.turns?.passed}/${s.turns?.total} ${Math.round(s.ms / 1000)}s` : `sem resultado: ${done?.failure}`);
     save();
   }
 }
