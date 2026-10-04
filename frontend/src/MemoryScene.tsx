@@ -83,11 +83,11 @@ const starFragment = /* glsl */ `
     vec2 p = gl_PointCoord - 0.5;
     float d = length(p);
     if (d > 0.5) discard;
-    float core = smoothstep(0.16, 0.0, d);
-    float halo = exp(-d * d * 22.0);
+    float core = smoothstep(0.13, 0.0, d);
+    float halo = exp(-d * d * 48.0);
     float ring = vPulse * smoothstep(0.06, 0.0, abs(d - (0.5 - vPulse * 0.35)));
-    vec3 color = vColor * (0.55 + halo * 0.9) + vec3(1.0) * core * 0.85 + vColor * ring * 1.5;
-    gl_FragColor = vec4(color, (core + halo * 0.75 + ring) * vAlpha);
+    vec3 color = vColor * (0.5 + halo * 0.5) + vec3(1.0) * core * 0.6 + vColor * ring;
+    gl_FragColor = vec4(color, min(1.0, (core + halo * 0.6 + ring) * vAlpha));
   }
 `;
 
@@ -134,7 +134,7 @@ function StarField({ memories, visible, selectedId, highlighted, hoveredId, dimU
     const near = highlighted.has(m.id);
     return {
       position: new THREE.Vector3(...m.position),
-      size: (2.6 + Math.min(3, Math.log2(1 + helped) * 1)) * (isSelected ? 2.2 : near || m.id === hoveredId ? 1.45 : 1),
+      size: (3.4 + Math.min(3.4, Math.log2(1 + helped) * 1.1)) * (isSelected ? 2.2 : near || m.id === hoveredId ? 1.45 : 1),
       bright: (dimUnused && health.unused ? 0.45 : 1) * (selectedId && !isSelected && !near ? 0.28 : 1),
       visible: visible.has(m.id) ? 1 : 0.07,
       color: isSelected ? color.clone().lerp(new THREE.Color("#ffffff"), 0.4) : color,
@@ -237,7 +237,7 @@ const linkFragment = /* glsl */ `
   varying float vActive;
   void main() {
     float flow = pow(fract(vT * 3.0 - uTime * 0.9), 6.0);
-    float a = mix(0.22, 0.55 + flow * 1.6, vActive);
+    float a = mix(0.14, 0.4 + flow * 1.0, vActive);
     gl_FragColor = vec4(vColor * (1.0 + flow * vActive * 1.4), a);
   }
 `;
@@ -294,53 +294,6 @@ function FlowLinks({ memories, visible, selectedId, origin, motion }: { memories
   return <lineSegments geometry={geometry} material={material} />;
 }
 
-// ---------- Nebulae: a soft glow of each topic's colour behind its stars ----------
-function nebulaTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext("2d")!;
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, "rgba(255,255,255,0.9)");
-  g.addColorStop(0.35, "rgba(255,255,255,0.28)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(canvas);
-}
-
-function Nebulae({ clusters, memories, visible, dim, motion }: { clusters: MemoryCluster[]; memories: Memory[]; visible: Set<string>; dim: boolean; motion: boolean }) {
-  const texture = useMemo(nebulaTexture, []);
-  useEffect(() => () => texture.dispose(), [texture]);
-  const group = useRef<THREE.Group>(null);
-  const clouds = useMemo(() => clusters.filter((c) => c.id >= 0).map((c) => {
-    const members = memories.filter((m) => m.cluster === c.id);
-    const center = new THREE.Vector3(...c.center);
-    const spread = Math.sqrt(members.reduce((s, m) => s + center.distanceToSquared(new THREE.Vector3(...m.position)), 0) / Math.max(members.length, 1));
-    return { id: c.id, center, scale: Math.max(10, spread * 2.6), color: new THREE.Color(clusterColor(c.id, "#5fd4c0")), shown: members.some((m) => visible.has(m.id)) };
-  }), [clusters, memories, visible]);
-  useFrame((state) => {
-    if (!group.current) return;
-    group.current.children.forEach((sprite, i) => {
-      const cloud = clouds[i];
-      if (!cloud) return;
-      const breathe = motion ? 1 + Math.sin(state.clock.elapsedTime * 0.4 + i) * 0.05 : 1;
-      sprite.scale.setScalar(cloud.scale * breathe);
-      const material = (sprite as THREE.Sprite).material as THREE.SpriteMaterial;
-      const target = cloud.shown ? (dim ? 0.05 : 0.16) : 0.02;
-      material.opacity += (target - material.opacity) * 0.08;
-    });
-  });
-  return (
-    <group ref={group}>
-      {clouds.map((c) => (
-        <sprite key={c.id} position={c.center} scale={c.scale}>
-          <spriteMaterial map={texture} color={c.color} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} />
-        </sprite>
-      ))}
-    </group>
-  );
-}
-
 function CameraRig({ command, allMemories, motion, drift }: { command: CameraCommand; allMemories: Memory[]; motion: boolean; drift: boolean }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera, size, invalidate } = useThree();
@@ -350,7 +303,7 @@ function CameraRig({ command, allMemories, motion, drift }: { command: CameraCom
     allMemories.forEach((m) => box.expandByPoint(new THREE.Vector3(...m.position)));
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 30, 30));
     const extent = box.getSize(new THREE.Vector3());
-    return { center: box.getCenter(new THREE.Vector3()), radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * 0.95) };
+    return { center: box.getCenter(new THREE.Vector3()), radius: Math.max(10, Math.max(extent.x, extent.y, extent.z) * 0.78) };
   }, [allMemories]);
   useEffect(() => {
     const selected = allMemories.find((m) => m.id === command.id);
@@ -438,6 +391,7 @@ function SceneContent(props: Props) {
   const { memories, allMemories, clusters, pulses, selectedId, onSelect, onFocus, onGroup, onCluster, cad, orthographic, motion, command, onStats } = props;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const life = useRef<Life>(newLife());
+  const labelRefs = useRef(new Map<string, HTMLButtonElement>());
   const graph = useMemo(() => buildGraph(allMemories), [allMemories]);
   const visible = useMemo(() => new Set(memories.map((m) => m.id)), [memories]);
   const origin = useMemo(() => traceOrigin(allMemories, selectedId), [allMemories, selectedId]);
@@ -479,7 +433,6 @@ function SceneContent(props: Props) {
       )}
       <LifeDriver life={life} vitals={props.vitals} dim={!!selectedId} />
       <Symbiosis memories={allMemories} visible={visible} life={life} vitals={props.vitals} motion={motion} />
-      <Nebulae clusters={clusters} memories={allMemories} visible={visible} dim={!!selectedId} motion={motion} />
       <FlowLinks memories={allMemories} visible={visible} selectedId={selectedId} origin={origin.nodeIds} motion={motion} />
       <StarField
         memories={allMemories}
@@ -495,9 +448,10 @@ function SceneContent(props: Props) {
         onFocus={onFocus}
         onHover={setHoveredId}
       />
+      {!selectedId && <LabelDeclutter labels={labels} refs={labelRefs} />}
       {!selectedId && labels.map((l) => (
         <Html key={l.key} position={[l.position[0], l.position[1] + 5, l.position[2]]} center zIndexRange={[20, 0]}>
-          <button className="topic-label" onClick={l.onClick}>
+          <button className="topic-label" ref={(el) => { if (el) labelRefs.current.set(l.key, el); else labelRefs.current.delete(l.key); }} onClick={l.onClick}>
             <i style={{ background: l.color }} />
             {l.text}
             <small>{l.count}</small>
@@ -528,6 +482,31 @@ function SceneContent(props: Props) {
       )}
     </>
   );
+}
+
+/**
+ * Topic labels never pile up: a few times a second they are projected to the
+ * screen and, biggest topic first, any label that would cover one already
+ * placed is faded out (it comes back when the view turns).
+ */
+function LabelDeclutter({ labels, refs }: { labels: { key: string; count: number; position: [number, number, number] }[]; refs: MutableRefObject<Map<string, HTMLButtonElement>> }) {
+  const { camera, size } = useThree();
+  const tick = useRef(0);
+  const point = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    if ((tick.current += 1) % 6) return;
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
+    for (const l of [...labels].sort((a, b) => b.count - a.count)) {
+      const el = refs.current.get(l.key);
+      if (!el) continue;
+      point.set(l.position[0], l.position[1] + 5, l.position[2]).project(camera);
+      const box = { x: (point.x * 0.5 + 0.5) * size.width, y: (0.5 - point.y * 0.5) * size.height, w: el.offsetWidth + 8, h: el.offsetHeight + 6 };
+      const hit = point.z > 1 || placed.some((p) => Math.abs(p.x - box.x) * 2 < p.w + box.w && Math.abs(p.y - box.y) * 2 < p.h + box.h);
+      el.classList.toggle("covered", hit);
+      if (!hit) placed.push(box);
+    }
+  });
+  return null;
 }
 
 class SceneBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
@@ -572,7 +551,7 @@ export default function MemoryScene(props: Props) {
         raycaster={{ params: { Points: { threshold: 1.1 }, Mesh: {}, Line: { threshold: 0.2 }, LOD: {}, Sprite: {} } }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.05;
+          gl.toneMappingExposure = 0.95;
         }}
         fallback={fallback}
       >

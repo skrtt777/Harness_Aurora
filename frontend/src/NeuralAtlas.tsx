@@ -878,6 +878,9 @@ export default function NeuralAtlas({ variant }: Props) {
                 <p>
                   <b>03</b> Linhas <span>Ligam as memórias mais parecidas</span>
                 </p>
+                <p>
+                  <b>04</b> Você · Aurora · Este PC <span>A energia corre de cada um às memórias que vieram dele: acelera quando você mexe no mapa, quando a Aurora pensa e com a carga real do PC</span>
+                </p>
                 <small>Use Saúde da memória, à esquerda, para achar as que nunca são usadas, as que atrapalham e as repetidas.</small>
               </div>
             </>

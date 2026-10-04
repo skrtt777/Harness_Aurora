@@ -400,3 +400,10 @@
   color: var(--text-4);
   font-size: 11px;
 }
+.topic-label {
+  transition: opacity 0.25s var(--ease);
+}
+.topic-label.covered {
+  opacity: 0;
+  pointer-events: none;
+}

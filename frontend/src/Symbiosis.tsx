@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject, type ReactNode } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Billboard, Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -62,11 +62,12 @@ export function anchorLayout(memories: Memory[]) {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const d = Math.max(16, Math.max(size.x, size.y) * 0.66);
-  const at = (angle: number) => center.clone().add(new THREE.Vector3(Math.cos(angle) * d * 1.15, Math.sin(angle) * d * 0.85, 0));
+  // Offsets in view space: the anchors stay around the map however the camera turns.
+  const at = (angle: number) => new THREE.Vector3(Math.cos(angle) * d * 1.05, Math.sin(angle) * d * 0.78, 0);
   return {
     center,
     reach: d,
-    positions: { user: at(Math.PI / 2), aurora: at(Math.PI * 1.17), pc: at(-Math.PI * 0.17) } as Record<Origin, THREE.Vector3>,
+    offsets: { user: at(Math.PI / 2).multiplyScalar(0.85), aurora: at(Math.PI * 1.17), pc: at(-Math.PI * 0.17) } as Record<Origin, THREE.Vector3>,
   };
 }
 
@@ -99,7 +100,7 @@ const arcFragment = /* glsl */ `
     a = (a < 0.0 ? a + 6.28318 : a) / 6.28318;
     float lit = step(a, uValue);
     float head = smoothstep(0.035, 0.0, abs(a - uValue)) * step(0.001, uValue);
-    gl_FragColor = vec4(uColor * (1.0 + head * 1.5), (0.1 + lit * 0.75 + head) * uOpacity);
+    gl_FragColor = vec4(uColor * (1.0 + head * 0.6), (0.08 + lit * 0.6 + head * 0.6) * uOpacity);
   }
 `;
 function arcMaterial(color: string) {
@@ -114,9 +115,10 @@ function arcMaterial(color: string) {
   });
 }
 
-function Anchor({ origin, position, life, texture, count, detail, motion }: {
+function Anchor({ origin, position, scale, life, texture, count, detail, motion }: {
   origin: Origin;
   position: THREE.Vector3;
+  scale: number;
   life: MutableRefObject<Life>;
   texture: THREE.Texture;
   count: number;
@@ -142,17 +144,17 @@ function Anchor({ origin, position, life, texture, count, detail, motion }: {
       beat = Math.exp(-((phase - 0.05) ** 2) / 0.003) + 0.55 * Math.exp(-((phase - 0.22) ** 2) / 0.003);
     } else if (origin === "user") beat = L.user * 0.7 + 0.12 * (1 + Math.sin(t * 1.4));
     else beat = L.cpu * 0.8 + 0.08 * (1 + Math.sin(t * 0.9));
-    core.current?.scale.setScalar(2.4 * (1 + beat * 0.35));
+    core.current?.scale.setScalar(1.8 * (1 + beat * 0.3));
     if (halo.current) {
-      halo.current.scale.setScalar(11 * (1 + beat * 0.25));
-      (halo.current.material as THREE.SpriteMaterial).opacity = (0.22 + beat * 0.28) * fade;
+      halo.current.scale.setScalar(7 * (1 + beat * 0.25));
+      (halo.current.material as THREE.SpriteMaterial).opacity = (0.1 + beat * 0.16) * fade;
     }
-    (core.current?.material as THREE.SpriteMaterial | undefined)?.setValues({ opacity: fade });
+    (core.current?.material as THREE.SpriteMaterial | undefined)?.setValues({ opacity: 0.8 * fade });
     if (origin === "user") {
       // Ripples: you are touching the map.
       rings.current?.children.forEach((ring, i) => {
         const p = (t * 0.45 + i / 3) % 1;
-        ring.scale.setScalar(2.2 + p * 6.5);
+        ring.scale.setScalar(2.2 + p * 4.4);
         ((ring as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = (1 - p) * (0.08 + L.user * 0.55) * fade;
       });
     } else if (origin === "aurora") {
@@ -162,19 +164,19 @@ function Anchor({ origin, position, life, texture, count, detail, motion }: {
         rings.current.children[0].rotation.z = -t * (0.35 + L.think * 2.4);
         rings.current.children[1].rotation.z = t * (0.25 + L.think * 1.6);
       }
-      gauges.forEach((g) => (g.uniforms.uOpacity.value = (0.45 + L.think * 0.55) * fade));
+      gauges.forEach((g) => (g.uniforms.uOpacity.value = (0.35 + L.think * 0.4) * fade));
     } else {
       // Three gauges: CPU, RAM, GPU.
       gauges[0].uniforms.uValue.value = L.cpu;
       gauges[1].uniforms.uValue.value = L.ram;
       gauges[2].uniforms.uValue.value = L.gpu;
-      gauges.forEach((g) => (g.uniforms.uOpacity.value = 0.85 * fade));
+      gauges.forEach((g) => (g.uniforms.uOpacity.value = 0.6 * fade));
     }
   });
   const below = origin !== "user";
   return (
     <group position={position}>
-      <Billboard>
+      <Billboard scale={scale}>
         <sprite ref={halo} scale={11}>
           <spriteMaterial map={texture} color={color} transparent opacity={0.25} depthWrite={false} blending={THREE.AdditiveBlending} />
         </sprite>
@@ -197,7 +199,7 @@ function Anchor({ origin, position, life, texture, count, detail, motion }: {
             ))}
         </group>
       </Billboard>
-      <Html position={[0, below ? -6.2 : 6.2, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
+      <Html position={[0, (below ? -7.6 : 7.6) * scale, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
         <div className={`anchor-label ${origin}`}>
           <strong style={{ color }}>{name}</strong>
           <span>{detail}</span>
@@ -242,20 +244,18 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
   life: MutableRefObject<Life>;
   motion: boolean;
 }) {
-  const { gl, size } = useThree();
+  const { gl, size, camera } = useThree();
   const flows = useMemo(() => {
-    const list: { origin: Origin; from: THREE.Vector3; mid: THREE.Vector3; to: THREE.Vector3; phase: number; speed: number }[] = [];
+    const list: { origin: Origin; swirl: THREE.Vector3; to: THREE.Vector3; phase: number; speed: number }[] = [];
     for (const origin of ORDER) {
       const targets = memories.filter((m) => visible.has(m.id) && memoryOrigin(m) === origin);
       if (!targets.length) continue;
       const count = Math.min(90, Math.max(12, targets.length * 2));
       for (let i = 0; i < count; i += 1) {
         const m = targets[i % targets.length];
-        const from = layout.positions[origin];
         const to = new THREE.Vector3(...m.position);
-        const swirl = new THREE.Vector3(hash(m.id + i) - 0.5, hash(i + m.id) - 0.5, hash(`${i}z${m.id}`) - 0.5).multiplyScalar(from.distanceTo(to) * 0.35);
-        const mid = from.clone().lerp(to, 0.5).lerp(layout.center, 0.3).add(swirl);
-        list.push({ origin, from, mid, to, phase: hash(`${m.id}:${i}`), speed: 0.7 + hash(`${i}${m.id}s`) * 0.6 });
+        const swirl = new THREE.Vector3(hash(m.id + i) - 0.5, hash(i + m.id) - 0.5, hash(`${i}z${m.id}`) - 0.5).multiplyScalar(layout.reach * 0.4);
+        list.push({ origin, swirl, to, phase: hash(`${m.id}:${i}`), speed: 0.7 + hash(`${i}${m.id}s`) * 0.6 });
       }
     }
     return list;
@@ -270,7 +270,7 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
       const c = new THREE.Color(ORIGINS[f.origin].color);
       for (let k = 0; k < TRAIL; k += 1) {
         c.toArray(colors, (i * TRAIL + k) * 3);
-        sizes[i * TRAIL + k] = 0.9 * (1 - k / TRAIL) + 0.25;
+        sizes[i * TRAIL + k] = 1.3 * (1 - k / TRAIL) + 0.35;
       }
     });
     g.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
@@ -289,12 +289,15 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     const alpha = geometry.getAttribute("aAlpha") as THREE.BufferAttribute;
     const fade = 1 - L.dim * 0.8;
+    const from = Object.fromEntries(ORDER.map((o) => [o, layout.offsets[o].clone().applyQuaternion(camera.quaternion).add(layout.center)])) as Record<Origin, THREE.Vector3>;
     flows.forEach((f, i) => {
       const a = activity[f.origin];
       if (motion) f.phase = (f.phase + delta * f.speed * (0.06 + a * 0.32)) % 1;
       // While Aurora thinks, her energy runs back: she is pulling memories in.
       const inward = f.origin === "aurora" && L.think > 0.5;
-      curve.v0.copy(f.from); curve.v1.copy(f.mid); curve.v2.copy(f.to);
+      curve.v0.copy(from[f.origin]);
+      curve.v1.copy(from[f.origin]).lerp(f.to, 0.5).lerp(layout.center, 0.3).add(f.swirl);
+      curve.v2.copy(f.to);
       for (let k = 0; k < TRAIL; k += 1) {
         const tk = f.phase - k * 0.016;
         const idx = i * TRAIL + k;
@@ -302,7 +305,7 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
         curve.getPoint(inward ? 1 - tk : tk, point);
         pos.setXYZ(idx, point.x, point.y, point.z);
         const ends = Math.min(1, tk / 0.08) * Math.min(1, (1 - tk) / 0.1);
-        alpha.setX(idx, (1 - k / TRAIL) * ends * (0.3 + Math.min(1, a) * 0.7) * fade);
+        alpha.setX(idx, (1 - k / TRAIL) * ends * (0.3 + Math.min(1, a) * 0.6) * fade);
       }
     });
     pos.needsUpdate = alpha.needsUpdate = true;
@@ -310,6 +313,16 @@ function EnergyFlows({ memories, visible, layout, life, motion }: {
   });
   if (!flows.length) return null;
   return <points geometry={geometry} material={material} raycast={() => null} />;
+}
+
+/** A group centred on the map that always faces the camera. */
+function ViewRig({ center, children }: { center: THREE.Vector3; children: ReactNode }) {
+  const group = useRef<THREE.Group>(null);
+  useFrame(({ camera }) => {
+    group.current?.position.copy(center);
+    group.current?.quaternion.copy(camera.quaternion);
+  });
+  return <group ref={group}>{children}</group>;
 }
 
 const percent = (value: number | null | undefined) => (value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`);
@@ -337,9 +350,11 @@ export default function Symbiosis({ memories, visible, life, vitals, motion }: {
   return (
     <>
       <EnergyFlows memories={memories} visible={visible} layout={layout} life={life} motion={motion} />
-      {ORDER.map((origin) => (
-        <Anchor key={origin} origin={origin} position={layout.positions[origin]} life={life} texture={texture} count={counts[origin]} detail={detail[origin]} motion={motion} />
-      ))}
+      <ViewRig center={layout.center}>
+        {ORDER.map((origin) => (
+          <Anchor key={origin} origin={origin} position={layout.offsets[origin]} scale={layout.reach / 24} life={life} texture={texture} count={counts[origin]} detail={detail[origin]} motion={motion} />
+        ))}
+      </ViewRig>
     </>
   );
 }
