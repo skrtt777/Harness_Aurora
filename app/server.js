@@ -356,7 +356,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       conversationId,
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
-    const observation=clockObservation(trimmed)||mathObservation(trimmed);
+    // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
+    const observation=clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||mathObservation(trimmed);
     const promptArgs = {
       input: trimmed,
       history,

@@ -14,6 +14,12 @@ test('Clock observation handles date changes across time zones',()=>{
   const fact=clockObservation('Qual dia é hoje?',{...options,now:new Date('2026-09-27T01:00:00Z')});
   assert.match(fact.local,/26 de setembro/);assert.match(fact.local,/22:00:00/);
 });
+test('Requests relative to today get the date as evidence, not the clock answer',()=>{
+  for(const input of ['Mostre quantos funcionários vão entrar de férias esse mês?','Como está o budget este ano?','Quem está de férias agora?','Qual contrato vence primeiro?','Qual é o próximo imposto a vencer?']){
+    const fact=clockObservation(input,options);
+    assert.ok(fact,input);assert.match(fact.block,/^Data de hoje: .*27 de setembro de 2026/);assert.doesNotMatch(fact.block,/Hora atual/);
+  }
+});
 test('Ordinary requests and prayer do not become canned clock responses',()=>{
   for(const input of ['Que oração!','Crie um jogo','Quanto é 3 + 5?','Explique as horas extras'])assert.equal(clockObservation(input,options),null);
 });

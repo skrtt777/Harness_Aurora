@@ -1,12 +1,18 @@
 // Ephemeral device observations for the original Harness, on every platform.
 // This supplies evidence to the model; it does not generate a canned answer.
+// "Quem entra de férias esse mês?", "como está o budget este ano?", "qual contrato vence
+// primeiro?": without today's date the model cannot tell which rows of a sheet count.
+const RELATIVE_TIME=/\b(?:ess[ea]|est[ea]|neste|nesta|nesse|nessa) (?:mes|ano|semana|trimestre|semestre)\b|\b(?:mes|ano|semana) (?:atual|passado|que vem)\b|\b(?:agora|hoje|amanha|ontem|atualmente)\b|\bproxim[oa]s?\b|\bvenc(?:e|em|er|endo|ido|idos|ida|idas)\b|\batrasad[oa]s?\b|\bem aberto\b/;
 export function clockObservation(input, {now=new Date(),timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone}={}) {
-  const text=String(input||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  if(!/\bque horas? (?:sao|e)\b|\b(?:hora|horario|data) atual\b|\b(?:que|qual) (?:dia|data) (?:e|de) hoje\b|\bdata de hoje\b/.test(text))return null;
+  const text=String(input||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const asksClock=/\bque horas? (?:sao|e)\b|\b(?:hora|horario|data) atual\b|\b(?:que|qual) (?:dia|data) (?:e|de) hoje\b|\bdata de hoje\b/.test(text);
+  if(!asksClock&&!RELATIVE_TIME.test(text))return null;
   const local=new Intl.DateTimeFormat('pt-BR',{timeZone,dateStyle:'full',timeStyle:'long'}).format(now);
   return {source:'device-clock',observedAt:now.toISOString(),timeZone,local,
     // Stated positively: a small model reads "do not invent access to sensors" as a cue to refuse.
-    block:`Hora atual deste dispositivo: ${local} (fuso ${timeZone}). Para perguntas sobre hora ou data, responda com este valor; ele vale mais que horários citados no histórico.`};
+    block:asksClock
+      ?`Hora atual deste dispositivo: ${local} (fuso ${timeZone}). Para perguntas sobre hora ou data, responda com este valor; ele vale mais que horários citados no histórico.`
+      :`Data de hoje: ${new Intl.DateTimeFormat('pt-BR',{timeZone,dateStyle:'full'}).format(now)}. Use-a para entender "esse mês", "este ano", "agora", "próximo" e prazos vencidos ou a vencer.`};
 }
 
 // Arithmetic written in Portuguese ("17 vezes 3", "15% de 200", "(2+3)*4").

@@ -43,6 +43,11 @@ def data(d):
     return d.strftime("%d/%m/%Y")
 
 
+def jsre(s):
+    """Escape para regex do JavaScript (o re.escape do Python escapa espaço, inválido com a flag u)."""
+    return "".join("\\" + ch if ch in ".*+?^${}()|[]\\/" else ch for ch in s)
+
+
 def money_re(v):
     """Aceita 1.234.567 / 1234567 / 1,23 milhão / 1,2 mi / 1.234 mil."""
     inteiro = int(round(v))
@@ -383,9 +388,9 @@ xlsx(RH / "Treinamentos" / "Calendário de Treinamentos 2º Semestre 2026.xlsx",
 
 out_names = [p["nome"] for p, ini, d, st in ferias if ini.month == 10]
 q("RH", "Mostre pra mim quantos funcionários vão entrar de férias esse mês?",
-  [r"\b9\b|\bnove\b"] + [re.escape(n.split()[0]) for n in out_names[:3]],
+  [r"\b9\b|\bnove\b"] + [jsre(n.split()[0]) for n in out_names[:3]],
   "referência outubro/2026: 9 começam em outubro; 4 já estão em gozo desde setembro e não contam")
-q("RH", "Quem está de férias agora?", [re.escape(p["nome"].split()[0]) for p, ini, d, st in ferias if st == "Em gozo"][:2] + [r"\b4\b|quatro"],
+q("RH", "Quem está de férias agora?", [jsre(p["nome"].split()[0]) for p, ini, d, st in ferias if st == "Em gozo"][:2] + [r"\b4\b|quatro"],
   "status 'Em gozo' em 04/10/2026")
 q("RH", "Quantos funcionários a empresa tem hoje e qual setor tem mais gente?", [rf"\b{ativos}\b", "Produ[çc][ãa]o"])
 q("RH", "Quanto é o vale-refeição por dia?", [r"45,00|R\$\s*45"])
@@ -513,7 +518,7 @@ pdf.bullets(["Enviar notas fiscais no sistema em até 5 dias úteis após o reto
 pdf.save(OUT / "Financeiro" / "Política de Viagens e Reembolso de Despesas.pdf")
 
 q("Financeiro", "Quanto ainda temos a pagar de fornecedores em outubro?", [money_re(apagar)])
-q("Financeiro", "Qual cliente deve mais pra gente com atraso acima de 30 dias?", [re.escape(pior_cliente.split()[0])])
+q("Financeiro", "Qual cliente deve mais pra gente com atraso acima de 30 dias?", [jsre(pior_cliente.split()[0])])
 q("Financeiro", "Qual o limite de diária de hotel numa capital?", [r"320"])
 q("Financeiro", "Qual foi o saldo de caixa no fim de setembro?", [money_re(saldo_set)])
 
@@ -557,10 +562,10 @@ abc = sorted([(c, round(rnd.uniform(400_000, 4_200_000), 2)) for c in CLIENTES],
 xlsx(OUT / "Comercial" / "Principais Clientes - Curva ABC 2026.xlsx", [
     ("Curva ABC", ["Cliente", "Faturamento Jan-Set", "Classe"], [(c, v, "A" if i < 3 else "B" if i < 7 else "C") for i, (c, v) in enumerate(abc)], {"B": MOEDA})])
 
-q("Comercial", "Quem é o vendedor que mais vendeu no ano?", [re.escape(top.split()[0])])
+q("Comercial", "Quem é o vendedor que mais vendeu no ano?", [jsre(top.split()[0])])
 q("Comercial", "Qual o preço da farinha de mandioca de 1 kg?", [r"7,90"])
 q("Comercial", "Qual é o pedido mínimo para entrega?", [r"1\.?500"])
-q("Comercial", "Quem é nosso maior cliente?", [re.escape(abc[0][0].split()[0])])
+q("Comercial", "Quem é nosso maior cliente?", [jsre(abc[0][0].split()[0])])
 
 # ================================================================ Marketing
 CAMP = [("Verão Tapioca", "Jan-Fev", 120_000, 48_000, 1_310), ("São João Alvorada", "Mai-Jun", 260_000, 255_000, 4_820),
@@ -631,7 +636,7 @@ pdf.save(OUT / "Logística" / "Procedimento de Expedição.pdf")
 abaixo = [e for e in estoque if e[2] < e[3]]
 q("Logística", "Qual veículo da frota está com a revisão atrasada?", [r"OZT-?6F34|Ducato"])
 q("Logística", "Como foi o OTIF de setembro?", [r"87[,.]4"])
-q("Logística", "Quais produtos estão abaixo do estoque mínimo?", [re.escape(e[1].split()[0]) for e in abaixo][:1] + [r"5 kg|Farinha"])
+q("Logística", "Quais produtos estão abaixo do estoque mínimo?", [jsre(e[1].split()[0]) for e in abaixo][:1] + [r"5 kg|Farinha"])
 q("Logística", "Até que horas o pedido precisa ser liberado para sair no dia seguinte?", [r"14\s*h|14:00|14 horas"])
 
 # ================================================================ Produção
@@ -672,7 +677,7 @@ pdf.table(["Nº", "Não conformidade", "Área", "Prazo"], [("NC-01", "Registro d
                                                       ("NC-04", "Treinamento de BPF vencido para 5 operadores", "Produção", "09/11/2026")], [0.5, 3, 1.4, 0.9])
 pdf.p("Resultado geral: 91% de conformidade (meta 90%). Próxima auditoria externa da certificação: março de 2027.")
 pdf.save(OUT / "Qualidade" / "Relatório de Auditoria Interna 2026.pdf")
-q("Qualidade", "Qual o motivo mais comum de reclamação dos clientes?", [re.escape(top_motivo)])
+q("Qualidade", "Qual o motivo mais comum de reclamação dos clientes?", [jsre(top_motivo)])
 q("Qualidade", "Quantas não conformidades a auditoria interna encontrou?", [r"\b4\b|quatro"])
 
 # ================================================================ SSMA
@@ -689,7 +694,7 @@ nr = [(p["nome"], p["setor"], nrn, venc) for p, nrn, venc in
 xlsx(OUT / "SSMA" / "Treinamentos NR a Vencer.xlsx", [
     ("A vencer", ["Funcionário", "Setor", "Treinamento", "Vencimento"], nr, {"D": DATA})])
 q("SSMA", "Há quantos dias estamos sem acidente com afastamento?", [rf"\b{(HOJE - acid[1][0]).days}\b"])
-q("SSMA", "Quem está com o treinamento de empilhadeira vencendo?", [re.escape(nr[0][0].split()[0])])
+q("SSMA", "Quem está com o treinamento de empilhadeira vencendo?", [jsre(nr[0][0].split()[0])])
 
 # ================================================================ TI
 inv = []
@@ -719,7 +724,7 @@ pdf.h("Uso de equipamentos")
 pdf.bullets(["É proibido instalar programas sem autorização da TI.", "Pendrives são bloqueados; use a pasta da rede do seu setor.",
              "Backups das pastas da rede são feitos todos os dias às 23h e guardados por 30 dias."])
 pdf.save(OUT / "TI" / "Política de Segurança da Informação.pdf")
-q("TI", "Qual foi o tipo de chamado mais comum em setembro?", [re.escape(top_cat)])
+q("TI", "Qual foi o tipo de chamado mais comum em setembro?", [jsre(top_cat)])
 q("TI", "Quantos caracteres a senha precisa ter?", [r"\b12\b|doze"])
 q("TI", "Quantos chamados ainda estão abertos de setembro?", [rf"\b{abertos}\b"])
 
@@ -788,7 +793,7 @@ pdf.bullets(["Horário administrativo: 8h às 17h48, de segunda a sexta, com 1 h
              "O estacionamento interno é exclusivo para gestores, visitantes e veículos da frota."])
 pdf.save(OUT / "Administrativo" / "Regras do Escritório e da Portaria.pdf")
 q("Administrativo", "Qual é o ramal do suporte de TI?", [r"2800"])
-q("Administrativo", "Quem é o gerente de logística?", [re.escape(GESTORES["Logística"][0].split()[0])])
+q("Administrativo", "Quem é o gerente de logística?", [jsre(GESTORES["Logística"][0].split()[0])])
 q("Administrativo", "Qual o horário de trabalho do administrativo?", [r"17h?:?48"])
 
 # ---------------------------------------------------------------- saída

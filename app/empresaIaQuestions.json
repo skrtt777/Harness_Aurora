@@ -373,7 +373,7 @@
       "setor": "Qualidade",
       "prompt": "Qual o motivo mais comum de reclamação dos clientes?",
       "expect": [
-        "Sabor\\ alterado"
+        "Sabor alterado"
       ],
       "avoid": [],
       "notFound": false,
