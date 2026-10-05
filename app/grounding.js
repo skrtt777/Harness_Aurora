@@ -14,7 +14,7 @@ const fold = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,
 const COMPANY = /\b(empresa|companhia|rh|recursos humanos|departamento|setor|pol[íi]tica|benef[íi]cios?|colaborador(es)?|funcion[áa]rios?|gestor|holerite|folha|f[ée]rias|admiss[ãa]o|demiss[ãa]o|reembolso|aux[íi]lio|vale|plano de sa[úu]de|nossa|nosso)\b/i;
 export const asksAboutCompany = (text) => COMPANY.test(String(text));
 
-export const NOT_FOUND = /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta|tenho|identifiquei|cont[ée]m|menciona|aparece|constam?|(est[áa]|[ée]|s[ãa]o) mencionad|foi (poss[íi]vel )?(encontrad|localizad|encontrar|localizar))|nenhum(a)? (documento|informa[çc][ãa]o|pol[íi]tica|men[çc][ãa]o)/i;
+export const NOT_FOUND = /n[ãa]o (encontrei|achei|localizei|h[áa]|existe|consta|tenho|identifiquei|cont[ée]m|menciona|aparece|constam?|(est[áa]|[ée]|s[ãa]o) mencionad|foi (poss[íi]vel )?(encontrad|localizad|encontrar|localizar))|nenhum(a)? (documento|informa[çc][ãa]o|pol[íi]tica|men[çc][ãa]o|refer[êe]ncia|registro)|n[ãa]o possui (um|uma|nenhum|nenhuma) (documento|pol[íi]tica|registro|norma)/i;
 
 // Numbers worth copying exactly: 4+ digits once separators are dropped
 // (ramal 2210, (11) 4000-1234, 26/12/2026, R$ 1.200,00).
@@ -48,6 +48,18 @@ function distance(a, b) {
  *   identical, the other off by one or two letters. Headings and common
  *   phrases ("Data do Evento") are never flagged.
  */
+/**
+ * "50 mil", "1,5 milhão" as written numbers ("50.000,00", "1.500.000,00"). The question's own
+ * values are no invention: "compra de 50 mil" answered with "R$ 50.000,00" was flagged, and the
+ * model took back a right answer ("Você está correto, meu erro…", empresa compras-1, 05/10/2026).
+ */
+export function spokenNumbers(text) {
+  return [...String(text || "").matchAll(/(\d+(?:[.,]\d+)?)\s*(mil|milh[õo]es|milh[ãa]o|bilh[õo]es|bilh[ãa]o)\b/gi)].map(([, n, unit]) => {
+    const value = Number(n.replace(/\./g, "").replace(",", ".")) * (/^mil$/i.test(unit) ? 1e3 : /^milh/i.test(unit) ? 1e6 : 1e9);
+    return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }).join(" ");
+}
+
 export function unsupportedFacts(answer, evidence) {
   const text = String(answer || "");
   const sourceNumbers = (cents(evidence).match(NUMBER) || []).map(digits).filter((d) => d.length >= 4);

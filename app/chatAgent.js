@@ -1,4 +1,4 @@
-import { NOT_FOUND, unsupportedFacts, unsupportedTopic } from "./grounding.js";
+import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { runClaude } from "./claude.js";
 import { runCodex } from "./codex.js";
@@ -251,7 +251,8 @@ export async function runChatAgent({
     // Names and numbers must be copied from the documents, not recalled.
     if (!toolCalls.length && offered.length && checkFacts && consulted && !factsChecked) {
       factsChecked = true;
-      const missing = unsupportedFacts(text, evidence.join("\n"));
+      // The person's own words count as a source ("compra de 50 mil" → "R$ 50.000,00").
+      const missing = unsupportedFacts(text, [question, spokenNumbers(question), ...evidence].join("\n"));
       if (missing.length) {
         checks.push({ check: "unsupported_facts", items: missing, answer: text.slice(0, 300) });
         messages.push({ role: "assistant", content: text }, { role: "user", content: `Estes dados da sua resposta não aparecem em nenhum documento consultado nem na conversa: ${missing.map((m) => `"${m}"`).join(", ")}. Confira nos trechos e copie nomes, ramais, datas e valores exatamente como estão (grafia incluída); o que não estiver neles, não diga.` });

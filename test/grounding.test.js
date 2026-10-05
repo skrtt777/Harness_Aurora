@@ -71,3 +71,21 @@ test("the agent consults documents before answering a company question, and fixe
   assert.match(seen[1], /"Marcoa Lima"/);
   assert.equal(fixed.text, "O plantão é com Marcos Lima, ramal 2210.");
 });
+
+test("the question's own values are no invention: '50 mil' in the question supports 'R$ 50.000,00'", async () => {
+  const { spokenNumbers, unsupportedFacts } = await import("../app/grounding.js");
+  assert.equal(spokenNumbers("Quem aprova uma compra de 50 mil reais?"), "50.000,00");
+  assert.equal(spokenNumbers("orçamento de 1,5 milhão"), "1.500.000,00");
+  const policy = "Alçadas: até R$ 10.000,00 o gestor; de R$ 10.000,01 a R$ 100.000,00 o diretor da área.";
+  const answer = "Uma compra de R$ 50.000,00 fica na faixa de R$ 10.000,01 a R$ 100.000,00: aprova o diretor da área.";
+  const question = "Quem precisa aprovar uma compra de 50 mil reais?";
+  assert.deepEqual(unsupportedFacts(answer, policy), ["50.000"], "without the question, the old false alarm");
+  assert.deepEqual(unsupportedFacts(answer, [question, spokenNumbers(question), policy].join("\n")), []);
+});
+
+test("an honest 'the company has no document on it' counts as not found", async () => {
+  const { NOT_FOUND } = await import("../app/grounding.js");
+  assert.match("A empresa não possui um documento específico com a política de home office.", NOT_FOUND);
+  assert.match("Nenhuma referência a trabalho remoto foi encontrada.", NOT_FOUND);
+  assert.doesNotMatch("O funcionário não possui férias vencidas.", NOT_FOUND);
+});

@@ -11,9 +11,11 @@ console.log("servidor de agenda iniciado (uma linha de log que não é JSON-RPC)
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   if (message.id === undefined) return; // notifications
+  if (message.result !== undefined || message.error !== undefined) return; // the client answering our ping
   const reply = (result) => send({ jsonrpc: "2.0", id: message.id, result });
   if (message.method === "initialize") return reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "agenda-falsa", version: "1" } });
-  if (message.method === "tools/list") return reply({ tools });
+  // A real server may ask the client things with ids of its own (here, a ping right after the list).
+  if (message.method === "tools/list") { send({ jsonrpc: "2.0", id: message.id, method: "ping" }); return reply({ tools }); }
   if (message.method === "tools/call") {
     const { name, arguments: args } = message.params;
     if (name === "ler_agenda") return reply({ content: [{ type: "text", text: `${args.dia}: 09:00 Reunião com o Financeiro; 14:00 Dentista` }] });

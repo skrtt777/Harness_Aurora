@@ -72,6 +72,12 @@ class McpClient {
       if (!line) continue;
       let message;
       try { message = JSON.parse(line); } catch { continue; } // a server's log line on stdout
+      // A request from the server (its ids are its own, not answers to ours): ping is answered,
+      // anything else is declined; notifications need nothing.
+      if (message.method) {
+        if (message.id !== undefined) this.child.stdin.write(`${JSON.stringify(message.method === "ping" ? { jsonrpc: "2.0", id: message.id, result: {} } : { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: `Aurora não oferece ${message.method}.` } })}\n`);
+        continue;
+      }
       const waiting = message.id !== undefined && this.pending.get(message.id);
       if (!waiting) continue;
       this.pending.delete(message.id);
@@ -149,7 +155,10 @@ export async function mcpAgentTools() {
         async run(args) {
           const c = await clientFor(server);
           const result = await c.request("tools/call", { name: tool.name, arguments: args || {} });
-          const text = (result.content || []).map((part) => (part.type === "text" ? part.text : part.type === "resource" ? part.resource?.text || "" : `[${part.type}]`)).join("\n").trim()
+          const text = (result.content || []).map((part) => (part.type === "text" ? part.text
+            : part.type === "resource" ? part.resource?.text || `[recurso: ${part.resource?.uri || "?"}]`
+            : part.type === "resource_link" ? `[${part.name || "link"}: ${part.uri}]`
+            : `[${part.type}${part.mimeType ? ` ${part.mimeType}` : ""}]`)).join("\n").trim()
             || (result.structuredContent ? JSON.stringify(result.structuredContent) : "(sem conteúdo)");
           if (result.isError) throw new Error(text.slice(0, 600));
           return text;
