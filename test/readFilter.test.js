@@ -54,6 +54,38 @@ test("a date filter written with '=' follows the person's words: até, a partir 
   const out = filterRows(sheet, "Entrega prevista=15/10/2026", { request: "pedidos com entrega até 15/10/2026" });
   assert.match(out, /PC-1[\s\S]*PC-2/);
   assert.doesNotMatch(out, /PC-3/);
-  assert.match(out, /Usei Entrega prevista<=15\/10\/2026 porque o pedido diz "até"/);
+  assert.match(out, /Usei Entrega prevista<=15\/10\/2026 \(o pedido diz "até" essa data\)/);
   assert.doesNotMatch(filterRows(sheet, "Entrega prevista=15/10/2026", { request: "o que chega dia 15/10?" }), /PC-1/);
+});
+
+test("write_document says which rows of the last filter a document left out", async () => {
+  const { rowKeys, missingRows } = await import("../app/agentTools/files.js");
+  const found = "C:/x/Pedidos.xlsx\n## Pedidos\nPedido | Fornecedor | Valor\n   12  PC-2026-909 | Santa Rita | 10\n   15  PC-2026-912 | Química | 20\n   16  PC-2026-913 | Caixas | 30\nSoma das 3 linhas acima: Valor = 60\n\n3 linha(s) com \"Entrega<=15/10/2026\".";
+  assert.deepEqual(rowKeys(found), ["PC-2026-909", "PC-2026-912", "PC-2026-913"]);
+  assert.deepEqual(missingRows(rowKeys(found), "| Pedido |\n| PC-2026-909 |"), ["PC-2026-912", "PC-2026-913"]);
+  assert.deepEqual(missingRows(rowKeys(found), "| PC-2026-909 | PC-2026-912 | PC-2026-913 |"), [], "all there");
+  assert.deepEqual(missingRows(rowKeys(found), "Relatório sobre outra coisa"), [], "a document not built from that read");
+  assert.deepEqual(rowKeys("   3  Maria Souza | RH\n   4  João | TI"), [], "names are not keys");
+});
+
+test("a combined date filter that contradicts the request is corrected; a whole-sheet read suggests the date filter", async () => {
+  const { filterRows, dateFilterHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Pedidos", "Pedido | Entrega prevista", "PC-1 | 10/10/2026", "PC-2 | 15/10/2026", "PC-3 | 22/10/2026"];
+  const out = filterRows(sheet, "Entrega prevista>=15/10/2026; Entrega prevista<=15/10/2026", { request: "entrega até 15/10/2026" });
+  assert.match(out, /PC-1[\s\S]*PC-2/);
+  assert.doesNotMatch(out, /PC-3/);
+  assert.match(out, /Usei Entrega prevista<=15\/10\/2026/);
+  const contracts = ["## Contratos", "Contratado | Início | Término | Valor", "A | 01/01/2025 | 31/10/2026 | 10", "B | 01/01/2025 | 31/03/2027 | 20"];
+  assert.match(dateFilterHint(contracts, "contratos que terminam até 31/12/2026"), /filter="Início<=31\/12\/2026" ou "Término<=31\/12\/2026"/);
+  assert.equal(dateFilterHint(contracts, "liste os contratos"), "", "no date in the request");
+});
+
+test("a CSV becomes a table the filters read: separator, quotes and Excel's BOM", async () => {
+  const { csvTable, filterRows } = await import("../app/agentTools/files.js");
+  const text = '﻿Cliente,Valor,Obs\n"Silva, Ltda",1200,"disse ""ok"""\nSouza,300,\n';
+  const table = csvTable(text, "clientes.csv");
+  assert.deepEqual(table, ["## clientes.csv", "Cliente | Valor | Obs", 'Silva, Ltda | 1200 | disse "ok"', "Souza | 300 | "]);
+  assert.match(filterRows(table, "Valor>1000"), /Silva, Ltda/);
+  assert.doesNotMatch(filterRows(table, "Valor>1000"), /Souza/);
+  assert.equal(csvTable("a;b;c\n1;2;3")[1], "a | b | c", "semicolon (Brazilian Excel)");
 });

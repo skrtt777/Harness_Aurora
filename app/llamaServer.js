@@ -114,7 +114,13 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   entry.ready = (async () => {
     const { dir, gpu } = await pickDeviceDir(libDir);
     const args = ["-m", blob, "--jinja", "--host", "127.0.0.1", "--port", String(port), "--alias", model,
-      "-np", String(SLOTS), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : [])];
+      "-np", String(SLOTS), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),
+      // Speculative decoding from n-grams already in the context (no draft model): the agent copies
+      // rows from tool results into documents, and those come out 2.5x faster on GPU and ~5x on CPU,
+      // same text (scripts/spec-bench.mjs, 05/10/2026). LLAMA_SPEC=off turns it off.
+      ...(env.LLAMA_SPEC === "off" ? [] : ["--spec-type", "ngram-mod"]),
+      // Experiments (benchmarks of speculative decoding, sampling…) without touching the code.
+      ...String(env.LLAMA_SERVER_EXTRA_ARGS || "").split(/\s+/).filter(Boolean)];
     const log = serverLog(env);
     const child = spawn(bin(libDir), args, { cwd: dir, env: serverEnv(libDir, dir), stdio: ["ignore", log ?? "ignore", log ?? "ignore"], windowsHide: true });
     if (log !== null) closeSync(log);

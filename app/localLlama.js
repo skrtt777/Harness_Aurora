@@ -27,8 +27,12 @@ export async function embedLlama(text,env=process.env,signal){
     return Array.isArray(vector)&&vector.length&&vector.every(Number.isFinite)?vector:null;
   }catch{return null;}
 }
+// Qwen's published setting for non-thinking use. No repeat penalty: copying table rows repeats
+// "|", "2026", "PC-" on purpose, and the penalty pushes the model off them.
+const QWEN_SAMPLING={temperature:.7,top_k:20,top_p:.8,min_p:0,repeat_penalty:1,presence_penalty:0};
 function sampling(env){
-  const out={...OLLAMA_SAMPLING};
+  const out={...(env.LOCAL_SAMPLING==='qwen'?QWEN_SAMPLING:OLLAMA_SAMPLING)};
+  if(env.LOCAL_PRESENCE_PENALTY!==undefined&&Number.isFinite(Number(env.LOCAL_PRESENCE_PENALTY)))out.presence_penalty=Number(env.LOCAL_PRESENCE_PENALTY);
   if(env.LOCAL_TEMPERATURE!==undefined&&Number.isFinite(Number(env.LOCAL_TEMPERATURE)))out.temperature=Math.min(2,Math.max(0,Number(env.LOCAL_TEMPERATURE)));
   if(env.LOCAL_SEED!==undefined&&Number.isInteger(Number(env.LOCAL_SEED)))out.seed=Number(env.LOCAL_SEED);
   return out;

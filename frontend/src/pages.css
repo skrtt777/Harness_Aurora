@@ -941,3 +941,4 @@
 .app-shell .agents-view .agent-header-actions button { white-space: nowrap; }
 .app-shell .agents-view .agent-templates { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2); }
 .app-shell .agents-view .agent-template-hint { margin: 0; color: var(--accent); }
+.app-shell .agents-view .agent-undo { margin: 0; display: flex; gap: var(--gap-2); align-items: baseline; flex-wrap: wrap; }

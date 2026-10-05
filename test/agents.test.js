@@ -74,3 +74,28 @@ test("sector agents are created once per department of the company folders", asy
   assert.match(first[0].mission, /setor Marketing/);
   assert.deepEqual(await agents.createSectorAgents({ baseDir: join(temp, "setores"), departments: ["Marketing"] }), []);
 });
+
+test("Desfazer puts back every file a run moved, never over a file that took the old place", async () => {
+  const { writeFileSync, readFileSync } = await import("node:fs");
+  const { executeTool } = await import("../app/agentTools/index.js");
+  const workDir = join(temp, "downloads");
+  const agent = await agents.createAgent({ name: "Organizador", kind: "pessoal", mission: "Organizar.", workDir });
+  for (const f of ["nota.pdf", "foto.jpg", "plan.xlsx"]) writeFileSync(join(workDir, f), f);
+  const run = await agents.runAgent(agent.id, { request: "Organize", handleChatTurn: async ({ conversationId }) => {
+    const moves = [];
+    const ctx = { approve: async () => true, workspace: workDir, workspaceRoots: [workDir], onMove: (from, to) => moves.push({ from, to }) };
+    for (const [f, dir] of [["nota.pdf", "Documentos/"], ["foto.jpg", "Imagens/"], ["plan.xlsx", "Planilhas/"]]) assert.equal((await executeTool("move_file", { from: f, to: dir }, ctx)).ok, true);
+    return { ok: true, message: { conversationId, content: "Organizei.", execution: { toolSteps: [], moves } } };
+  } });
+  assert.equal(run.moves.length, 3);
+  assert.ok(existsSync(join(workDir, "Imagens", "foto.jpg")));
+  writeFileSync(join(workDir, "plan.xlsx"), "outro"); // a new file took one old place
+  const result = await agents.undoRunMoves(run.id);
+  assert.deepEqual(result.restored.sort(), [join(workDir, "foto.jpg"), join(workDir, "nota.pdf")].sort());
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /já existe outro arquivo/);
+  assert.equal(readFileSync(join(workDir, "plan.xlsx"), "utf8"), "outro", "never overwritten");
+  assert.ok(existsSync(join(workDir, "Planilhas", "plan.xlsx")), "the moved one stays where it is");
+  assert.ok((await agents.getRun(run.id)).undoneAt);
+  await assert.rejects(agents.undoRunMoves(run.id), /já foi desfeita/);
+});

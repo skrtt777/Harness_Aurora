@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, undoAgentRun, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
   type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PendingTurn, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
@@ -66,6 +66,18 @@ function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d:
   </fieldset>;
 }
 
+/** "Moved 12 files · Desfazer": puts every file the run moved back where it was. */
+function UndoMoves({ run, onChanged }: { run: AgentRun; onChanged: () => void }) {
+  const [result, setResult] = useState('');
+  if (!run.moves?.length || run.status === 'running') return null;
+  if (run.undoneAt) return <p className="agent-undo"><small>Movimentos desfeitos em {when(run.undoneAt)}.{result && ` ${result}`}</small></p>;
+  const undo = () => {
+    if (!window.confirm(`Devolver os ${run.moves!.length} arquivo(s) movidos ao lugar de antes?`)) return;
+    undoAgentRun(run.id).then((r) => { setResult(`${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`); onChanged(); }).catch((e: Error) => setResult(e.message));
+  };
+  return <p className="agent-undo"><small>Moveu {run.moves.length} arquivo(s).</small> <button type="button" className="link-button" onClick={undo}>Desfazer</button>{result && <small> {result}</small>}</p>;
+}
+
 function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: TaskAgent; runs: AgentRun[]; onChanged: () => void; onOpenConversation: (id: string) => void }) {
   const [requestText, setRequestText] = useState('');
   const [editing, setEditing] = useState(false);
@@ -112,6 +124,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
     {latest && <section className="agent-latest" aria-label="Última execução">
       <p><b>{STATUS[latest.status]}</b> · {when(latest.startedAt)} · {TRIGGER_LABEL[latest.trigger]}: “{latest.request.slice(0, 120)}{latest.request.length > 120 ? '…' : ''}”</p>
       {latest.status !== 'running' && latest.files.length > 0 && <DeliveredFiles files={latest.files} />}
+      <UndoMoves run={latest} onChanged={onChanged} />
       {latest.status === 'failed' && latest.error && <p className="agent-error">{latest.error.slice(0, 300)}</p>}
       {latest.conversationId && latest.status !== 'running' && <button type="button" className="link-button" onClick={() => onOpenConversation(latest.conversationId!)}>Ver a conversa completa</button>}
     </section>}
@@ -134,6 +147,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
         <p><b>{STATUS[run.status]}</b> · {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger]}</p>
         <p className="agent-history-request">{run.request.slice(0, 200)}</p>
         {run.files.length > 0 && <DeliveredFiles files={run.files} />}
+        <UndoMoves run={run} onChanged={onChanged} />
         {run.conversationId && run.status !== 'running' && <button type="button" className="link-button" onClick={() => onOpenConversation(run.conversationId!)}>Ver a conversa</button>}
       </li>)}
     </ol>}

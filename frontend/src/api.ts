@@ -535,6 +535,7 @@ export type TaskAgent = {
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
+  moves?: { from: string; to: string }[]; undoneAt?: string | null;
 };
 export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
 
@@ -542,6 +543,8 @@ export const listTaskAgents = () => request<{ agents: TaskAgent[]; runs: AgentRu
 export const createTaskAgent = (agent: NewTaskAgent) => request<{ agent: TaskAgent }>("/agents", { method: "POST", body: JSON.stringify(agent) }).then((r) => r.agent);
 export const updateTaskAgent = (id: string, patch: Partial<NewTaskAgent> & { enabled?: boolean }) => request<{ agent: TaskAgent }>(`/agents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => r.agent);
 export const deleteTaskAgent = (id: string) => request<{ deleted: boolean }>(`/agents/${id}`, { method: "DELETE" });
+/** Puts back the files a run moved; what could not go back is listed with the reason. */
+export const undoAgentRun = (runId: string) => request<{ restored: string[]; skipped: { file: string; reason: string }[] }>(`/agents/runs/${runId}/undo`, { method: "POST" });
 export const runTaskAgent = (id: string, requestText: string) => request<{ started: boolean }>(`/agents/${id}/run`, { method: "POST", body: JSON.stringify({ request: requestText }) });
 export const listTaskAgentRuns = (id: string) => request<{ runs: AgentRun[] }>(`/agents/${id}/runs`).then((r) => r.runs);
 export const createSectorAgents = (baseDir: string) => request<{ agents: TaskAgent[] }>("/agents/sector", { method: "POST", body: JSON.stringify({ baseDir }) }).then((r) => r.agents);

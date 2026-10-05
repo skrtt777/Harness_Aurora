@@ -434,6 +434,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
       if (method === "GET" && pathname === "/api/agents/orchestrations") return sendJson(response, 200, { orchestrations: await listOrchestrations() });
       // Audit trail for company use: every agent run as a spreadsheet (Excel opens the CSV).
+      const undoMatch = pathname.match(/^\/api\/agents\/runs\/([0-9a-f-]{36})\/undo$/);
+      if (method === "POST" && undoMatch) return sendJson(response, 200, await taskAgents.undoRunMoves(undoMatch[1]));
       if (method === "GET" && pathname === "/api/agents/runs.csv") {
         const names = new Map((await taskAgents.listAgents()).map((a) => [a.id, a.name]));
         const cell = (v) => { const s = String(v ?? "").replace(/\r?\n/g, " "); return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };

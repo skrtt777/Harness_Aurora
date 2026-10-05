@@ -439,6 +439,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentContext = null;
     let agentSteps = [];
     let agentPlan = null;
+    // Every file move of the turn, in order: what "Desfazer" puts back.
+    const agentMoves = [];
     let agentAttachments = [];
     let agentDocs = [];
     let agentReview = null;
@@ -462,6 +464,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
+          toolContext.onMove = (from, to) => agentMoves.push({ from, to });
           // Company documents not cleared for paid AI: tracked per turn so the
           // teacher (or a paid chat) only sees them with the person's consent.
           toolContext.provider = conversation.provider;
@@ -601,6 +604,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
+    if (agentMoves.length) result.execution = { ...(result.execution || {}), moves: agentMoves };
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (agentFallbackError) result.execution = { ...(result.execution || {}), agentFallback: String(agentFallbackError).slice(0, 300) };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };

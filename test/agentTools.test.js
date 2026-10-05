@@ -253,3 +253,29 @@ test("move_file: a target without extension for a file with one is a folder, eve
   await executeTool("move_file", { from: "Documentos/contrato.docx", to: "Documentos/contrato 2026.docx" }, c);
   assert.ok(existsSync(join(dir, "Documentos", "contrato 2026.docx")));
 });
+
+test("a path relative to the company folder (as knowledge_map shows it) is read from there, %20 included", async () => {
+  const company = join(root, "empresa");
+  mkdirSync(join(company, "Jurídico"), { recursive: true });
+  writeFileSync(join(company, "Jurídico", "Contratos Vigentes.csv"), "Contratado;Término\nA;31/10/2026\n");
+  const work = join(root, "agente-juridico");
+  mkdirSync(work, { recursive: true });
+  const c = ctx(async () => false, { workspace: work, workspaceRoots: [work], knowledgeRoots: [company], allowedRoots: [root] });
+  for (const path of ["Jurídico/Contratos Vigentes.csv", "Jurídico/Contratos%20Vigentes.csv", join(work, "Jurídico", "Contratos Vigentes.csv")]) {
+    const out = await executeTool("read_file", { path }, c);
+    assert.equal(out.ok, true, `${path}: ${out.result}`);
+    assert.match(out.result, /31\/10\/2026/);
+  }
+});
+
+test("a date filter is corrected by the request once; asked again as written, it is obeyed", async () => {
+  const dir = join(root, "compras");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "pedidos.csv"), "Pedido;Entrega\nPC-1;10/10/2026\nPC-2;15/10/2026\n");
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "pedidos com entrega até 15/10/2026" });
+  const first = await executeTool("read_file", { path: "pedidos.csv", filter: "Entrega=15/10/2026" }, c);
+  assert.match(first.result, /PC-1[\s\S]*Usei Entrega<=15\/10\/2026/);
+  const again = await executeTool("read_file", { path: "pedidos.csv", filter: "Entrega=15/10/2026" }, c);
+  assert.doesNotMatch(again.result, /PC-1/, "the model insisted: exactly the 15th");
+  assert.match(again.result, /PC-2/);
+});

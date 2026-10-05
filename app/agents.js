@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { mkdir, rename } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { getDb } from "./db.js";
 import { createConversation, createProject, getProject, updateProject } from "./store.js";
 import { httpError } from "./httpSecurity.js";
@@ -26,6 +27,10 @@ async function ready() {
       request TEXT NOT NULL, trigger TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
       answer TEXT, files TEXT, steps INTEGER, checks TEXT, review TEXT, copies TEXT, error TEXT);
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_id, started_at)`);
+  // 0.1.35: the file moves of a run ("Desfazer" puts them back) and when they were undone.
+  const columns = new Set(db.prepare("PRAGMA table_info(agent_runs)").all().map((c) => c.name));
+  if (!columns.has("moves")) db.exec("ALTER TABLE agent_runs ADD COLUMN moves TEXT");
+  if (!columns.has("undone_at")) db.exec("ALTER TABLE agent_runs ADD COLUMN undone_at TEXT");
   return db;
 }
 
@@ -39,6 +44,7 @@ const mapRun = (r) => r && ({
   id: r.id, agentId: r.agent_id, conversationId: r.conversation_id, request: r.request, trigger: r.trigger, status: r.status,
   startedAt: r.started_at, finishedAt: r.finished_at, answer: r.answer, files: parse(r.files, []), steps: r.steps,
   checks: parse(r.checks, []), review: parse(r.review, null), copies: parse(r.copies, null), error: r.error,
+  moves: parse(r.moves, []), undoneAt: r.undone_at || null,
 });
 
 /** The instructions every run starts from: the mission plus how this agent works. */
@@ -175,9 +181,10 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
     const steps = execution.toolSteps || [];
     // The path the tool reported ("Criei/Salvei/Editei <path>"): it already went through the same resolution as the write.
     const files = [...new Set(steps.filter((s) => s.ok && ["write_file", "edit_file", "write_document"].includes(s.tool)).map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)/.exec(s.summary || "")?.[1] || resolve(agent.workDir, String(s.args?.path || ""))))];
-    db.prepare("UPDATE agent_runs SET status = ?, finished_at = ?, answer = ?, files = ?, steps = ?, checks = ?, review = ?, copies = ?, error = ? WHERE id = ?")
+    db.prepare("UPDATE agent_runs SET status = ?, finished_at = ?, answer = ?, files = ?, steps = ?, checks = ?, review = ?, copies = ?, error = ?, moves = ? WHERE id = ?")
       .run(turn.ok ? "done" : "failed", new Date().toISOString(), String(turn.message?.content || "").slice(0, 20000), JSON.stringify(files), steps.length,
-        JSON.stringify(execution.checks || []), execution.review ? JSON.stringify(execution.review) : null, execution.copies ? JSON.stringify(execution.copies) : null, turn.ok ? null : String(turn.error || "falhou").slice(0, 2000), runId);
+        JSON.stringify(execution.checks || []), execution.review ? JSON.stringify(execution.review) : null, execution.copies ? JSON.stringify(execution.copies) : null, turn.ok ? null : String(turn.error || "falhou").slice(0, 2000),
+        execution.moves?.length ? JSON.stringify(execution.moves) : null, runId);
   } catch (error) {
     db.prepare("UPDATE agent_runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?").run(new Date().toISOString(), String(error.message).slice(0, 2000), runId);
   } finally {
@@ -200,6 +207,30 @@ export async function listRuns({ agentId, limit = 50 } = {}) {
 }
 
 export const isAgentRunning = (id) => running.has(id);
+
+/**
+ * Puts back the files a run moved, newest move first. Never overwrites: a file whose old place is
+ * taken again, or that was moved/deleted since, is left where it is and reported.
+ */
+export async function undoRunMoves(runId) {
+  const db = await ready();
+  const run = await getRun(runId);
+  if (!run) throw httpError(404, "Execução não encontrada.");
+  if (running.get(run.agentId) === runId) throw httpError(409, "Espere o agente terminar.");
+  if (run.undoneAt) throw httpError(409, "Esta execução já foi desfeita.");
+  if (!run.moves.length) throw httpError(400, "Esta execução não moveu arquivos.");
+  const restored = [], skipped = [];
+  for (const { from, to } of [...run.moves].reverse()) {
+    if (!existsSync(to)) { skipped.push({ file: to, reason: "não está mais lá" }); continue; }
+    if (existsSync(from)) { skipped.push({ file: to, reason: `já existe outro arquivo em ${from}` }); continue; }
+    await mkdir(dirname(from), { recursive: true });
+    await rename(to, from);
+    restored.push(from);
+  }
+  // The folders it created stay (now empty): an empty folder may have been there before, and nothing is deleted.
+  db.prepare("UPDATE agent_runs SET undone_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
+  return { restored, skipped };
+}
 
 /** Ready-made sector agents for the departments of the registered company folders. */
 export const SECTOR_TEMPLATES = {

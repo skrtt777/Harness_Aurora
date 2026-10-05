@@ -438,3 +438,25 @@ test('a working agent shows its stage and steps live on its card', {skip,timeout
     await card.getByText(/Moveu arquivo relatorio\.pdf/).waitFor();
   }finally{release();await done;await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('a run that moved files can be undone from its card', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  const {mkdirSync,writeFileSync,existsSync}=await import('node:fs');
+  const workDir=join(temp,'desfazer');mkdirSync(join(workDir,'Documentos'),{recursive:true});
+  writeFileSync(join(workDir,'Documentos','nota.pdf'),'x');
+  const agent=await agents.createAgent({name:'Agente Desfazer',kind:'pessoal',mission:'Organizar.',workDir});
+  await agents.runAgent(agent.id,{request:'Organize',handleChatTurn:async({conversationId})=>({ok:true,message:{conversationId,content:'Organizei.',execution:{toolSteps:[],moves:[{from:join(workDir,'nota.pdf'),to:join(workDir,'Documentos','nota.pdf')}]}}})});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    page.on('dialog',d=>void d.accept());
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Agentes'}).click();
+    const card=page.getByRole('article',{name:'Agente Desfazer'});
+    await card.getByText('Moveu 1 arquivo(s).').waitFor();
+    await card.getByRole('button',{name:'Desfazer'}).click();
+    await card.getByText(/Movimentos desfeitos em/).waitFor();
+    assert.ok(existsSync(join(workDir,'nota.pdf')),'the file is back');
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

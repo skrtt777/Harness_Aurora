@@ -78,6 +78,26 @@ export function parseSort(sort) {
 }
 
 /**
+ * The first cell of each row a filtered read returned ("   12  PC-2026-909 | ..."), when it looks
+ * like a key (has a digit): what a document built from those rows should contain.
+ */
+export function rowKeys(text) {
+  const keys = [...String(text).matchAll(/^\s*\d+ {2}([^|\n]{3,40}?) \|/gm)].map((m) => m[1].trim()).filter((k) => /\d/.test(k));
+  return [...new Set(keys)];
+}
+
+/**
+ * Keys a document left out: an agent got 7 rows back and copied 2 into the spreadsheet (05/10/2026).
+ * Only when the document used at least one of them (it is built from that read) and missed some.
+ */
+export function missingRows(keys, content) {
+  if (!Array.isArray(keys) || keys.length < 2) return [];
+  const text = String(content);
+  const missing = keys.filter((k) => !text.includes(k));
+  return missing.length && missing.length < keys.length ? missing : [];
+}
+
+/**
  * The operator the person's words give a date: "até 15/10" is <=, "a partir de" >=, "antes de" <,
  * "depois de" >. null when the request doesn't say. (Even the note with the counts was ignored:
  * the model kept filtering "Entrega prevista=15/10/2026" for "entrega até 15/10", 3 runs in 3.)
@@ -95,12 +115,63 @@ export function dateIntent(request, date) {
   return null;
 }
 
+/**
+ * A CSV/TSV as the " | " table the filters read (they only knew Office sheets: a filter on a .csv
+ * answered "nenhuma planilha tem as colunas"). The separator is the one the header uses most.
+ */
+export function csvTable(text, name = "Tabela") {
+  const rows = String(text).replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim());
+  if (!rows.length) return [];
+  const sep = ["\t", ";", ","].map((s) => [s, rows[0].split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const cells = (line) => {
+    const out = [];
+    let cell = "", quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const c = line[i];
+      if (c === '"' && quoted && line[i + 1] === '"') { cell += '"'; i += 1; }
+      else if (c === '"') quoted = !quoted;
+      else if (c === sep && !quoted) { out.push(cell.trim()); cell = ""; }
+      else cell += c;
+    }
+    return [...out, cell.trim()].map((v) => v.replace(/ \| /g, " / "));
+  };
+  return [`## ${name}`, ...rows.map((l) => cells(l).join(" | "))];
+}
+
+/**
+ * A sheet read whole for "contratos que terminam até 31/12/2026" was filtered by eye and 2027
+ * contracts went in (3 runs in 3). The ready filter, with the sheet's own date columns.
+ */
+export function dateFilterHint(lines, request) {
+  const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
+  const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
+  if (!wanted) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const columns = header.filter((_, j) => DATE.test(sample[j] || ""));
+  if (!columns.length) return "";
+  const [date, op] = wanted;
+  return `\n(O pedido tem uma data: para a ferramenta comparar, leia de novo com filter=${columns.map((c) => `"${c}${op}${date}"`).join(" ou ")}, em vez de escolher as linhas de olho.)`;
+}
+
 export function filterRows(lines, filter, { sort, request } = {}) {
   sort = typeof sort === "string" ? parseSort(sort) : sort;
-  // "Coluna=15/10/2026" for a request that says "até 15/10": the person's words decide.
-  const single = String(filter || "").match(/^([^=<>!;]{1,60}?)\s*=\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*$/);
-  const intended = single && dateIntent(request, single[2]);
-  if (intended) return `${filterRows(lines, `${single[1]}${intended}${single[2]}`, { sort })}\n(Usei ${single[1].trim()}${intended}${single[2]} porque o pedido diz "${intended === "<=" ? "até" : intended === ">=" ? "a partir de" : intended === "<" ? "antes de" : "depois de"}" essa data.)`;
+  // "Coluna=15/10/2026", or "Coluna>=15/10/2026; Coluna<=15/10/2026", for a request that says
+  // "até 15/10": the person's words decide the operator of a condition on that date.
+  if (request && String(filter || "").trim()) {
+    const words = { "<=": "até", ">=": "a partir de", "<": "antes de", ">": "depois de" };
+    const changed = [];
+    const parts = [...new Set(String(filter).replace(/["“”']/g, "").split(/\s*;\s*/).filter(Boolean).map((part) => {
+      const m = part.match(/^([^=<>!]{1,60}?)\s*(>=|<=|>|<|=)\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*$/);
+      const intended = m && dateIntent(request, m[3]);
+      if (!intended || intended === m[2]) return part.trim();
+      changed.push(`${m[1].trim()}${intended}${m[3]} (o pedido diz "${words[intended]}" essa data)`);
+      return `${m[1].trim()}${intended}${m[3]}`;
+    }))];
+    if (changed.length) return `${filterRows(lines, parts.join("; "), { sort })}\n(Usei ${changed.join("; ")}.)`;
+  }
   // Sorting (or adding up) the whole sheet: every row of every sheet.
   if (!String(filter || "").trim()) {
     const sheets = parseSheets(lines).filter((s) => s.header && s.rows.length);
@@ -366,6 +437,18 @@ export async function resolveExisting(path, ctx, { directory = false } = {}) {
   const info = await stat(target).catch(() => null);
   if (info && (directory ? info.isDirectory() : true)) return target;
   if (directory) throw new Error(`A pasta ${target} não existe.`);
+  // "Jurídico\Contratos Vigentes.xlsx" as knowledge_map shows it is relative to the company folder,
+  // not to the agent's own (seen in 3 of 3 runs, once followed by 12 blind searches); "%20" too.
+  const rel = (() => {
+    const raw = decodeURIComponent(String(path).replace(/%(?![0-9a-f]{2})/gi, "%25"));
+    if (!isAbsolute(raw)) return raw;
+    const inside = ctx.workspace && relative(ctx.workspace, raw);
+    return inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : null;
+  })();
+  for (const root of rel ? ctx.knowledgeRoots || [] : []) {
+    const candidate = join(root, rel);
+    if ((await isInsideRoots(candidate, [root])) && (await stat(candidate).catch(() => null))?.isFile()) return candidate;
+  }
   const found = await findFilesByName(target, personalFolders(ctx), { limit: 3, signal: ctx.signal });
   if (found.length) return found[0];
   throw new Error(`O arquivo ${target} não existe e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário.`);
@@ -491,7 +574,16 @@ export const fileTools = [
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
       if (String(filter || "").trim() || String(sort || "").trim()) {
-        const found = `${file}\n${filterRows(lines, String(filter || ""), { sort, request: ctx.request })}`;
+        // Corrected once per filter: a model that asks the same again after the note gets it as written
+        // (fighting it, the tool made an agent give up on "=15/10/2026").
+        const key = `${file}|${String(filter || "").trim()}`;
+        ctx.correctedFilters ??= new Set();
+        const request = ctx.correctedFilters.has(key) ? null : ctx.request;
+        const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
+        const rows = filterRows(table, String(filter || ""), { sort, request });
+        if (request && rows.includes("\n(Usei ")) ctx.correctedFilters.add(key);
+        const found = `${file}\n${rows}`;
+        ctx.lastRows = rowKeys(found);
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);
@@ -509,7 +601,7 @@ export const fileTools = [
       }
       const shown = start - 1 + count < lines.length ? `\n(linhas ${start}–${Math.min(lines.length, start - 1 + count)} de ${lines.length})` : "";
       // Read whole, a sheet was filtered "by eye" and 10-day-late bills went into a >30 list.
-      const tip = sheet && text && !text.includes("… (cortado") ? `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)` : "";
+      const tip = sheet && text && !text.includes("… (cortado") ? (dateFilterHint(/\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines, ctx.request) || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`) : "";
       return `${file}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },
@@ -543,7 +635,9 @@ export const fileTools = [
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, bytes);
       OWN_DOCUMENTS.add(file.toLowerCase());
-      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).`;
+      const missing = missingRows(ctx.lastRows, args.content ?? args.text ?? args.markdown ?? "");
+      const note = missing.length ? `\nATENÇÃO: o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - missing.length}. Faltam: ${missing.slice(0, 20).join(", ")}${missing.length > 20 ? "…" : ""}. Se o pedido é a lista inteira, grave de novo no mesmo caminho com todas as linhas.` : "";
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}`;
     },
   },
   {
@@ -571,6 +665,7 @@ export const fileTools = [
       for (let n = 2; existsSync(to); n += 1) to = moveTarget({ ...args, from }, ctx).replace(/(\.[^.\\/]+)?$/, (ext) => ` (${n})${ext}`);
       await mkdir(dirname(to), { recursive: true });
       await rename(from, to);
+      ctx.onMove?.(from, to);
       return `Movi ${from} para ${to}.`;
     },
   },
