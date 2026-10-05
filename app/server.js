@@ -8,6 +8,7 @@ import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { undoMoves } from "./undoMoves.js";
 import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
+import { detectGpu } from "./llamaServer.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -327,6 +328,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "GET" && pathname === "/api/local/status") {
         return sendJson(response, 200, await getLocalStatus());
       }
+      // Where the local model runs: the video card and its memory, or the processor.
+      if (method === "GET" && pathname === "/api/local/hardware") return sendJson(response, 200, { gpu: await detectGpu() });
       if (method === "GET" && pathname === "/api/local/models") {
         return sendJson(response, 200, { models: CURATED_MODELS });
       }

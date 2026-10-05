@@ -18,6 +18,8 @@ import {
   type Settings,
   type UpdateState,
   exportAudit,
+  getLocalHardware,
+  type GpuInfo,
 } from "./api";
 import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
@@ -73,6 +75,7 @@ export default function SettingsView({
   const [maxFixAttemptsDraft, setMaxFixAttemptsDraft] = useState("2");
   const [contextTokensDraft, setContextTokensDraft] = useState("8192");
   const [tuningSaved, setTuningSaved] = useState(false);
+  const [hardware, setHardware] = useState<{ gpu: GpuInfo } | null>(null);
   const [tuningError, setTuningError] = useState("");
   const [rootsDraft, setRootsDraft] = useState("");
   const [agentSaved, setAgentSaved] = useState(false);
@@ -218,6 +221,7 @@ export default function SettingsView({
     try { const saved = localStorage.getItem("aurora-settings-section") as SectionId | null; return saved && SECTIONS.some((s) => s.id === saved) ? saved : "general"; } catch { return "general"; }
   });
   const openSection = (id: SectionId) => { setSection(id); try { localStorage.setItem("aurora-settings-section", id); } catch { /* private mode */ } };
+  useEffect(() => { if (section === "local" && !hardware) void getLocalHardware().then(setHardware).catch(() => {}); }, [section, hardware]);
 
   if (!settings) return <section className="settings-page"><div className="page"><p className="muted">{error || "Carregando…"}</p></div></section>;
 
@@ -383,6 +387,9 @@ export default function SettingsView({
             <div className="section">
               <h3 className="section-title">Desempenho</h3>
               <p className="section-desc">Contexto maior permite conversas mais longas, mas usa mais memória e fica mais lento.</p>
+              {hardware && <div className="row">
+                <div className="row-text"><div className="row-label">Onde o modelo roda</div><div className="row-desc">{hardware.gpu ? `Placa de vídeo ${hardware.gpu.name}${hardware.gpu.memoryGb ? ` (${hardware.gpu.memoryGb} GB)` : ""}.` : "No processador (nenhuma placa de vídeo compatível): as respostas são mais lentas, e a primeira pode levar perto de um minuto. A Aurora adianta parte do trabalho enquanto você digita."}</div></div>
+              </div>}
               <div className="row">
                 <div className="row-text"><div className="row-label">Tentativas de correção</div><div className="row-desc">Quantas vezes o modelo tenta corrigir sozinho um erro detectado.</div></div>
                 <div className="row-control"><input className="field num-field" type="number" min={0} max={5} step={1} aria-label="Tentativas de correção" value={maxFixAttemptsDraft} onChange={(e) => setMaxFixAttemptsDraft(e.target.value)} /></div>

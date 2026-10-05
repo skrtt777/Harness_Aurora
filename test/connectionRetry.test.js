@@ -58,3 +58,10 @@ test("warming the local model is the desktop app's: elsewhere the route answers 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("the video card's name and memory are read from llama-server's device list", async () => {
+  const { parseDevice } = await import("../app/llamaServer.js");
+  assert.deepEqual(parseDevice("Available devices:\n  CUDA0: NVIDIA GeForce RTX 4090 (23027 MiB, 21510 MiB free)\n"), { name: "NVIDIA GeForce RTX 4090", memoryGb: 22, freeGb: 21 });
+  assert.deepEqual(parseDevice("Available devices:\n  Vulkan0: AMD Radeon RX 7600 (8176 MiB, 7900 MiB free)"), { name: "AMD Radeon RX 7600", memoryGb: 8, freeGb: 8 });
+  assert.equal(parseDevice("Available devices:\n  (none)"), null);
+});

@@ -57,9 +57,27 @@ export async function pickDeviceDir(libDir, { run = listDevices, env = process.e
     const dir = join(libDir, sub);
     if (!existsSync(dir)) continue;
     const out = await run(libDir, dir).catch(() => "");
-    if (/Available devices:\s*\n\s*(?!\(none\))\S/.test(out)) return { dir, gpu: true };
+    if (/Available devices:\s*\n\s*(?!\(none\))\S/.test(out)) return { dir, gpu: true, device: parseDevice(out) };
   }
   return { dir: libDir, gpu: false };
+}
+
+/** "CUDA0: NVIDIA GeForce RTX 4090 (23027 MiB, 21510 MiB free)" → name and memory in GB. */
+export function parseDevice(listing) {
+  const m = String(listing).match(/^\s*\w+\d*:\s*(.+?)\s*\((\d+)\s*MiB,\s*(\d+)\s*MiB free\)/m);
+  return m ? { name: m[1], memoryGb: Math.round(Number(m[2]) / 1024), freeGb: Math.round(Number(m[3]) / 1024) } : null;
+}
+
+let gpuPromise = null;
+/** The video card the local model would use, or null (CPU). Asked once per app run. */
+export function detectGpu(env = process.env) {
+  gpuPromise ||= (async () => {
+    const libDir = ollamaLibDir(env);
+    if (!libDir) return null;
+    const picked = await pickDeviceDir(libDir, { env });
+    return picked.gpu ? picked.device || { name: "placa de vídeo", memoryGb: null, freeGb: null } : null;
+  })().catch(() => null);
+  return gpuPromise;
 }
 
 const bin = (libDir) => join(libDir, process.platform === "win32" ? "llama-server.exe" : "llama-server");

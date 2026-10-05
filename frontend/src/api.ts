@@ -600,3 +600,7 @@ export function onOpenConversationRequest(callback: (id: string) => void): () =>
   const harness = (window as unknown as { harness?: { onOpenConversation?: (cb: (id: string) => void) => () => void } }).harness;
   return harness?.onOpenConversation?.(callback) ?? (() => {});
 }
+
+/** The video card the local model uses (name, memory in GB), or null when it runs on the processor. */
+export type GpuInfo = { name: string; memoryGb: number | null; freeGb: number | null } | null;
+export const getLocalHardware = () => request<{ gpu: GpuInfo }>("/local/hardware");
