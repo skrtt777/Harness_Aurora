@@ -138,5 +138,5 @@ export function redoMessage(review, userMessage = "") {
 
 /** A redo that talks about itself instead of delivering. */
 export function narratesCorrection(text) {
-  return /^\s*(\*\*)?\s*(corrigi|corrigido|corrigindo|corre[çc][ãa]o|agora,? ap[óo]s|ap[óo]s (a |o )?(revis|corre|leitura)|refiz|revisei)/i.test(String(text || ""));
+  return /^\s*(\*\*)?\s*(corrigi|corrigido|corrigindo|corre[çc][ãa]o|agora,? ap[óo]s|ap[óo]s (a |o )?(revis|corre|leitura)|refiz|revisei|vou (corrigir|refazer)|voc[êe]s? (est[áa]|est[ãa]o) corret|tem raz[ãa]o|meu erro|pe[çc]o desculpas)/i.test(String(text || ""));
 }

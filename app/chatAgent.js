@@ -64,6 +64,17 @@ export function claimsSentWithoutSubmit(text, steps = []) {
   return !submitted && !after.some((s) => s.ok && ["browser_click", "browser_key"].includes(s.tool));
 }
 
+const PREAMBLE = /^\s*(?:\*\*)?\s*(?:vou (?:corrigir|refazer|reescrever|revisar)|corrigindo|corrigi\b|refiz|revisei|reli\b|releio|voc[êe]s? (?:est[áa]|est[ãa]o) corret|voc[êe] tem raz[ãa]o|tem raz[ãa]o|(?:me )?desculpe|pe[çc]o desculpas|meu erro|minha resposta anterior)[^\n]*?(?:[.!:]\s+|\n)/i;
+
+/** The first sentence when it talks about the correction instead of answering; the rest stays. */
+export function withoutCorrectionPreamble(text) {
+  const body = String(text || "");
+  const m = body.match(PREAMBLE);
+  if (!m) return body;
+  const rest = body.slice(m[0].length).replace(/^\s*(?:-{3,}|\*{3,})\s*/, "").trimStart();
+  return rest.length >= 40 ? rest : body;
+}
+
 /** The answer is the request itself, copied back (a small model's dead end). */
 export function echoesRequest(text, request) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -309,6 +320,9 @@ export async function runChatAgent({
       // Still claiming a file nothing wrote (the forced summary has no tools to fix it):
       // the person must not go looking for it.
       let final = text || "Pronto.";
+      // A guard sent the answer back: its reaction ("Vou corrigir a resposta com os dados…",
+      // "Vocês estão corretos…") is not for the person (empresa controladoria-1, 05/10/2026).
+      if (checks.length) final = withoutCorrectionPreamble(final);
       if (claimsDelivery(final, steps)) {
         const failed = steps.filter((s) => !s.ok && WRITE_TOOLS.has(s.tool)).at(-1);
         checks.push({ check: "claimed_delivery_final", answer: final.slice(0, 300) });

@@ -178,3 +178,13 @@ test("asked for a spreadsheet, a list written into the answer is sent back to be
   assert.deepEqual(refused.checks || [], [], "an honest 'não encontrei' is the answer");
   assert.equal(requestsFile("Entregar a planilha dos títulos em atraso."), true);
 });
+
+test("after a guard, the model's 'I'll fix it' sentence is not shown to the person", async () => {
+  const { withoutCorrectionPreamble } = await import("../app/chatAgent.js");
+  const table = "## Resumo do Budget 2026\n| Área | Desvio |\n|---|---|\n| TI | 14,35% |";
+  assert.equal(withoutCorrectionPreamble(`Vou corrigir a resposta com os dados exatamente como estão nos documentos.\n\n---\n${table}`), table);
+  assert.equal(withoutCorrectionPreamble(`Vocês estão corretos, meu erro. ${table}`), table);
+  assert.equal(withoutCorrectionPreamble(`Tem razão: ${table}`), table);
+  assert.equal(withoutCorrectionPreamble(table), table, "a plain answer stays");
+  assert.equal(withoutCorrectionPreamble("Peço desculpas pela confusão."), "Peço desculpas pela confusão.", "nothing left after it: kept");
+});
