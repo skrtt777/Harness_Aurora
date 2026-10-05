@@ -54,7 +54,8 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 2. **Busca da empresa ainda erra o documento** em perguntas curtas: "próximo imposto a vencer" (vai à web em vez do calendário de obrigações), "quem é o gerente de logística" (não traz a lista de ramais), "área mais acima do orçamento" (lê o orçamento do ano anterior). Medir com `empresa-eval --only fiscal-1,administrativo-2,controladoria-2 --samples 5`.
 3. **Perguntas de "maior/menor/mais acima"** numa planilha: o mesmo tipo de dica pronta que já existe para datas ("vence primeiro" → sort), escolhendo a coluna pelas palavras do pedido.
 4. **Extensões MCP com servidores reais** (Google Agenda, Gmail): só foram testadas com um servidor de teste; falta um teste de ponta a ponta com um servidor público.
-5. **qwen3.5:9b** para placas fortes: melhor nos agentes, pior nas conversas; antes de oferecer, resolver o nome da conta do Windows tomado como nome da pessoa.
+5. **"fetch failed" esporádico na avaliação da empresa** (2 perguntas numa rodada de 05/10, noite; uma rodada inteira não gerou relatório): o log do llama-server não mostra queda. Suspeita: um reinício do servidor com requisições em andamento (as cópias do consenso rodam em paralelo). No turno do app há nova tentativa automática; falta achar a causa.
+6. **qwen3.5:9b** para placas fortes: melhor nos agentes, pior nas conversas; antes de oferecer, resolver o nome da conta do Windows tomado como nome da pessoa.
 
 Feito em 05/10 (detalhes acima, em Feito): agentes de tarefa completos (fases B a F), tela Agentes, Desfazer, MCP, registro de ações, especulação e preparo antecipado do modelo.
 

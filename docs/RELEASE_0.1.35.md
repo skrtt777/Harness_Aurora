@@ -40,6 +40,8 @@
 ## Perguntas sobre a empresa
 
 - **Menos respostas certas desmentidas:** duas travas de conferência acusavam erro onde não havia, e o modelo se retratava. "Compra de 50 mil" respondida com R$ 50.000,00 não é mais "valor inventado", e um arquivo com artigo no nome ("Treinamentos NR a Vencer.xlsx") não é mais "documento inventado".
+- **"Vence primeiro", "maior", "menor":** a Aurora ordena a planilha na direção certa em vez de comparar de olho.
+- **"Por quê?"**: se a resposta não traz a causa, a Aurora procura em outros documentos (atas, relatórios) antes de responder.
 - **"Quem está de férias agora?"** usa o período de hoje (início até hoje e fim depois de hoje), e não quem começa no mês.
 - **Conversa longa demais:** em vez de parar com erro de contexto, a Aurora resume os resultados antigos e continua.
 
@@ -57,7 +59,7 @@
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | 488 passaram, 0 falhas |
+| Testes automáticos | 493 passaram, 0 falhas |
 | Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 a 5 rodadas) | 97,3% a 100% |
 | Agentes de setor, conferindo o arquivo entregue (5 rodadas) | 98,8% (38 de 40 perfeitas) |
 | Perguntas sobre a empresa fictícia (49) | 96% a 100% em três rodadas (eram 92% a 96,9%) |
