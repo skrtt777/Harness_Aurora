@@ -38,7 +38,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; movesUndoneAt?: string } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
@@ -545,6 +545,8 @@ export const updateTaskAgent = (id: string, patch: Partial<NewTaskAgent> & { ena
 export const deleteTaskAgent = (id: string) => request<{ deleted: boolean }>(`/agents/${id}`, { method: "DELETE" });
 /** Puts back the files a run moved; what could not go back is listed with the reason. */
 export const undoAgentRun = (runId: string) => request<{ restored: string[]; skipped: { file: string; reason: string }[] }>(`/agents/runs/${runId}/undo`, { method: "POST" });
+/** Puts back the files a chat answer moved. */
+export const undoMessageMoves = (messageId: string) => request<{ restored: string[]; skipped: { file: string; reason: string }[] }>(`/messages/${messageId}/undo-moves`, { method: "POST" });
 export const runTaskAgent = (id: string, requestText: string) => request<{ started: boolean }>(`/agents/${id}/run`, { method: "POST", body: JSON.stringify({ request: requestText }) });
 export const listTaskAgentRuns = (id: string) => request<{ runs: AgentRun[] }>(`/agents/${id}/runs`).then((r) => r.runs);
 export const createSectorAgents = (baseDir: string) => request<{ agents: TaskAgent[] }>("/agents/sector", { method: "POST", body: JSON.stringify({ baseDir }) }).then((r) => r.agents);

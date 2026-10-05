@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { mkdir, rename } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { undoMoves } from "./undoMoves.js";
 import { getDb } from "./db.js";
 import { createConversation, createProject, getProject, updateProject } from "./store.js";
 import { httpError } from "./httpSecurity.js";
@@ -219,15 +219,7 @@ export async function undoRunMoves(runId) {
   if (running.get(run.agentId) === runId) throw httpError(409, "Espere o agente terminar.");
   if (run.undoneAt) throw httpError(409, "Esta execução já foi desfeita.");
   if (!run.moves.length) throw httpError(400, "Esta execução não moveu arquivos.");
-  const restored = [], skipped = [];
-  for (const { from, to } of [...run.moves].reverse()) {
-    if (!existsSync(to)) { skipped.push({ file: to, reason: "não está mais lá" }); continue; }
-    if (existsSync(from)) { skipped.push({ file: to, reason: `já existe outro arquivo em ${from}` }); continue; }
-    await mkdir(dirname(from), { recursive: true });
-    await rename(to, from);
-    restored.push(from);
-  }
-  // The folders it created stay (now empty): an empty folder may have been there before, and nothing is deleted.
+  const { restored, skipped } = await undoMoves(run.moves);
   db.prepare("UPDATE agent_runs SET undone_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
   return { restored, skipped };
 }

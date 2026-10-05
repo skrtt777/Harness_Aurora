@@ -6,6 +6,7 @@ import { localExperiment } from "./localModelRelease.js";
 import { centralStatus, updateCentralConfig, listCentralMemories, previewContribution, approveContribution, cancelContribution, syncCentral, startCentralScheduler, githubIdentity } from "./centralMemory.js";
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
+import { undoMoves } from "./undoMoves.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -434,6 +435,18 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
       if (method === "GET" && pathname === "/api/agents/orchestrations") return sendJson(response, 200, { orchestrations: await listOrchestrations() });
       // Audit trail for company use: every agent run as a spreadsheet (Excel opens the CSV).
+      // A chat turn that moved files ("organize meus Downloads") can be undone too.
+      const messageUndo = pathname.match(/^\/api\/messages\/([0-9a-f-]{36})\/undo-moves$/);
+      if (method === "POST" && messageUndo) {
+        const message = await getMessage(messageUndo[1]);
+        const moves = message?.execution?.moves || [];
+        if (!message) throw httpError(404, "Mensagem não encontrada.");
+        if (message.execution?.movesUndoneAt) throw httpError(409, "Estes movimentos já foram desfeitos.");
+        if (!moves.length) throw httpError(400, "Esta resposta não moveu arquivos.");
+        const result = await undoMoves(moves);
+        (await getDb()).prepare("UPDATE messages SET execution = ? WHERE id = ?").run(JSON.stringify({ ...message.execution, movesUndoneAt: new Date().toISOString() }), message.id);
+        return sendJson(response, 200, result);
+      }
       const undoMatch = pathname.match(/^\/api\/agents\/runs\/([0-9a-f-]{36})\/undo$/);
       if (method === "POST" && undoMatch) return sendJson(response, 200, await taskAgents.undoRunMoves(undoMatch[1]));
       if (method === "GET" && pathname === "/api/agents/runs.csv") {

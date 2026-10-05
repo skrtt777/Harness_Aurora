@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArtifacts, getSettings, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
+import { getArtifacts, getSettings, undoMessageMoves, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -125,6 +125,19 @@ type Props = {
   onDuplicate: () => void;
 };
 
+/** "Moveu 12 arquivos · Desfazer" under an answer that organized a folder. */
+function UndoChatMoves({ message }: { message: ChatMessage }) {
+  const [done, setDone] = useState(message.execution?.movesUndoneAt ? 'Movimentos desfeitos.' : '');
+  const count = message.execution?.moves?.length ?? 0;
+  const undo = () => {
+    if (!window.confirm(`Devolver os ${count} arquivo(s) movidos ao lugar de antes?`)) return;
+    undoMessageMoves(message.id)
+      .then((r) => setDone(`Movimentos desfeitos: ${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`))
+      .catch((e: Error) => setDone(e.message));
+  };
+  return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>Moveu {count} arquivo(s).</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
+}
+
 function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect }: {
   message: ChatMessage; artifacts: Artifact[]; onOpen: (id: string) => void;
   correctable: boolean; teacher: string; onCorrect: Props['onCorrect'];
@@ -151,6 +164,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} />}
+      {!isUser && (message.execution?.moves?.length ?? 0) > 0 && <UndoChatMoves message={message} />}
       {!isUser && <div className="message-actions">
         <button className="btn btn-text btn-sm" onClick={async () => {
           try { await navigator.clipboard.writeText(message.content); setFeedback('Resposta copiada'); }

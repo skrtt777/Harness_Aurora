@@ -460,3 +460,27 @@ test('a run that moved files can be undone from its card', {skip,timeout:60000},
     assert.ok(existsSync(join(workDir,'nota.pdf')),'the file is back');
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('a chat answer that moved files can be undone under the message', {skip,timeout:60000},async()=>{
+  const {mkdirSync,writeFileSync,existsSync}=await import('node:fs');
+  const dir=join(temp,'chat-desfazer');mkdirSync(join(dir,'Imagens'),{recursive:true});
+  writeFileSync(join(dir,'Imagens','foto.jpg'),'x');
+  const c=await createConversation({title:'Organizar fotos',provider:'local'});
+  await addMessage({conversationId:c.id,role:'user',content:'organize a pasta'});
+  await addMessage({conversationId:c.id,role:'assistant',provider:'Local',content:'Movi a foto para Imagens.',execution:{toolSteps:[{tool:'move_file',ok:true,status:'done',args:{from:'foto.jpg',to:'Imagens/'},summary:`Movi ${join(dir,'foto.jpg')} para ${join(dir,'Imagens','foto.jpg')}.`}],moves:[{from:join(dir,'foto.jpg'),to:join(dir,'Imagens','foto.jpg')}]}});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    page.on('dialog',d=>void d.accept());
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByText('Organizar fotos').first().click();
+    await page.getByText('Moveu 1 arquivo(s).').waitFor();
+    await page.getByRole('button',{name:'Desfazer'}).click();
+    await page.getByText(/Movimentos desfeitos: 1 voltaram/).waitFor();
+    assert.ok(existsSync(join(dir,'foto.jpg')),'the file is back');
+    await page.reload();
+    await page.getByText('Organizar fotos').first().click();
+    await page.getByText('Movimentos desfeitos.').waitFor();
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
