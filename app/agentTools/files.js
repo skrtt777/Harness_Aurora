@@ -8,7 +8,9 @@ import { DOCUMENT_FORMATS, renderDocument } from "../documentWriter.js";
 // Binary office formats are read as their text; everything else as UTF-8.
 const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf", ...IMAGE_EXTENSIONS]);
 
-const MAX_READ = 12000;
+// Under MAX_TOOL_RESULT (4500, agentTools/index.js): a longer read lost its own "continue com
+// offset" line to that cut, and the model re-read the same lines until the repeat guard stopped it.
+const READ_CHUNK = 4200;
 const MAX_WALK = 20000;
 
 const foldText = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
@@ -19,8 +21,28 @@ const foldText = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLow
  * stops at the first page ("ninguém entra de férias em outubro"); a filter gives it the
  * header, only the rows that count and the total.
  */
+// "Dias em atraso>30", "Início das férias>=01/10/2026": the comparison is done here, because a
+// small model reading the rows put 10-day-late bills in a "more than 30 days" list (04/10/2026).
+const DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+export function cellValue(text) {
+  const s = String(text ?? "").trim().replace(/^R\$\s*/i, "");
+  const date = s.match(DATE);
+  if (date) return Date.UTC(Number(date[3]), Number(date[2]) - 1, Number(date[1]));
+  // "1.234,56", "8,07%", "69062.05", "-3.12%"
+  const plain = s.replace(/%$/, "");
+  const number = /,\d+$/.test(plain) ? plain.replace(/\./g, "").replace(",", ".") : plain;
+  return /^-?\d+(\.\d+)?$/.test(number) ? Number(number) : null;
+}
+const COMPARE = { ">": (a, b) => a > b, ">=": (a, b) => a >= b, "<": (a, b) => a < b, "<=": (a, b) => a <= b };
+
 export function filterRows(lines, filter) {
-  const [, colPart, valuePart] = filter.match(/^([^=]{1,60}?)\s*=\s*(.+)$/) || [];
+  // The model copies the example literally: "Coluna=Dias em atraso>30", "\"Dias em atraso\">30".
+  filter = String(filter).split(/\s*;\s*/).map((c) => c.replace(/^\s*coluna\s*[=:>]\s*(?=\S+.*[=<>])/i, "").replace(/["“”']/g, "").trim()).join("; ");
+  // Several conditions: "Dias em atraso>30; Situação=Em atraso" (all must hold).
+  const parts = String(filter).split(/\s*;\s*/).filter(Boolean);
+  if (parts.length > 1) return filterAll(lines, parts, filter);
+  const [, colPart, op, valuePart] = filter.match(/^([^=<>]{1,60}?)\s*(>=|<=|>|<|=)\s*(.+)$/) || [];
+  if (op && op !== "=") return filterAll(lines, [filter], filter);
   const wanted = foldText(valuePart ?? filter);
   const column = colPart ? foldText(colPart) : null;
   const sheets = [];
@@ -48,6 +70,54 @@ export function filterRows(lines, filter) {
   if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}`;
   return `${out.join("\n")}\n${total} linha(s) com "${filter}"${column && !anyColumn ? ` (coluna "${colPart}" não existe; procurei o texto na linha inteira)` : ""}.`;
 }
+function parseSheets(lines) {
+  const sheets = [];
+  let sheet = { name: "", header: null, rows: [] };
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) { sheets.push(sheet = { name: line, header: null, rows: [] }); return; }
+    if (!line.trim()) return;
+    if (!sheet.header && line.includes(" | ")) { sheet.header = { line, i, cells: line.split(" | ").map(foldText) }; return; }
+    sheet.rows.push({ line, i });
+  });
+  if (!sheets.includes(sheet)) sheets.unshift(sheet);
+  return sheets;
+}
+
+/** Every condition must hold; each names its column ("Coluna>30", "Coluna=texto"). */
+function filterAll(lines, conditions, label) {
+  const parsed = conditions.map((c) => {
+    const [, col, op, value] = c.match(/^([^=<>]{1,60}?)\s*(>=|<=|>|<|=)\s*(.+)$/) || [];
+    return col ? { col: foldText(col), op, text: foldText(value), number: cellValue(value.trim()), raw: c } : null;
+  });
+  const sheets = parseSheets(lines);
+  const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
+  const bad = parsed.find((p) => !p || (p.op !== "=" && p.number === null));
+  if (bad !== undefined) return `Condição inválida: "${bad?.raw || conditions[parsed.indexOf(bad)]}". Use Coluna>número, Coluna>=dd/mm/aaaa ou Coluna=texto, separadas por ";".${columns ? ` Colunas: ${columns}.` : ""}`;
+  const out = [];
+  let total = 0;
+  let found = false;
+  for (const s of sheets) {
+    const indexes = parsed.map((p) => { const exact = s.header?.cells.findIndex((c) => c === p.col) ?? -1; return exact >= 0 ? exact : s.header?.cells.findIndex((c) => c.includes(p.col)) ?? -1; });
+    if (indexes.some((i) => i < 0)) continue;
+    found = true;
+    const hits = s.rows.filter(({ line }) => {
+      const cells = line.split(" | ");
+      return parsed.every((p, k) => {
+        const cell = cells[indexes[k]] ?? "";
+        if (p.op === "=") return foldText(cell).includes(p.text);
+        const value = cellValue(cell);
+        return value !== null && COMPARE[p.op](value, p.number);
+      });
+    });
+    if (!hits.length) continue;
+    total += hits.length;
+    out.push(...[s.name, s.header?.line].filter(Boolean), ...hits.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`), "");
+  }
+  if (!found) return `Nenhuma planilha tem as colunas de "${label}".${columns ? ` Colunas: ${columns}.` : ""}`;
+  if (!total) return `Nenhuma linha com "${label}".`;
+  return `${out.join("\n")}\n${total} linha(s) com "${label}".`;
+}
+
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "$recycle.bin", "appdata"]);
 
 export function expandPath(input, knownFolders = {}, base) {
@@ -65,6 +135,9 @@ export function expandPath(input, knownFolders = {}, base) {
     // anything else is relative to the project folder (or the Desktop).
     const [head, ...rest] = text.split(/[\\/]/);
     const alias = { desktop: "desktop", "área de trabalho": "desktop", "area de trabalho": "desktop", documents: "documents", documentos: "documents", downloads: "downloads" }[head.toLowerCase()];
+    // "planilha-1/x.csv" inside the folder planilha-1 means the folder itself: a small model
+    // repeats the project's name, and the file landed in planilha-1\planilha-1 (unless that exists).
+    if (base && rest.length && head.toLowerCase() === basename(base).toLowerCase() && !existsSync(join(base, head))) text = rest.join("/");
     text = alias && knownFolders[alias] ? join(knownFolders[alias], ...rest) : join(base || knownFolders.desktop || homedir(), text);
   }
   return resolve(text);
@@ -281,8 +354,8 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Início das férias=/10/2026\", \"Situação=Aberto\") ou só um texto; devolve o cabeçalho, as linhas que batem e o total.",
-    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\" ou texto que a linha precisa conter" } }, required: ["path"] },
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\") ou só um texto; condições separadas por \";\" valem juntas. Devolve o cabeçalho, as linhas que batem e o total: use esse resultado em vez de comparar valores de cabeça.",
+    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\", \"Coluna>30\", \"Coluna>=01/10/2026\" (várias com ;) ou texto que a linha precisa conter" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
       const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
@@ -296,17 +369,27 @@ export const fileTools = [
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
-      if (String(filter || "").trim()) return `${file}\n${filterRows(lines, String(filter))}`.slice(0, MAX_READ);
+      if (String(filter || "").trim()) {
+        const found = `${file}\n${filterRows(lines, String(filter))}`;
+        return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
+      }
       const start = Math.max(1, Number(offset) || 1);
       const count = Math.min(Math.max(1, Number(limit) || 400), 2000);
+      const sheet = /\.(xlsx|csv|tsv)$/i.test(file);
       let text = "";
       for (let i = start - 1; i < Math.min(lines.length, start - 1 + count); i += 1) {
         const line = `${String(i + 1).padStart(5)}  ${lines[i]}\n`;
-        if (text.length + line.length > MAX_READ) { text += `… (cortado; continue com offset=${i + 1})\n`; break; }
+        if (text.length + line.length > READ_CHUNK) {
+          const columns = sheet ? lines.find((l) => l.includes(" | ")) : null;
+          text += `… (cortado; continue com offset=${i + 1}${columns ? `, ou use filter para trazer só as linhas que interessam, ex.: filter="${columns.split(" | ")[0]}=texto" ou "Coluna>número". Colunas: ${columns.slice(0, 400)}` : ""})\n`;
+          break;
+        }
         text += line;
       }
       const shown = start - 1 + count < lines.length ? `\n(linhas ${start}–${Math.min(lines.length, start - 1 + count)} de ${lines.length})` : "";
-      return `${file}\n${text || "(vazio)"}${shown}`;
+      // Read whole, a sheet was filtered "by eye" and 10-day-late bills went into a >30 list.
+      const tip = sheet && text && !text.includes("… (cortado") ? `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)` : "";
+      return `${file}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },
   {

@@ -17,7 +17,7 @@ const rememberRestricted = (ctx, items) => { for (const item of items) if (!item
 const clip = (text, max) => (String(text).length > max ? `${String(text).slice(0, max)}…` : String(text));
 
 /** A spreadsheet hit is only a slice of its rows: say how to count or list them all. */
-export const sheetHint = (path) => (/\.(xlsx|csv|tsv)$/i.test(String(path)) ? `\n(Planilha: isto é só um trecho. Para contar ou listar linhas — quem, quantos, quais — use read_file com path="${path}" e filter="Coluna=texto".)` : "");
+export const sheetHint = (path) => (/\.(xlsx|csv|tsv)$/i.test(String(path)) ? `\n(Planilha: isto é só um trecho. Para contar ou listar linhas — quem, quantos, quais — use read_file com path="${path}" e filter="Coluna=texto" ou uma comparação como filter="Coluna>30" ou "Coluna>=01/10/2026; Coluna<=31/10/2026".)` : "");
 
 async function findLocalSkill(id) {
   const skills = await allSkills();

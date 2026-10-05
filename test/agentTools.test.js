@@ -206,3 +206,11 @@ test("a link on a page can't take the controlled browser to Aurora's API", { ski
     await new Promise((resolve) => site.close(resolve));
   }
 });
+
+test("a refused write outside the project says where saving needs no approval", async () => {
+  const refused = await executeTool("write_file", { path: join(outside, "z.txt"), content: "z" }, ctx(async () => false, { workspace: root }));
+  assert.equal(refused.ok, false);
+  assert.ok(refused.result.includes(`Na pasta do projeto (${root}) você pode salvar sem pedir`), refused.result);
+  const read = await executeTool("read_file", { path: join(outside, "nada.txt") }, ctx(async () => false, { workspace: root }));
+  assert.doesNotMatch(read.result, /pode salvar/, "only writes get the hint");
+});

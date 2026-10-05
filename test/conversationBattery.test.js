@@ -42,3 +42,12 @@ test("the checks pass a good conversation and fail the MARU-style one", async ()
   const summaryOf = summarizeBattery([{ id: "kit-midia", turns: [{ checks: good }, { checks: claimed }] }]);
   assert.equal(summaryOf.total, good.length + claimed.length);
 });
+
+test("naming another month's contract only to rule it out is right; listing it as due is not", async () => {
+  const [due] = scenario("planilha").turns;
+  const ctx = { dir: tmpdir(), turns: [], extract: () => "" };
+  const good = await scoreTurn({ text: "Vencem este mês: Papelaria Central (12/10) e Limpa Bem (28/10).\n\nO de Café do Vale já venceu (30/09/2026) e o da TransNorte Logística vence no próximo mês.", steps: [] }, due.checks, ctx);
+  assert.ok(good.every((c) => c.ok), JSON.stringify(good));
+  const bad = await scoreTurn({ text: "Vencem: Papelaria Central, Limpa Bem e TransNorte Logística.", steps: [] }, due.checks, ctx);
+  assert.ok(bad.some((c) => !c.ok));
+});

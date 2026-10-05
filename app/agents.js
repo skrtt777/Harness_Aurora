@@ -153,7 +153,8 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
     const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env });
     const execution = turn.message?.execution || {};
     const steps = execution.toolSteps || [];
-    const files = [...new Set(steps.filter((s) => s.ok && ["write_file", "edit_file", "write_document"].includes(s.tool)).map((s) => (s.tool === "write_document" && /^Criei (.+?) \(/.exec(s.summary || "")?.[1]) || resolve(agent.workDir, String(s.args?.path || ""))))];
+    // The path the tool reported ("Criei/Salvei/Editei <path>"): it already went through the same resolution as the write.
+    const files = [...new Set(steps.filter((s) => s.ok && ["write_file", "edit_file", "write_document"].includes(s.tool)).map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)/.exec(s.summary || "")?.[1] || resolve(agent.workDir, String(s.args?.path || ""))))];
     db.prepare("UPDATE agent_runs SET status = ?, finished_at = ?, answer = ?, files = ?, steps = ?, checks = ?, review = ?, copies = ?, error = ? WHERE id = ?")
       .run(turn.ok ? "done" : "failed", new Date().toISOString(), String(turn.message?.content || "").slice(0, 20000), JSON.stringify(files), steps.length,
         JSON.stringify(execution.checks || []), execution.review ? JSON.stringify(execution.review) : null, execution.copies ? JSON.stringify(execution.copies) : null, turn.ok ? null : String(turn.error || "falhou").slice(0, 2000), runId);

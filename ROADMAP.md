@@ -8,8 +8,9 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 409 passaram, 0 falhas (04/10) |
-| Conversas reais | `npm run battery -- --runs 3` | 95,6% com qwen3.5:4b (04/10, `reports/battery/`) |
+| Testes automáticos | `npm test` | 417 passaram, 0 falhas (05/10) |
+| Conversas reais | `npm run battery -- --runs 5` | 100% (75/75) com qwen3.5:4b (05/10, `reports/battery/`) |
+| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 5` | 96,7%, 13 de 15 tarefas perfeitas (05/10, `reports/agentes/`) |
 | Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 83% com 1 resposta, 92% com 5 cópias (`docs/AVALIACAO_EMPRESA_2026-10-04.md`) |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
@@ -34,12 +35,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 ## Agora
 
 1. **Agentes de tarefa (`docs/AGENTES_ROTEIRO.md`):**
-   - fase B: avaliar tarefas conferíveis no `F:\EmpresaIA`;
+   - fase B concluída: tarefas conferíveis no `F:\EmpresaIA`, 96,7% (`npm run agents:eval`);
    - fases C a F: setores, rotinas agendadas, orquestrador e agentes pessoais.
 
    Cada agente novo ganha cenários na bateria de conversas.
 2. **Bateria maior:** pesquisa na web com resumo, organizar uma pasta, corrigir um script e conversas longas (10 ou mais turnos). A bateria cobre o que as pessoas pedem de verdade.
-3. **Datas e planilhas:** o modelo ainda erra "vence esse mês" em parte das rodadas. Estudar um filtro de datas na leitura de planilhas, em vez de deixar o modelo comparar datas sozinho.
+3. **Planilhas:** o filtro por comparação de números e datas já está no `read_file` (05/10). Falta fazer o modelo usá-lo sempre, em vez de comparar de cabeça quando a planilha cabe inteira.
 
 ## Depois
 

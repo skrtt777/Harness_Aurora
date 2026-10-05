@@ -23,7 +23,20 @@ O Ollama não roda o qwen3.5 em paralelo. Já o llama-server que vem com o Ollam
 - [x] **Definição** (`app/agents.js`): nome, tipo, missão, setor, pasta de trabalho, ferramentas e gatilho (manual, horário ou pasta). Cada agente é um projeto, com a pasta como espaço de trabalho e a missão como instruções. Rotas em `/api/agents`.
 - [x] **Execução:** um turno de chat no projeto do agente (contexto, travas, cópias e professor iguais ao chat), em modo Auto, com a busca restrita ao setor e só as ferramentas dele. Um agente faz uma tarefa por vez, em segundo plano.
 - [x] **Histórico** (`agent_runs`): pedido, situação, arquivos entregues, passos, travas, revisão e cópias.
-- [ ] **Avaliação:** tarefas com resultado conferível no `F:\EmpresaIA`. Exemplos: "planilha com quem sai de férias em outubro", "lista de inadimplentes acima de 30 dias", "resumo do orçamento por área".
+- [x] **Avaliação (05/10):** `npm run agents:eval -- --db <banco.db> --runs 5` (`app/agentTaskBattery.js`, `scripts/agent-tasks.mjs`). São três tarefas com gabarito tirado das próprias planilhas do `F:\EmpresaIA`, e a nota vem do **arquivo entregue**, não do que o agente diz:
+  - **RH:** planilha de quem começa as férias em outubro;
+  - **Financeiro:** planilha dos títulos com mais de 30 dias de atraso;
+  - **Controladoria:** relatório Word das áreas com desvio acima de 5%.
+
+  Para cada tarefa, quatro checagens: formato certo, todos os itens certos, nenhum item a mais, e a resposta diz onde está o arquivo.
+  - **Resultado:** com `qwen3.5:4b`, sem professor, 5 rodadas, deu **96,7%** (58/60) e **13 de 15 tarefas perfeitas**. A primeira rodada tinha dado 83% e 1 de 3.
+  - **O que a avaliação mostrou e foi corrigido:**
+    - **Comparar de cabeça:** o modelo comparava números e datas de cabeça, e boletos com 10 dias de atraso entravam na lista de "mais de 30". Agora o `read_file` filtra por comparação (`"Dias em atraso>30"`, `"Início>=01/10/2026; Início<=31/10/2026"`, números brasileiros e datas), entende o jeito como o modelo escreve (`"Coluna=Dias em atraso>30"`) e, depois de ler uma planilha inteira, lembra que o filtro existe.
+    - **Releitura em laço:** o `read_file` montava 12 mil caracteres, mas o executor corta em 4.500, e o aviso "continue com offset" se perdia. O modelo relia a mesma coisa até a trava de repetição. A leitura agora vem em pedaços que cabem no corte, e numa planilha cortada o aviso sugere o filtro e mostra as colunas.
+    - **Subpasta duplicada:** um caminho que repete o nome da pasta do agente (`fin-1/x.csv` dentro de `fin-1`) criava `fin-1\fin-1`. Isso foi corrigido na resolução de caminhos, para qualquer ferramenta.
+    - **Lista de entregas:** a lista de arquivos entregues passou a usar o caminho que a ferramenta informou.
+    - **Gravação negada:** quando uma gravação fora da pasta é negada ou fica sem resposta, o erro diz onde o agente pode salvar sem pedir.
+  - **Erros que restam:** às vezes um título com 21 dias entra na lista de "mais de 30" (quando o modelo não usa o filtro), e às vezes a resposta não cita o arquivo.
 
 ## Fase C: agentes por setor
 

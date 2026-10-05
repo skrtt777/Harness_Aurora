@@ -84,7 +84,8 @@ export const SCENARIOS = [
     turns: [
       { message: "quais contratos da planilha contratos_fornecedores.xlsx vencem esse mês?", checks: [
         { name: "acha os dois de outubro", ok: (t) => has(t.text, "Papelaria Central") && has(t.text, "Limpa Bem") },
-        { name: "não inclui os de outros meses", ok: (t) => !has(t.text, "TransNorte") && !has(t.text, "Café do Vale") },
+        // Naming the others only to rule them out ("já venceu", "vence no próximo mês") is right.
+        { name: "não diz que os de outros meses vencem agora", ok: (t) => String(t.text).split(/(?<=[.!?\n])\s*/).every((sentence) => !(has(sentence, "TransNorte") || has(sentence, "Café do Vale")) || /j[áa] venc|venceu|pr[óo]ximo m[êe]s|novembro|setembro|fora|outros meses|n[ãa]o vence|11\/2026|09\/2026/i.test(sentence)) },
       ] },
       { message: "crie uma planilha só com esses contratos", checks: [
         { name: "cria um .xlsx", ok: (t, c) => newFiles(c.dir).some((f) => f.toLowerCase().endsWith(".xlsx")) },

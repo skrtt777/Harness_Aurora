@@ -49,20 +49,24 @@ export async function executeTool(name, args, ctx, tools = AGENT_TOOLS) {
   const started = Date.now();
   if (!tool) return { ok: false, result: `ERRO: a ferramenta "${name}" não existe. Ferramentas disponíveis: ${tools.map((t) => t.name).join(", ")}.`, ms: 0 };
   const input = args && typeof args === "object" ? args : {};
+  // A write outside the project that nobody approved: say where it can go without asking
+  // (the model kept retrying "Documentos" and ended with nothing saved).
+  let access = null;
+  const whereFree = () => (access?.kind === "write" && ctx.workspace ? ` Na pasta do projeto (${ctx.workspace}) você pode salvar sem pedir autorização.` : "");
   try {
-    const access = tool.describe ? await tool.describe(input, ctx) : { kind: "meta" };
+    access = tool.describe ? await tool.describe(input, ctx) : { kind: "meta" };
     const decision = await decide(access, ctx);
     if (decision.action === "deny") return { ok: false, denied: true, result: `ERRO: ${decision.reason}`, ms: Date.now() - started };
     if (decision.action === "ask") {
       const answer = await ctx.approve({ tool: name, summary: access.summary || `${name} ${JSON.stringify(input).slice(0, 200)}`, detail: decision.reason, rule: decision.rule });
-      if (!answer) return { ok: false, denied: true, result: `ERRO: o usuário não autorizou (${decision.reason}). Não tente contornar; pergunte o que ele prefere.`, ms: Date.now() - started };
+      if (!answer) return { ok: false, denied: true, result: `ERRO: o usuário não autorizou (${decision.reason}). Não tente contornar; pergunte o que ele prefere.${whereFree()}`, ms: Date.now() - started };
       if (answer === "always" && decision.rule) await ctx.onAlwaysAllow?.({ tool: name, prefix: decision.rule });
     }
     const output = String(await tool.run(input, ctx));
     return { ok: true, result: output.length > MAX_TOOL_RESULT ? `${output.slice(0, MAX_TOOL_RESULT)}\n… (cortado)` : output, ms: Date.now() - started };
   } catch (error) {
     if (ctx.signal?.aborted) throw Object.assign(new Error("Cancelado pelo usuário."), { name: "AbortError" });
-    return { ok: false, result: `ERRO: ${String(error.message || error).split("\n")[0].slice(0, 600)}`, ms: Date.now() - started };
+    return { ok: false, result: `ERRO: ${String(error.message || error).split("\n")[0].slice(0, 600)}${/autoriza/i.test(String(error.message)) ? whereFree() : ""}`, ms: Date.now() - started };
   }
 }
 
