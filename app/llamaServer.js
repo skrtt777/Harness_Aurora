@@ -50,7 +50,9 @@ export function ollamaModelBlob(model, env = process.env) {
  * The GPU backends live in subfolders (cuda_v13, cuda_v12, vulkan) and llama-server only sees
  * them when started from inside one. The first that lists a device wins; otherwise the CPU.
  */
-export async function pickDeviceDir(libDir, { run = listDevices } = {}) {
+export async function pickDeviceDir(libDir, { run = listDevices, env = process.env } = {}) {
+  // The CPU build on purpose: a video driver that misbehaves, or measuring a PC without a GPU.
+  if (env.LLAMA_FORCE_CPU === "1") return { dir: libDir, gpu: false };
   for (const sub of ["cuda_v13", "cuda_v12", "rocm_v7_1", "vulkan"]) {
     const dir = join(libDir, sub);
     if (!existsSync(dir)) continue;
@@ -112,7 +114,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   const entry = { model, baseUrl, child: null, ready: null, lastUsed: Date.now() };
   server = entry;
   entry.ready = (async () => {
-    const { dir, gpu } = await pickDeviceDir(libDir);
+    const { dir, gpu } = await pickDeviceDir(libDir, { env });
     const args = ["-m", blob, "--jinja", "--host", "127.0.0.1", "--port", String(port), "--alias", model,
       "-np", String(SLOTS), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),
       // Speculative decoding from n-grams already in the context (no draft model): the agent copies

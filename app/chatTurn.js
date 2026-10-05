@@ -22,7 +22,7 @@ import { WHERE_IS, requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
-import { AGENT_TOOLS, knownFolders } from "./agentTools/index.js";
+import { AGENT_TOOLS, knownFolders, toolSchemas } from "./agentTools/index.js";
 import { mcpAgentTools } from "./mcp.js";
 import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
@@ -192,8 +192,27 @@ export function deliveredPaths(steps = [], tools = ["write_document", "write_fil
     .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)|^Movi .+ para (.+?)\.$/.exec(s.summary || "")).filter(Boolean).map((m) => m[1] || m[2]))];
 }
 
-/** Starts the local agent's server ahead of the first message (it stops itself when idle). */
-export const warmLocalChat = (env = process.env) => localChatServer(env);
+/**
+ * Starts the local agent's server ahead of the first message (it stops itself when idle) and has it
+ * read the fixed start of every agent turn: the tools and the rules. On a PC without a GPU that is
+ * ~48 s of a first answer (5.8k tokens at ~120 tok/s, 05/10/2026), done while the person types.
+ */
+export function warmLocalChat(env = process.env) {
+  warming ||= (async () => {
+    const url = await localChatServer(env);
+    if (!url) return null;
+    const tools = toolSchemas([...AGENT_TOOLS, ...(await mcpAgentTools().catch(() => []))]);
+    await fetch(`${url}/v1/chat/completions`, {
+      method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(180_000),
+      body: JSON.stringify({ messages: [{ role: "system", content: agentRules }, { role: "user", content: "." }], tools, max_tokens: 1, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }),
+    }).catch(() => {});
+    return url;
+  })().finally(() => { warming = null; });
+  return warming;
+}
+// A message sent while the warm-up still reads the prefix waits for it: in another slot it would read
+// the same 5.8k tokens again, competing for the same CPU.
+let warming = null;
 
 /**
  * The answer names where the delivered document is. A run wrote the spreadsheet and ended with
@@ -520,6 +539,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
+          if (conversation.provider === "local" && warming) { setStage(conversationId, "Carregando o modelo local…"); await warming.catch(() => {}); }
           const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
           const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
           const runAgent = (agentHistoryMessages, input, { question = input, ...overrides } = {}) => runChatAgent({
