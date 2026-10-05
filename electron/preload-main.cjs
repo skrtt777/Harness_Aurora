@@ -12,6 +12,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("harness", {
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   pickFolder: () => ipcRenderer.invoke("dialog:pick-folder"),
+  openFile: (file) => ipcRenderer.invoke("shell:open-file", file, false),
+  showInFolder: (file) => ipcRenderer.invoke("shell:open-file", file, true),
   getUpdateState: () => ipcRenderer.invoke("updater:state"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),

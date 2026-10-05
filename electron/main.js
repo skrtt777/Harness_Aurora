@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, Tray, Menu, globalShortcut, ipcMain, screen, shell } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "../app/server.js";
@@ -180,6 +181,20 @@ ipcMain.handle("shell:open-external", async (event, url) => {
   const parsed = new URL(trimmed);
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Somente links HTTP/HTTPS são permitidos.");
   await shell.openExternal(parsed.href);
+  return true;
+});
+
+// Files the agent delivered ("Criei C:\…\proposta.docx"): open them or show them in
+// Explorer from the chat. Only documents open; an executable would run.
+const OPENABLE = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".md", ".csv", ".txt", ".html", ".htm", ".json", ".png", ".jpg", ".jpeg", ".svg", ".rtf"]);
+ipcMain.handle("shell:open-file", async (event, file, reveal) => {
+  if (!trustedSender(event, mainWindow)) throw new Error("Origem IPC inválida.");
+  const target = path.resolve(String(file || ""));
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) throw new Error("Arquivo não encontrado.");
+  if (reveal) { shell.showItemInFolder(target); return true; }
+  if (!OPENABLE.has(path.extname(target).toLowerCase())) throw new Error("Esse tipo de arquivo não é aberto pelo chat.");
+  const error = await shell.openPath(target);
+  if (error) throw new Error(error);
   return true;
 });
 

@@ -414,6 +414,21 @@ export async function pickFolder(): Promise<string | null> {
   return harness.pickFolder();
 }
 
+type FileBridge = { openFile?: (file: string) => Promise<boolean>; showInFolder?: (file: string) => Promise<boolean> };
+const fileBridge = () => (window as unknown as { harness?: FileBridge }).harness;
+/** Opening files needs the Electron app; in a plain browser the chat only shows the path. */
+export const canOpenFiles = () => Boolean(fileBridge()?.openFile);
+export const openDeliveredFile = (file: string) => fileBridge()?.openFile?.(file);
+export const showDeliveredFile = (file: string) => fileBridge()?.showInFolder?.(file);
+
+/** Files a turn's actions wrote ("Criei C:\…\x.docx (DOCX, 900 bytes).", "Salvei …", "Editei ….") */
+export function deliveredFiles(steps: { tool: string; ok?: boolean; summary?: string }[] = []): string[] {
+  const files = steps.filter((s) => s.ok && ["write_document", "write_file", "edit_file"].includes(s.tool))
+    .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$|$)/.exec(s.summary || "")?.[1])
+    .filter((f): f is string => Boolean(f));
+  return [...new Set(files)];
+}
+
 // ---------- Auto-update (electron-updater via GitHub Releases; Electron only) ----------
 export type UpdateStatus =
   | { status: "idle" }

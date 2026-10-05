@@ -815,3 +815,68 @@
   flex: 1;
   max-height: none;
 }
+
+/* Files an answer delivered: open or show in Explorer instead of asking "onde está?". */
+.app-shell .conversation-workspace .delivered-files {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.app-shell .conversation-workspace .delivered-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-sm);
+  background: var(--fill-soft);
+  color: var(--text-2);
+  min-width: 0;
+}
+.app-shell .conversation-workspace .delivered-file-name {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.app-shell .conversation-workspace .delivered-file-name strong {
+  color: var(--text-1);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell .conversation-workspace .delivered-file-name small {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell .conversation-workspace .delivered-file-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.app-shell .conversation-workspace .delivered-file-actions button {
+  padding: 4px 10px;
+  border: 1px solid var(--stroke-1);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.app-shell .conversation-workspace .delivered-file-actions button:hover {
+  background: var(--fill-hover);
+  border-color: var(--accent-line);
+}
+.app-shell .conversation-workspace .delivered-file-error {
+  margin: 0;
+  color: var(--red);
+  font-size: var(--fs-sm);
+}
+@media (max-width: 560px) {
+  .app-shell .conversation-workspace .delivered-file { flex-wrap: wrap; }
+  .app-shell .conversation-workspace .delivered-file-actions { width: 100%; }
+}

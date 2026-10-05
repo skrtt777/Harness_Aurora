@@ -303,3 +303,28 @@ test("Atlas: inspector shows usage, the health filter finds failing memories and
     await browser.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('an answer that created a file shows it with Abrir and Mostrar na pasta', {skip,timeout:30000},async()=>{
+  const c=await createConversation({title:'Arquivo entregue',provider:'local'});
+  const file=join(temp,'Kit_Midia_atualizado.docx');
+  await addMessage({conversationId:c.id,role:'user',content:'crie um novo documento'});
+  await addMessage({conversationId:c.id,role:'assistant',provider:'Local',content:'Criei o documento com os valores atualizados.',execution:{toolSteps:[{tool:'read_file',ok:true,summary:'C:/x.pdf'},{tool:'write_document',ok:true,summary:`Criei ${file} (DOCX, 900 bytes).`,args:{path:file}}]}});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    for (const viewport of [{width:1280,height:800},{width:390,height:800}]) {
+      const page=await browser.newPage({viewport});
+      await page.addInitScript(()=>{window.__opened=[];window.harness={openFile:async(f)=>{window.__opened.push(['open',f]);return true;},showInFolder:async(f)=>{window.__opened.push(['show',f]);return true;}};});
+      await page.goto(`http://127.0.0.1:${server.address().port}/#/conversations/${c.id}`);
+      const card=page.locator('.delivered-file');
+      await card.waitFor();
+      assert.equal(await card.locator('strong').textContent(),'Kit_Midia_atualizado.docx');
+      await card.getByRole('button',{name:'Abrir'}).click();
+      await card.getByRole('button',{name:'Mostrar na pasta'}).click();
+      assert.deepEqual(await page.evaluate(()=>window.__opened),[['open',file],['show',file]]);
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal scroll');
+      if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,`arquivo-${viewport.width}.png`)});
+      await page.close();
+    }
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
