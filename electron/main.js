@@ -9,6 +9,7 @@ import { createMemory } from "../app/store.js";
 import { closeBrowserContext } from "../app/browserAgent.js";
 import { terminateOcr } from "../app/ocr.js";
 import { onAutomaticRun } from "../app/agentScheduler.js";
+import { stopMcpServers } from "../app/mcp.js";
 
 const PORT = Number(process.env.HARNESS_PORT || 8787);
 const HOST = "127.0.0.1";
@@ -312,5 +313,6 @@ if (hasSingleInstanceLock) {
     if (server) server.close();
     void closeBrowserContext();
     void terminateOcr();
+    stopMcpServers();
   });
 }

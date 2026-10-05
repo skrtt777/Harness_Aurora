@@ -84,6 +84,13 @@ export async function decide(access, ctx) {
       return mode === "plan" ? { action: "deny", reason: "No modo Plano a Aurora só observa páginas; não clica nem digita." } : { action: "allow" };
     case "share":
       return { action: "ask", reason: "Enviar trechos de documentos internos para a IA paga" };
+    // A tool of an MCP server the person plugged in (e-mail, calendar…). One that only reads, by
+    // the server's own annotation, runs like browsing; anything else asks, or is refused in Plan.
+    case "external":
+      if (access.readOnly) return { action: "allow" };
+      if (mode === "plan") return { action: "deny", reason: "No modo Plano nenhuma extensão faz alterações; proponha ao usuário." };
+      if (matchesAlwaysAllow(ctx.alwaysAllow, access.tool, access.tool)) return { action: "allow" };
+      return { action: "ask", reason: "Ação de uma extensão (MCP) fora do computador", rule: access.tool };
     case "import":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano nada é instalado." } : { action: "ask", reason: "Usar instruções de uma skill de terceiros" };
     case "configure":

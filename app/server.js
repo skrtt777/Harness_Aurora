@@ -7,6 +7,7 @@ import { centralStatus, updateCentralConfig, listCentralMemories, previewContrib
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { undoMoves } from "./undoMoves.js";
+import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -447,6 +448,13 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && pathname === "/api/local/warm") {
         if (warmLocal) void warmLocalChat().catch(() => {});
         return sendJson(response, 202, { warming: warmLocal });
+      }
+      // MCP extensions: the servers the person plugged in, with each one's tools or error.
+      if (pathname === "/api/mcp" && method === "GET") return sendJson(response, 200, { servers: await listMcpServers(), status: await mcpStatus() });
+      if (pathname === "/api/mcp" && method === "PUT") {
+        const body = await readJson(request);
+        await saveMcpServers(body.servers);
+        return sendJson(response, 200, { servers: await listMcpServers(), status: await mcpStatus() });
       }
       // A chat turn that moved files ("organize meus Downloads") can be undone too.
       const messageUndo = pathname.match(/^\/api\/messages\/([0-9a-f-]{36})\/undo-moves$/);

@@ -484,3 +484,26 @@ test('a chat answer that moved files can be undone under the message', {skip,tim
     await page.getByText('Movimentos desfeitos.').waitFor();
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('an MCP extension is added from Settings and shows its tools', {skip,timeout:60000},async()=>{
+  const {fileURLToPath}=await import('node:url');
+  const {stopMcpServers}=await import('../app/mcp.js');
+  const fake=fileURLToPath(new URL('./fixtures/fake-mcp.mjs',import.meta.url));
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:/Configurações/}).click();
+    await page.getByRole('button',{name:'Agente',exact:true}).click();
+    const panel=page.getByLabel('Extensões (MCP)');
+    await panel.getByRole('textbox',{name:'Nome da extensão'}).fill('Agenda');
+    await panel.getByRole('textbox',{name:'Comando da extensão'}).fill(`"${process.execPath}" "${fake}"`);
+    await panel.getByRole('button',{name:'Adicionar'}).click();
+    await panel.getByText('2 ferramenta(s)').waitFor();
+    await panel.getByText(/ler_agenda, criar_evento/).waitFor();
+    await panel.getByRole('button',{name:'Desligar'}).click();
+    await panel.getByText('desligado').waitFor();
+    if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'mcp.png')});
+  }finally{stopMcpServers();await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

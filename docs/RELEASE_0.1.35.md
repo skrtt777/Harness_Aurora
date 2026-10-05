@@ -1,5 +1,10 @@
 # Aurora 0.1.35: mais rápida e mais certeira
 
+## Extensões (MCP)
+
+- **Conecte a Aurora a outros serviços:** em Configurações → Agente → Extensões, adicione servidores MCP prontos (e-mail, agenda, Notion, bancos de dados…). O agente passa a usar as ferramentas deles.
+- **Com segurança:** ferramentas que só leem rodam direto; as que alteram algo sempre pedem sua autorização (ou são recusadas no modo Plano). O que uma extensão devolve conta como conteúdo de fora: um comando depois disso pede autorização, porque um e-mail pode trazer instruções escondidas.
+
 ## Mais rápida
 
 - **Respostas longas até 5 vezes mais rápidas.** O modelo local passa a usar *decodificação especulativa por n-gramas*: quando a resposta repete trechos que já estão na conversa (linhas de uma planilha que viram uma tabela no documento, por exemplo), vários tokens saem de uma vez. O texto é o mesmo.
@@ -16,6 +21,9 @@
 
 ## Agentes
 
+- **Equipe mais certeira:** o plano não inventa mais que uma tarefa espera outra (só quando o pedido diz "primeiro… depois…"), e um agente que listou os dados na resposta em vez de gravar a planilha é cobrado a gravar. Fechamento do mês: 93,9% (era 72,7% a 87,9%); tarefa que usa a entrega de outra: 100%.
+- **Registro de ações:** Configurações → Agente → Exportar registro gera uma planilha com tudo o que a Aurora fez no computador, em qualquer conversa (arquivos, comandos, formulários), com data e resultado.
+
 - **A notificação leva à tela Agentes:** clicar em "<agente> terminou" abre a tela dos agentes.
 - **A resposta sempre diz onde está o arquivo:** se o agente entregou um documento e não disse onde, a Aurora acrescenta o caminho.
 
@@ -26,6 +34,7 @@
 ## Planilhas
 
 - **CSV também:** filtrar e ordenar agora funciona em arquivos .csv e .tsv (com ";" ou ",", e aspas), não só em Excel.
+- **Condições como você falou:** "mais de 30 dias" e "acima de 5%" viram o filtro certo nas colunas da planilha, em vez de a Aurora escolher as linhas de olho.
 - **Datas como você falou:** "até 15/10", "a partir de", "antes de" e "depois de" decidem a comparação, mesmo que o modelo escreva o filtro de outro jeito. "Esse mês", "mês que vem" e "em outubro" viram o período certo.
 - **Linhas que faltaram:** ao gravar um documento, a Aurora confere se todas as linhas filtradas entraram e avisa quais ficaram de fora.
 - **Pastas da empresa:** um caminho como "Jurídico\Contratos Vigentes.xlsx", do jeito que o mapa da empresa mostra, é encontrado na pasta da empresa.

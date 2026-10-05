@@ -86,7 +86,7 @@ export async function planRequest({ request, agents, ask = runLocal, env = proce
  * `dependsOn` waits for those agents' tasks and gets their delivered files in its request; if one
  * of them didn't deliver, it doesn't run.
  */
-export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2, onProgress = () => {}, original = null }) {
+export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2, onProgress = () => {} }) {
   const results = new Array(tasks.length);
   const finished = new Map(); // agentId → promise of its result
   const settle = new Map();
@@ -97,10 +97,10 @@ export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2
     const deps = await Promise.all((task.dependsOn || []).map((id) => finished.get(id)).filter(Boolean));
     const missing = deps.filter((d) => d.status !== "done" || !d.files.length);
     if (missing.length) return { ...task, status: "failed", files: [], answer: "", error: `Dependia de ${missing.map((d) => d.agentName).join(", ")}, que não entregou.` };
-    let request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
-    // The plan paraphrases: "títulos em atraso" became "contas a pagar em atraso" and the agent read
-    // the wrong sheet. The person's own words go along to check the criteria against.
-    if (original && original !== task.request) request += `\n\n(Esta tarefa é a sua parte de um pedido maior da pessoa: "${original.slice(0, 1200)}". Faça só a sua parte, com os critérios nas palavras dela.)`;
+    const request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
+    // Tried on 05/10/2026: sending the person's whole request along (against the plan's paraphrases)
+    // made each agent do the others' parts too: RH went to read the receivables, the Controladoria
+    // "closed the month", 72.7% → 78.8% with new failures. Each agent gets only its own task.
     onProgress({ index: i, status: "running" });
     try {
       // Read access to the folders of those deliveries: they sit in the other agents' folders.
@@ -160,7 +160,7 @@ export async function startOrchestration({ request, tasks, dir, runAgent, handle
 }
 
 async function finish({ db, id, request, tasks, dir, runAgent, handleChatTurn, concurrency }) {
-  const results = await runPlan({ tasks, runAgent, handleChatTurn, concurrency, original: request });
+  const results = await runPlan({ tasks, runAgent, handleChatTurn, concurrency });
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   const summaryFile = join(dir, `Resumo da equipe ${stamp}.docx`);

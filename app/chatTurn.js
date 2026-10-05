@@ -23,6 +23,7 @@ import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
 import { AGENT_TOOLS, knownFolders } from "./agentTools/index.js";
+import { mcpAgentTools } from "./mcp.js";
 import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
@@ -352,7 +353,7 @@ const MODE_TEXT = {
   plan: "Modo Plano: você só pode olhar (ler arquivos, pesquisar, navegar sem clicar). Não altere nada; termine com um plano do que faria.",
 };
 
-function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false }) {
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false, extensions = [] }) {
   return [
     `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${(process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
@@ -364,6 +365,7 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
     MODE_TEXT[mode] || MODE_TEXT.auto,
     `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,
     openPage ? `No navegador agora: "${openPage.title}" — ${openPage.url}. "Lá", "nele" ou "nessa página" se referem a ela.` : "",
+    extensions.length ? `Extensões conectadas pela pessoa: ${extensions.join(", ")}. Para pedidos sobre esses serviços (e-mails, agenda…), use as ferramentas mcp_ delas.` : "",
     workspaceFile ? `Instruções da pasta do projeto (${workspaceFile.name}) — siga-as:\n${workspaceFile.text}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -485,6 +487,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
+          const extensionTools = await mcpAgentTools().catch(() => []);
+          toolContext.extensions = [...new Set(extensionTools.map((t) => t.mcp.server))];
           toolContext.onMove = (from, to) => agentMoves.push({ from, to });
           // Company documents not cleared for paid AI: tracked per turn so the
           // teacher (or a paid chat) only sees them with the person's consent.
@@ -528,7 +532,10 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
             env: agentEnv, signal: controller.signal, toolContext,
-            ...(toolContext.agentTools ? { tools: AGENT_TOOLS.filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") } : {}),
+            // The person's MCP extensions join the built-in tools (an agent with its own list gets the ones it names).
+            ...(toolContext.agentTools
+              ? { tools: [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") }
+              : extensionTools.length ? { tools: [...AGENT_TOOLS, ...extensionTools] } : {}),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             // The answer appears as it is written (local model on llama-server).

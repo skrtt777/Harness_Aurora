@@ -24,6 +24,7 @@ import ModelTrainingPanel from './ModelTrainingPanel';
 import Icon from './Icon';
 import EvalPanel from './EvalPanel';
 import KnowledgePanel from './KnowledgePanel';
+import McpPanel from './McpPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
@@ -333,6 +334,7 @@ export default function SettingsView({
                 <div className="row-control"><button className="btn btn-ghost btn-sm" onClick={() => void exportAudit().catch((e: Error) => setError(e.message))}>Exportar registro</button></div>
               </div>
             </div>
+            <McpPanel />
             {settings.agentAlwaysAllow.length > 0 && <div className="section">
               <h3 className="section-title">Comandos sempre permitidos</h3>
               <p className="section-desc">Comandos que você autorizou com "Sempre permitir".</p>

@@ -588,3 +588,9 @@ export function warmLocalModel() {
   lastWarm = Date.now();
   void request<{ warming: boolean }>("/local/warm", { method: "POST" }).catch(() => {});
 }
+
+/** An MCP server the person plugged in (e-mail, calendar…) and what it gives the agent. */
+export type McpServer = { name: string; command: string; args: string[]; env?: Record<string, string>; enabled: boolean };
+export type McpStatus = { name: string; status: "ativo" | "erro" | "desligado"; tools: string[]; error?: string };
+export const getMcp = () => request<{ servers: McpServer[]; status: McpStatus[] }>("/mcp");
+export const saveMcp = (servers: McpServer[]) => request<{ servers: McpServer[]; status: McpStatus[] }>("/mcp", { method: "PUT", body: JSON.stringify({ servers }) });

@@ -88,14 +88,15 @@ test("an orchestration leaves a Word summary with each delivery and what is pend
   assert.match(summaryMarkdown("Pedido", [{ agentName: "A", request: "a | b", status: "done", files: [], answer: "" }]), /\| A \| a \/ b \| Sem arquivo \| - \|/);
 });
 
-test("a dependency the request never asked for is dropped; the person's words go with each task", async () => {
+test("a dependency the request never asked for is dropped; each agent gets only its own task", async () => {
   const { parsePlan, runPlan } = await import("../app/orchestrator.js");
   const team = [{ id: "rh", name: "Agente RH" }, { id: "fin", name: "Agente Financeiro" }, { id: "ctrl", name: "Agente Controladoria" }];
   const text = JSON.stringify({ tasks: [{ agent: "Agente RH", request: "Planilha de férias de outubro.", formato: "planilha" }, { agent: "Agente Controladoria", request: "Relatório de desvios acima de 5%.", formato: "relatório em Word", depende_de: ["Agente RH"] }] });
   const together = "Feche o mês: a planilha de férias de outubro e um relatório com as áreas mais de 5% acima do orçado.";
   assert.equal(parsePlan(text, team, together)[1].dependsOn, undefined, "nothing in the request makes the report wait");
   assert.deepEqual(parsePlan(text, team, "Primeiro o RH faz a planilha; depois, usando essa planilha, a Controladoria faz o relatório.")[1].dependsOn, ["rh"]);
+  // Each agent gets only its own task: with the whole request along, they did each other's parts.
   const seen = [];
-  await runPlan({ tasks: parsePlan(text, team, together), original: together, handleChatTurn: null, runAgent: async (id, { request }) => { seen.push(request); return { status: "done", files: [`${id}.xlsx`], answer: "ok" }; } });
-  assert.ok(seen.every((r) => r.includes(`pedido maior da pessoa: "${together}"`) && r.includes("Faça só a sua parte")));
+  await runPlan({ tasks: parsePlan(text, team, together), handleChatTurn: null, runAgent: async (id, { request }) => { seen.push(request); return { status: "done", files: [`${id}.xlsx`], answer: "ok" }; } });
+  assert.ok(seen.every((r) => !r.includes(together)));
 });
