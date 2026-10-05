@@ -34,7 +34,7 @@ import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAc
 import * as taskAgents from "./agents.js";
 import { runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
 import { listOrchestrations, planRequest, startOrchestration } from "./orchestrator.js";
-import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir } from "./chatTurn.js";
+import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir, warmLocalChat } from "./chatTurn.js";
 import { BROWSER_BACKENDS } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
 import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBrowserAgent } from "./browserAgent.js";
@@ -94,7 +94,7 @@ async function serveStatic(response, pathname) {
   }
 }
 
-export function createServer({ allowDev = !process.versions.electron, centralSync = true, agentScheduler = Boolean(process.versions.electron) } = {}) {
+export function createServer({ allowDev = !process.versions.electron, centralSync = true, agentScheduler = Boolean(process.versions.electron), warmLocal = Boolean(process.versions.electron) } = {}) {
   const apiToken = randomBytes(32).toString("hex");
   const server = http.createServer(async (request, response) => {
     try {
@@ -435,6 +435,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
       if (method === "GET" && pathname === "/api/agents/orchestrations") return sendJson(response, 200, { orchestrations: await listOrchestrations() });
       // Audit trail for company use: every agent run as a spreadsheet (Excel opens the CSV).
+      // The person started typing in a local conversation: the model loads while they write
+      // instead of after they send. Desktop app only (tests and the browser build never spawn it).
+      if (method === "POST" && pathname === "/api/local/warm") {
+        if (warmLocal) void warmLocalChat().catch(() => {});
+        return sendJson(response, 202, { warming: warmLocal });
+      }
       // A chat turn that moved files ("organize meus Downloads") can be undone too.
       const messageUndo = pathname.match(/^\/api\/messages\/([0-9a-f-]{36})\/undo-moves$/);
       if (method === "POST" && messageUndo) {

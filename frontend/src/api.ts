@@ -576,3 +576,11 @@ export function onShowAgents(callback: () => void): () => void {
   const harness = (window as unknown as { harness?: { onShowAgents?: (cb: () => void) => () => void } }).harness;
   return harness?.onShowAgents?.(callback) ?? (() => {});
 }
+
+let lastWarm = 0;
+/** Loads the local model while the person types (at most once a minute; the app ignores it outside the desktop). */
+export function warmLocalModel() {
+  if (Date.now() - lastWarm < 60_000) return;
+  lastWarm = Date.now();
+  void request<{ warming: boolean }>("/local/warm", { method: "POST" }).catch(() => {});
+}

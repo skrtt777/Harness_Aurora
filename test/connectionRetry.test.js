@@ -42,3 +42,19 @@ test("a turn whose llama-server connection drops is run once more instead of fai
     await new Promise((resolve) => stub.close(resolve));
   }
 });
+
+test("warming the local model is the desktop app's: elsewhere the route answers and starts nothing", async () => {
+  const { createServer } = await import("../app/server.js");
+  const { llamaServerInfo } = await import("../app/llamaServer.js");
+  const server = createServer({ allowDev: false });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/local/warm`, { method: "POST", headers: { "x-harness-token": server.apiToken } });
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), { warming: false });
+    assert.equal(llamaServerInfo(), null, "no llama-server was started");
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

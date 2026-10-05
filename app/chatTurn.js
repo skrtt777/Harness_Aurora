@@ -191,6 +191,9 @@ export function deliveredPaths(steps = [], tools = ["write_document", "write_fil
     .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)|^Movi .+ para (.+?)\.$/.exec(s.summary || "")).filter(Boolean).map((m) => m[1] || m[2]))];
 }
 
+/** Starts the local agent's server ahead of the first message (it stops itself when idle). */
+export const warmLocalChat = (env = process.env) => localChatServer(env);
+
 /**
  * The answer names where the delivered document is. A run wrote the spreadsheet and ended with
  * "Vou verificar os cálculos…" and no path (05/10/2026): the path goes in from the tool's own report.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArtifacts, getSettings, undoMessageMoves, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
+import { getArtifacts, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -300,7 +300,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
         </div></div>}
       </div>
       <div className="composer-area"><form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
-        <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+        <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => { setDraft(event.target.value); if (conversation.provider === 'local' && event.target.value.trim()) warmLocalModel(); }} onKeyDown={event => {
           if (event.key === 'Escape' && composerExpanded) { event.preventDefault(); setComposerExpanded(false); }
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
         }} disabled={loading} />
