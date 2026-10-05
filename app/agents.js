@@ -168,7 +168,8 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
   }
   try {
     // Folders this run may read on top of its own (the deliveries of the tasks it depends on).
-    const runEnv = readRoots.length ? { ...env, AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : env;
+    // The trigger goes along: automatic runs get the paid teacher on errors only (teachingLoop.js).
+    const runEnv = { ...env, AGENT_RUN_TRIGGER: trigger, ...(readRoots.length ? { AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : {}) };
     const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env: runEnv });
     const execution = turn.message?.execution || {};
     const steps = execution.toolSteps || [];

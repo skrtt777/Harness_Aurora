@@ -194,3 +194,16 @@ test("a teacher's lesson is a candidate until it helps, and two failures archive
   await store.recordMemoryOutcome([proven.id], "helped");
   assert.equal((await find(proven.id)).candidate, false, "helping once makes it a regular lesson");
 });
+
+test("automatic agent runs (schedule, folder, team) get the paid teacher on errors only", async () => {
+  const conversation = await store.createConversation({ provider: "local" });
+  let calls = 0;
+  const call = async () => { calls += 1; return { ok: true, text: JSON.stringify({ verdict: "ok", problems: [], lessons: [] }) }; };
+  const first = { ok: true, text: "Criei a planilha.", steps: [step("write_document")], calls: [{ usage: null }], messages: [] };
+  const scheduled = await runTeachingLoop({ userMessage: "gere a planilha", history: [], first, teacherProvider: "codex", conversation, rerun: async () => first, call, env: { ...process.env, AGENT_RUN_TRIGGER: "schedule" } });
+  assert.equal(scheduled.review, null, "a routine delivery without errors is not sent to the paid teacher");
+  assert.equal(calls, 0);
+  const manual = await runTeachingLoop({ userMessage: "gere a planilha", history: [], first, teacherProvider: "codex", conversation, rerun: async () => first, call, env: { ...process.env, AGENT_RUN_TRIGGER: "manual" } });
+  assert.equal(manual.review.reason, "actions");
+  assert.equal(calls, 1);
+});

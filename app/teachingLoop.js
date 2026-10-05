@@ -30,7 +30,10 @@ export async function spendTeacherCall() {
 export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher, needsConsent = () => false, approve = async () => false }) {
   const settings = await teacherSettings();
   const signals = detectSignals({ userMessage, result: first, history });
-  const reason = shouldReview({ mode: settings.mode, signals, steps: first.steps });
+  // Runs nobody started by hand (schedule, watched folder, team) are reviewed on errors only:
+  // a scheduled agent would otherwise spend the paid teacher's daily budget on routine deliveries.
+  const mode = env.AGENT_RUN_TRIGGER && env.AGENT_RUN_TRIGGER !== "manual" && settings.mode === "actions" ? "errors" : settings.mode;
+  const reason = shouldReview({ mode, signals, steps: first.steps });
   const review = { reason, signals: signals.map((s) => s.code), teacher: teacherProvider };
   if (!reason) {
     await recordMemoryOutcome(memoryIds, "used").catch(() => {});
