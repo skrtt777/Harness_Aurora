@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -81,6 +81,21 @@ async function waitHealthy(baseUrl, child, timeoutMs = 120_000) {
  * here (no bundled binary, weights not downloaded, failed to load) — the agent then stays on Ollama.
  * `contextTokens` is per copy: the server gets SLOTS times that.
  */
+// 12k tokens per copy was too little: a PDF attachment, the rules and a redo went past it
+// ("request (13792 tokens) exceeds the available context size", 04/10/2026).
+const MIN_SLOT_TOKENS = 16384;
+const LOG_LIMIT = 5_000_000;
+
+/** llama-server.log next to the database (kept small: rotated to .old past 5 MB). It used to
+ * run with no output at all, so a template error that dropped the agent left no trace. */
+function serverLog(env) {
+  try {
+    const file = join(dirname(env.HARNESS_DB_FILE || process.env.HARNESS_DB_FILE || join(homedir(), ".aurora", "harness.db")), "llama-server.log");
+    if (existsSync(file) && statSync(file).size > LOG_LIMIT) renameSync(file, `${file}.old`);
+    return openSync(file, "a");
+  } catch { return null; }
+}
+
 export async function ensureLlamaServer({ model, contextTokens = 16384, env = process.env, port = Number(env.LLAMA_SERVER_PORT) || 18181 } = {}) {
   if (!model) return null;
   scheduleIdleStop();
@@ -96,8 +111,10 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   entry.ready = (async () => {
     const { dir, gpu } = await pickDeviceDir(libDir);
     const args = ["-m", blob, "--jinja", "--host", "127.0.0.1", "--port", String(port), "--alias", model,
-      "-np", String(SLOTS), "-c", String(contextTokens * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : [])];
-    const child = spawn(bin(libDir), args, { cwd: dir, env: serverEnv(libDir, dir), stdio: "ignore", windowsHide: true });
+      "-np", String(SLOTS), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : [])];
+    const log = serverLog(env);
+    const child = spawn(bin(libDir), args, { cwd: dir, env: serverEnv(libDir, dir), stdio: ["ignore", log ?? "ignore", log ?? "ignore"], windowsHide: true });
+    if (log !== null) closeSync(log);
     entry.child = child;
     child.on("exit", () => { if (server === entry) server = null; });
     const ok = await waitHealthy(baseUrl, child);
