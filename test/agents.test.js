@@ -99,3 +99,19 @@ test("Desfazer puts back every file a run moved, never over a file that took the
   assert.ok((await agents.getRun(run.id)).undoneAt);
   await assert.rejects(agents.undoRunMoves(run.id), /já foi desfeita/);
 });
+
+test("a run left 'running' by a closed app or a shutdown is marked interrupted when the app opens again", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const file = join(temp, "desligou.db");
+  const db = new DatabaseSync(file);
+  db.exec("CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, mission TEXT NOT NULL, department TEXT, work_dir TEXT NOT NULL, tools TEXT, trigger TEXT, enabled INTEGER NOT NULL DEFAULT 1, project_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE agent_runs (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, conversation_id TEXT, request TEXT NOT NULL, trigger TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, answer TEXT, files TEXT, steps INTEGER, checks TEXT, review TEXT, copies TEXT, error TEXT)");
+  db.prepare("INSERT INTO agents VALUES ('a1','A','pessoal','m',null,'C:/x',null,null,1,null,'t','t')").run();
+  db.prepare("INSERT INTO agent_runs (id, agent_id, request, trigger, status, started_at) VALUES ('r1','a1','organize','schedule','running','2026-10-05T10:00:00Z')").run();
+  db.close();
+  const { execFileSync } = await import("node:child_process");
+  // A fresh process, as the app opening again: its first look at the database fixes the leftover.
+  const out = execFileSync(process.execPath, ["--input-type=module", "-e", "const a = await import(process.argv[1]); const r = await a.getRun('r1'); console.log(JSON.stringify([r.status, r.error]));", new URL("../app/agents.js", import.meta.url).href], { env: { ...process.env, HARNESS_DB_FILE: file }, encoding: "utf8" });
+  const [status, error] = JSON.parse(out.trim().split("\n").pop());
+  assert.equal(status, "failed");
+  assert.match(error, /Interrompida: a Aurora foi fechada ou o computador desligou/);
+});

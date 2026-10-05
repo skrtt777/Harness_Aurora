@@ -20,8 +20,16 @@ async function ready() {
   db.exec(`CREATE TABLE IF NOT EXISTS orchestrations (
       id TEXT PRIMARY KEY, request TEXT NOT NULL, plan TEXT NOT NULL, status TEXT NOT NULL,
       started_at TEXT NOT NULL, finished_at TEXT, results TEXT, summary_file TEXT)`);
+  // Nothing runs before this process starts: a "running" left behind is a team request cut by the
+  // app closing or the PC shutting down (it happened, 05/10/2026), not one still working.
+  if (!recovered) {
+    recovered = true;
+    db.prepare("UPDATE orchestrations SET status = 'failed', finished_at = ?, results = ? WHERE status = 'running'").run(new Date().toISOString(), JSON.stringify([{ error: INTERRUPTED }]));
+  }
   return db;
 }
+let recovered = false;
+export const INTERRUPTED = "Interrompida: a Aurora foi fechada ou o computador desligou no meio do trabalho. Rode de novo.";
 
 // The deliverable is a field of its own: written into the request text, "planilha" became "lista".
 const FORMATS = { planilha: "planilha Excel (.xlsx)", "relatório em Word": "relatório em Word (.docx)", PDF: "PDF (.pdf)", texto: "texto (.md)" };

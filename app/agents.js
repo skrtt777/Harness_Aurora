@@ -15,6 +15,7 @@ import { httpError } from "./httpSecurity.js";
  */
 
 export const AGENT_KINDS = ["setor", "pessoal"];
+let recovered = false;
 
 async function ready() {
   const db = await getDb();
@@ -31,6 +32,12 @@ async function ready() {
   const columns = new Set(db.prepare("PRAGMA table_info(agent_runs)").all().map((c) => c.name));
   if (!columns.has("moves")) db.exec("ALTER TABLE agent_runs ADD COLUMN moves TEXT");
   if (!columns.has("undone_at")) db.exec("ALTER TABLE agent_runs ADD COLUMN undone_at TEXT");
+  // A run still "running" from before this process started was cut by the app closing or the PC
+  // shutting down: the card would say "Trabalhando…" forever.
+  if (!recovered) {
+    recovered = true;
+    db.prepare("UPDATE agent_runs SET status = 'failed', finished_at = ?, error = ? WHERE status = 'running'").run(new Date().toISOString(), "Interrompida: a Aurora foi fechada ou o computador desligou no meio do trabalho. Rode de novo.");
+  }
   return db;
 }
 
