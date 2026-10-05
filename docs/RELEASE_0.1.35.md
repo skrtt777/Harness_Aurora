@@ -15,7 +15,7 @@
 
 ## Organizar arquivos
 
-- **Organizar uma pasta numa vez só:** "organize meus Downloads" separa todos os arquivos soltos por tipo (Documentos, Planilhas, Imagens, Vídeos, Instaladores…) numa única ação. Subpastas e downloads em andamento ficam como estão, nada é apagado nem sobrescrito.
+- **Organizar uma pasta numa vez só:** "organize meus Downloads" separa todos os arquivos soltos por tipo (Documentos, Planilhas, Imagens, Vídeos, Instaladores…) numa única ação, ou nas subpastas que você disser ("Documentos: pdf e docx; Imagens: jpg"). Subpastas e downloads em andamento ficam como estão, nada é apagado nem sobrescrito.
 - **Desfazer:** a resposta que moveu ou editou arquivos, no chat ou num agente, mostra **Desfazer**. Os arquivos voltam ao lugar e à versão de antes. Um arquivo que você mudou depois, ou um novo que ocupou o lugar antigo, nunca é sobrescrito.
 - **Substituir não perde mais o conteúdo:** quando a Aurora regrava um arquivo que já existia, a versão anterior fica guardada (por 30 dias) para o Desfazer.
 - **Mover vários de uma vez:** a Aurora move uma lista de arquivos para a mesma pasta numa ação só.
@@ -34,6 +34,7 @@
 
 ## Navegador
 
+- **Cada texto no seu campo:** ao preencher um formulário, a mensagem não é mais digitada por cima do e-mail que acabou de ser preenchido.
 - **Formulários de contato enviados de verdade:** apertar Enter na caixa de mensagem só pulava uma linha, mas a Aurora dizia que tinha enviado. Agora o formulário é enviado como se você clicasse em Enviar.
 
 ## Perguntas sobre a empresa
