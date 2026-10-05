@@ -529,6 +529,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const hasKnowledge = conversation.provider === "local" && (await listSources().catch(() => [])).some((s) => s.documents > 0);
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
           agentDocs = [...new Set(autoDocs.map((d) => d.path))];
+          // Sheets the model only saw as an excerpt: write_document checks a table built from them was read whole.
+          toolContext.excerptSheets = agentDocs.filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p));
           // Files the person names ("resuma o MARU_MEDIA_KIT", a pasted path) are
           // found and read up front: a small model guesses folders and links.
           const attached = await mentionedFiles(trimmed, toolContext, history);

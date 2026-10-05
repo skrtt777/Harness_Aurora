@@ -680,6 +680,7 @@ export const fileTools = [
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
+      (ctx.readFiles ??= new Set()).add(file.toLowerCase());
       if (String(filter || "").trim() || String(sort || "").trim()) {
         // Corrected once per filter: a model that asks the same again after the note gets it as written
         // (fighting it, the tool made an agent give up on "=15/10/2026").
@@ -754,7 +755,14 @@ export const fileTools = [
       await writeFile(file, bytes);
       OWN_DOCUMENTS.add(file.toLowerCase());
       const missing = missingRows(ctx.lastRows, args.content ?? args.text ?? args.markdown ?? "");
-      const note = missing.length ? `\nATENÇÃO: o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - missing.length}. Faltam: ${missing.slice(0, 20).join(", ")}${missing.length > 20 ? "…" : ""}. Se o pedido é a lista inteira, grave de novo no mesmo caminho com todas as linhas.` : "";
+      const content = String(args.content ?? args.text ?? args.markdown ?? "");
+      let note = missing.length ? `\nATENÇÃO: o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - missing.length}. Faltam: ${missing.slice(0, 20).join(", ")}${missing.length > 20 ? "…" : ""}. Se o pedido é a lista inteira, grave de novo no mesmo caminho com todas as linhas.` : "";
+      // A table built from the excerpt of a company sheet the context showed, never read whole:
+      // an orchestrated Financeiro wrote its overdue list that way, 3 runs in 3 (05/10/2026).
+      const unread = (ctx.excerptSheets || []).filter((p) => !ctx.readFiles?.has(p.toLowerCase()));
+      if (!note && unread.length && unread.length === (ctx.excerptSheets || []).length && /\|[^\n]*\|/.test(content)) {
+        note = `\nATENÇÃO: você montou a tabela só com um TRECHO de ${unread.map((p) => basename(p)).join(", ")} (o contexto mostra só parte das linhas). Leia a planilha com read_file e filter (ex.: a condição do pedido) e grave de novo no mesmo caminho com todas as linhas.`;
+      }
       return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}`;
     },
   },

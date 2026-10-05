@@ -392,3 +392,17 @@ test("a sector agent reads 'Sector\file' from the company folder, and a wrong na
   assert.equal(wrong.ok, false);
   assert.match(wrong.result, /nome mais parecido é .*Contratos Vigentes\.csv/);
 });
+
+test("a table built only from a sheet's excerpt in the context is sent back to read the sheet whole", async () => {
+  const dir = join(root, "trecho");
+  mkdirSync(dir, { recursive: true });
+  const sheet = join(dir, "receber.csv");
+  writeFileSync(sheet, "Cliente;Dias\nA;40\nB;50\n");
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], excerptSheets: [sheet] });
+  const table = "| Cliente | Dias |\n|---|---|\n| A | 40 |";
+  const blind = await executeTool("write_document", { path: "lista.xlsx", content: table }, c);
+  assert.match(blind.result, /só com um TRECHO de receber\.csv/);
+  await executeTool("read_file", { path: "receber.csv", filter: "Dias>30" }, c);
+  const read = await executeTool("write_document", { path: "lista2.xlsx", content: "| Cliente | Dias |\n|---|---|\n| A | 40 |\n| B | 50 |" }, c);
+  assert.doesNotMatch(read.result, /TRECHO/);
+});
