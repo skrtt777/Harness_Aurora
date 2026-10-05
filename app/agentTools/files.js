@@ -41,8 +41,14 @@ export function filterRows(lines, filter) {
   // Several conditions: "Dias em atraso>30; Situação=Em atraso" (all must hold).
   const parts = String(filter).split(/\s*;\s*/).filter(Boolean);
   if (parts.length > 1) return filterAll(lines, parts, filter);
-  const [, colPart, op, valuePart] = filter.match(/^([^=<>]{1,60}?)\s*(>=|<=|>|<|=)\s*(.+)$/) || [];
+  const [, colPart, op, valuePart] = filter.match(/^([^=<>!]{1,60}?)\s*(>=|<=|!=|>|<|=)\s*(.+)$/) || [];
   if (op && op !== "=") return filterAll(lines, [filter], filter);
+  // "entrega até 15/10" written as "Entrega prevista=15/10/2026" brought only the 15th.
+  // A plain reminder was ignored 5 times out of 5; the counts make the difference visible.
+  const count = (f) => Number(/(\d+) linha\(s\)/.exec(filterAll(lines, [f], f))?.[1] || 0);
+  const dateNote = op === "=" && DATE.test(String(valuePart).trim())
+    ? `\n(ATENÇÃO: isto é só o dia ${valuePart.trim()}. "Até" essa data (${colPart.trim()}<=${valuePart.trim()}) dá ${count(`${colPart}<=${valuePart}`)} linha(s); "a partir de" (>=) dá ${count(`${colPart}>=${valuePart}`)}. Se o pedido é "até" ou "a partir de", leia de novo com o operador certo.)`
+    : "";
   const wanted = foldText(valuePart ?? filter);
   const column = colPart ? foldText(colPart) : null;
   const sheets = [];
@@ -67,8 +73,8 @@ export function filterRows(lines, filter) {
     out.push(...[s.name, s.header?.line].filter(Boolean), ...hits.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`), "");
   }
   const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
-  if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}`;
-  return `${out.join("\n")}\n${total} linha(s) com "${filter}"${column && !anyColumn ? ` (coluna "${colPart}" não existe; procurei o texto na linha inteira)` : ""}.`;
+  if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}${dateNote}`;
+  return `${out.join("\n")}\n${total} linha(s) com "${filter}"${column && !anyColumn ? ` (coluna "${colPart}" não existe; procurei o texto na linha inteira)` : ""}.${dateNote}`;
 }
 function parseSheets(lines) {
   const sheets = [];
@@ -86,27 +92,34 @@ function parseSheets(lines) {
 /** Every condition must hold; each names its column ("Coluna>30", "Coluna=texto"). */
 function filterAll(lines, conditions, label) {
   const parsed = conditions.map((c) => {
-    const [, col, op, value] = c.match(/^([^=<>]{1,60}?)\s*(>=|<=|>|<|=)\s*(.+)$/) || [];
+    const [, col, op, value] = c.match(/^([^=<>!]{1,60}?)\s*(>=|<=|!=|>|<|=)\s*(.+)$/) || [];
     return col ? { col: foldText(col), op, text: foldText(value), number: cellValue(value.trim()), raw: c } : null;
   });
   const sheets = parseSheets(lines);
+  const headerCells = sheets.flatMap((s) => s.header?.cells || []);
   const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
-  const bad = parsed.find((p) => !p || (p.op !== "=" && p.number === null));
-  if (bad !== undefined) return `Condição inválida: "${bad?.raw || conditions[parsed.indexOf(bad)]}". Use Coluna>número, Coluna>=dd/mm/aaaa ou Coluna=texto, separadas por ";".${columns ? ` Colunas: ${columns}.` : ""}`;
+  // "Saldo<Estoque mínimo": the other side is a column of the same row.
+  for (const p of parsed) if (p && COMPARE[p.op] && p.number === null && headerCells.some((c) => c === p.text || c.includes(p.text))) p.otherCol = p.text;
+  const bad = parsed.find((p) => !p || (COMPARE[p.op] && p.number === null && !p.otherCol));
+  if (bad !== undefined) return `Condição inválida: "${bad?.raw || conditions[parsed.indexOf(bad)]}". Use Coluna>número, Coluna>=dd/mm/aaaa, Coluna<OutraColuna, Coluna=texto ou Coluna!=texto, separadas por ";".${columns ? ` Colunas: ${columns}.` : ""}`;
   const out = [];
   let total = 0;
   let found = false;
   for (const s of sheets) {
-    const indexes = parsed.map((p) => { const exact = s.header?.cells.findIndex((c) => c === p.col) ?? -1; return exact >= 0 ? exact : s.header?.cells.findIndex((c) => c.includes(p.col)) ?? -1; });
-    if (indexes.some((i) => i < 0)) continue;
+    const columnOf = (name) => { const exact = s.header?.cells.findIndex((c) => c === name) ?? -1; return exact >= 0 ? exact : s.header?.cells.findIndex((c) => c.includes(name)) ?? -1; };
+    const indexes = parsed.map((p) => columnOf(p.col));
+    const others = parsed.map((p) => (p.otherCol ? columnOf(p.otherCol) : null));
+    if (indexes.some((i) => i < 0) || others.some((i) => i !== null && i < 0)) continue;
     found = true;
     const hits = s.rows.filter(({ line }) => {
       const cells = line.split(" | ");
       return parsed.every((p, k) => {
         const cell = cells[indexes[k]] ?? "";
         if (p.op === "=") return foldText(cell).includes(p.text);
+        if (p.op === "!=") return !foldText(cell).includes(p.text);
         const value = cellValue(cell);
-        return value !== null && COMPARE[p.op](value, p.number);
+        const against = others[k] !== null ? cellValue(cells[others[k]] ?? "") : p.number;
+        return value !== null && against !== null && COMPARE[p.op](value, against);
       });
     });
     if (!hits.length) continue;
@@ -354,7 +367,7 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\") ou só um texto; condições separadas por \";\" valem juntas. Devolve o cabeçalho, as linhas que batem e o total: use esse resultado em vez de comparar valores de cabeça.",
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\"), diferente (\"Situação!=Resolvido\"), entre duas colunas (\"Saldo<Estoque mínimo\") ou só um texto; condições separadas por \";\" valem juntas. Devolve o cabeçalho, as linhas que batem e o total: use esse resultado em vez de comparar valores de cabeça.",
     parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\", \"Coluna>30\", \"Coluna>=01/10/2026\" (várias com ;) ou texto que a linha precisa conter" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
@@ -394,12 +407,14 @@ export const fileTools = [
   },
   {
     name: "write_file",
-    description: "Cria ou substitui um arquivo de texto com o conteúdo informado. Cria as pastas que faltarem.",
+    description: "Cria ou substitui um arquivo de TEXTO (código, .txt, .md, .csv, .json…) com o conteúdo informado. Cria as pastas que faltarem. Word, Excel, PDF e PowerPoint: use write_document.",
     parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] },
     stage: (a) => `Salvando ${a.path}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [full(a.path, ctx)], summary: `Salvar ${full(a.path, ctx)}` }),
     async run({ path, content }, ctx) {
       const file = full(path, ctx);
+      // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
+      if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, String(content ?? ""), "utf8");
       return `Salvei ${file} (${Buffer.byteLength(String(content ?? ""))} bytes).`;

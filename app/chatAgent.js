@@ -47,6 +47,14 @@ export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(St
 
 const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar|criar|gerar|salvar|montar|escrever|preparar|elaborar|atualizar|fazer";
 
+/** The answer is the request itself, copied back (a small model's dead end). */
+export function echoesRequest(text, request) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const a = norm(text);
+  const b = norm(request);
+  return b.length >= 20 && (a === b || (a.startsWith(b.slice(0, 40)) && a.length <= b.length * 1.3));
+}
+
 /** "Vou rolar a página e verificar…" — a promise of an action, not an answer. */
 export function announcesAction(text) {
   const tail = String(text || "").slice(-400);
@@ -230,8 +238,9 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Você disse que criou ou salvou um arquivo, mas nenhuma ferramenta escreveu arquivo nesta resposta: ele não existe. Crie agora de verdade com ${writer}, usando o conteúdo real da conversa, e informe o caminho completo. Se não puder, diga claramente que não criou o arquivo.` });
       continue;
     }
-    // Asked to create a file, it answers with "quer que eu crie?": the request already says so.
-    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (/\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer|prosseguir|seguir|continuar)|deseja que|precisa confirmar|confirme|gostaria d[oa] seu|seu ok)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
+    // Asked to create a file, it answers with "quer que eu crie?" (or just repeats the request
+    // back, seen 05/10/2026): the request already says what to do.
+    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (echoesRequest(text, question) || /\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer|prosseguir|seguir|continuar)|deseja que|precisa confirmar|confirme|gostaria d[oa] seu|seu ok)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
       confirmChecked = true;
       checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });

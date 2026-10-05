@@ -132,3 +132,15 @@ test("a forced summary that still claims a file gets an honest warning", async (
   assert.match(result.text, /Atenção:\*\* nenhum arquivo foi gravado nesta resposta \(Ninguém respondeu/);
   assert.ok(result.checks.some((c) => c.check === "claimed_delivery_final"));
 });
+
+test("an answer that only repeats the request goes back to do the task", async () => {
+  const { echoesRequest } = await import("../app/chatAgent.js");
+  const request = "Gere uma planilha com os produtos que estão abaixo do estoque mínimo, com código e saldo.";
+  assert.equal(echoesRequest(request, request), true);
+  assert.equal(echoesRequest("Gerei a planilha com 4 produtos abaixo do mínimo: FAR-002, FUB-001, CAF-001 e CAF-002, salva em estoque.xlsx.", request), false);
+  const writer = { name: "write_document", description: "cria documento", parameters: { type: "object", properties: {} }, run: async () => "Criei C:/estoque.xlsx (XLSX, 900 bytes)." };
+  const replies = [{ ok: true, text: request }, { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "estoque.xlsx", content: "| a |" } }] }, { ok: true, text: "Criei C:/estoque.xlsx." }];
+  const result = await runChatAgent({ system: "s", input: request, tools: [writer], callModel: async () => replies.shift() });
+  assert.deepEqual(result.checks.map((c) => c.check), ["asked_instead_of_doing"]);
+  assert.equal(result.steps[0].tool, "write_document");
+});

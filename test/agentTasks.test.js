@@ -57,3 +57,14 @@ test("agent tasks are scored on the file they deliver", async () => {
   assert.ok(claimed.checks.every((c) => !c.ok));
   assert.equal(sheetRows(sheet.join("\n"))[0]["Título"], "Duplicata 2132");
 });
+
+test("filters: not-equal, one column against another, and a hint when '=' is used with a date", () => {
+  const stock = ["Código | Produto | Saldo (caixas) | Estoque mínimo (caixas)", "FAR-001 | Farinha | 3844 | 1000", "FAR-002 | Farinha 5 kg | 140 | 600", "CAF-001 | Café | 310 | 1000"];
+  const codes = (r) => r.split("\n").filter((l) => /^\s+\d+\s+[A-Z]{3}-/.test(l)).map((l) => l.trim().split(/\s+/)[1]);
+  assert.deepEqual(codes(filterRows(stock, "Saldo<Estoque mínimo")), ["FAR-002", "CAF-001"]);
+  assert.deepEqual(codes(filterRows(stock, "Saldo (caixas) < Estoque mínimo (caixas)")), ["FAR-002", "CAF-001"]);
+  assert.deepEqual(codes(filterRows(stock, "Código!=FAR-001")), ["FAR-002", "CAF-001"]);
+  const dated = filterRows(sheet, "Vencimento=24/09/2026");
+  assert.match(dated, /Duplicata 2066/);
+  assert.match(dated, /"Até" essa data \(Vencimento<=24\/09\/2026\) dá 3 linha\(s\); "a partir de" \(>=\) dá 2/);
+});

@@ -214,3 +214,10 @@ test("a refused write outside the project says where saving needs no approval", 
   const read = await executeTool("read_file", { path: join(outside, "nada.txt") }, ctx(async () => false, { workspace: root }));
   assert.doesNotMatch(read.result, /pode salvar/, "only writes get the hint");
 });
+
+test("write_file refuses Office formats and points to write_document", async () => {
+  const out = await executeTool("write_file", { path: join(root, "lista.xlsx"), content: "a;b" }, ctx());
+  assert.equal(out.ok, false);
+  assert.match(out.result, /use write_document/);
+  assert.equal(existsSync(join(root, "lista.xlsx")), false);
+});

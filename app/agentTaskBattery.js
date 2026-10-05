@@ -58,6 +58,51 @@ export const AGENT_TASKS = [
       return { expected: rows.filter(over).map((r) => r["Área"]), excluded: rows.filter((r) => !over(r)).map((r) => r["Área"]) };
     },
   },
+  // Phase C: the other sectors, each with a different kind of reasoning.
+  {
+    id: "compras-entregas-15-10",
+    department: "Compras",
+    request: "Gere uma planilha com os pedidos de compra em aberto cuja entrega prevista é até 15/10/2026, com pedido, fornecedor, entrega prevista e valor, para eu cobrar os fornecedores.",
+    format: [".xlsx", ".csv"],
+    async truth(root) {
+      const rows = sheetRows(await extractText(join(root, "Compras/Pedidos de Compra em Aberto.xlsx")));
+      const due = (r) => { const [d, m, y] = String(r["Entrega prevista"]).split("/").map(Number); return y === 2026 && (m < 10 || (m === 10 && d <= 15)); };
+      return { expected: rows.filter(due).map((r) => r.Pedido), excluded: rows.filter((r) => !due(r)).map((r) => r.Pedido) };
+    },
+  },
+  {
+    id: "juridico-contratos-2026",
+    department: "Jurídico",
+    request: "Faça um relatório em Word com os contratos vigentes que terminam até 31/12/2026, com o contratado, o término, o valor mensal e a situação, para decidirmos as renovações.",
+    format: [".docx"],
+    async truth(root) {
+      const rows = sheetRows(await extractText(join(root, "Jurídico/Contratos Vigentes.xlsx")));
+      const ends = (r) => String(r["Término"]).endsWith("/2026");
+      return { expected: rows.filter(ends).map((r) => r.Contratado), excluded: rows.filter((r) => !ends(r)).map((r) => r.Contratado) };
+    },
+  },
+  {
+    id: "ti-chamados-abertos",
+    department: "TI",
+    request: "Gere uma planilha com todos os chamados de setembro que ainda não foram resolvidos, com número, data de abertura, setor e categoria.",
+    format: [".xlsx", ".csv"],
+    async truth(root) {
+      const rows = sheetRows(await extractText(join(root, "TI/Chamados - Setembro 2026.xlsx"))).filter((r) => /^CH-/.test(r.Chamado || ""));
+      const open = (r) => r["Situação"] !== "Resolvido";
+      return { expected: rows.filter(open).map((r) => r.Chamado), excluded: rows.filter((r) => !open(r)).map((r) => r.Chamado) };
+    },
+  },
+  {
+    id: "logistica-abaixo-minimo",
+    department: "Logística",
+    request: "Gere uma planilha com os produtos que estão abaixo do estoque mínimo na posição de 30/09/2026, com código, produto, saldo, mínimo e quanto falta para chegar ao mínimo.",
+    format: [".xlsx", ".csv"],
+    async truth(root) {
+      const rows = sheetRows(await extractText(join(root, "Logística/Estoque/Posição de Estoque - 30-09-2026.xlsx")));
+      const low = (r) => Number(r["Saldo (caixas)"]) < Number(r["Estoque mínimo (caixas)"]);
+      return { expected: rows.filter(low).map((r) => r["Código"]), excluded: rows.filter((r) => !low(r)).map((r) => r["Código"]) };
+    },
+  },
 ];
 
 /** Scores one run: the delivered file must exist, have every expected item and none of the excluded. */
