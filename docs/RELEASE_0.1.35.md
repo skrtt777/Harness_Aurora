@@ -16,7 +16,8 @@
 ## Organizar arquivos
 
 - **Organizar uma pasta numa vez só:** "organize meus Downloads" separa todos os arquivos soltos por tipo (Documentos, Planilhas, Imagens, Vídeos, Instaladores…) numa única ação. Subpastas e downloads em andamento ficam como estão, nada é apagado nem sobrescrito.
-- **Desfazer:** a resposta que moveu arquivos, no chat ou num agente, mostra **Desfazer**. Os arquivos voltam ao lugar, e um arquivo novo que ocupou o lugar antigo nunca é sobrescrito.
+- **Desfazer:** a resposta que moveu ou editou arquivos, no chat ou num agente, mostra **Desfazer**. Os arquivos voltam ao lugar e à versão de antes. Um arquivo que você mudou depois, ou um novo que ocupou o lugar antigo, nunca é sobrescrito.
+- **Substituir não perde mais o conteúdo:** quando a Aurora regrava um arquivo que já existia, a versão anterior fica guardada (por 30 dias) para o Desfazer.
 - **Mover vários de uma vez:** a Aurora move uma lista de arquivos para a mesma pasta numa ação só.
 
 ## Agentes
@@ -35,11 +36,17 @@
 
 - **Formulários de contato enviados de verdade:** apertar Enter na caixa de mensagem só pulava uma linha, mas a Aurora dizia que tinha enviado. Agora o formulário é enviado como se você clicasse em Enviar.
 
+## Conversa
+
+- **Seu nome:** o nome que aparece nas pastas do Windows não é mais confundido com o nome que você disse na conversa.
+
 ## Perguntas sobre a empresa
 
 - **Menos respostas certas desmentidas:** duas travas de conferência acusavam erro onde não havia, e o modelo se retratava. "Compra de 50 mil" respondida com R$ 50.000,00 não é mais "valor inventado", e um arquivo com artigo no nome ("Treinamentos NR a Vencer.xlsx") não é mais "documento inventado".
 - **"Quem está de férias agora?"** usa o período de hoje (início até hoje e fim depois de hoje), e não quem começa no mês.
 - **Conversa longa demais:** em vez de parar com erro de contexto, a Aurora resume os resultados antigos e continua.
+
+- **Endereço trocado:** se você pede para abrir um endereço e o modelo tenta abrir a mesma página em outro site (inventado), a Aurora abre o endereço que você escreveu. Assim seus dados não vão para um site que você não pediu.
 
 ## Planilhas
 
