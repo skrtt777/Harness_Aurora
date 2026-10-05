@@ -47,6 +47,19 @@ export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(St
 
 const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar|criar|gerar|salvar|montar|escrever|preparar|elaborar|atualizar|fazer|entregar|resumir|organizar|mover|corrigir|editar|testar";
 
+/**
+ * "A mensagem foi enviada com sucesso" after filling the fields but never pressing Send (seen
+ * 05/10/2026): after the last browser_type, no click, no Enter and no typing with submit.
+ */
+const SENT = /\b(enviei|foi enviad[ao]|mensagem enviada|formul[áa]rio enviado|enviad[ao] com sucesso|submeti|cadastro (feito|realizado|conclu[íi]do))/i;
+export function claimsSentWithoutSubmit(text, steps = []) {
+  if (!SENT.test(String(text || "")) || /\bn[ãa]o (enviei|foi enviad|consegui enviar)/i.test(String(text))) return false;
+  const lastType = steps.map((s) => s.tool).lastIndexOf("browser_type");
+  if (lastType < 0) return false;
+  const after = steps.slice(lastType + 1);
+  return !(steps[lastType].args?.submit && steps[lastType].ok) && !after.some((s) => s.ok && ["browser_click", "browser_key"].includes(s.tool));
+}
+
 /** The answer is the request itself, copied back (a small model's dead end). */
 export function echoesRequest(text, request) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -171,6 +184,7 @@ export async function runChatAgent({
   let deliveryChecked = false;
   let searches = 0;
   let confirmChecked = false;
+  let sentChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -238,6 +252,13 @@ export async function runChatAgent({
         messages.push({ role: "assistant", content: text }, { role: "user", content: `Estes dados da sua resposta não aparecem em nenhum documento consultado nem na conversa: ${missing.map((m) => `"${m}"`).join(", ")}. Confira nos trechos e copie nomes, ramais, datas e valores exatamente como estão (grafia incluída); o que não estiver neles, não diga.` });
         continue;
       }
+    }
+    // A form "sent" whose Send button was never pressed.
+    if (!toolCalls.length && offered.length && !sentChecked && claimsSentWithoutSubmit(text, steps)) {
+      sentChecked = true;
+      checks.push({ check: "claimed_submit", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Você preencheu os campos mas não clicou no botão de enviar: nada foi enviado. Clique agora no botão (browser_click com o ref dele) e confira a página de confirmação antes de responder." });
+      continue;
     }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.
     if (!toolCalls.length && offered.length && !deliveryChecked && claimsDelivery(text, steps)) {

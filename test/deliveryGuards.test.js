@@ -144,3 +144,19 @@ test("an answer that only repeats the request goes back to do the task", async (
   assert.deepEqual(result.checks.map((c) => c.check), ["asked_instead_of_doing"]);
   assert.equal(result.steps[0].tool, "write_document");
 });
+
+test("a form claimed as sent without pressing Send goes back to press it", async () => {
+  const { claimsSentWithoutSubmit } = await import("../app/chatAgent.js");
+  const typed = [{ tool: "browser_navigate", ok: true }, { tool: "browser_type", ok: true, args: { field: "nome" } }, { tool: "browser_type", ok: true, args: { field: "email" } }];
+  assert.equal(claimsSentWithoutSubmit("A mensagem foi enviada com sucesso.", typed), true);
+  assert.equal(claimsSentWithoutSubmit("A mensagem foi enviada com sucesso.", [...typed, { tool: "browser_click", ok: true }]), false);
+  assert.equal(claimsSentWithoutSubmit("Enviei.", [{ tool: "browser_type", ok: true, args: { submit: true } }]), false, "typing with submit sends");
+  assert.equal(claimsSentWithoutSubmit("Não consegui enviar a mensagem.", typed), false);
+  assert.equal(claimsSentWithoutSubmit("O preço é R$ 349,90.", typed), false);
+  const clicker = { name: "browser_click", description: "clica", parameters: { type: "object", properties: {} }, run: async () => "Cliquei em e4." };
+  const replies = [{ ok: true, text: "A mensagem foi enviada com sucesso." }, { ok: true, text: "", toolCalls: [{ name: "browser_click", arguments: { ref: "e4" } }] }, { ok: true, text: "Enviada: a página mostra a confirmação." }];
+  const history = [{ role: "assistant", content: "", tool_calls: [{ function: { name: "browser_type", arguments: {} } }] }];
+  const result = await runChatAgent({ system: "s", input: "envie o formulário", tools: [clicker], callModel: async () => replies.shift(), history: [] , toolContext: {} });
+  assert.equal(result.checks, undefined, "no typing in this turn: nothing to check");
+  void history;
+});

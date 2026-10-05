@@ -16,15 +16,19 @@ if (arg("db")) copyFileSync(arg("db"), join(base, "harness.db"));
 process.env.HARNESS_DB_FILE = join(base, "harness.db");
 // Nobody approves: anything outside the scenario folder counts as denied after 1 s.
 process.env.AGENT_APPROVAL_TIMEOUT_MS ||= "1000";
+// The browser scenario: no window, and a profile of its own (never the person's).
+process.env.BROWSER_AGENT_HEADLESS = "1";
+process.env.BROWSER_AGENT_PROFILE_DIR ||= join(base, "browser-profile");
 setInterval(() => {}, 60_000);
 
-const { BATTERY_TODAY, SCENARIOS, scoreTurn, summarizeBattery, writeBatteryFixtures } = await import("../app/conversationBattery.js");
+const { BATTERY_TODAY, SCENARIOS, scoreTurn, startBatterySite, summarizeBattery, writeBatteryFixtures } = await import("../app/conversationBattery.js");
 process.env.HARNESS_NOW ||= BATTERY_TODAY;
 const store = await import("../app/store.js");
 const { handleChatTurn } = await import("../app/server.js");
 const { resolveLocalModel } = await import("../app/ollamaSetup.js");
 const { extractText } = await import("../app/docText.js");
 if (!process.argv.includes("--teacher")) await store.setSetting("teacher_mode", "off");
+await store.setSetting("browser_backend", "aurora");
 const model = await resolveLocalModel(process.env);
 console.log(`modelo ${model}, professor ${process.argv.includes("--teacher") ? "ligado" : "desligado"}, ${runs} rodada(s)`);
 
@@ -34,19 +38,22 @@ for (let run = 1; run <= runs; run += 1) {
     const dir = join(base, `${scenario.id}-${run}`);
     mkdirSync(dir, { recursive: true });
     await writeBatteryFixtures(dir);
+    const site = await startBatterySite();
     const project = await store.createProject({ name: `Bateria ${scenario.id}`, workspaceDir: dir });
     const conversation = await store.createConversation({ provider: "local", projectId: project.id, teacherProvider: "claude" });
     const turns = [];
     console.log(`\n## ${scenario.id} (rodada ${run}): ${scenario.title}`);
     for (const spec of scenario.turns) {
       const started = Date.now();
-      const reply = await handleChatTurn({ conversationId: conversation.id, message: spec.message });
+      const message = typeof spec.message === "function" ? spec.message({ site }) : spec.message;
+      const reply = await handleChatTurn({ conversationId: conversation.id, message });
       const execution = reply.message?.execution || {};
       const turn = { text: reply.message?.content || reply.error || "", steps: execution.toolSteps || [], execution };
-      const checks = await scoreTurn(turn, spec.checks, { dir, turns, extract: (file) => extractText(file) });
-      turns.push({ message: spec.message, ms: Date.now() - started, text: turn.text, steps: turn.steps.map((s) => `${s.tool}${s.redo ? "(refazer)" : ""}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 120)})`}`), fallback: execution.agentFallback || null, checks });
-      console.log(`- "${spec.message}" (${((Date.now() - started) / 1000).toFixed(1)} s) ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
+      const checks = await scoreTurn(turn, spec.checks, { dir, turns, site, extract: (file) => extractText(file) });
+      turns.push({ message, ms: Date.now() - started, text: turn.text, steps: turn.steps.map((s) => `${s.tool}${s.redo ? "(refazer)" : ""}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 120)})`}`), fallback: execution.agentFallback || null, checks });
+      console.log(`- "${message}" (${((Date.now() - started) / 1000).toFixed(1)} s) ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
     }
+    await site.close();
     results.push({ id: scenario.id, run, files: readdirSync(dir), turns });
   }
 }

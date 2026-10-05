@@ -38,6 +38,31 @@ const CONTRACTS = [
   ["Café do Vale", "30/09/2026", 1250],
 ];
 
+/**
+ * A small local site for the browser scenario: a price table and a contact form whose
+ * submissions are recorded, so the check looks at what the server received.
+ */
+export async function startBatterySite() {
+  const http = await import("node:http");
+  const submissions = [];
+  const page = (title, body) => `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
+  const server = http.createServer((req, res) => {
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    if (req.url === "/loja") return res.end(page("Loja Teclas", `<h1>Loja Teclas</h1><table><tr><th>Produto</th><th>Preço</th></tr><tr><td>Mouse sem fio</td><td>R$ 129,90</td></tr><tr><td>Teclado mecânico</td><td>R$ 349,90</td></tr><tr><td>Monitor 24"</td><td>R$ 899,00</td></tr></table>`));
+    if (req.url === "/contato" && req.method === "GET") return res.end(page("Contato", `<h1>Fale conosco</h1><form method="post" action="/contato"><label>Nome <input name="nome"></label><label>E-mail <input name="email" type="email"></label><label>Mensagem <textarea name="mensagem"></textarea></label><button type="submit">Enviar</button></form>`));
+    if (req.url === "/contato" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => { submissions.push(Object.fromEntries(new URLSearchParams(body))); res.end(page("Enviado", "<h1>Mensagem enviada. Obrigado!</h1>")); });
+      return undefined;
+    }
+    res.statusCode = 404;
+    return res.end(page("Não encontrado", "<h1>Página não encontrada</h1>"));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { url: `http://127.0.0.1:${server.address().port}`, submissions, close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }) };
+}
+
 /** Writes the fictitious files the scenarios talk about. */
 export async function writeBatteryFixtures(dir) {
   writeFileSync(join(dir, "Kit_Midia_Luma_2026.pdf"), makePdfDocument(parseBlocks(KIT)));
@@ -124,6 +149,22 @@ export const SCENARIOS = [
       ] },
       { message: "como é o meu nome mesmo?", checks: [{ name: "lembra: Rafaela", ok: (t) => has(t.text, "Rafaela") }] },
       { message: "onde ficou a planilha?", checks: [{ name: "diz o arquivo", ok: (t, c) => newFiles(c.dir).some((f) => named(t.text, f)) }] },
+    ],
+  },
+  {
+    // The browser, which no battery measured: read a page, then fill and send a form. The check
+    // is what the site received, not what the answer says.
+    id: "navegador",
+    title: "Ler uma página e enviar um formulário no navegador",
+    turns: [
+      { message: (c) => `Abra ${c.site.url}/loja e me diga o preço do teclado mecânico.`, checks: [
+        { name: "R$ 349,90", ok: (t) => /349[,.]90/.test(t.text) },
+        { name: "usou o navegador ou a web", ok: (t) => (t.steps || []).some((s) => /^(browser_|web_)/.test(s.tool) && s.ok) },
+      ] },
+      { message: (c) => `Agora abra ${c.site.url}/contato e envie uma mensagem com o nome Rafaela, o e-mail rafaela@exemplo.com e o texto "Quero um orçamento de 10 teclados".`, checks: [
+        { name: "o site recebeu o formulário", ok: (t, c) => c.site.submissions.length > 0 },
+        { name: "com nome, e-mail e mensagem certos", ok: (t, c) => c.site.submissions.some((s) => /rafaela/i.test(s.nome || "") && s.email === "rafaela@exemplo.com" && /10 teclados/i.test(s.mensagem || "")) },
+      ] },
     ],
   },
   {

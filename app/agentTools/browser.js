@@ -112,6 +112,15 @@ async function locate(page, { ref, text }) {
     const visible = candidate.filter({ visible: true });
     if (await visible.count().catch(() => 0)) return visible.first();
   }
+  // The name the snapshot showed: a field listed as "email" (its name attribute) under the label
+  // "E-mail" was asked for by that name and not found (05/10/2026).
+  const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const data = await page.evaluate(collectElements, MAX_ELEMENTS).catch(() => ({ elements: [] }));
+  const match = data.elements.find((e) => fold(e.name) === fold(query)) || data.elements.find((e) => fold(query).length >= 3 && fold(e.name).includes(fold(query)));
+  if (match) {
+    const locator = page.locator(`[data-aurora-ref="${match.ref}"]`);
+    if (await locator.count().catch(() => 0)) return locator.first();
+  }
   return null;
 }
 
