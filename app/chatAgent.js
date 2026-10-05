@@ -107,7 +107,11 @@ const OLD_RESULT_CHARS = 400;
  * system prompt. Only the latest results matter for the next step, so older
  * ones shrink to their first lines ("Cliquei em e12." + URL).
  */
-export function compactOldToolResults(messages) {
+export function compactOldToolResults(messages, { atChars = 0 } = {}) {
+  // Rewriting an old message changes the prompt's start, so the server reprocesses everything
+  // after it: cheap on a GPU, tens of seconds per step on a CPU. With `atChars`, old results are
+  // only shortened once the conversation gets near the context limit.
+  if (atChars && messages.reduce((n, m) => n + String(m.content || "").length, 0) < atChars) return;
   const toolIndexes = messages.flatMap((m, i) => (m.role === "tool" ? [i] : []));
   for (const i of toolIndexes.slice(0, -KEEP_FULL_TOOL_RESULTS)) {
     const content = messages[i].content;
@@ -173,7 +177,9 @@ export async function runChatAgent({
     if (round === maxSteps && offered.length) { offered = []; forced = "limit"; forcedNote = `Você atingiu o limite de ${maxSteps} ações nesta mensagem.`; }
     if (!offered.length && forcedNote) messages.push({ role: "user", content: `${forcedNote} Não chame mais ferramentas: diga ao usuário, em poucas frases, o que você conseguiu fazer e o que faltou.` });
     onStage(round === 0 ? "Pensando…" : steps.length ? "Decidindo o próximo passo…" : "Gerando resposta…");
-    compactOldToolResults(messages);
+    // AGENT_COMPACT=always keeps the old behavior (measurement); the default waits for ~28k chars,
+    // about 60% of a llama-server slot (16k tokens), before touching old results.
+    compactOldToolResults(messages, { atChars: env.AGENT_COMPACT === "always" ? 0 : Number(env.AGENT_COMPACT_AT_CHARS) || 28000 });
 
     // The answer as it is written (llama-server streaming). Each step starts clean: text that
     // became a tool call, or that a guard sent back, is not left on screen.

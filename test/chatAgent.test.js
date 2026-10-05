@@ -319,3 +319,14 @@ test("web results reach the model marked as data, and later commands ask for app
   assert.match(seen[1].messages.find((m) => m.role === "tool").content, /^\[Conteúdo vindo da internet/);
   assert.deepEqual(approvals, ["Comando depois de ler conteúdo da internet nesta conversa"]);
 });
+
+test("old tool results are only shortened near the context limit (the cached prompt stays the same)", () => {
+  const big = "x".repeat(1000);
+  const make = () => [{ role: "system", content: "s" }, ...[1, 2, 3, 4].map((n) => ({ role: "tool", content: `${n}${big}` }))];
+  const small = make();
+  compactOldToolResults(small, { atChars: 28000 });
+  assert.ok(small.every((m) => !String(m.content).includes("(resultado antigo resumido)")), "4 KB is far from the limit: nothing rewritten");
+  const near = make();
+  compactOldToolResults(near, { atChars: 3000 });
+  assert.equal(near.filter((m) => String(m.content).includes("(resultado antigo resumido)")).length, 2, "near the limit the old ones shrink, the last two stay whole");
+});
