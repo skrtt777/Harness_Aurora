@@ -154,3 +154,12 @@ test("'vence primeiro' and 'próximo a vencer' get a ready ascending sort from t
   assert.match(nextDueHint(sheet, "qual o próximo a vencer?", now), /sort="Término"/);
   assert.equal(nextDueHint(sheet, "quais contratos temos?", now), "");
 });
+
+test("'mais acima', 'maior' and 'menor' get ready sorts in the right direction", async () => {
+  const { extremeHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Resumo", "Área | Matrícula | Orçado | Desvio (%)", "TI | 1001 | 100 | 14.35%"];
+  assert.match(extremeHint(sheet, "Qual área está mais acima do orçamento?"), /sort="-Orçado" ou sort="-Desvio \(%\)"/);
+  assert.match(extremeHint(sheet, "Qual área gastou menos?"), /sort="Orçado" ou sort="Desvio \(%\)"/);
+  assert.doesNotMatch(extremeHint(sheet, "maior desvio"), /Matrícula/, "id columns are not sorted for an answer");
+  assert.equal(extremeHint(sheet, "Como está o orçamento?"), "");
+});

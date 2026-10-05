@@ -227,6 +227,25 @@ export function nextDueHint(lines, request, now = new Date()) {
   return `\n(O pedido é sobre o que vence/termina primeiro: leia de novo com filter="${col}>=${today}" e sort="${col}" — a primeira linha é a resposta. Não compare as datas de olho.)`;
 }
 
+/**
+ * "Qual área está mais acima do orçamento?", "quem vendeu menos?": the largest or smallest, which a
+ * sort answers. The direction is what the model got wrong (sort="-Término" for "vence primeiro").
+ */
+export function extremeHint(lines, request) {
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const most = /\b(maior|maiores|mais (acima|alto|alta|caro|cara|vendeu|gastou)|maximo|campe[aã]o)\b/.test(text);
+  const least = /\b(menor|menores|mais (baixo|baixa|barato|barata)|menos|minimo)\b/.test(text);
+  if (most === least) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const numeric = header.filter((c, j) => !ID_COLUMN.test(c) && !DATE.test(sample[j] || "") && cellValue(sample[j] || "") !== null);
+  if (!numeric.length) return "";
+  const options = numeric.slice(0, 6).map((c) => `sort="${most ? "-" : ""}${c}"`).join(" ou ");
+  return `\n(O pedido quer o ${most ? "maior" : "menor"}: leia de novo com a coluna certa, ${options} (${most ? "o sinal - põe o maior primeiro" : "sem sinal, o menor vem primeiro"}). A primeira linha é a resposta.)`;
+}
+
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
@@ -734,7 +753,7 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request);
+        ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || extremeHint(table, ctx.request);
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
