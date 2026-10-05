@@ -527,13 +527,38 @@ export async function resolveExisting(path, ctx, { directory = false } = {}) {
     const inside = ctx.workspace && relative(ctx.workspace, raw);
     return inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : null;
   })();
+  // A sector agent's root is the sector folder (F:\EmpresaIA\Jurídico) and the model writes the path
+  // from the company folder ("Jurídico\Contratos Vigentes.xlsx"): its parent is tried too.
   for (const root of rel ? ctx.knowledgeRoots || [] : []) {
-    const candidate = join(root, rel);
-    if ((await isInsideRoots(candidate, [root])) && (await stat(candidate).catch(() => null))?.isFile()) return candidate;
+    for (const candidate of [join(root, rel), join(dirname(root), rel)]) {
+      if ((await isInsideRoots(candidate, [root])) && (await stat(candidate).catch(() => null))?.isFile()) return candidate;
+    }
   }
   const found = await findFilesByName(target, personalFolders(ctx), { limit: 3, signal: ctx.signal });
   if (found.length) return found[0];
-  throw new Error(`O arquivo ${target} não existe e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário.`);
+  // "Desvio Orçado x Realizado 2026.xlsx" for "Orçamento 2026 - Orçado x Realizado.xlsx": the
+  // closest real name in the company folders, instead of a dead end the model retries.
+  const close = await closestKnowledgeFile(target, ctx.knowledgeRoots || []);
+  throw new Error(`O arquivo ${target} não existe${close ? `. O arquivo da empresa com nome mais parecido é ${close}: leia esse caminho completo` : ` e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário`}.`);
+}
+
+/** The file under the company folders whose name shares the most words (2 at least) with `wanted`. */
+export async function closestKnowledgeFile(wanted, roots = [], { limit = 3000 } = {}) {
+  const words = (s) => new Set(foldText(basename(String(s)).replace(/\.[^.]+$/, "")).split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+  const want = words(wanted);
+  const ext = extname(String(wanted)).toLowerCase();
+  if (want.size < 2) return null;
+  let best = null, bestScore = 1, seen = 0;
+  for (const root of roots) {
+    for await (const file of walk(root)) {
+      if (++seen > limit) break;
+      if (ext && extname(file).toLowerCase() !== ext) continue;
+      // By stem too: "Vigência" and "Vigentes" are the same word for this purpose.
+      const score = [...words(file)].filter((w) => [...want].some((x) => x === w || (x.length >= 5 && w.length >= 5 && x.slice(0, 5) === w.slice(0, 5)))).length;
+      if (score > bestScore) { best = file; bestScore = score; }
+    }
+  }
+  return best;
 }
 
 /** "src/**\/*.ts" → RegExp over forward-slash relative paths. */

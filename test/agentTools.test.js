@@ -376,3 +376,19 @@ test("the address the person wrote wins over the same page on an invented host",
   assert.equal(requestedUrl(request, new URL("https://www.google.com/search?q=teclados")), null, "another page, another site: allowed");
   assert.equal(requestedUrl("pesquise teclados", new URL("https://www.google.com/")), null);
 });
+
+test("a sector agent reads 'Sector\file' from the company folder, and a wrong name gets the closest real one", async () => {
+  const company = join(root, "EmpresaX");
+  const sector = join(company, "Jurídico");
+  mkdirSync(sector, { recursive: true });
+  writeFileSync(join(sector, "Contratos Vigentes.csv"), "Contratado;Término\nA;31/10/2026\n");
+  writeFileSync(join(sector, "Procurações.csv"), "x\n");
+  const work = join(root, "agente-setor");
+  mkdirSync(work, { recursive: true });
+  const c = ctx(async () => false, { workspace: work, workspaceRoots: [work], knowledgeRoots: [sector], allowedRoots: [root] });
+  const ok = await executeTool("read_file", { path: join("Jurídico", "Contratos Vigentes.csv") }, c);
+  assert.equal(ok.ok, true, ok.result);
+  const wrong = await executeTool("read_file", { path: "Vigência de contratos.csv" }, c);
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.result, /nome mais parecido é .*Contratos Vigentes\.csv/);
+});
