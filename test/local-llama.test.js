@@ -92,3 +92,35 @@ test('Streaming reports growing partial text and keeps the final contract',async
   assert.deepEqual(seen,['Olá','Olá, Lucas']);assert.equal(r.text,'Olá, Lucas');
   assert.deepEqual(r.usage,{input_tokens:29,output_tokens:3});assert.equal(r.metrics.outputTokensPerSecond,4);
 });
+
+test('Agent turns on llama-server stream text, join tool-call deltas and keep usage', async t => {
+  const { runLlamaChat } = await import('../app/localLlama.js');
+  const sse = (events) => new Response(new ReadableStream({ start(c) { for (const e of events) c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(e)}\n\n`)); c.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); c.close(); } }), { headers: { 'content-type': 'text/event-stream' } });
+  let sent;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    sent = JSON.parse(options.body);
+    return sent.tools ? sse([
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'read_', arguments: '{"pa' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'file', arguments: 'th":"a.pdf"}' } }] }, finish_reason: 'tool_calls' }] },
+      { choices: [], usage: { prompt_tokens: 50, completion_tokens: 9 } },
+    ]) : sse([
+      { choices: [{ delta: { content: 'A fotos' } }] },
+      { choices: [{ delta: { content: 'síntese usa luz.' }, finish_reason: 'stop' }] },
+      { choices: [], usage: { prompt_tokens: 40, completion_tokens: 7 }, timings: { predicted_per_second: 120 } },
+    ]);
+  });
+  const seen = [];
+  const text = await runLlamaChat([{ role: 'user', content: 'oi' }], [], { LOCAL_BASE_URL: 'http://127.0.0.1:18181' }, undefined, { onText: (s) => seen.push(s) });
+  assert.equal(sent.stream, true);
+  assert.deepEqual(seen, ['A fotos', 'A fotossíntese usa luz.']);
+  assert.equal(text.text, 'A fotossíntese usa luz.');
+  assert.equal(text.usage.output_tokens, 7);
+  assert.equal(text.metrics.outputTokensPerSecond, 120);
+  const shown = [];
+  const call = await runLlamaChat([{ role: 'user', content: 'leia' }], [{ type: 'function', function: { name: 'read_file', parameters: {} } }], { LOCAL_BASE_URL: 'http://127.0.0.1:18181' }, undefined, { onText: (s) => shown.push(s) });
+  assert.deepEqual(call.toolCalls, [{ name: 'read_file', arguments: { path: 'a.pdf' } }]);
+  assert.deepEqual(shown, [], 'a tool call is never shown as text');
+  const plain = await runLlamaChat([{ role: 'user', content: 'oi' }], [], { LOCAL_BASE_URL: 'http://127.0.0.1:18181' });
+  assert.equal(sent.stream, false, 'without onText nothing streams');
+  assert.equal(plain.ok, false, 'the stub answered SSE to a non-stream call');
+});

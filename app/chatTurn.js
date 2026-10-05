@@ -487,6 +487,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             ...(toolContext.agentTools ? { tools: AGENT_TOOLS.filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") } : {}),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
+            // The answer appears as it is written (local model on llama-server).
+            onText: conversation.provider === "local" ? (text) => setPartial(conversationId, text) : null,
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
             ...overrides,
           });
@@ -506,7 +508,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             const maxCopies = eligible ? await localCopies(localEnv) : 1;
             if (maxCopies > 1) {
               const copyContext = { ...toolContext, mode: "plan", onPlan: () => {} };
-              const rerun = () => runAgent(agentHistory(history), trimmed, { toolContext: copyContext, onStep: () => {}, onStage: () => {}, approve: async () => false });
+              const rerun = () => runAgent(agentHistory(history), trimmed, { toolContext: copyContext, onStep: () => {}, onStage: () => {}, onText: null, approve: async () => false });
               agent = (await escalateAnswer({ first: agent, rerun, maxCopies, onStage: (stage) => setStage(conversationId, stage) })).result;
             }
           }

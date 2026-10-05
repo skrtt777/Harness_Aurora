@@ -304,7 +304,8 @@ export default function AppShell() {
         .catch(() => {});
     };
     poll();
-    const interval = setInterval(poll, 1200);
+    // Fast enough to follow the answer while it is written (streamed into the pending turn).
+    const interval = setInterval(poll, 600);
     return () => {
       cancelled = true;
       clearInterval(interval);

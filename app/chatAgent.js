@@ -116,7 +116,7 @@ export function compactOldToolResults(messages) {
 }
 
 function defaultCallModel(provider) {
-  if (provider === "local") return (messages, tools, env, signal) => runLocalChat(messages, toolSchemas(tools), env, signal);
+  if (provider === "local") return (messages, tools, env, signal, options) => runLocalChat(messages, toolSchemas(tools), env, signal, options);
   const run = provider === "claude" ? runClaude : runCodex;
   return async (messages, tools, env, signal) => {
     const result = await run(renderTextPrompt(messages, tools), env, signal);
@@ -140,7 +140,7 @@ export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
-  companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "",
+  companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null,
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
   const steps = [];
@@ -175,7 +175,10 @@ export async function runChatAgent({
     onStage(round === 0 ? "Pensando…" : steps.length ? "Decidindo o próximo passo…" : "Gerando resposta…");
     compactOldToolResults(messages);
 
-    const result = await callModel(messages, offered, env, signal);
+    // The answer as it is written (llama-server streaming). Each step starts clean: text that
+    // became a tool call, or that a guard sent back, is not left on screen.
+    onText?.("");
+    const result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
     calls.push(localCallRecord(result, round === 0 ? "generate" : "agent-step"));
     if (!result.ok) return { ...result, steps, calls };
 

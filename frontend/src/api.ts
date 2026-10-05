@@ -25,7 +25,7 @@ export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: bool
 export type TeacherReview = { reason: "errors" | "actions" | null; ms?: number; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
 export type PlanItem = { text: string; status: "pending" | "in_progress" | "done" };
-export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null };
+export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null; partial?: string | null };
 export type UsedSkill = { id: string; name: string; hash: string; partial: boolean };
 export type ChatMessage = {
   id: string;

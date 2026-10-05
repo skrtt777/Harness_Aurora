@@ -122,18 +122,57 @@ export function toOpenAiMessages(messages){
     return {role:m.role,content:String(m.content??'')};
   });
 }
-export async function runLlamaChat(messages,tools=[],env=process.env,externalSignal){
+/**
+ * The streamed answer (SSE) rebuilt into the same shape as a non-streamed one, calling onText
+ * with the text so far. Tool-call deltas are joined by index; text that turns out to be a tool
+ * call written as JSON is never shown.
+ */
+async function readStream(response,onText){
+  const decoder=new TextDecoder();
+  let buffer='',content='',finish=null,usage=null,timings=null;
+  const calls=[];
+  for await(const chunk of response.body){
+    buffer+=decoder.decode(chunk,{stream:true});
+    let cut;
+    while((cut=buffer.indexOf('\n'))>=0){
+      const line=buffer.slice(0,cut).trim();buffer=buffer.slice(cut+1);
+      if(!line.startsWith('data:'))continue;
+      const payload=line.slice(5).trim();
+      if(payload==='[DONE]')continue;
+      let event;try{event=JSON.parse(payload);}catch{continue;}
+      if(event.usage)usage=event.usage;
+      if(event.timings)timings=event.timings;
+      const choice=event.choices?.[0];
+      if(!choice)continue;
+      if(choice.finish_reason)finish=choice.finish_reason;
+      const delta=choice.delta||{};
+      for(const call of delta.tool_calls||[]){
+        const slot=calls[call.index??calls.length]||(calls[call.index??calls.length]={function:{name:'',arguments:''}});
+        if(call.function?.name)slot.function.name+=call.function.name;
+        if(call.function?.arguments)slot.function.arguments+=call.function.arguments;
+      }
+      if(typeof delta.content==='string'&&delta.content){
+        content+=delta.content;
+        if(!calls.length&&!/^\s*(\{|<tool_call>|```json|\[\s*\{?"name")/.test(content))onText(content);
+      }
+    }
+  }
+  return {choices:[{message:{content,tool_calls:calls.filter(Boolean)},finish_reason:finish}],usage,timings};
+}
+
+export async function runLlamaChat(messages,tools=[],env=process.env,externalSignal,{onText}={}){
   const started=performance.now(),model=env.LOCAL_MODEL||'local';
   const timeout=AbortSignal.timeout(Number(env.LOCAL_TIMEOUT_MS||120000));
   const signal=externalSignal?AbortSignal.any([timeout,externalSignal]):timeout;
+  const stream=typeof onText==='function';
   try{
     const response=await fetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
-      model,messages:toOpenAiMessages(messages),stream:false,cache_prompt:true,
+      model,messages:toOpenAiMessages(messages),stream,...(stream?{stream_options:{include_usage:true}}:{}),cache_prompt:true,
       max_tokens:Math.min(8192,Math.max(128,Number(env.LOCAL_MAX_OUTPUT_TOKENS)||2048)),
       chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'},
       ...(env.LOCAL_THINK==='true'?{}:{reasoning_effort:'low'}),
       ...(tools.length?{tools,tool_choice:'auto'}:{}),...sampling(env)})});
-    const data=await response.json().catch(()=>({}));
+    const data=!response.ok||!stream?await response.json().catch(()=>({})):await readStream(response,onText);
     if(!response.ok){
       const error=data.error?.message||`Executor local: HTTP ${response.status}`;
       return {ok:false,status:502,unsupported:/tools? (is )?not supported|jinja/i.test(error),error,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};

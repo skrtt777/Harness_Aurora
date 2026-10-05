@@ -275,6 +275,8 @@ export default function ChatView({ conversation, project, loading, sending, pend
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
           {pendingTurn?.plan && <PlanList plan={pendingTurn.plan} />}
           {(pendingTurn?.steps.length ?? 0) > 0 && <StepList steps={pendingTurn!.steps} />}
+          {/* The answer as the local model writes it; the final message replaces it. */}
+          {!pendingTurn?.approval && pendingTurn?.partial && <div className="chat-content pending-partial"><Markdown>{pendingTurn.partial}</Markdown></div>}
           {pendingTurn?.approval ? <div className="agent-approval" role="alertdialog" aria-label="Autorização necessária">
             <p>A Aurora quer {pendingTurn.approval.tool === 'run_command' ? 'executar este comando' : 'fazer isto'}:</p>
             <code>{pendingTurn.approval.summary}</code>
