@@ -95,6 +95,6 @@ for (let run = 1; run <= runs; run += 1) {
 const all = report.flatMap((r) => r.checks);
 const passed = all.filter((c) => c.ok).length;
 mkdirSync(join(process.cwd(), "reports", "agentes"), { recursive: true });
-writeFileSync(join(process.cwd(), "reports", "agentes", `${label}.json`), JSON.stringify({ label, scenario, date: new Date().toISOString(), passed, total: all.length, report }, null, 2));
+writeFileSync(join(process.cwd(), "reports", "agentes", `${label.startsWith("orquestrador") ? label : `orquestrador-${label}`}.json`), JSON.stringify({ label, scenario, date: new Date().toISOString(), passed, total: all.length, report }, null, 2));
 console.log(`\nNota: ${passed}/${all.length} (${Math.round((passed / all.length) * 1000) / 10}%)`);
 process.exit(0);

@@ -568,3 +568,9 @@ export async function exportAgentRuns() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** The desktop app asks for the Agents screen (a click on an agent's notification). */
+export function onShowAgents(callback: () => void): () => void {
+  const harness = (window as unknown as { harness?: { onShowAgents?: (cb: () => void) => () => void } }).harness;
+  return harness?.onShowAgents?.(callback) ?? (() => {});
+}

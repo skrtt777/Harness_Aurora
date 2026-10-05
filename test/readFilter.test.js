@@ -89,3 +89,16 @@ test("a CSV becomes a table the filters read: separator, quotes and Excel's BOM"
   assert.doesNotMatch(filterRows(table, "Valor>1000"), /Souza/);
   assert.equal(csvTable("a;b;c\n1;2;3")[1], "a | b | c", "semicolon (Brazilian Excel)");
 });
+
+test("'esse mês', 'mês que vem' and 'em outubro' become a ready date-range filter", async () => {
+  const { monthRange, dateFilterHint } = await import("../app/agentTools/files.js");
+  const now = new Date(2026, 9, 4);
+  assert.deepEqual(monthRange("quais vencem esse mês?", now), { from: "01/10/2026", to: "31/10/2026" });
+  assert.deepEqual(monthRange("e no mês que vem?", now), { from: "01/11/2026", to: "30/11/2026" });
+  assert.deepEqual(monthRange("o que foi pago no mês passado", now), { from: "01/09/2026", to: "30/09/2026" });
+  assert.deepEqual(monthRange("contratos que vencem em fevereiro de 2027", now), { from: "01/02/2027", to: "28/02/2027" });
+  assert.deepEqual(monthRange("pedidos de dezembro", new Date(2026, 11, 20)), { from: "01/12/2026", to: "31/12/2026" });
+  assert.equal(monthRange("liste os contratos", now), null);
+  const sheet = ["## Contratos", "Fornecedor | Vencimento | Valor", "Papelaria | 12/10/2026 | 4200", "Limpa Bem | 28/10/2026 | 9800"];
+  assert.match(dateFilterHint(sheet, "quais contratos vencem esse mês?", now), /filter="Vencimento>=01\/10\/2026; Vencimento<=31\/10\/2026"/);
+});

@@ -279,7 +279,7 @@ if (hasSingleInstanceLock) {
       const ok = run?.status === "done";
       const files = run?.files?.length ? ` Entregou ${run.files.length} arquivo(s).` : "";
       const note = new Notification({ title: `${agent.name} ${ok ? "terminou" : "não conseguiu terminar"}`, body: ok ? `${String(run.request || "").slice(0, 80)}${files}` : String(run?.error || "Veja o histórico do agente.").slice(0, 120) });
-      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
+      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:show-agents"); });
       note.show();
     });
 

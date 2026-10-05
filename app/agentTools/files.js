@@ -142,18 +142,41 @@ export function csvTable(text, name = "Tabela") {
  * A sheet read whole for "contratos que terminam até 31/12/2026" was filtered by eye and 2027
  * contracts went in (3 runs in 3). The ready filter, with the sheet's own date columns.
  */
-export function dateFilterHint(lines, request) {
+/**
+ * The month a request speaks of: "esse/este/neste mês", "mês que vem", "mês passado", "em outubro
+ * (de 2027)". As the first and last day, dd/mm/yyyy. (A small sheet read whole for "vencem esse
+ * mês" lost one of the two October contracts, 05/10/2026.)
+ */
+export function monthRange(request, now = new Date()) {
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const months = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  let year = now.getFullYear(), month = null;
+  if (/\b(n?esse|n?este|deste|desse) mes\b/.test(text)) month = now.getMonth();
+  else if (/\b(mes que vem|proximo mes)\b/.test(text)) month = now.getMonth() + 1;
+  else if (/\bmes passado\b/.test(text)) month = now.getMonth() - 1;
+  else {
+    const named = text.match(new RegExp(`\\b(?:em|de|no mes de)\\s+(${months.join("|")})(?:\\s+de\\s+(\\d{4}))?\\b`));
+    if (named) { month = months.indexOf(named[1]); if (named[2]) year = Number(named[2]); }
+  }
+  if (month === null) return null;
+  const first = new Date(year, month, 1), last = new Date(year, month + 1, 0);
+  const fmt = (d) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  return { from: fmt(first), to: fmt(last) };
+}
+
+export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
-  if (!wanted) return "";
+  const range = !wanted && monthRange(request, now);
+  if (!wanted && !range) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
   if (at < 0) return "";
   const header = lines[at].split(" | ").map((c) => c.trim());
   const sample = lines[at + 1].split(" | ").map((c) => c.trim());
   const columns = header.filter((_, j) => DATE.test(sample[j] || ""));
   if (!columns.length) return "";
-  const [date, op] = wanted;
-  return `\n(O pedido tem uma data: para a ferramenta comparar, leia de novo com filter=${columns.map((c) => `"${c}${op}${date}"`).join(" ou ")}, em vez de escolher as linhas de olho.)`;
+  const filters = range ? columns.map((c) => `"${c}>=${range.from}; ${c}<=${range.to}"`) : columns.map((c) => `"${c}${wanted[1]}${wanted[0]}"`);
+  return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"}: para a ferramenta comparar, leia de novo com filter=${filters.join(" ou ")}, em vez de escolher as linhas de olho.)`;
 }
 
 export function filterRows(lines, filter, { sort, request } = {}) {
@@ -601,7 +624,7 @@ export const fileTools = [
       }
       const shown = start - 1 + count < lines.length ? `\n(linhas ${start}–${Math.min(lines.length, start - 1 + count)} de ${lines.length})` : "";
       // Read whole, a sheet was filtered "by eye" and 10-day-late bills went into a >30 list.
-      const tip = sheet && text && !text.includes("… (cortado") ? (dateFilterHint(/\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines, ctx.request) || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`) : "";
+      const tip = sheet && text && !text.includes("… (cortado") ? (dateFilterHint(/\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines, ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()) || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`) : "";
       return `${file}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },

@@ -185,11 +185,29 @@ export function personFacts(history = []) {
 
 // "Onde está?" right after a delivery: the answer is the path, not a new file (the model
 // rewrote the document, searching the web again, to answer it).
+/** The files a turn's steps delivered, as the tools reported them ("Criei <path> (…)"). */
+export function deliveredPaths(steps = [], tools = ["write_document", "write_file", "edit_file", "move_file"]) {
+  return [...new Set(steps.filter((s) => s.ok && tools.includes(s.tool))
+    .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)|^Movi .+ para (.+?)\.$/.exec(s.summary || "")).filter(Boolean).map((m) => m[1] || m[2]))];
+}
+
+/**
+ * The answer names where the delivered document is. A run wrote the spreadsheet and ended with
+ * "Vou verificar os cálculos…" and no path (05/10/2026): the path goes in from the tool's own report.
+ */
+export function withDeliveryPath(text, steps = []) {
+  const files = deliveredPaths(steps, ["write_document", "write_file"]);
+  if (!files.length) return text;
+  const answer = String(text || "");
+  const named = (f) => { const name = f.split(/[\\/]/).pop(); return answer.includes(name) || answer.includes(name.replace(/\.[^.]+$/, "")); };
+  if (files.some(named)) return answer;
+  return `${answer.trimEnd()}\n\n${files.length === 1 ? "Arquivo salvo em" : "Arquivos salvos em"}:\n${files.map((f) => `- ${f}`).join("\n")}`;
+}
+
 export function lastDelivery(text, history = []) {
   if (!WHERE_IS.test(String(text))) return [];
   const previous = history.filter((m) => m.role === "assistant").at(-1);
-  const files = [...new Set((previous?.execution?.toolSteps || []).filter((s) => s.ok && ["write_document", "write_file", "edit_file", "move_file"].includes(s.tool))
-    .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)|^Movi .+ para (.+?)\.$/.exec(s.summary || "")).filter(Boolean).map((m) => m[1] || m[2]))];
+  const files = deliveredPaths(previous?.execution?.toolSteps || []);
   if (!files.length) return [];
   return [`A pessoa pergunta onde está o que você entregou na resposta anterior. Os arquivos são:\n${files.map((f) => `- ${f}`).join("\n")}\nResponda com esse caminho; não crie nem altere arquivos.`];
 }
@@ -613,6 +631,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (result.checks?.length) result.execution = { ...(result.execution || {}), checks: result.checks };
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
+    if (result.ok && agentSteps.length) result.text = withDeliveryPath(result.text, agentSteps);
     if (!result.ok) {
       const cancelled = Boolean(controller?.signal.aborted);
       const errorMessage = await addMessage({

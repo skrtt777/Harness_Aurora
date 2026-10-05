@@ -43,6 +43,6 @@ for (let run = 1; run <= runs; run += 1) {
 const all = results.flatMap((r) => r.checks);
 const passed = all.filter((c) => c.ok).length;
 mkdirSync(join(process.cwd(), "reports", "agentes"), { recursive: true });
-writeFileSync(join(process.cwd(), "reports", "agentes", `${label}.json`), JSON.stringify({ label, date: new Date().toISOString(), passed, total: all.length, results }, null, 2));
+writeFileSync(join(process.cwd(), "reports", "agentes", `${label.startsWith("pessoais") ? label : `pessoais-${label}`}.json`), JSON.stringify({ label, date: new Date().toISOString(), passed, total: all.length, results }, null, 2));
 console.log(`\nNota: ${passed}/${all.length} (${Math.round((passed / all.length) * 1000) / 10}%); tarefas perfeitas: ${results.filter((r) => r.checks.every((c) => c.ok)).length}/${results.length}`);
 process.exit(0);

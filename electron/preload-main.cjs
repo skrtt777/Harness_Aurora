@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld("harness", {
   getUpdateState: () => ipcRenderer.invoke("updater:state"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
+  // A click on "<agent> terminou" opens the Agents screen.
+  onShowAgents: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("app:show-agents", handler);
+    return () => ipcRenderer.removeListener("app:show-agents", handler);
+  },
   onUpdateStatus: (callback) => {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on("updater:status", handler);

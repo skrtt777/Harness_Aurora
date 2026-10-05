@@ -37,6 +37,7 @@ import {
   type ConversationWithMessages,
   type Project,
   type SavingsStats,
+  onShowAgents,
 } from "./api";
 
 type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents";
@@ -48,6 +49,7 @@ export default function AppShell() {
   const [activeConversation, setActiveConversation] = useState<ConversationWithMessages | null>(null);
   const [view, setView] = useState<View>("chat");
   const [guideOpen, setGuideOpen] = useState(false);
+  useEffect(() => onShowAgents(() => setView("agents")), []);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const busyRef = useRef(new Set<string>());

@@ -33,3 +33,13 @@ test("the file of the subject wins over the most recent one, and nothing is gues
   assert.equal(topicFile("e os contratos dos fornecedores?", named), "contratos_fornecedores.xlsx");
   assert.equal(topicFile("crie uma planilha com isso", named), null);
 });
+
+test("an answer that doesn't say where the delivered document is gets the path from the tool's report", async () => {
+  const { withDeliveryPath } = await import("../app/chatTurn.js");
+  const steps = [{ tool: "write_document", ok: true, summary: "Criei C:/Agentes/Logistica/reposicao.xlsx (XLSX, 4615 bytes)." }];
+  assert.match(withDeliveryPath("Vou verificar os cálculos.", steps), /Arquivo salvo em:\n- C:\/Agentes\/Logistica\/reposicao\.xlsx$/);
+  assert.equal(withDeliveryPath("Pronto: reposicao.xlsx está na sua pasta.", steps), "Pronto: reposicao.xlsx está na sua pasta.");
+  assert.equal(withDeliveryPath("Pronto, veja a planilha reposicao.", steps), "Pronto, veja a planilha reposicao.", "the name without extension counts");
+  assert.equal(withDeliveryPath("Oi!", [{ tool: "read_file", ok: true, summary: "Li x" }]), "Oi!");
+  assert.equal(withDeliveryPath("Falhei.", [{ tool: "write_document", ok: false, summary: "Criei x.docx (…)" }]), "Falhei.");
+});
