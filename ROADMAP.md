@@ -13,7 +13,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 | Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 97,9%, 22 de 24 perfeitas (05/10, `reports/agentes/`) |
 | Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 87,9%; dependência 90,5%; plano certo em 100% (05/10) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 92%; pesquisa 91,7% (05/10) |
-| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 93,9% (46/49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
+| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96,9% (47 e 48 de 49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
 **Regra:** uma versão só sai se a bateria de conversas não cair mais de 5 pontos.

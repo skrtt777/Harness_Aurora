@@ -44,7 +44,7 @@ Os agentes são "funcionários" da Aurora. Cada um tem uma missão e uma pasta d
 | Testes automáticos | 442 passaram, 0 falhas |
 | Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 rodadas) | 98,9% |
 | Agentes de 7 setores e rotina de pasta, conferindo o arquivo entregue (3 rodadas) | 97,9% |
-| Perguntas sobre a empresa fictícia (49, 2 rodadas) | 93,9% (era 83%) |
+| Perguntas sobre a empresa fictícia (49, 2 rodadas) | 96,9% (era 83%) |
 | Pedidos para a equipe ("feche o mês"; tarefa que usa a entrega de outra) | plano certo em 100%; 87,9% e 90,5% |
 | Agentes pessoais (organizar uma pasta, corrigir código até os testes passarem) | 92% |
 | Pesquisa na web com resumo e fontes | 91,7% |
