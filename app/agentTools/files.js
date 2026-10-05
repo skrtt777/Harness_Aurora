@@ -687,6 +687,28 @@ export const fileTools = [
     },
   },
   {
+    // "Organize my Downloads" is the most common personal task; a real Downloads folder has hundreds
+    // of files, and moving them one call at a time is where a small model gets lost.
+    name: "organize_folder",
+    description: "Organiza os arquivos soltos de uma pasta em subpastas por tipo (Documentos, Planilhas, Apresentações, Imagens, Vídeos, Áudio, Compactados, Instaladores, Código, Outros), de uma vez. Só mexe nos arquivos soltos na pasta (não nas subpastas), nunca sobrescreve nem apaga, e tudo pode ser desfeito. Use para \"organize a pasta X\".",
+    parameters: { type: "object", properties: { path: { type: "string", description: "A pasta a organizar (ex.: Downloads)" } }, required: ["path"] },
+    stage: (a) => `Organizando ${a.path}…`,
+    describe: (a, ctx) => ({ kind: "write", paths: [full(a.path, ctx)], summary: `Organizar os arquivos soltos de ${full(a.path, ctx)} em subpastas por tipo` }),
+    async run({ path }, ctx) {
+      const dir = await resolveExisting(path, ctx, { directory: true });
+      const entries = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && !e.name.startsWith(".") && !/^desktop\.ini$|^thumbs\.db$/i.test(e.name) && !/\.(crdownload|part|tmp)$/i.test(e.name));
+      if (!entries.length) return `Não há arquivos soltos em ${dir}: nada a organizar.`;
+      const counts = {}, errors = [];
+      for (const entry of entries) {
+        const kind = fileKind(entry.name);
+        try { await moveOne(join(dir, entry.name), join(dir, kind) + sep, ctx); counts[kind] = (counts[kind] || 0) + 1; }
+        catch (error) { errors.push(`${entry.name}: ${error.message}`); }
+      }
+      const moved = Object.values(counts).reduce((a, b) => a + b, 0);
+      return `Organizei ${dir}: ${moved} arquivo(s) movido(s) — ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(", ")}.${errors.length ? `\nNão movidos (${errors.length}): ${errors.slice(0, 10).join("; ")}` : ""}\nNada foi apagado; a pessoa pode desfazer.`;
+    },
+  },
+  {
     name: "edit_file",
     description: "Edita um arquivo trocando um trecho exato (before) por outro (after). Leia o arquivo antes e copie o trecho literalmente.",
     parameters: { type: "object", properties: { path: { type: "string" }, before: { type: "string" }, after: { type: "string" } }, required: ["path", "before", "after"] },
@@ -697,6 +719,20 @@ export const fileTools = [
     },
   },
 ];
+
+const KINDS = [
+  ["Documentos", /\.(pdf|docx?|odt|rtf|txt|md|epub)$/i],
+  ["Planilhas", /\.(xlsx?|xlsm|ods|csv|tsv)$/i],
+  ["Apresentações", /\.(pptx?|odp|key)$/i],
+  ["Imagens", /\.(jpe?g|png|gif|webp|bmp|svg|heic|tiff?|ico|psd)$/i],
+  ["Vídeos", /\.(mp4|mkv|mov|avi|wmv|webm|m4v)$/i],
+  ["Áudio", /\.(mp3|wav|flac|m4a|ogg|aac|opus)$/i],
+  ["Compactados", /\.(zip|rar|7z|tar|gz|bz2|xz)$/i],
+  ["Instaladores", /\.(exe|msi|msix|appx|dmg|pkg|deb|rpm|apk|iso)$/i],
+  ["Código", /\.(js|mjs|ts|tsx|py|java|c|cpp|cs|go|rs|rb|php|html?|css|json|xml|ya?ml|sh|ps1|bat|sql)$/i],
+];
+/** The subfolder a file goes to when a folder is organized by type. */
+export const fileKind = (name) => KINDS.find(([, re]) => re.test(name))?.[0] || "Outros";
 
 /** The files a move_file call names: files (a list) and/or from. */
 function moveSources(args) {

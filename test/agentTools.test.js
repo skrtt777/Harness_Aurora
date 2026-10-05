@@ -323,3 +323,26 @@ test("move_file takes a list of files to one folder; each goes or says why, one 
   assert.equal(moves.length, 3, "each move is recorded for Desfazer");
   assert.equal((await executeTool("move_file", { files: "x.pdf, y.pdf", to: "Outros" }, c)).ok, true, "a comma-separated string is a list too");
 });
+
+test("organize_folder sorts the loose files by type at once, leaves subfolders and partial downloads, never overwrites", async () => {
+  const { fileKind } = await import("../app/agentTools/files.js");
+  assert.equal(fileKind("Nota.PDF"), "Documentos");
+  assert.equal(fileKind("setup.exe"), "Instaladores");
+  assert.equal(fileKind("misterio.xyz"), "Outros");
+  const dir = join(root, "Downloads-teste");
+  mkdirSync(join(dir, "Projetos"), { recursive: true });
+  mkdirSync(join(dir, "Imagens"), { recursive: true });
+  for (const f of ["nota.pdf", "contas.xlsx", "foto.jpg", "setup.exe", "video.mp4", "baixando.crdownload", "misterio.xyz"]) writeFileSync(join(dir, f), f);
+  writeFileSync(join(dir, "Imagens", "foto.jpg"), "a outra foto");
+  const moves = [];
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], onMove: (from, to) => moves.push(to) });
+  const out = await executeTool("organize_folder", { path: dir }, c);
+  assert.equal(out.ok, true, out.result);
+  assert.match(out.result, /6 arquivo\(s\) movido\(s\)/);
+  for (const f of ["Documentos/nota.pdf", "Planilhas/contas.xlsx", "Imagens/foto (2).jpg", "Instaladores/setup.exe", "Vídeos/video.mp4", "Outros/misterio.xyz"]) assert.ok(existsSync(join(dir, f)), f);
+  assert.equal(readFileSync(join(dir, "Imagens", "foto.jpg"), "utf8"), "a outra foto", "never overwritten");
+  assert.ok(existsSync(join(dir, "baixando.crdownload")), "a download in progress stays");
+  assert.ok(existsSync(join(dir, "Projetos")), "subfolders are left alone");
+  assert.equal(moves.length, 6, "every move can be undone");
+  assert.match((await executeTool("organize_folder", { path: dir }, c)).result, /baixando|1 arquivo|nada a organizar/i);
+});
