@@ -77,8 +77,30 @@ export function parseSort(sort) {
   return { col: foldText(text.replace(/^[-+]\s*/, "").replace(/\s*\b(asc|desc|crescente|decrescente)\b\s*$/i, "")), desc };
 }
 
-export function filterRows(lines, filter, { sort } = {}) {
+/**
+ * The operator the person's words give a date: "até 15/10" is <=, "a partir de" >=, "antes de" <,
+ * "depois de" >. null when the request doesn't say. (Even the note with the counts was ignored:
+ * the model kept filtering "Entrega prevista=15/10/2026" for "entrega até 15/10", 3 runs in 3.)
+ */
+export function dateIntent(request, date) {
+  const [d, m] = String(date).split("/").map(Number);
+  if (!d || !m) return null;
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  // The date as the person may have written it: 15/10, 15/10/2026, 15 de outubro.
+  const months = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const forms = [`0?${d}/0?${m}(/\\d{2,4})?`, `0?${d} de ${months[m - 1]}`];
+  for (const [words, op] of [["ate( o dia)?|no maximo ate", "<="], ["a partir d[eo]( dia)?|desde", ">="], ["antes d[eo]( dia)?", "<"], ["depois d[eo]( dia)?|apos( o dia)?", ">"]]) {
+    if (forms.some((f) => new RegExp(`\\b(${words})\\s+(${f})\\b`).test(text))) return op;
+  }
+  return null;
+}
+
+export function filterRows(lines, filter, { sort, request } = {}) {
   sort = typeof sort === "string" ? parseSort(sort) : sort;
+  // "Coluna=15/10/2026" for a request that says "até 15/10": the person's words decide.
+  const single = String(filter || "").match(/^([^=<>!;]{1,60}?)\s*=\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*$/);
+  const intended = single && dateIntent(request, single[2]);
+  if (intended) return `${filterRows(lines, `${single[1]}${intended}${single[2]}`, { sort })}\n(Usei ${single[1].trim()}${intended}${single[2]} porque o pedido diz "${intended === "<=" ? "até" : intended === ">=" ? "a partir de" : intended === "<" ? "antes de" : "depois de"}" essa data.)`;
   // Sorting (or adding up) the whole sheet: every row of every sheet.
   if (!String(filter || "").trim()) {
     const sheets = parseSheets(lines).filter((s) => s.header && s.rows.length);
@@ -469,7 +491,7 @@ export const fileTools = [
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
       if (String(filter || "").trim() || String(sort || "").trim()) {
-        const found = `${file}\n${filterRows(lines, String(filter || ""), { sort })}`;
+        const found = `${file}\n${filterRows(lines, String(filter || ""), { sort, request: ctx.request })}`;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);

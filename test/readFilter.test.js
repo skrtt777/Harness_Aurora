@@ -41,3 +41,19 @@ test("read_file sorts (\"Término\", \"-Valor\") and adds up the numeric columns
   assert.deepEqual(parseSort("-Total Jan-Set"), { col: "total jan-set", desc: true });
   assert.deepEqual(parseSort("Término crescente"), { col: "termino", desc: false });
 });
+
+test("a date filter written with '=' follows the person's words: até, a partir de, antes de, depois de", async () => {
+  const { dateIntent, filterRows } = await import("../app/agentTools/files.js");
+  assert.equal(dateIntent("pedidos com entrega até 15/10/2026", "15/10/2026"), "<=");
+  assert.equal(dateIntent("a partir de 15 de outubro", "15/10/2026"), ">=");
+  assert.equal(dateIntent("antes do dia 15/10", "15/10/2026"), "<");
+  assert.equal(dateIntent("depois de 15/10", "15/10/2026"), ">");
+  assert.equal(dateIntent("o que vence dia 15/10?", "15/10/2026"), null, "a plain date stays equality");
+  assert.equal(dateIntent("até 20/10", "15/10/2026"), null, "another date: no guess");
+  const sheet = ["## Pedidos", "Pedido | Entrega prevista", "PC-1 | 10/10/2026", "PC-2 | 15/10/2026", "PC-3 | 22/10/2026"];
+  const out = filterRows(sheet, "Entrega prevista=15/10/2026", { request: "pedidos com entrega até 15/10/2026" });
+  assert.match(out, /PC-1[\s\S]*PC-2/);
+  assert.doesNotMatch(out, /PC-3/);
+  assert.match(out, /Usei Entrega prevista<=15\/10\/2026 porque o pedido diz "até"/);
+  assert.doesNotMatch(filterRows(sheet, "Entrega prevista=15/10/2026", { request: "o que chega dia 15/10?" }), /PC-1/);
+});

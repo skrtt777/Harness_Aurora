@@ -460,6 +460,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // A team task reads what the tasks it depends on delivered (orchestrator.js), read only.
           try { const extra = JSON.parse(env.AGENT_EXTRA_READ_ROOTS || "[]"); if (Array.isArray(extra) && extra.length) toolContext.knowledgeRoots = [...(toolContext.knowledgeRoots || []), ...extra.filter((p) => typeof p === "string")]; } catch { /* malformed: ignored */ }
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
+          // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
+          toolContext.request = trimmed;
           // Company documents not cleared for paid AI: tracked per turn so the
           // teacher (or a paid chat) only sees them with the person's consent.
           toolContext.provider = conversation.provider;
