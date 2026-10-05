@@ -221,3 +221,35 @@ test("write_file refuses Office formats and points to write_document", async () 
   assert.match(out.result, /use write_document/);
   assert.equal(existsSync(join(root, "lista.xlsx")), false);
 });
+
+test("move_file moves and renames inside the project, never overwrites, and needs the exact path", async () => {
+  const dir = join(root, "organizar");
+  mkdirSync(dir, { recursive: true });
+  for (const f of ["a.pdf", "b.pdf", "foto.jpg"]) writeFileSync(join(dir, f), f);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir] });
+  // "Documentos/" is a subfolder of the project, not the user's Documents.
+  assert.ok((await executeTool("move_file", { from: "a.pdf", to: "Documentos/" }, c)).result.includes(join(dir, "Documentos", "a.pdf")));
+  assert.match((await executeTool("move_file", { from: "b.pdf", to: "Documentos/a.pdf" }, c)).result, /a \(2\)\.pdf/, "never overwrites");
+  assert.equal(readFileSync(join(dir, "Documentos", "a.pdf"), "utf8"), "a.pdf");
+  assert.ok((await executeTool("move_file", { from: "foto.jpg", to: "Imagens/ferias.jpg" }, c)).result.includes(join(dir, "Imagens", "ferias.jpg")));
+  const gone = await executeTool("move_file", { from: "a.pdf", to: "x/" }, c);
+  assert.equal(gone.ok, false, "a name that only exists in a subfolder is not guessed");
+  assert.match(gone.result, /não existe/);
+  const outsideMove = await executeTool("move_file", { from: "Imagens/ferias.jpg", to: join(outside, "ferias.jpg") }, c);
+  assert.equal(outsideMove.ok, false);
+  assert.ok(existsSync(join(dir, "Imagens", "ferias.jpg")));
+});
+
+test("move_file: a target without extension for a file with one is a folder, even before it exists", async () => {
+  const dir = join(root, "organizar-sem-barra");
+  mkdirSync(dir, { recursive: true });
+  for (const f of ["relatorio.pdf", "contrato.docx"]) writeFileSync(join(dir, f), f);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir] });
+  await executeTool("move_file", { from: "relatorio.pdf", to: join(dir, "Documentos") }, c);
+  await executeTool("move_file", { from: "contrato.docx", to: "Documentos" }, c);
+  assert.equal(readFileSync(join(dir, "Documentos", "relatorio.pdf"), "utf8"), "relatorio.pdf");
+  assert.equal(readFileSync(join(dir, "Documentos", "contrato.docx"), "utf8"), "contrato.docx");
+  // A rename keeps working: the target has an extension.
+  await executeTool("move_file", { from: "Documentos/contrato.docx", to: "Documentos/contrato 2026.docx" }, c);
+  assert.ok(existsSync(join(dir, "Documentos", "contrato 2026.docx")));
+});

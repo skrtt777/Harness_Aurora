@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
+import { mkdir, open, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
@@ -147,7 +147,9 @@ export function expandPath(input, knownFolders = {}, base) {
     // "Desktop/notas.txt", "área de trabalho\\x" → the real known folder;
     // anything else is relative to the project folder (or the Desktop).
     const [head, ...rest] = text.split(/[\\/]/);
-    const alias = { desktop: "desktop", "área de trabalho": "desktop", "area de trabalho": "desktop", documents: "documents", documentos: "documents", downloads: "downloads" }[head.toLowerCase()];
+    // With a project folder, relative is relative to it (as the agent is told): organizing a folder
+    // into "Documentos/" sent the files to the user's Documents. The user's folders go by full path.
+    const alias = base ? null : { desktop: "desktop", "área de trabalho": "desktop", "area de trabalho": "desktop", documents: "documents", documentos: "documents", downloads: "downloads" }[head.toLowerCase()];
     // "planilha-1/x.csv" inside the folder planilha-1 means the folder itself: a small model
     // repeats the project's name, and the file landed in planilha-1\planilha-1 (unless that exists).
     if (base && rest.length && head.toLowerCase() === basename(base).toLowerCase() && !existsSync(join(base, head))) text = rest.join("/");
@@ -183,6 +185,41 @@ export async function isInsideRoots(path, roots = []) {
 }
 
 const full = (path, ctx) => expandPath(path, ctx.knownFolders, ctx.workspace);
+/**
+ * `before` matched line by line ignoring leading (and trailing) spaces; only a unique match counts.
+ * `after` is re-indented by the difference between the file's indentation and the model's.
+ */
+export function looseReplace(text, before, after) {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const raw = before.replace(/\r\n/g, "\n").split("\n");
+  while (raw.length && !raw[0].trim()) raw.shift();
+  while (raw.length && !raw.at(-1).trim()) raw.pop();
+  const want = raw.map((l) => l.trim());
+  if (!want.length) return null;
+  const hits = [];
+  for (let i = 0; i + want.length <= lines.length; i += 1) if (want.every((w, k) => lines[i + k].trim() === w)) hits.push(i);
+  if (hits.length !== 1) return null;
+  const at = hits[0];
+  const indent = (s) => s.match(/^\s*/)[0].length;
+  // The difference shows on the first indented line (a top-level first line has 0 on both sides).
+  const k = Math.max(0, raw.findIndex((l, j) => indent(l) > 0 || indent(lines[at + j]) > 0));
+  const delta = indent(lines[at + k]) - indent(raw[k]);
+  const fixed = after.replace(/\r\n/g, "\n").split("\n").map((l) => (!l.trim() ? l : delta >= 0 ? " ".repeat(delta) + l : l.replace(new RegExp(`^ {0,${-delta}}`), "")));
+  return [...lines.slice(0, at), ...fixed, ...lines.slice(at + want.length)].join(eol);
+}
+
+// "to" may be a folder (ends with a slash, or an existing folder): the file keeps its name there.
+function moveTarget({ from, to }, ctx) {
+  const target = full(to, ctx);
+  // "relatorio.pdf" → "...\Documentos" (no slash, folder not created yet) renamed the PDF to a
+  // file called "Documentos". A target with no extension, for a source that has one, is a folder.
+  const looksLikeFolder = !existsSync(target) && !extname(target) && Boolean(extname(String(from)));
+  const isFolder = /[\\/]$/.test(String(to)) || looksLikeFolder || (existsSync(target) && statSafe(target)?.isDirectory());
+  return isFolder ? join(target, basename(String(from))) : target;
+}
+function statSafe(path) { try { return statSync(path); } catch { return null; } }
+
 // Documents write_document created while the app runs: those (only those) may be replaced.
 const OWN_DOCUMENTS = new Set();
 // The format wins over a missing or wrong extension ("proposta" + docx → proposta.docx).
@@ -439,6 +476,34 @@ export const fileTools = [
     },
   },
   {
+    // Organizing a folder needs moving and renaming; through run_command a small model wrote
+    // shell one-liners that were hard to check. Never overwrites, never deletes.
+    name: "move_file",
+    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
+    parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\ ou /" } }, required: ["from", "to"] },
+    stage: (a) => `Movendo ${a.from}…`,
+    describe: (a, ctx) => ({ kind: "write", paths: [full(a.from, ctx), moveTarget(a, ctx)], summary: `Mover ${full(a.from, ctx)} para ${moveTarget(a, ctx)}` }),
+    async run(args, ctx) {
+      // The exact path only: read_file's tolerant lookup found a same-named file in a subfolder
+      // and moved that one instead.
+      const from = full(args.from, ctx);
+      if (!existsSync(from)) {
+        // "notacoes.txt" for "anotacoes.txt": name the closest file and show what is there.
+        let names = [];
+        try { names = (await readdir(dirname(from))).slice(0, 40); } catch { /* folder missing */ }
+        const wanted = foldText(basename(from));
+        const close = names.find((n) => foldText(n).includes(wanted) || wanted.includes(foldText(n))) || names.find((n) => foldText(n).slice(-8) === wanted.slice(-8));
+        throw new Error(`${from} não existe.${close ? ` Você quis dizer "${close}"?` : ""}${names.length ? ` Nessa pasta: ${names.join(", ")}.` : ""}`);
+      }
+      let to = moveTarget({ ...args, from }, ctx);
+      if (resolve(from) === resolve(to)) return `${from} já está nesse lugar.`;
+      for (let n = 2; existsSync(to); n += 1) to = moveTarget({ ...args, from }, ctx).replace(/(\.[^.\\/]+)?$/, (ext) => ` (${n})${ext}`);
+      await mkdir(dirname(to), { recursive: true });
+      await rename(from, to);
+      return `Movi ${from} para ${to}.`;
+    },
+  },
+  {
     name: "edit_file",
     description: "Edita um arquivo trocando um trecho exato (before) por outro (after). Leia o arquivo antes e copie o trecho literalmente.",
     parameters: { type: "object", properties: { path: { type: "string" }, before: { type: "string" }, after: { type: "string" } }, required: ["path", "before", "after"] },
@@ -448,10 +513,19 @@ export const fileTools = [
       const file = full(path, ctx);
       const text = await readFile(file, "utf8");
       const count = text.split(String(before)).length - 1;
-      if (!before || count === 0) throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato.");
       if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
-      await writeFile(file, text.replace(String(before), () => String(after ?? "")), "utf8");
-      return `Editei ${file}.`;
+      if (before && count === 1) {
+        await writeFile(file, text.replace(String(before), () => String(after ?? "")), "utf8");
+        return `Editei ${file}.`;
+      }
+      // The model copies code with its own indentation (4 spaces for a 2-space file) and never
+      // matched: the same lines, ignoring leading spaces, found once, are replaced re-indented.
+      const loose = before ? looseReplace(text, String(before), String(after ?? "")) : null;
+      if (loose) {
+        await writeFile(file, loose, "utf8");
+        return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).`;
+      }
+      throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato (sem os números de linha).");
     },
   },
 ];

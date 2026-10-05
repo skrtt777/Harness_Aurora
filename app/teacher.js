@@ -11,7 +11,7 @@ import { runCodex } from "./codex.js";
  */
 
 // Tools whose success changes the world; a delivery using them gets reviewed.
-export const ACTION_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command", "browser_click", "browser_type", "browser_key", "open", "skill_create"]);
+export const ACTION_TOOLS = new Set(["write_file", "edit_file", "write_document", "move_file", "run_command", "browser_click", "browser_type", "browser_key", "open", "skill_create"]);
 export const TEACHER_MODES = ["actions", "errors", "off"];
 export const DEFAULT_TEACHER_MODE = "actions";
 export const DEFAULT_DAILY_LIMIT = 30;

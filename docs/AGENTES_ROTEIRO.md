@@ -79,4 +79,16 @@ O Ollama não roda o qwen3.5 em paralelo. Já o llama-server que vem com o Ollam
 
 ## Fase F: agentes pessoais
 
-- [ ] Organizar arquivos e downloads, pesquisar na web e resumir, programar e testar um projeto.
+- [x] **Avaliação (05/10)** com `node scripts/personal-tasks.mjs --runs 5 [--online]` (`app/personalTaskBattery.js`). Cada tarefa ganha uma pasta gerada na hora, e o resultado é conferido no disco:
+  - **Organizar uma pasta:** 8 arquivos vão para subpastas por tipo; nenhum pode se perder nem ficar na raiz.
+  - **Corrigir código:** os testes rodam de verdade com `node --test`, e o arquivo de testes não pode mudar.
+  - **Pesquisar e resumir:** o resumo em Word fala do assunto e cita 3 fontes ou mais. Precisa de internet.
+  - **Resultado:**
+    - **organizar e corrigir:** 92% em 5 rodadas, com 9 de 10 tarefas perfeitas (a primeira medição tinha dado 53%);
+    - **pesquisa:** 91,7% em 3 rodadas.
+  - **O que a avaliação trouxe:**
+    - **Nova ferramenta `move_file`:** move ou renomeia, nunca sobrescreve nem apaga e exige o caminho exato. Quando o nome está errado, sugere o mais parecido e lista a pasta. Um destino sem extensão, para um arquivo que tem extensão, é tratado como pasta; antes, o PDF virava um arquivo chamado "Documentos".
+    - **Caminho relativo:** com pasta de projeto, `Documentos/` passou a ser uma subpasta dela. Antes era atalho para a pasta Documentos do Windows, e a organização mandaria os arquivos para lá.
+    - **`edit_file` tolerante à indentação:** o modelo copiava o trecho com 4 espaços num arquivo de 2 e nunca acertava. Agora, se o trecho for único, ele é trocado e reindentado.
+    - **"Vou entregar…" sem entregar** agora volta para o modelo fazer.
+    - **Segurança:** numa rodada o agente tentou `Remove-Item -Recurse -Force` na pasta; a ação pediu autorização e foi bloqueada, e nada foi apagado.

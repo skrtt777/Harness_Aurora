@@ -45,7 +45,7 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
 const GROUNDING_TOOLS = new Set(["knowledge_search", "knowledge_map", "read_file", "web_search", "web_fetch", "browser_read", "grep"]);
 export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(String(text || ""));
 
-const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar|criar|gerar|salvar|montar|escrever|preparar|elaborar|atualizar|fazer";
+const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar|criar|gerar|salvar|montar|escrever|preparar|elaborar|atualizar|fazer|entregar|resumir|organizar|mover|corrigir|editar|testar";
 
 /** The answer is the request itself, copied back (a small model's dead end). */
 export function echoesRequest(text, request) {

@@ -61,7 +61,7 @@ const TOOL_LABELS: Record<string, string> = {
   browser_navigate: 'Abriu site', browser_snapshot: 'Olhou a página', browser_click: 'Clicou', browser_type: 'Digitou',
   browser_key: 'Apertou tecla', browser_scroll: 'Rolou a página', browser_read: 'Leu a página', browser_tabs: 'Abas',
   web_search: 'Pesquisou', web_fetch: 'Leu', open: 'Abriu', run_command: 'Rodou comando',
-  list_dir: 'Listou pasta', read_file: 'Leu arquivo', write_file: 'Salvou arquivo', write_document: 'Criou documento', edit_file: 'Editou arquivo',
+  list_dir: 'Listou pasta', read_file: 'Leu arquivo', write_file: 'Salvou arquivo', write_document: 'Criou documento', move_file: 'Moveu arquivo', edit_file: 'Editou arquivo',
   search_files: 'Procurou arquivos', grep: 'Procurou texto', command_output: 'Conferiu processo', command_stop: 'Encerrou processo',
   memory_search: 'Consultou memórias', memory_save: 'Guardou na memória', skill_search: 'Procurou skills', skill_use: 'Usou skill',
   skill_create: 'Criou skill', update_plan: 'Atualizou o plano', knowledge_search: 'Consultou documentos da empresa', knowledge_map: 'Consultou o mapa de documentos',
