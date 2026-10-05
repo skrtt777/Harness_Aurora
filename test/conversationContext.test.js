@@ -5,7 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "aurora-context-")), "test.db");
-const { personFacts, topicFile } = await import("../app/chatTurn.js");
+const { lastDelivery, personFacts, topicFile } = await import("../app/chatTurn.js");
+
+test("'onde está?' right after a delivery brings the delivered path into the context", () => {
+  const history = [{ role: "assistant", execution: { toolSteps: [{ tool: "read_file", ok: true, summary: "C:/kit.pdf" }, { tool: "write_document", ok: true, summary: "Criei C:/x/kit_atualizado.docx (DOCX, 900 bytes)." }] } }];
+  assert.match(lastDelivery("onde está?", history)[0], /- C:\/x\/kit_atualizado\.docx\nResponda com esse caminho; não crie/);
+  assert.deepEqual(lastDelivery("quanto custa o Reel?", history), []);
+  assert.deepEqual(lastDelivery("onde está?", [{ role: "assistant", execution: { toolSteps: [] } }]), [], "nothing delivered: nothing to point at");
+});
 
 test("what the person says about themselves stays for the whole conversation", () => {
   const history = [

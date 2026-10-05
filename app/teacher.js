@@ -18,7 +18,7 @@ export const DEFAULT_DAILY_LIMIT = 30;
 
 const COMPLAINT = /\b(n[ãa]o (funcionou|funciona|deu certo|abriu|fez|era isso|rodou|salvou|mudou|achei|encontrei|criou|gerou)|(t[áa]|est[áa]|ficou|continua) (errado|com erro|quebrado)|deu erro|errou|de novo|tente (de )?novo|refa[çz]a|corrija)\b/i;
 // "Onde está?" is a complaint only when the previous answer wrote nothing it could point to.
-const WHERE_IS = /\bcad[êe]\b|^\s*(e\s+)?onde\s+(est[áa]|ficou|foi parar|salvou)(?![a-zà-ú])\s*(ele|ela|o arquivo|o documento|a planilha)?\?*\s*$/i;
+export const WHERE_IS = /\bcad[êe]\b|^\s*(e\s+)?onde\s+(est[áa]|ficou|foi parar|salvou)(?![a-zà-ú])\s*(ele|ela|o arquivo|o documento|a planilha)?\?*\s*$/i;
 const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa]o tenho como|n[ãa]o posso)\b/i;
 
 // Tools that leave a file behind; a claim of a created file needs one of them.

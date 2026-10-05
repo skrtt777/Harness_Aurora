@@ -18,7 +18,7 @@ import { diagnoseLocalArtifact } from "./localDiagnostics.js";
 import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan } from "./pendingTurns.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
-import { requestsFile } from "./teacher.js";
+import { WHERE_IS, requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
@@ -181,6 +181,17 @@ export function personFacts(history = []) {
   const said = history.filter((m) => m.role === "user" && SELF.test(m.content)).map((m) => String(m.content).slice(0, 300));
   if (!said.length) return [];
   return [`O que a pessoa disse sobre si nesta conversa (use quando for útil, como o nome):\n${[...new Set(said)].slice(-6).map((t) => `- ${t}`).join("\n")}`];
+}
+
+// "Onde está?" right after a delivery: the answer is the path, not a new file (the model
+// rewrote the document, searching the web again, to answer it).
+export function lastDelivery(text, history = []) {
+  if (!WHERE_IS.test(String(text))) return [];
+  const previous = history.filter((m) => m.role === "assistant").at(-1);
+  const files = [...new Set((previous?.execution?.toolSteps || []).filter((s) => s.ok && ["write_document", "write_file", "edit_file", "move_file"].includes(s.tool))
+    .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)|^Movi .+ para (.+?)\.$/.exec(s.summary || "")).filter(Boolean).map((m) => m[1] || m[2]))];
+  if (!files.length) return [];
+  return [`A pessoa pergunta onde está o que você entregou na resposta anterior. Os arquivos são:\n${files.map((f) => `- ${f}`).join("\n")}\nResponda com esse caminho; não crie nem altere arquivos.`];
 }
 
 const nameWords = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^\d+$/.test(w));
@@ -411,7 +422,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...personFacts(history)],
+      required:[...(observation?[observation.block]:[]),...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from

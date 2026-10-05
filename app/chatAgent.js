@@ -270,7 +270,7 @@ export async function runChatAgent({
     }
     // Asked to create a file, it answers with "quer que eu crie?" (or just repeats the request
     // back, seen 05/10/2026): the request already says what to do.
-    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (echoesRequest(text, question) || /\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer|prosseguir|seguir|continuar)|deseja que|precisa confirmar|confirme|gostaria d[oa] seu|seu ok)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
+    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (echoesRequest(text, question) || /\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer|prosseguir|seguir|continuar)|deseja que|precisa confirmar|confirme|gostaria d[oa] seu|seu ok|preciso (primeiro |antes )?(entender|saber|que voc[êe])|me (diga|informe|confirme)|qual (é|seria) a refer[êe]ncia)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
       confirmChecked = true;
       checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });
