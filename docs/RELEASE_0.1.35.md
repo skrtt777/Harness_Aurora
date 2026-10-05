@@ -56,12 +56,13 @@
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | 481 passaram, 0 falhas |
-| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 rodadas) | 97,8% a 100% |
-| Agentes de setor, conferindo o arquivo entregue (3 rodadas) | 97,9% (22 de 24 perfeitas) |
-| Perguntas sobre a empresa fictícia (49) | 100% e 96% em duas rodadas (eram 92% a 96,9%) |
-| Pedido para a equipe: fechamento do mês / tarefa que usa a entrega de outra | 93,9% / 100% (eram 72,7–87,9% / 85,7–90,5%) |
-| Agentes pessoais (organizar pasta, corrigir código) | 100% (eram 86,7–92%) |
+| Testes automáticos | 487 passaram, 0 falhas |
+| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (5 rodadas) | 97,3% |
+| Agentes de setor, conferindo o arquivo entregue (3 rodadas) | 99% (23 de 24 perfeitas) |
+| Perguntas sobre a empresa fictícia (49) | 96% a 100% em três rodadas (eram 92% a 96,9%) |
+| Pedido para a equipe: fechamento do mês / tarefa que usa a entrega de outra | 100% / 95,2% (eram 72,7–87,9% / 85,7–90,5%) |
+| Agentes pessoais (organizar pasta, corrigir código) | 86,7% a 100%; com pesquisa na web, 96,3% |
+| "Organizar Downloads" com 30 arquivos, de ponta a ponta | 3 de 3 perfeitas, em 2 a 6 s; o Desfazer devolveu os 29 |
 | Extensão MCP com o modelo local (ler agenda, criar evento pedindo autorização) | 6 de 6 |
 | Velocidade: copiar 40 linhas para um documento | 12,4 s → 3,4 s com placa de vídeo; 8,5 → 40 tokens/s no processador |
 | Primeira resposta num PC sem placa de vídeo | 55 s → 10 s |

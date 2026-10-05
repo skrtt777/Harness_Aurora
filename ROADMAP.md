@@ -8,12 +8,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 468 passaram, 0 falhas (05/10) |
+| Testes automáticos | `npm test` | 487 passaram, 0 falhas (05/10) |
 | Conversas reais (5 cenários: documento, planilha, 10 turnos, navegador, honestidade) | `npm run battery -- --runs 3` | 100% com qwen3.5:4b e especulação ligada (05/10, `reports/battery/`) |
-| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 96,9%, 22 de 24 perfeitas (05/10, `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
-| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 93,9%; dependência 100% (05/10, tarde; eram 87,9% e 90,5%) |
+| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 99%, 23 de 24 perfeitas (05/10, noite; `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
+| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 100%; dependência 95,2% (05/10, noite; eram 87,9% e 90,5%) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 100% (6 de 6, com `organize_folder`); pesquisa 91,7% (05/10) |
-| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96,9% (47 e 48 de 49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
+| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96% a 100% em 3 rodadas (05/10, noite), 2-3 s por pergunta; era 83% com 1 resposta |
 | Velocidade do modelo local | `node scripts/spec-bench.mjs` | cópia de 40 linhas: 12,4 s → 3,4 s (GPU); 8,5 → 40 tokens/s (CPU) com `ngram-mod` (05/10) |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
