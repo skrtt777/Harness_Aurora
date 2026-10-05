@@ -181,6 +181,8 @@ test("documents an answer cites that exist nowhere are caught (real answers from
   assert.deepEqual(await unknown("Fonte: Proposta ACME.pdf e Manual Inventado.pdf", ["C:\\Downloads\\Proposta ACME.pdf"]), ["Manual Inventado.pdf"], "two sources, one invented");
   assert.deepEqual(await unknown("Dia 13/10.\n\nFonte: Ata da Reunião de Diretoria - 15-09-2026.pdf", ["F:\\EmpresaIA\\Diretoria\\Atas\\Ata Reunião de Diretoria - 15-09-2026.pdf"]), [], "the title inside the file, with an extra 'da'");
   assert.deepEqual(await unknown("Não encontrei nada sobre isso nos documentos."), []);
+  assert.deepEqual(await unknown("Otávio e Sabrina.\n\nFonte: F:\\EmpresaIA\\SSMA\\Treinamentos NR a Vencer.xlsx", ["F:\\EmpresaIA\\SSMA\\Treinamentos NR a Vencer.xlsx"]), [], "an article inside the name is not where it starts");
+  assert.deepEqual(await unknown("Veja a planilha Treinamentos NR a Vencer.xlsx", ["F:\\EmpresaIA\\SSMA\\Treinamentos NR a Vencer.xlsx"]), []);
 
   const echo = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "nada" };
   const replies = [{ ok: true, text: "Sim! Veja o Manual de Viagens.pdf" }, { ok: true, text: "Não encontrei uma política de viagens nos documentos da empresa." }];

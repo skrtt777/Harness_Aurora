@@ -245,6 +245,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
   const [trigger, setTrigger] = useState(draftOf({ type: 'manual' }));
   const [sectorDir, setSectorDir] = useState('');
   const [templateHint, setTemplateHint] = useState('');
+  const applyTemplate = (t: (typeof TEMPLATES)[number]) => { setDraft({ ...t.agent, workDir: draft.workDir }); setTrigger({ ...draftOf({ type: 'manual' }), ...t.trigger }); setTemplateHint(t.hint); setCreating(true); };
 
   const refresh = useCallback(() => listTaskAgents().then((r) => { setAgents(r.agents); setRuns(r.runs); setLoaded(true); }).catch((e: Error) => { setError(e.message); setLoaded(true); }), []);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -277,7 +278,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
     {creating && <form className="agent-new" onSubmit={submit} aria-label="Novo agente">
       <div className="agent-templates" role="group" aria-label="Modelos prontos">
         <small>Começar de um modelo:</small>
-        {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => { setDraft({ ...t.agent, workDir: draft.workDir }); setTrigger({ ...draftOf({ type: 'manual' }), ...t.trigger }); setTemplateHint(t.hint); }}>{t.label}</button>)}
+        {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => applyTemplate(t)}>{t.label}</button>)}
       </div>
       {templateHint && <p className="agent-template-hint">{templateHint}</p>}
       <div className="agent-new-grid">
@@ -296,7 +297,11 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
 
     {loaded && agents.length === 0 && !creating && <section className="agents-empty">
       <h2>Nenhum agente ainda</h2>
-      <p>Crie um agente pessoal (organizar downloads, resumir relatórios) ou, se as pastas da empresa já estão em Configurações → Conhecimento, um agente para cada setor.</p>
+      <p>Comece por um modelo pronto: você só escolhe a pasta.</p>
+      <div className="agent-templates" role="group" aria-label="Começar por um modelo">
+        {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => applyTemplate(t)}>{t.label}</button>)}
+      </div>
+      <p>Ou, se as pastas da empresa já estão em Configurações → Conhecimento, crie um agente para cada setor:</p>
       <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
         <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
         <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>

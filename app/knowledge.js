@@ -498,6 +498,9 @@ export async function unknownCitations(text, files = []) {
     // starts at the capitalized word after a lowercase one (or the first).
     ...(body.match(DOC_FILE) || []).map((m) => {
       const words = m.split(" ");
+      // The longest ending that is a real file: "Treinamentos NR a Vencer.xlsx" was cut at the "a"
+      // into "Vencer.xlsx", called invented, and the model took back a right answer (ssma-2, 05/10).
+      for (let i = 0; i < words.length; i += 1) if (endsWithKnown(words.slice(i).join(" "))) return words.slice(i).join(" ");
       let start = 0;
       words.forEach((w, i) => { if (i && /^[A-ZÀ-Ú]/.test(w) && /^[a-zà-ú]+$/.test(words[i - 1]) && !NAME_JOINERS.has(words[i - 1])) start = i; });
       return words.slice(start).join(" ");

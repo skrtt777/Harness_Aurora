@@ -124,13 +124,13 @@ const OLD_RESULT_CHARS = 400;
  * system prompt. Only the latest results matter for the next step, so older
  * ones shrink to their first lines ("Cliquei em e12." + URL).
  */
-export function compactOldToolResults(messages, { atChars = 0 } = {}) {
+export function compactOldToolResults(messages, { atChars = 0, keep = KEEP_FULL_TOOL_RESULTS } = {}) {
   // Rewriting an old message changes the prompt's start, so the server reprocesses everything
   // after it: cheap on a GPU, tens of seconds per step on a CPU. With `atChars`, old results are
   // only shortened once the conversation gets near the context limit.
   if (atChars && messages.reduce((n, m) => n + String(m.content || "").length, 0) < atChars) return;
   const toolIndexes = messages.flatMap((m, i) => (m.role === "tool" ? [i] : []));
-  for (const i of toolIndexes.slice(0, -KEEP_FULL_TOOL_RESULTS)) {
+  for (const i of keep ? toolIndexes.slice(0, -keep) : toolIndexes) {
     const content = messages[i].content;
     if (content.length > OLD_RESULT_CHARS && !content.endsWith("(resultado antigo resumido)")) messages[i].content = `${content.slice(0, OLD_RESULT_CHARS)}\n… (resultado antigo resumido)`;
   }
@@ -203,7 +203,14 @@ export async function runChatAgent({
     // The answer as it is written (llama-server streaming). Each step starts clean: text that
     // became a tool call, or that a guard sent back, is not left on screen.
     onText?.("");
-    const result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
+    let result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
+    // "request (16450 tokens) exceeds the available context size (16384 tokens)" ended a company
+    // question (empresa ti-1, 05/10/2026). Old results get summarized, then all of them, and it goes again.
+    for (let shrink = 1; !result.ok && shrink <= 2 && /exceeds the available context|context size|context length|too many tokens/i.test(String(result.error)); shrink += 1) {
+      compactOldToolResults(messages, { keep: shrink === 1 ? KEEP_FULL_TOOL_RESULTS : 0 });
+      onStage("Resumindo resultados antigos para caber no contexto…");
+      result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
+    }
     calls.push(localCallRecord(result, round === 0 ? "generate" : "agent-step"));
     if (!result.ok) return { ...result, steps, calls };
 

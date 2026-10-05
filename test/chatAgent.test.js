@@ -330,3 +330,19 @@ test("old tool results are only shortened near the context limit (the cached pro
   compactOldToolResults(near, { atChars: 3000 });
   assert.equal(near.filter((m) => String(m.content).includes("(resultado antigo resumido)")).length, 2, "near the limit the old ones shrink, the last two stay whole");
 });
+
+test("a request over the context size summarizes old tool results and goes again instead of failing", async () => {
+  const { runChatAgent } = await import("../app/chatAgent.js");
+  const big = { name: "read_file", description: "lê", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "linha\n".repeat(2000) };
+  let calls = 0;
+  const callModel = async (messages) => {
+    calls += 1;
+    const size = messages.reduce((n, m) => n + String(m.content || "").length, 0);
+    if (calls <= 3) return { ok: true, text: "", toolCalls: [{ name: "read_file", arguments: { path: `p${calls}` } }] };
+    if (size > 2000) return { ok: false, status: 502, error: "request (16450 tokens) exceeds the available context size (16384 tokens), try increasing it" };
+    return { ok: true, text: "O tipo mais comum foi Acesso." };
+  };
+  const result = await runChatAgent({ system: "s", input: "qual o chamado mais comum?", tools: [big], callModel });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.text, "O tipo mais comum foi Acesso.");
+});

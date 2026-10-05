@@ -507,3 +507,19 @@ test('an MCP extension is added from Settings and shows its tools', {skip,timeou
     if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'mcp.png')});
   }finally{stopMcpServers();await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('with no agents yet, the ready templates are one click away', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  for (const a of await agents.listAgents()) await agents.deleteAgent(a.id);
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Agentes'}).click();
+    await page.getByRole('group',{name:'Começar por um modelo'}).getByRole('button',{name:'Organizar Downloads'}).click();
+    const form=page.getByRole('form',{name:'Novo agente'});
+    assert.equal(await form.getByLabel('Nome').inputValue(),'Organizador de Downloads');
+    await form.getByText('Escolha a sua pasta Downloads').waitFor();
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
