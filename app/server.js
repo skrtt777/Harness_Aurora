@@ -425,7 +425,9 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const body = await readJson(request);
         const known = new Map((await taskAgents.listAgents()).map((a) => [a.id, a]));
         const tasks = (Array.isArray(body.tasks) ? body.tasks : []).filter((t) => known.has(t?.agentId) && String(t.request || "").trim())
-          .slice(0, 12).map((t) => ({ agentId: t.agentId, agentName: known.get(t.agentId).name, request: String(t.request).slice(0, 2000) }));
+          .slice(0, 12).map((t) => ({ agentId: t.agentId, agentName: known.get(t.agentId).name, request: String(t.request).slice(0, 2000), dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((id) => known.has(id)) : [] }))
+          // A task waits only for tasks listed before it (as the plan was made): no cycles.
+          .map((t, i, all) => ({ ...t, dependsOn: t.dependsOn.filter((id) => all.slice(0, i).some((p) => p.agentId === id)) }));
         const dir = typeof body.dir === "string" && body.dir.trim() ? body.dir.trim() : join((await knownFolders()).documents, "Aurora", "Equipe");
         const { id } = await startOrchestration({ request: String(body.request || ""), tasks, dir, runAgent: taskAgents.runAgent, handleChatTurn });
         return sendJson(response, 202, { id });

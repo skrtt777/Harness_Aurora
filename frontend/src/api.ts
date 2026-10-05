@@ -547,7 +547,7 @@ export const listTaskAgentRuns = (id: string) => request<{ runs: AgentRun[] }>(`
 export const createSectorAgents = (baseDir: string) => request<{ agents: TaskAgent[] }>("/agents/sector", { method: "POST", body: JSON.stringify({ baseDir }) }).then((r) => r.agents);
 
 // ---------- Orchestrator (app/orchestrator.js) ----------
-export type PlannedTask = { agentId: string; agentName: string; request: string };
+export type PlannedTask = { agentId: string; agentName: string; request: string; dependsOn?: string[] };
 export type OrchestrationResult = PlannedTask & { status: string; files: string[]; answer: string; error: string | null; conversationId?: string | null };
 export type Orchestration = { id: string; request: string; plan: PlannedTask[]; status: "running" | "done" | "partial" | "failed"; startedAt: string; finishedAt: string | null; results: OrchestrationResult[]; summaryFile: string | null };
 export const planTeamRequest = (requestText: string) => request<{ tasks: PlannedTask[]; planner: string }>("/agents/plan", { method: "POST", body: JSON.stringify({ request: requestText }) });

@@ -162,9 +162,9 @@ function TeamRequest({ agents, onOpenConversation }: { agents: TaskAgent[]; onOp
     {plan && plan.length > 0 && <div className="team-plan" aria-label="Plano">
       <p><b>Plano</b> ({planner === 'modelo' ? 'feito pela Aurora' : 'pelos setores citados no pedido'}): confira e ajuste cada tarefa.</p>
       <ol>{plan.map((task, i) => <li key={task.agentId}>
-        <b>{task.agentName}</b>
+        <b>{task.agentName}</b>{task.dependsOn?.length ? <small className="team-after"> · depois de {task.dependsOn.map((id) => plan.find((t) => t.agentId === id)?.agentName || 'outro agente').join(', ')}, usando o que ele entregar</small> : null}
         <textarea rows={2} value={task.request} aria-label={`Tarefa de ${task.agentName}`} onChange={(e) => setPlan(plan.map((t, k) => (k === i ? { ...t, request: e.target.value } : t)))} />
-        <button type="button" className="link-button" onClick={() => setPlan(plan.filter((_, k) => k !== i))}>Tirar do plano</button>
+        <button type="button" className="link-button" onClick={() => setPlan(plan.filter((_, k) => k !== i).map((t) => ({ ...t, dependsOn: t.dependsOn?.filter((id) => id !== task.agentId) })))}>Tirar do plano</button>
       </li>)}</ol>
       <div className="agent-actions-row"><button className="primary" onClick={run} disabled={busy}>Executar plano</button><button onClick={() => setPlan(null)}>Cancelar</button></div>
     </div>}

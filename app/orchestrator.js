@@ -39,7 +39,8 @@ export function planPrompt(request, agents) {
     "",
     `Pedido: ${request}`,
     "",
-    'Responda só com JSON: {"tasks":[{"agent":"nome exato","request":"pedido completo para esse agente","formato":"planilha | relatório em Word | PDF | texto"}]}',
+    "Se uma tarefa precisa do que outro agente entrega antes (ex.: o e-mail de cobrança usa a lista de inadimplentes), ponha-a depois na lista e diga em depende_de o nome desse agente; tarefas independentes ficam sem depende_de.",
+    'Responda só com JSON: {"tasks":[{"agent":"nome exato","request":"pedido completo para esse agente","formato":"planilha | relatório em Word | PDF | texto","depende_de":["nome de agente de uma tarefa anterior"]}]}',
   ].join("\n");
 }
 
@@ -49,9 +50,14 @@ export function parsePlan(text, agents) {
   try { parsed = JSON.parse(String(text || "").match(/\{[\s\S]*\}/)?.[0] || ""); } catch { return []; }
   const byName = new Map(agents.map((a) => [fold(a.name), a]));
   const seen = new Set();
-  return (Array.isArray(parsed?.tasks) ? parsed.tasks : []).map((t) => ({ agent: byName.get(fold(t?.agent)), request: String(t?.request || "").trim(), format: FORMATS[t?.formato] ? t.formato : null }))
-    .filter((t) => t.agent && t.request.length >= 10 && !seen.has(t.agent.id) && seen.add(t.agent.id))
-    .map((t) => ({ agentId: t.agent.id, agentName: t.agent.name, request: `${t.request.slice(0, 1900)}${t.format && !t.request.includes(FORMATS[t.format]) ? ` Entregue como ${FORMATS[t.format]}.` : ""}` }));
+  const kept = (Array.isArray(parsed?.tasks) ? parsed.tasks : []).map((t) => ({ agent: byName.get(fold(t?.agent)), request: String(t?.request || "").trim(), format: FORMATS[t?.formato] ? t.formato : null, after: Array.isArray(t?.depende_de) ? t.depende_de : [] }))
+    .filter((t) => t.agent && t.request.length >= 10 && !seen.has(t.agent.id) && seen.add(t.agent.id));
+  return kept.map((t, i) => {
+    // Only earlier tasks can be waited for: no cycles, and the order the plan was written in.
+    const before = new Set(kept.slice(0, i).map((k) => k.agent.id));
+    const dependsOn = [...new Set(t.after.map((name) => byName.get(fold(name))?.id).filter((id) => id && before.has(id)))];
+    return { agentId: t.agent.id, agentName: t.agent.name, request: `${t.request.slice(0, 1900)}${t.format && !t.request.includes(FORMATS[t.format]) ? ` Entregue como ${FORMATS[t.format]}.` : ""}`, ...(dependsOn.length ? { dependsOn } : {}) };
+  });
 }
 
 /**
@@ -61,7 +67,8 @@ export function parsePlan(text, agents) {
 export async function planRequest({ request, agents, ask = runLocal, env = process.env }) {
   const active = agents.filter((a) => a.enabled);
   if (!active.length) throw httpError(409, "Crie ou ligue pelo menos um agente antes.");
-  const schema = { type: "object", properties: { tasks: { type: "array", items: { type: "object", properties: { agent: { type: "string", enum: active.map((a) => a.name) }, request: { type: "string" }, formato: { type: "string", enum: Object.keys(FORMATS) } }, required: ["agent", "request", "formato"] } } }, required: ["tasks"] };
+  const names = active.map((a) => a.name);
+  const schema = { type: "object", properties: { tasks: { type: "array", items: { type: "object", properties: { agent: { type: "string", enum: names }, request: { type: "string" }, formato: { type: "string", enum: Object.keys(FORMATS) }, depende_de: { type: "array", items: { type: "string", enum: names } } }, required: ["agent", "request", "formato"] } } }, required: ["tasks"] };
   const answer = await ask(planPrompt(request, active), { ...env, LOCAL_OUTPUT_SCHEMA: JSON.stringify(schema) }).catch((error) => ({ ok: false, error: error.message }));
   const tasks = answer?.ok ? parsePlan(answer.text, active) : [];
   if (tasks.length) return { tasks, planner: "modelo" };
@@ -69,21 +76,38 @@ export async function planRequest({ request, agents, ask = runLocal, env = proce
   return { tasks: named.map((a) => ({ agentId: a.id, agentName: a.name, request })), planner: "palavras do pedido" };
 }
 
-/** Runs the tasks, at most `concurrency` at a time (the local model serves 4 copies). */
+/**
+ * Runs the tasks, at most `concurrency` at a time (the local model serves 4 copies). A task with
+ * `dependsOn` waits for those agents' tasks and gets their delivered files in its request; if one
+ * of them didn't deliver, it doesn't run.
+ */
 export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2, onProgress = () => {} }) {
   const results = new Array(tasks.length);
+  const finished = new Map(); // agentId → promise of its result
+  const settle = new Map();
+  for (const task of tasks) finished.set(task.agentId, new Promise((resolve) => settle.set(task.agentId, resolve)));
   let next = 0;
+  const runOne = async (i) => {
+    const task = tasks[i];
+    const deps = await Promise.all((task.dependsOn || []).map((id) => finished.get(id)).filter(Boolean));
+    const missing = deps.filter((d) => d.status !== "done" || !d.files.length);
+    if (missing.length) return { ...task, status: "failed", files: [], answer: "", error: `Dependia de ${missing.map((d) => d.agentName).join(", ")}, que não entregou.` };
+    const request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
+    onProgress({ index: i, status: "running" });
+    try {
+      const run = await runAgent(task.agentId, { request, trigger: "orquestrador", handleChatTurn });
+      return { ...task, status: run?.status || "failed", files: run?.files || [], answer: run?.answer || "", error: run?.error || null, conversationId: run?.conversationId || null };
+    } catch (error) {
+      return { ...task, status: "failed", files: [], answer: "", error: error.message };
+    }
+  };
+  // Tasks are taken in plan order; dependencies only point backwards, so waiting never deadlocks
+  // as long as the ones being waited for are already started (they are: they come first).
   const worker = async () => {
     while (next < tasks.length) {
       const i = next++;
-      const task = tasks[i];
-      onProgress({ index: i, status: "running" });
-      try {
-        const run = await runAgent(task.agentId, { request: task.request, trigger: "orquestrador", handleChatTurn });
-        results[i] = { ...task, status: run?.status || "failed", files: run?.files || [], answer: run?.answer || "", error: run?.error || null, conversationId: run?.conversationId || null };
-      } catch (error) {
-        results[i] = { ...task, status: "failed", files: [], answer: "", error: error.message };
-      }
+      results[i] = await runOne(i);
+      settle.get(tasks[i].agentId)(results[i]);
       onProgress({ index: i, status: results[i].status });
     }
   };

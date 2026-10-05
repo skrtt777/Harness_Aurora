@@ -48,6 +48,28 @@ test("tasks run at most two at a time; a failure doesn't stop the others", async
   assert.equal(results[2].error, "ocupado");
 });
 
+test("dependencies: only on earlier tasks, the dependent waits and gets the files, and skips if they failed", async () => {
+  const plan = parsePlan(JSON.stringify({ tasks: [
+    { agent: "Agente Financeiro", request: "Planilha de inadimplentes acima de 30 dias.", formato: "planilha" },
+    { agent: "Agente RH", request: "E-mail de cobrança para cada inadimplente da planilha.", formato: "texto", depende_de: ["Agente Financeiro", "Agente RH", "Agente Inventado"] },
+  ] }), team);
+  assert.deepEqual(plan.map((t) => t.dependsOn), [undefined, ["fin"]], "no self, unknown or later dependency");
+  const firstOnly = parsePlan(JSON.stringify({ tasks: [{ agent: "Agente RH", request: "Algo que usa o financeiro.", formato: "texto", depende_de: ["Agente Financeiro"] }, { agent: "Agente Financeiro", request: "Planilha de inadimplentes.", formato: "planilha" }] }), team);
+  assert.equal(firstOnly[0].dependsOn, undefined, "a dependency on a later task is dropped (no cycles)");
+
+  const order = [];
+  const requests = {};
+  const runAgent = async (id, { request }) => { order.push(`start ${id}`); requests[id] = request; await new Promise((r) => setTimeout(r, 20)); order.push(`end ${id}`); return { status: "done", files: [`C:/${id}/entrega.xlsx`] }; };
+  const results = await runPlan({ tasks: plan, runAgent, concurrency: 2 });
+  assert.deepEqual(order, ["start fin", "end fin", "start rh", "end rh"], "the dependent waits even with two workers");
+  assert.match(requests.rh, /Use o que a equipe já entregou:\n- Agente Financeiro: C:\/fin\/entrega\.xlsx/);
+  assert.deepEqual(results.map((r) => r.status), ["done", "done"]);
+
+  const failing = await runPlan({ tasks: plan, runAgent: async (id) => (id === "fin" ? { status: "failed", files: [], error: "sem planilha" } : { status: "done", files: ["x"] }), concurrency: 2 });
+  assert.equal(failing[1].status, "failed");
+  assert.match(failing[1].error, /Dependia de Agente Financeiro, que não entregou/);
+});
+
 test("an orchestration leaves a Word summary with each delivery and what is pending", async () => {
   const runAgent = async (id) => (id === "rh" ? { status: "done", files: ["C:/RH/ferias_outubro.xlsx"], answer: "Planilha com 9 pessoas." } : { status: "failed", files: [], answer: "", error: "Não encontrou a planilha." });
   const tasks = [{ agentId: "rh", agentName: "Agente RH", request: "Férias de outubro." }, { agentId: "fin", agentName: "Agente Financeiro", request: "Títulos com mais de 30 dias." }];
