@@ -510,7 +510,9 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Projects ----------
       if (method === "GET" && pathname === "/api/projects") {
-        return sendJson(response, 200, { projects: await listProjects() });
+        // A task agent's project (agents.js) is marked: the sidebar leaves it to the Agents page.
+        const owners = new Map((await taskAgents.listAgents()).filter((a) => a.projectId).map((a) => [a.projectId, a.id]));
+        return sendJson(response, 200, { projects: (await listProjects()).map((p) => (owners.has(p.id) ? { ...p, agentId: owners.get(p.id) } : p)) });
       }
       if (method === "POST" && pathname === "/api/projects") {
         const body = await readJson(request);

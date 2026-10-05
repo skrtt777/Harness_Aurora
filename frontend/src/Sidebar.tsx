@@ -71,7 +71,7 @@ function ConversationRow({ conversation, active, projects, onSelect, onRename, o
           onBlur={() => setMoving(false)}
         >
           <option value="">Sem projeto</option>
-          {projects.map((p) => (
+          {projects.filter((p) => !p.agentId).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
@@ -223,6 +223,9 @@ export default function Sidebar({
     return active.filter((c) => c.title.toLowerCase().includes(q));
   }, [conversations, query, contentResults]);
 
+  // Task agents' projects live on the Agents page, not in the sidebar.
+  const visibleProjects = useMemo(() => projects.filter((p) => !p.agentId), [projects]);
+
   const byProject = useMemo(() => {
     const map = new Map<string, Conversation[]>();
     const ungrouped: Conversation[] = [];
@@ -332,8 +335,8 @@ export default function Sidebar({
               <input className="field" autoFocus placeholder="Nome do projeto" value={projectDraft} onChange={(e) => setProjectDraft(e.target.value)} onBlur={() => setCreatingProject(false)} />
             </form>
           )}
-          {projects.length === 0 && !creatingProject && <p className="sb-empty">Nenhum projeto ainda.</p>}
-          {projects.map((project) => {
+          {visibleProjects.length === 0 && !creatingProject && <p className="sb-empty">Nenhum projeto ainda.</p>}
+          {visibleProjects.map((project) => {
             const items = byProject.map.get(project.id) || [];
             const isCollapsed = collapsed[project.id];
             return (

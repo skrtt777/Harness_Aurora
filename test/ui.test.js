@@ -350,6 +350,7 @@ test('agents page: a run with its delivered file, creating an agent with a sched
       await page.waitForTimeout(300);
       await card.getByText('Concluída').waitFor();
       assert.equal(await card.locator('.delivered-file strong').first().textContent(),'cobranca.xlsx');
+      assert.equal(await page.locator('.sb-project').filter({hasText:'Agente: Agente Financeiro'}).count(),0,'agent projects stay off the sidebar');
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal scroll');
       if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,`agentes-${viewport.width}.png`),fullPage:true});
       if (viewport.width>600) {

@@ -4,6 +4,8 @@ export type Project = {
   instructions: string;
   /** Pasta onde o agente trabalha (vazio = pastas liberadas nas configurações). */
   workspaceDir?: string;
+  /** Set when the project belongs to a task agent (its chats live on the Agents page). */
+  agentId?: string;
   createdAt: string;
   updatedAt: string;
 };
