@@ -47,6 +47,7 @@ O Quest não rodava a mesma mente do PC:
    - reduzir a carga de CPU do Unreal quando o menu está parado (pedido ao visual);
    - aproveitar melhor o cache de prompt entre turnos.
 3. Rodar de novo `compare-harness-parity.mjs quest 18887 8787` com a configuração final e registrar aqui.
+   - **Especulação por n-gramas (05/10/2026):** no PC, `--spec-type ngram-mod` levou a geração na CPU de 8,5 para 40 tokens/s ao copiar dados do contexto, com o mesmo texto (`scripts/spec-bench.mjs`). Vale testar no `llama-server` do Quest (`AuroraRuntime.java`), se a versão embarcada tiver a opção. A rota principal (Quest → PC) já tem isso.
 4. Só depois reavaliar o MoE 30B, que precisa de ~18,6 GB. O Quest tinha 2,6 GB livres com ele copiado; a cópia foi removida, e o original fica em `Saved/MoePort`.
 
 ## Rota principal: PC primeiro, Quest como reserva (27/09/2026)
