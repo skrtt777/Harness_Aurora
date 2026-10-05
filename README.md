@@ -82,16 +82,22 @@ A aba **Agentes** reúne os "funcionários" da Aurora. Cada um tem uma missão e
   Ao terminar, aparece uma notificação do Windows. Cada agente roda uma tarefa por vez e no máximo 24 vezes por dia sozinho.
 - **Pedido para a equipe:** um pedido grande ("feche o mês") é dividido entre os agentes num plano que você confere e edita antes de rodar. Uma tarefa pode usar o que outra entregou, e no fim sai um resumo em Word.
 - **Modelos prontos:** "Organizar Downloads", "Notas que chegam numa pasta" e "Pesquisador" preenchem o formulário; você só escolhe a pasta.
-- **Acompanhar e conferir:** enquanto o agente trabalha, o cartão mostra a etapa e os passos ao vivo. **Exportar histórico** gera uma planilha com todas as execuções (auditoria), e uma execução que moveu arquivos tem **Desfazer**.
+- **Acompanhar e conferir:** enquanto o agente trabalha, o cartão mostra a etapa e os passos ao vivo. **Exportar histórico** gera uma planilha com todas as execuções (auditoria), e uma execução que moveu ou editou arquivos tem **Desfazer** (a versão anterior de um arquivo editado fica guardada por 30 dias; uma mudança sua posterior nunca é descartada). Quando o agente precisa de autorização, o cartão mostra **Permitir/Negar**, e o Windows avisa se a janela estiver atrás.
 - **Permissões:** a mesma autonomia do modo Auto. O agente é livre dentro da pasta dele e da pasta que o gatilho observa, e pede autorização para o resto. Ele nunca apaga arquivos sem pedir.
 
 Detalhes, decisões e medições estão em [docs/AGENTES_ROTEIRO.md](docs/AGENTES_ROTEIRO.md).
+
+## Extensões (MCP)
+
+Em Configurações → Agente → Extensões, conecte servidores [MCP](https://modelcontextprotocol.io) (e-mail, agenda, Notion, bancos de dados…) pelo comando que os inicia (ex.: `npx -y <pacote>`). As ferramentas deles entram no agente como `mcp_<servidor>_<ferramenta>` (`app/mcp.js`). Ferramentas marcadas como só-leitura rodam direto; as demais pedem autorização e são recusadas no modo Plano; o que elas devolvem conta como conteúdo de fora (um comando depois disso pede autorização).
+
+Em Configurações → Agente → **Registro de ações**, exporte uma planilha com tudo o que a Aurora fez no computador, em qualquer conversa.
 
 ## Provedores — Codex, Claude e Local (Ollama)
 
 Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor na barra lateral, acima do "+ Nova conversa"). Codex e Claude seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
 
-O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen3.5:4b`) — de graça, offline, sem gastar chamada de Codex/Claude. O agente roda no `llama-server` que vem com o Ollama (`app/llamaServer.js`): 4 vagas em paralelo, decodificação especulativa por n-gramas (`ngram-mod`, 2,5x mais rápido para copiar dados de uma ferramenta para um documento; `LLAMA_SPEC=off` desliga) e carregamento antecipado quando você começa a digitar. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
+O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen3.5:4b`) — de graça, offline, sem gastar chamada de Codex/Claude. O agente roda no `llama-server` que vem com o Ollama (`app/llamaServer.js`): 4 vagas em paralelo, decodificação especulativa por n-gramas (`ngram-mod`, 2,5x mais rápido para copiar dados de uma ferramenta para um documento; `LLAMA_SPEC=off` desliga) e preparo antecipado quando você começa a digitar: o modelo carrega e já lê as ferramentas e regras fixas (num PC sem placa de vídeo, a primeira resposta cai de ~55 s para ~10 s). `LLAMA_FORCE_CPU=1` força o processador (driver de vídeo problemático ou medição); Configurações → IA local mostra onde o modelo roda. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
 
 - Ao criar uma conversa **Local**, você também escolhe um **Professor** (Codex ou Claude), guardado em `conversations.teacherProvider`.
 - Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.
