@@ -19,6 +19,8 @@ Os agentes são "funcionários" da Aurora. Cada um tem uma missão e uma pasta d
 ## Conversa
 
 - **A resposta aparece enquanto é escrita**, em vez de só no fim. O primeiro texto surge em cerca de 3 segundos.
+- **Navegador:** a Aurora preenche e envia formulários com mais segurança. Ela acha o campo pelo nome que vê na página e não diz "enviei" sem ter clicado em Enviar.
+- **"Onde está?"** depois de uma entrega responde com o caminho do arquivo, em vez de refazer o documento.
 - **Conversas longas:** a Aurora lembra o que você disse sobre si (seu nome, seu trabalho) durante toda a conversa. Ao voltar a um assunto ("voltando ao kit de mídia…"), ela retoma o arquivo certo, e não o último citado.
 
 ## Agentes mais certeiros com planilhas
@@ -39,8 +41,8 @@ Os agentes são "funcionários" da Aurora. Cada um tem uma missão e uma pasta d
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | 438 passaram, 0 falhas |
-| Conversas reais, inclusive uma de 10 turnos (3 rodadas) | 98,7% |
+| Testes automáticos | 442 passaram, 0 falhas |
+| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 rodadas) | 98,9% |
 | Agentes de 7 setores e rotina de pasta, conferindo o arquivo entregue (3 rodadas) | 97,9% |
 | Perguntas sobre a empresa fictícia (49, 2 rodadas) | 93,9% (era 83%) |
 | Pedidos para a equipe ("feche o mês"; tarefa que usa a entrega de outra) | plano certo em 100%; 87,9% e 90,5% |
