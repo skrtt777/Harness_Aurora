@@ -8,12 +8,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 436 passaram, 0 falhas (05/10) |
+| Testes automáticos | `npm test` | 438 passaram, 0 falhas (05/10) |
 | Conversas reais (4 cenários, inclusive 10 turnos) | `npm run battery -- --runs 3` | 98,7% com qwen3.5:4b (05/10, `reports/battery/`) |
 | Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 5` | 7 setores: 95%, 28 de 35 perfeitas; rotina de pasta 93,8% (05/10, `reports/agentes/`) |
 | Orquestrador ("feche o mês") | `node scripts/orchestrator-eval.mjs --runs 3` | plano certo em 100%, 87,9% no total (05/10) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 92%; pesquisa 91,7% (05/10) |
-| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 83% com 1 resposta, 92% com 5 cópias (`docs/AVALIACAO_EMPRESA_2026-10-04.md`) |
+| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 93,9% (46/49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
 **Regra:** uma versão só sai se a bateria de conversas não cair mais de 5 pontos.

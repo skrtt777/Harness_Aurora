@@ -35,14 +35,63 @@ export function cellValue(text) {
 }
 const COMPARE = { ">": (a, b) => a > b, ">=": (a, b) => a >= b, "<": (a, b) => a < b, "<=": (a, b) => a <= b };
 
-export function filterRows(lines, filter) {
+// Columns that hold codes, not quantities: never summed.
+const ID_COLUMN = /matr[ií]cula|c[óo]digo|^n[º°o.]|n[uú]mero|chamado|pedido|t[ií]tulo|documento|cpf|cnpj|^ano$|^id$|telefone|ramal|cep/i;
+const brNumber = (n) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
+
+/**
+ * One sheet's rows as read_file shows them: sorted if asked ("Término", "-Valor"), then the
+ * totals of the numeric columns. "Qual vence primeiro?" and "quanto falta pagar?" were answered
+ * wrong by a model sorting and adding in its head (05/10/2026).
+ */
+function sheetBlock(s, hits, sort) {
+  let rows = hits;
+  const columnOf = (name) => { const exact = s.header?.cells.findIndex((c) => c === name) ?? -1; return exact >= 0 ? exact : s.header?.cells.findIndex((c) => c.includes(name)) ?? -1; };
+  if (sort?.col) {
+    const at = columnOf(sort.col);
+    if (at >= 0) {
+      const key = (line) => { const cell = line.split(" | ")[at] ?? ""; const v = cellValue(cell); return v === null ? foldText(cell) : v; };
+      rows = [...hits].sort((a, b) => { const x = key(a.line), y = key(b.line); const order = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "pt-BR"); return sort.desc ? -order : order; });
+    }
+  }
+  const header = s.header?.line.split(" | ") || [];
+  const totals = rows.length >= 2 ? header.map((name, j) => {
+    if (ID_COLUMN.test(name.trim())) return null;
+    const cells = rows.map(({ line }) => (line.split(" | ")[j] ?? "").trim()).filter(Boolean);
+    if (!cells.length || cells.some((c) => DATE.test(c) || cellValue(c) === null)) return null;
+    return `${name.trim()} = ${brNumber(cells.reduce((sum, c) => sum + cellValue(c), 0))}`;
+  }).filter(Boolean) : [];
+  return [
+    ...[s.name, s.header?.line].filter(Boolean),
+    ...rows.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`),
+    ...(totals.length ? [`Soma das ${rows.length} linhas acima: ${totals.join("; ")}`] : []),
+    "",
+  ];
+}
+
+/** "Término" (crescente) or "-Valor" (decrescente). */
+export function parseSort(sort) {
+  const text = String(sort || "").trim().replace(/["“”']/g, "");
+  if (!text) return null;
+  const desc = /^-|\b(desc|decrescente|maior)\b/i.test(text);
+  return { col: foldText(text.replace(/^[-+]\s*/, "").replace(/\s*\b(asc|desc|crescente|decrescente)\b\s*$/i, "")), desc };
+}
+
+export function filterRows(lines, filter, { sort } = {}) {
+  sort = typeof sort === "string" ? parseSort(sort) : sort;
+  // Sorting (or adding up) the whole sheet: every row of every sheet.
+  if (!String(filter || "").trim()) {
+    const sheets = parseSheets(lines).filter((s) => s.header && s.rows.length);
+    if (!sheets.length) return "Nenhuma tabela neste arquivo.";
+    return `${sheets.flatMap((s) => sheetBlock(s, s.rows, sort)).join("\n")}\n${sheets.reduce((n, s) => n + s.rows.length, 0)} linha(s)${sort ? `, em ordem de ${sort.col}${sort.desc ? " (decrescente)" : ""}` : ""}.`;
+  }
   // The model copies the example literally: "Coluna=Dias em atraso>30", "\"Dias em atraso\">30".
   filter = String(filter).split(/\s*;\s*/).map((c) => c.replace(/^\s*coluna\s*[=:>]\s*(?=\S+.*[=<>])/i, "").replace(/["“”']/g, "").trim()).join("; ");
   // Several conditions: "Dias em atraso>30; Situação=Em atraso" (all must hold).
   const parts = String(filter).split(/\s*;\s*/).filter(Boolean);
-  if (parts.length > 1) return filterAll(lines, parts, filter);
+  if (parts.length > 1) return filterAll(lines, parts, filter, sort);
   const [, colPart, op, valuePart] = filter.match(/^([^=<>!]{1,60}?)\s*(>=|<=|!=|>|<|=)\s*(.+)$/) || [];
-  if (op && op !== "=") return filterAll(lines, [filter], filter);
+  if (op && op !== "=") return filterAll(lines, [filter], filter, sort);
   // "entrega até 15/10" written as "Entrega prevista=15/10/2026" brought only the 15th.
   // A plain reminder was ignored 5 times out of 5; the counts make the difference visible.
   const count = (f) => Number(/(\d+) linha\(s\)/.exec(filterAll(lines, [f], f))?.[1] || 0);
@@ -70,7 +119,7 @@ export function filterRows(lines, filter) {
     const hits = s.rows.filter(({ line }) => (index >= 0 ? foldText(line.split(" | ")[index] ?? "").includes(wanted) : foldText(line).includes(wanted)));
     if (!hits.length) continue;
     total += hits.length;
-    out.push(...[s.name, s.header?.line].filter(Boolean), ...hits.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`), "");
+    out.push(...sheetBlock(s, hits, sort));
   }
   const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
   if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}${dateNote}`;
@@ -90,7 +139,7 @@ function parseSheets(lines) {
 }
 
 /** Every condition must hold; each names its column ("Coluna>30", "Coluna=texto"). */
-function filterAll(lines, conditions, label) {
+function filterAll(lines, conditions, label, sort = null) {
   const parsed = conditions.map((c) => {
     const [, col, op, value] = c.match(/^([^=<>!]{1,60}?)\s*(>=|<=|!=|>|<|=)\s*(.+)$/) || [];
     return col ? { col: foldText(col), op, text: foldText(value), number: cellValue(value.trim()), raw: c } : null;
@@ -124,7 +173,7 @@ function filterAll(lines, conditions, label) {
     });
     if (!hits.length) continue;
     total += hits.length;
-    out.push(...[s.name, s.header?.line].filter(Boolean), ...hits.map(({ line, i }) => `${String(i + 1).padStart(5)}  ${line}`), "");
+    out.push(...sheetBlock(s, hits, sort));
   }
   if (!found) return `Nenhuma planilha tem as colunas de "${label}".${columns ? ` Colunas: ${columns}.` : ""}`;
   if (!total) return `Nenhuma linha com "${label}".`;
@@ -404,8 +453,8 @@ export const fileTools = [
   },
   {
     name: "read_file",
-    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\"), diferente (\"Situação!=Resolvido\"), entre duas colunas (\"Saldo<Estoque mínimo\") ou só um texto; condições separadas por \";\" valem juntas. Devolve o cabeçalho, as linhas que batem e o total: use esse resultado em vez de comparar valores de cabeça.",
-    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\", \"Coluna>30\", \"Coluna>=01/10/2026\" (várias com ;) ou texto que a linha precisa conter" } }, required: ["path"] },
+    description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\"), diferente (\"Situação!=Resolvido\"), entre duas colunas (\"Saldo<Estoque mínimo\") ou só um texto; condições separadas por \";\" valem juntas. Para \"qual vence primeiro\", \"o maior\", \"os 3 mais caros\" use sort: \"Coluna\" (crescente) ou \"-Coluna\" (decrescente), com ou sem filter. Devolve o cabeçalho, as linhas que batem, a soma das colunas numéricas e o total: use esse resultado em vez de comparar, ordenar ou somar de cabeça.",
+    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\", \"Coluna>30\", \"Coluna>=01/10/2026\" (várias com ;) ou texto que a linha precisa conter" }, sort: { type: "string", description: "opcional: \"Coluna\" para ordem crescente, \"-Coluna\" para decrescente" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
       const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
@@ -413,14 +462,14 @@ export const fileTools = [
       if (ctx.provider && ctx.provider !== "local" && (await ctx.isRestricted?.(path))) return { kind: "share", summary: `Ler ${path} (documento interno não liberado para IA paga)` };
       return { kind: "read", paths: [path] };
     },
-    async run({ path, offset = 1, limit = 400, filter }, ctx) {
+    async run({ path, offset = 1, limit = 400, filter, sort }, ctx) {
       const file = await resolveExisting(path, ctx);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
       ctx.onFileRead?.(file);
-      if (String(filter || "").trim()) {
-        const found = `${file}\n${filterRows(lines, String(filter))}`;
+      if (String(filter || "").trim() || String(sort || "").trim()) {
+        const found = `${file}\n${filterRows(lines, String(filter || ""), { sort })}`;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);

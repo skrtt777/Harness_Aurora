@@ -4,7 +4,7 @@
 import { clockObservation, mathObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
@@ -295,6 +295,7 @@ async function chatAgentToolContext({ conversation, project }) {
     conversationId: conversation.id, projectId: conversation.projectId || null,
     browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", openPage: await currentBrowserPage(),
     workspaceFile: await workspaceInstructions(workspace),
+    emptyWorkspace: workspace ? (await readdir(workspace).catch(() => [])).length === 0 : false,
     knowledgeRoots: (await listSources().catch(() => [])).map((s) => s.path),
     // Personal use with "full computer access": read and search any drive without asking.
     readRoots: (await getSetting("full_computer_access")) === "true" ? computerRoots() : [],
@@ -318,11 +319,14 @@ const MODE_TEXT = {
   plan: "Modo Plano: você só pode olhar (ler arquivos, pesquisar, navegar sem clicar). Não altere nada; termine com um plano do que faria.",
 };
 
-function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [] }) {
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false }) {
   return [
-    `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
+    `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${(process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
     workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (ex.: "soma.js", "src/app.js"), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
+    // "A pasta do projeto está vazia, não encontrei a planilha": the company documents were in the
+    // context all along. An empty folder is said up front.
+    ...(workspace && emptyWorkspace ? ["A pasta do projeto está VAZIA: não procure documentos nela. Documentos da empresa vêm dos trechos abaixo e de knowledge_search (leia-os com read_file pelo caminho completo da Fonte); arquivos do usuário, das pastas dele acima. A pasta do projeto serve para salvar o que você entregar."] : []),
     ...(readRoots.length ? [`Acesso a todo o computador: você pode ler e procurar arquivos em ${readRoots.join(", ")} sem pedir (search_files com path, read_file). Senhas, chaves, perfis de navegador e pastas do sistema continuam pedindo autorização.`] : []),
     MODE_TEXT[mode] || MODE_TEXT.auto,
     `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,

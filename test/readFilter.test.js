@@ -29,3 +29,15 @@ test("accents and case do not matter; a missing column falls back to the whole l
   assert.match(filterRows(sheet, "nada disso"), /Nenhuma linha[\s\S]*Colunas: Matrícula/);
   assert.match(filterRows(["linha um", "outra linha", "fim"], "linha"), /2 linha\(s\)/, "plain text works too");
 });
+
+test("read_file sorts (\"Término\", \"-Valor\") and adds up the numeric columns of the rows it shows", async () => {
+  const { filterRows, parseSort } = await import("../app/agentTools/files.js");
+  const sheet = ["## Contas", "Documento | Fornecedor | Vencimento | Valor | Situação", "NF 1 | A | 25/10/2026 | 100,50 | A pagar", "NF 2 | B | 09/10/2026 | 300 | A pagar", "NF 3 | C | 01/10/2026 | 50 | Pago"];
+  const docs = (out) => out.split("\n").filter((l) => /^\s+\d+\s+NF/.test(l)).map((l) => l.trim().split(/\s+/).slice(1, 3).join(" "));
+  assert.deepEqual(docs(filterRows(sheet, "", { sort: "Vencimento" })), ["NF 3", "NF 2", "NF 1"], "dates sort as dates");
+  assert.deepEqual(docs(filterRows(sheet, "Situação=A pagar", { sort: "-Valor" })), ["NF 2", "NF 1"]);
+  assert.match(filterRows(sheet, "Situação=A pagar"), /Soma das 2 linhas acima: Valor = 400,50/);
+  assert.doesNotMatch(filterRows(sheet, "Situação=A pagar"), /Documento =|Vencimento =/, "codes and dates are never summed");
+  assert.deepEqual(parseSort("-Total Jan-Set"), { col: "total jan-set", desc: true });
+  assert.deepEqual(parseSort("Término crescente"), { col: "termino", desc: false });
+});
