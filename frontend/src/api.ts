@@ -531,7 +531,7 @@ export type TaskAgent = {
   tools: string[] | null; trigger: AgentTrigger; enabled: boolean; projectId: string | null; createdAt: string; updatedAt: string;
 };
 export type AgentRun = {
-  id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file"; status: "running" | "done" | "failed";
+  id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
 };
 export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
@@ -543,3 +543,11 @@ export const deleteTaskAgent = (id: string) => request<{ deleted: boolean }>(`/a
 export const runTaskAgent = (id: string, requestText: string) => request<{ started: boolean }>(`/agents/${id}/run`, { method: "POST", body: JSON.stringify({ request: requestText }) });
 export const listTaskAgentRuns = (id: string) => request<{ runs: AgentRun[] }>(`/agents/${id}/runs`).then((r) => r.runs);
 export const createSectorAgents = (baseDir: string) => request<{ agents: TaskAgent[] }>("/agents/sector", { method: "POST", body: JSON.stringify({ baseDir }) }).then((r) => r.agents);
+
+// ---------- Orchestrator (app/orchestrator.js) ----------
+export type PlannedTask = { agentId: string; agentName: string; request: string };
+export type OrchestrationResult = PlannedTask & { status: string; files: string[]; answer: string; error: string | null; conversationId?: string | null };
+export type Orchestration = { id: string; request: string; plan: PlannedTask[]; status: "running" | "done" | "partial" | "failed"; startedAt: string; finishedAt: string | null; results: OrchestrationResult[]; summaryFile: string | null };
+export const planTeamRequest = (requestText: string) => request<{ tasks: PlannedTask[]; planner: string }>("/agents/plan", { method: "POST", body: JSON.stringify({ request: requestText }) });
+export const startTeamRequest = (requestText: string, tasks: PlannedTask[]) => request<{ id: string }>("/agents/orchestrate", { method: "POST", body: JSON.stringify({ request: requestText, tasks }) });
+export const listOrchestrations = () => request<{ orchestrations: Orchestration[] }>("/agents/orchestrations").then((r) => r.orchestrations);

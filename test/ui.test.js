@@ -372,3 +372,31 @@ test('agents page: a run with its delivered file, creating an agent with a sched
     assert.deepEqual(saved.trigger,{type:'schedule',at:'08:00',weekdays:[1,2,3,4,5],request:'Organize os arquivos novos.'});
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('team request: the plan is shown, edited and sent as edited', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  for (const d of ['RH','Controladoria']) await agents.createAgent({name:`Agente ${d}`,kind:'setor',department:d,mission:`Rotinas de ${d}.`,workDir:join(temp,`equipe-${d}`)});
+  const all=await agents.listAgents();
+  const rh=all.find(a=>a.name==='Agente RH'),ctrl=all.find(a=>a.name==='Agente Controladoria');
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:1000}});
+    let sent=null;
+    await page.route('**/api/agents/plan',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({planner:'modelo',tasks:[{agentId:rh.id,agentName:'Agente RH',request:'Gere a planilha de férias de outubro.'},{agentId:ctrl.id,agentName:'Agente Controladoria',request:'Relatório em Word dos desvios acima de 5%.'}]})}));
+    await page.route('**/api/agents/orchestrate',async route=>{sent=JSON.parse(route.request().postData());await route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({id:'x'})});});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Agentes'}).click();
+    const team=page.getByRole('region',{name:'Pedido para a equipe'});
+    await team.getByRole('textbox',{name:'Pedido para a equipe'}).fill('Feche o mês de setembro para a diretoria');
+    await team.getByRole('button',{name:'Montar plano'}).click();
+    const task=team.getByRole('textbox',{name:'Tarefa de Agente RH'});
+    await task.waitFor();
+    await task.fill('Gere a planilha de quem começa as férias em outubro.');
+    if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'equipe-plano.png'),fullPage:true});
+    await team.getByRole('button',{name:'Executar plano'}).click();
+    await page.waitForFunction(()=>!document.querySelector('[aria-label="Plano"]'));
+    assert.equal(sent.request,'Feche o mês de setembro para a diretoria');
+    assert.deepEqual(sent.tasks.map(t=>t.request),['Gere a planilha de quem começa as férias em outubro.','Relatório em Word dos desvios acima de 5%.']);
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

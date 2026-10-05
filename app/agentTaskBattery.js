@@ -125,9 +125,11 @@ export async function scoreAgentTask(task, run, truth) {
   const fits = (f) => task.format.some((ext) => f.toLowerCase().endsWith(ext));
   const delivered = files.find(fits) || files[0];
   const text = delivered ? await extractText(delivered).catch(() => "") : "";
-  const missing = truth.expected.filter((item) => !mentions(text, item));
+  // "Duplicata 2592" also counts as "2592" in a number column (the word went to another column).
+  const found = (item) => mentions(text, item) || (/\s(\d{3,})$/.test(item) && mentions(text, item.match(/(\d{3,})$/)[1]));
+  const missing = truth.expected.filter((item) => !found(item));
   // Someone with vacations in October and in another month is only expected.
-  const extra = truth.excluded.filter((item) => !truth.expected.includes(item) && mentions(text, item));
+  const extra = truth.excluded.filter((item) => !truth.expected.includes(item) && found(item));
   const checks = [
     { name: `entrega um arquivo ${task.format.join(" ou ")}`, ok: Boolean(delivered && fits(delivered)) },
     { name: `tem todos os ${truth.expected.length} itens certos`, ok: Boolean(delivered) && missing.length === 0 },

@@ -65,7 +65,17 @@ O Ollama não roda o qwen3.5 em paralelo. Já o llama-server que vem com o Ollam
 
 ## Fase E: orquestrador
 
-- [ ] Divide um pedido grande ("fecha o mês") entre os agentes, junta as entregas e confere as dependências.
+- [x] **Orquestrador (`app/orchestrator.js`, 05/10).** Funciona em três passos:
+  1. **Plano:** o modelo local divide um pedido grande ("feche o mês") entre os agentes que existem. Um esquema JSON limita o plano aos nomes reais e exige o formato de cada entrega (planilha, relatório em Word, PDF, texto). O prompt manda copiar os critérios, períodos e números do pedido com as mesmas palavras. Se o modelo não der um plano válido, cada agente de setor citado no pedido recebe o pedido inteiro.
+  2. **Revisão:** você confere e edita cada tarefa na tela "Agentes" (Pedido para a equipe).
+  3. **Execução:** duas tarefas de cada vez. Uma falha não para as outras, e no fim sai um **resumo em Word** feito por código (quem fez o quê, os arquivos e as pendências).
+- [x] **Avaliação** (`scripts/orchestrator-eval.mjs`): um pedido "feche o mês" para RH, Financeiro e Controladoria, conferindo o plano, cada arquivo contra o gabarito da fase B e o resumo.
+  - **Resultado (3 rodadas):** o **plano veio certo em 100%** das rodadas e a nota foi 87,9%.
+  - **O que a avaliação corrigiu:**
+    - o plano reescrevia o critério ("até o fim de setembro"), e o agente recalculava os dias de atraso errado;
+    - o plano trocava "planilha" por "lista", e o agente entregava outro formato.
+  - **Erro que resta:** às vezes o agente acrescenta uma segunda aba com linhas que não se encaixam.
+- [ ] Dependências entre tarefas (uma usar a entrega da outra). Por enquanto, as tarefas são independentes.
 
 ## Fase F: agentes pessoais
 

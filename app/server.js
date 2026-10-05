@@ -28,9 +28,11 @@ import { systemVitals } from "./systemVitals.js";
 import { recallProbe, recentRecalls } from "./memoryRecall.js";
 import { TEACHER_MODES } from "./teacher.js";
 import { protectPort } from "./agentTools/netGuard.js";
+import { knownFolders } from "./agentTools/index.js";
 import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAccess.js";
 import * as taskAgents from "./agents.js";
 import { runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
+import { listOrchestrations, planRequest, startOrchestration } from "./orchestrator.js";
 import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir } from "./chatTurn.js";
 import { BROWSER_BACKENDS } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
@@ -412,6 +414,23 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const departments = [...new Set((await listSources()).map((s) => s.department).filter(Boolean))];
         return sendJson(response, 201, { agents: await taskAgents.createSectorAgents({ baseDir: body.baseDir, departments: body.departments || departments }) });
       }
+      // Orchestrator (orchestrator.js): plan a big request among the agents, the person checks
+      // the plan, then it runs and leaves a summary document.
+      if (method === "POST" && pathname === "/api/agents/plan") {
+        const body = await readJson(request);
+        if (!String(body.request || "").trim()) throw httpError(400, "Diga o que a equipe deve fazer.");
+        return sendJson(response, 200, await planRequest({ request: String(body.request).slice(0, 4000), agents: await taskAgents.listAgents() }));
+      }
+      if (method === "POST" && pathname === "/api/agents/orchestrate") {
+        const body = await readJson(request);
+        const known = new Map((await taskAgents.listAgents()).map((a) => [a.id, a]));
+        const tasks = (Array.isArray(body.tasks) ? body.tasks : []).filter((t) => known.has(t?.agentId) && String(t.request || "").trim())
+          .slice(0, 12).map((t) => ({ agentId: t.agentId, agentName: known.get(t.agentId).name, request: String(t.request).slice(0, 2000) }));
+        const dir = typeof body.dir === "string" && body.dir.trim() ? body.dir.trim() : join((await knownFolders()).documents, "Aurora", "Equipe");
+        const { id } = await startOrchestration({ request: String(body.request || ""), tasks, dir, runAgent: taskAgents.runAgent, handleChatTurn });
+        return sendJson(response, 202, { id });
+      }
+      if (method === "GET" && pathname === "/api/agents/orchestrations") return sendJson(response, 200, { orchestrations: await listOrchestrations() });
       const taskAgentMatch = pathname.match(/^\/api\/agents\/([^/]+)(\/run|\/runs)?$/);
       if (taskAgentMatch) {
         const [, id, sub] = taskAgentMatch;

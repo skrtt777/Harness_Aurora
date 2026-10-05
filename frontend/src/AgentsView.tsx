@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, listTaskAgentRuns, listTaskAgents, pickFolder, runTaskAgent, updateTaskAgent,
-  type AgentRun, type AgentTrigger, type NewTaskAgent, type TaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
 
@@ -13,7 +13,7 @@ import DeliveredFiles from './DeliveredFiles';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const STATUS: Record<AgentRun['status'], string> = { running: 'Trabalhando…', done: 'Concluída', failed: 'Não concluída' };
-const TRIGGER_LABEL: Record<AgentRun['trigger'], string> = { manual: 'pedido seu', schedule: 'horário', file: 'arquivo novo' };
+const TRIGGER_LABEL: Record<AgentRun['trigger'], string> = { manual: 'pedido seu', schedule: 'horário', file: 'arquivo novo', orquestrador: 'pedido para a equipe' };
 
 export function describeTrigger(trigger: AgentTrigger): string {
   if (trigger.type === 'schedule' && trigger.everyMinutes) return `A cada ${trigger.everyMinutes} min`;
@@ -124,7 +124,64 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
   </article>;
 }
 
-const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department: '', workDir: '' };
+const TEAM_STATUS: Record<Orchestration['status'], string> = { running: 'A equipe está trabalhando…', done: 'Tudo entregue', partial: 'Entregue em parte', failed: 'Não concluído' };
+
+/** One big request split among the agents: the plan is shown (and editable) before anything runs. */
+function TeamRequest({ agents, onOpenConversation }: { agents: TaskAgent[]; onOpenConversation: (id: string) => void }) {
+  const [text, setText] = useState('');
+  const [plan, setPlan] = useState<PlannedTask[] | null>(null);
+  const [planner, setPlanner] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [latest, setLatest] = useState<Orchestration | null>(null);
+  const refresh = useCallback(() => listOrchestrations().then((list) => setLatest(list[0] || null)).catch(() => {}), []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { if (latest?.status !== 'running') return undefined; const id = setInterval(() => void refresh(), 3000); return () => clearInterval(id); }, [latest?.status, refresh]);
+  if (agents.filter((a) => a.enabled).length < 2) return null;
+
+  const makePlan = (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    planTeamRequest(text.trim()).then((r) => { setPlan(r.tasks); setPlanner(r.planner); if (!r.tasks.length) setError('Nenhum agente tem relação com esse pedido. Reescreva citando o setor ou o que cada um deve entregar.'); })
+      .catch((err: Error) => setError(err.message)).finally(() => setBusy(false));
+  };
+  const run = () => {
+    if (!plan?.length) return;
+    setBusy(true); setError('');
+    startTeamRequest(text.trim(), plan).then(() => { setPlan(null); setText(''); return refresh(); }).catch((err: Error) => setError(err.message)).finally(() => setBusy(false));
+  };
+
+  return <section className="team-request" aria-label="Pedido para a equipe">
+    <h2>Pedido para a equipe</h2>
+    <p>Um pedido grande (“feche o mês”, “prepare a reunião de segunda”) dividido entre os agentes. Você confere o plano antes de começar; no fim sai um resumo em Word com a entrega de cada um.</p>
+    <form className="agent-run" onSubmit={makePlan}>
+      <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ex.: feche o mês de setembro: férias de outubro, inadimplentes acima de 30 dias e áreas acima do orçamento" aria-label="Pedido para a equipe" />
+      <button className="primary" disabled={busy || text.trim().length < 10}>{busy && !plan ? 'Montando…' : 'Montar plano'}</button>
+    </form>
+    {error && <p role="alert" className="memory-form-error">{error}</p>}
+    {plan && plan.length > 0 && <div className="team-plan" aria-label="Plano">
+      <p><b>Plano</b> ({planner === 'modelo' ? 'feito pela Aurora' : 'pelos setores citados no pedido'}): confira e ajuste cada tarefa.</p>
+      <ol>{plan.map((task, i) => <li key={task.agentId}>
+        <b>{task.agentName}</b>
+        <textarea rows={2} value={task.request} aria-label={`Tarefa de ${task.agentName}`} onChange={(e) => setPlan(plan.map((t, k) => (k === i ? { ...t, request: e.target.value } : t)))} />
+        <button type="button" className="link-button" onClick={() => setPlan(plan.filter((_, k) => k !== i))}>Tirar do plano</button>
+      </li>)}</ol>
+      <div className="agent-actions-row"><button className="primary" onClick={run} disabled={busy}>Executar plano</button><button onClick={() => setPlan(null)}>Cancelar</button></div>
+    </div>}
+    {latest && <div className="agent-latest team-latest" aria-label="Último pedido para a equipe">
+      <p><b>{TEAM_STATUS[latest.status]}</b> · {when(latest.startedAt)} · “{latest.request.slice(0, 140)}{latest.request.length > 140 ? '…' : ''}”</p>
+      {latest.summaryFile && <DeliveredFiles files={[latest.summaryFile]} />}
+      {latest.results.length > 0 && <ul className="team-results">{latest.results.map((r) => <li key={r.agentId}>
+        <p><b>{r.agentName}</b> · {r.status === 'done' ? (r.files.length ? 'entregue' : 'sem arquivo') : 'não concluída'}{r.error ? `: ${r.error.slice(0, 160)}` : ''}</p>
+        {r.files.length > 0 && <DeliveredFiles files={r.files} />}
+        {r.conversationId && <button type="button" className="link-button" onClick={() => onOpenConversation(r.conversationId!)}>Ver a conversa</button>}
+      </li>)}</ul>}
+      {latest.status === 'running' && <small>{latest.plan.map((t) => t.agentName).join(', ')} estão trabalhando.</small>}
+    </div>}
+  </section>;
+}
+
+const EMPTY: NewTaskAgent ={ name: '', kind: 'pessoal', mission: '', department: '', workDir: '' };
 
 export default function AgentsView({ onOpenConversation }: { onOpenConversation: (id: string) => void }) {
   const [agents, setAgents] = useState<TaskAgent[]>([]);
@@ -185,6 +242,8 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
         <button className="primary">Criar agentes por setor</button>
       </form>
     </section>}
+
+    <TeamRequest agents={agents} onOpenConversation={onOpenConversation} />
 
     <div className="agent-list">
       {agents.map((agent) => <AgentCard key={agent.id} agent={agent} runs={runsOf(agent.id)} onChanged={() => void refresh()} onOpenConversation={onOpenConversation} />)}

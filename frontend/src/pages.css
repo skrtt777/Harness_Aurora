@@ -913,3 +913,15 @@
 }
 
 .app-shell .agents-view .page-header-row > button { flex-shrink: 0; white-space: nowrap; }
+.app-shell .agents-view .team-request {
+  margin-top: var(--gap-5);
+  padding: 16px 18px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-lg);
+}
+.app-shell .agents-view .team-request h2 { margin-top: 0; }
+.app-shell .agents-view .team-plan ol { display: grid; gap: var(--gap-2); margin: var(--gap-2) 0; padding-left: 20px; }
+.app-shell .agents-view .team-plan li { display: grid; gap: 4px; }
+.app-shell .agents-view .team-plan li .link-button { justify-self: start; font-size: var(--fs-xs); }
+.app-shell .agents-view .team-latest { margin-top: var(--gap-3); }
+.app-shell .agents-view .team-results { display: grid; gap: var(--gap-2); margin: var(--gap-2) 0 0; padding: 0; list-style: none; }
