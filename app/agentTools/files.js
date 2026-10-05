@@ -209,6 +209,24 @@ export function nowNote(lines, request, filter, now = new Date()) {
   return `\n(ATENÇÃO: o pedido é sobre hoje (${today}). Quem está no período HOJE é filter="${wanted}": ${count} linha(s). Se o pedido é "agora", leia de novo com esse filtro.)`;
 }
 
+/**
+ * "Qual contrato vence primeiro?", "próximo imposto a vencer": an ordering, not a filter. Read whole,
+ * the model compared dates by eye and answered 30/11 for 31/10 (empresa juridico-1, 05/10/2026).
+ * The ready read: from today on, sorted by the due-date column.
+ */
+export function nextDueHint(lines, request, now = new Date()) {
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (!/\b(venc\w*|termin\w*|expir\w*|acab\w*)\b[^.?!]{0,30}\bprimeir[oa]s?\b|\bprimeir[oa]s?\b[^.?!]{0,30}\b(a vencer|venc\w*|a terminar)|\bpr[oa]xim[oa]s?\b[^.?!]{0,40}\b(a vencer|venc\w*|a terminar|termin\w*|prazo)/.test(text)) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const col = header.find((c, j) => DATE.test(sample[j] || "") && /t[ée]rmino|venc|fim|validade|prazo|entrega/i.test(c)) || header.find((_, j) => DATE.test(sample[j] || ""));
+  if (!col) return "";
+  const today = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  return `\n(O pedido é sobre o que vence/termina primeiro: leia de novo com filter="${col}>=${today}" e sort="${col}" — a primeira linha é a resposta. Não compare as datas de olho.)`;
+}
+
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
@@ -716,7 +734,7 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        ready = dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request);
+        ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request);
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's

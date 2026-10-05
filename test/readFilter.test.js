@@ -145,3 +145,12 @@ test("'Coluna X>30' (the word Coluna then a space) still filters on X", async ()
   assert.match(out, /1 linha\(s\)/);
   assert.match(out, /\bA\b/);
 });
+
+test("'vence primeiro' and 'próximo a vencer' get a ready ascending sort from today", async () => {
+  const { nextDueHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Contratos", "Contratado | Início | Término", "A | 01/01/2025 | 30/11/2026", "B | 01/01/2025 | 31/10/2026"];
+  const now = new Date(2026, 9, 4);
+  assert.match(nextDueHint(sheet, "Qual contrato vence primeiro?", now), /filter="Término>=04\/10\/2026" e sort="Término"/);
+  assert.match(nextDueHint(sheet, "qual o próximo a vencer?", now), /sort="Término"/);
+  assert.equal(nextDueHint(sheet, "quais contratos temos?", now), "");
+});
