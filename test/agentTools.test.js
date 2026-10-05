@@ -367,3 +367,12 @@ test("write_document asked for a spreadsheet saves .xlsx even when the model wro
   assert.ok(existsSync(join(dir, "ferias_outubro.xlsx")));
   assert.equal(existsSync(join(dir, "ferias_outubro.md")), false);
 });
+
+test("the address the person wrote wins over the same page on an invented host", async () => {
+  const { requestedUrl } = await import("../app/agentTools/browser.js");
+  const request = "Agora abra http://127.0.0.1:5173/contato e envie uma mensagem com o nome Rafaela.";
+  assert.equal(requestedUrl(request, new URL("https://loja-teclas-web.vercel.app/contato"))?.href, "http://127.0.0.1:5173/contato");
+  assert.equal(requestedUrl(request, new URL("http://127.0.0.1:5173/contato")), null, "the right one");
+  assert.equal(requestedUrl(request, new URL("https://www.google.com/search?q=teclados")), null, "another page, another site: allowed");
+  assert.equal(requestedUrl("pesquise teclados", new URL("https://www.google.com/")), null);
+});

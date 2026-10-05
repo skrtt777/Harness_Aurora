@@ -69,6 +69,21 @@ async function settle(page) {
 
 const TYPEABLE = new Set(["textbox", "searchbox", "combobox"]);
 
+/**
+ * The address the person wrote, when the model is about to open the same page path ("/contato")
+ * on another host: a swapped address, not a different site. null otherwise.
+ */
+export function requestedUrl(request, destination) {
+  const path = (u) => u.pathname.replace(/\/+$/, "") || "/";
+  for (const raw of String(request || "").match(/https?:\/\/[^\s"'<>)\]]+/g) || []) {
+    let asked;
+    try { asked = new URL(raw.replace(/[.,;:!?]+$/, "")); } catch { continue; }
+    if (asked.host === destination.host) return null;
+    if (path(asked) !== "/" && path(asked) === path(destination)) return asked;
+  }
+  return null;
+}
+
 async function typeableFields(page) {
   const data = await page.evaluate(collectElements, MAX_ELEMENTS).catch(() => ({ elements: [] }));
   return data.elements.filter((e) => TYPEABLE.has(e.role)).map((e) => `[${e.ref}] ${e.role} "${e.name}"`).join(", ") || "nenhum";
@@ -143,13 +158,19 @@ export const browserTools = [
       let target = String(url || "").trim();
       if (!target) throw new Error("Informe a URL.");
       if (!/[.:/]/.test(target)) target = `${target}.com`;
-      const destination = new URL(normalizeGotoUrl(target));
+      let destination = new URL(normalizeGotoUrl(target));
+      // Asked to open http://127.0.0.1:…/contato, the model opened an invented
+      // loja-teclas-web.vercel.app/contato and sent the person's data there (battery, 05/10/2026).
+      // Same page path on another host than the one the person gave: the person's address wins.
+      const asked = requestedUrl(ctx.request, destination);
+      let note = "";
+      if (asked) { note = ` (Abri o endereço do pedido, ${asked.href}, em vez de ${destination.host}.)`; destination = asked; }
       if (!["http:", "https:"].includes(destination.protocol)) throw new Error("Só é possível navegar em HTTP/HTTPS.");
       assertAllowedUrl(destination.href);
       const { page } = await current(ctx);
       await page.bringToFront().catch(() => {});
       await page.goto(destination.href, { timeout: 30000, waitUntil: "domcontentloaded" });
-      return after(ctx, page, `Abri ${page.url()}.`);
+      return after(ctx, page, `Abri ${page.url()}.${note}`);
     },
   },
   {
