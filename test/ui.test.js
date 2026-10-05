@@ -362,6 +362,11 @@ test('agents page: a run with its delivered file, creating an agent with a sched
       if (viewport.width>600) {
         await page.getByRole('button',{name:'Novo agente'}).click();
         const form=page.getByRole('form',{name:'Novo agente'});
+        await form.getByRole('button',{name:'Organizar Downloads'}).click();
+        assert.equal(await form.getByLabel('Nome').inputValue(),'Organizador de Downloads');
+        assert.equal(await form.getByLabel('Tipo de gatilho').inputValue(),'at');
+        await form.getByText('Escolha a sua pasta Downloads').waitFor();
+        if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'agentes-modelo.png'),fullPage:true});
         await form.getByLabel('Nome').fill('Organizador de downloads');
         await form.getByLabel('Missão').fill('Organizar a pasta Downloads por tipo de arquivo.');
         await form.getByLabel('Pasta de trabalho').fill(join(temp,'agente-downloads'));
@@ -371,12 +376,12 @@ test('agents page: a run with its delivered file, creating an agent with a sched
         await form.getByRole('button',{name:'Criar agente'}).click();
         const created=page.getByRole('article',{name:'Organizador de downloads'});
         await created.waitFor();
-        assert.match(await created.locator('.agent-meta').textContent(),/Às 08:00 \(Seg, Ter, Qua, Qui, Sex\)/);
+        assert.match(await created.locator('.agent-meta').textContent(),/Às 09:00 \(Seg\)/, 'the template\'s Monday 9:00');
       }
       await page.close();
     }
     const saved=(await agents.listAgents()).find(a=>a.name==='Organizador de downloads');
-    assert.deepEqual(saved.trigger,{type:'schedule',at:'08:00',weekdays:[1,2,3,4,5],request:'Organize os arquivos novos.'});
+    assert.deepEqual(saved.trigger,{type:'schedule',at:'09:00',weekdays:[1],request:'Organize os arquivos novos.'});
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 

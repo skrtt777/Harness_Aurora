@@ -197,7 +197,29 @@ function TeamRequest({ agents, onOpenConversation }: { agents: TaskAgent[]; onOp
   </section>;
 }
 
-const EMPTY: NewTaskAgent ={ name: '', kind: 'pessoal', mission: '', department: '', workDir: '' };
+const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department: '', workDir: '' };
+
+/** Ready-made starting points: they only fill the form; the folder and the confirmation stay with the person. */
+const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger: Partial<TriggerDraft>; hint: string }[] = [
+  {
+    label: 'Organizar Downloads',
+    hint: 'Escolha a sua pasta Downloads como pasta de trabalho.',
+    agent: { name: 'Organizador de Downloads', kind: 'pessoal', mission: 'Manter a pasta organizada: cada arquivo numa subpasta por tipo (Documentos, Imagens, Planilhas, Instaladores, Compactados, Outros). Nunca apagar nada.' },
+    trigger: { type: 'at', at: '09:00', weekdays: [1], request: 'Organize os arquivos soltos desta pasta em subpastas por tipo, sem apagar nada, e diga o que moveu.' },
+  },
+  {
+    label: 'Notas que chegam numa pasta',
+    hint: 'Escolha a pasta de trabalho (onde fica a planilha) e a pasta observada (onde as notas chegam).',
+    agent: { name: 'Leitor de notas', kind: 'pessoal', mission: 'Ler cada nota fiscal ou boleto que chegar e manter uma planilha com fornecedor, número, vencimento e valor.' },
+    trigger: { type: 'file', pattern: '*.pdf', request: 'Leia o(s) arquivo(s) novo(s) e acrescente fornecedor, número, vencimento e valor à planilha notas.xlsx da sua pasta (crie se não existir).' },
+  },
+  {
+    label: 'Pesquisador',
+    hint: 'Escolha uma pasta para guardar os resumos.',
+    agent: { name: 'Pesquisador', kind: 'pessoal', mission: 'Pesquisar na web o que for pedido e entregar um resumo em Word com as fontes (links) no fim.' },
+    trigger: { type: 'manual' },
+  },
+];
 
 export default function AgentsView({ onOpenConversation }: { onOpenConversation: (id: string) => void }) {
   const [agents, setAgents] = useState<TaskAgent[]>([]);
@@ -208,6 +230,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
   const [draft, setDraft] = useState<NewTaskAgent>(EMPTY);
   const [trigger, setTrigger] = useState(draftOf({ type: 'manual' }));
   const [sectorDir, setSectorDir] = useState('');
+  const [templateHint, setTemplateHint] = useState('');
 
   const refresh = useCallback(() => listTaskAgents().then((r) => { setAgents(r.agents); setRuns(r.runs); setLoaded(true); }).catch((e: Error) => { setError(e.message); setLoaded(true); }), []);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -238,6 +261,11 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
     {error && <p role="alert" className="memory-form-error">{error}</p>}
 
     {creating && <form className="agent-new" onSubmit={submit} aria-label="Novo agente">
+      <div className="agent-templates" role="group" aria-label="Modelos prontos">
+        <small>Começar de um modelo:</small>
+        {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => { setDraft({ ...t.agent, workDir: draft.workDir }); setTrigger({ ...draftOf({ type: 'manual' }), ...t.trigger }); setTemplateHint(t.hint); }}>{t.label}</button>)}
+      </div>
+      {templateHint && <p className="agent-template-hint">{templateHint}</p>}
       <div className="agent-new-grid">
         <label>Nome <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Agente Financeiro" /></label>
         <label>Tipo <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as NewTaskAgent['kind'] })}><option value="pessoal">Pessoal</option><option value="setor">Setor da empresa</option></select></label>
