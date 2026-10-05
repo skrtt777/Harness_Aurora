@@ -69,6 +69,22 @@ O instalador (`.exe`) e os arquivos de auto-update saem em `release/`. O `build.
 
 Conversas aparecem na barra lateral, agrupadas por **projeto** (opcional) ou soltas em "Conversas". É possível criar projeto, renomear/excluir projeto e conversa, e cada projeto pode ter instruções próprias (enviadas ao provedor em toda mensagem daquele projeto). Tudo é persistido no backend (SQLite), então sobrevive a reiniciar o app.
 
+## Agentes
+
+A aba **Agentes** reúne os "funcionários" da Aurora. Cada um tem uma missão e uma pasta de trabalho, e entrega arquivos (planilha, relatório em Word, PDF), que aparecem com **Abrir** e **Mostrar na pasta**.
+
+- **Quando trabalham:**
+  - quando você pede ("Rodar agora");
+  - num horário, em dias da semana;
+  - a cada tantos minutos;
+  - quando chega um arquivo numa pasta observada.
+
+  Ao terminar, aparece uma notificação do Windows. Cada agente roda uma tarefa por vez e no máximo 24 vezes por dia sozinho.
+- **Pedido para a equipe:** um pedido grande ("feche o mês") é dividido entre os agentes num plano que você confere e edita antes de rodar. Uma tarefa pode usar o que outra entregou, e no fim sai um resumo em Word.
+- **Permissões:** a mesma autonomia do modo Auto. O agente é livre dentro da pasta dele e da pasta que o gatilho observa, e pede autorização para o resto. Ele nunca apaga arquivos sem pedir.
+
+Detalhes, decisões e medições estão em [docs/AGENTES_ROTEIRO.md](docs/AGENTES_ROTEIRO.md).
+
 ## Provedores — Codex, Claude e Local (Ollama)
 
 Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor na barra lateral, acima do "+ Nova conversa"). Codex e Claude seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
@@ -109,6 +125,17 @@ npm run frontend:build
 ```
 
 Na interface, valide: criação e reabertura de conversas, pesquisa/filtros, envio de mensagem real (com Codex autenticado) e memória extraída aparecendo na aba Memória.
+
+Com o modelo local, há medições que conferem o resultado de verdade, e não só o texto da resposta. Rode cada uma com 3 rodadas ou mais, porque uma rodada só varia muito:
+
+```powershell
+npm run battery -- --runs 3                                   # conversas reais (arquivos fictícios gerados na hora)
+npm run agents:eval -- --db <banco.db> --runs 5               # agentes de setor no F:\EmpresaIA, pelo arquivo entregue
+node scripts/orchestrator-eval.mjs --scenario dependencia     # pedido para a equipe ("fechamento" ou "dependencia")
+node scripts/personal-tasks.mjs --runs 5 --online             # organizar pasta, corrigir código, pesquisar
+```
+
+Os resultados ficam em `reports/`, e o histórico das medições está em [ROADMAP.md](ROADMAP.md).
 
 Essas quatro checagens rodam sozinhas antes de qualquer `git push` (hook instalado por `npm install` via `scripts/install-git-hooks.mjs` — ver `scripts/git-hooks/pre-push`). Isso existe porque o GitHub Actions deste projeto está bloqueado por cobrança na conta, então não há CI rodando no push; pule uma vez com `git push --no-verify` só quando for mesmo necessário.
 
