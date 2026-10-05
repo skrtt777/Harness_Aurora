@@ -27,7 +27,7 @@ import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledg
 import { memoryAtlas } from "./memoryAtlas.js";
 import { systemVitals } from "./systemVitals.js";
 import { recallProbe, recentRecalls } from "./memoryRecall.js";
-import { TEACHER_MODES } from "./teacher.js";
+import { ACTION_TOOLS, TEACHER_MODES } from "./teacher.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { knownFolders } from "./agentTools/index.js";
 import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAccess.js";
@@ -54,6 +54,13 @@ const distDir = join(root, "..", "frontend", "dist");
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "127.0.0.1";
 const appVersion = JSON.parse(readFileSync(join(root, "..", "package.json"), "utf8")).version;
+
+/** A spreadsheet download Excel opens as is (BOM, ";", one line per row). */
+function sendCsv(response, name, header, rows) {
+  const cell = (v) => { const s = String(v ?? "").replace(/\r?\n/g, " "); return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  response.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}-${new Date().toISOString().slice(0, 10)}.csv"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+  response.end(`﻿${[header, ...rows].map((r) => r.map(cell).join(";")).join("\r\n")}\r\n`);
+}
 
 function sendJson(response, status, payload) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
@@ -457,10 +464,19 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && undoMatch) return sendJson(response, 200, await taskAgents.undoRunMoves(undoMatch[1]));
       if (method === "GET" && pathname === "/api/agents/runs.csv") {
         const names = new Map((await taskAgents.listAgents()).map((a) => [a.id, a.name]));
-        const cell = (v) => { const s = String(v ?? "").replace(/\r?\n/g, " "); return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-        const rows = (await taskAgents.listRuns({ limit: 5000 })).map((r) => [r.startedAt, r.finishedAt || "", names.get(r.agentId) || r.agentId, r.trigger, r.status, r.request, r.files.join(" | "), r.steps ?? "", r.error || ""].map(cell).join(";"));
-        response.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="aurora-agentes-${new Date().toISOString().slice(0, 10)}.csv"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
-        return response.end(`﻿${["Início;Fim;Agente;Gatilho;Situação;Pedido;Arquivos entregues;Passos;Erro", ...rows].join("\r\n")}\r\n`);
+        const rows = (await taskAgents.listRuns({ limit: 5000 })).map((r) => [r.startedAt, r.finishedAt || "", names.get(r.agentId) || r.agentId, r.trigger, r.status, r.request, r.files.join(" | "), r.steps ?? "", r.error || ""]);
+        return sendCsv(response, "aurora-agentes", ["Início", "Fim", "Agente", "Gatilho", "Situação", "Pedido", "Arquivos entregues", "Passos", "Erro"], rows);
+      }
+      // Audit trail of everything the agent DID (wrote, moved, ran, sent), in any conversation.
+      if (method === "GET" && pathname === "/api/audit.csv") {
+        const db = await getDb();
+        const rows = [];
+        for (const m of db.prepare("SELECT m.created_at, m.execution, c.title FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.role = 'assistant' AND m.execution LIKE '%toolSteps%' ORDER BY m.created_at").all()) {
+          let steps = [];
+          try { steps = JSON.parse(m.execution).toolSteps || []; } catch { /* unreadable: skipped */ }
+          for (const s of steps.filter((s) => ACTION_TOOLS.has(s.tool))) rows.push([m.created_at, m.title, s.tool, s.summary || JSON.stringify(s.args || {}).slice(0, 300), s.denied ? "negado" : s.ok ? "feito" : "falhou"]);
+        }
+        return sendCsv(response, "aurora-acoes", ["Quando", "Conversa", "Ferramenta", "O que fez", "Resultado"], rows);
       }
       const taskAgentMatch = pathname.match(/^\/api\/agents\/([^/]+)(\/run|\/runs)?$/);
       if (taskAgentMatch) {

@@ -560,13 +560,17 @@ export const startTeamRequest = (requestText: string, tasks: PlannedTask[]) => r
 export const listOrchestrations = () => request<{ orchestrations: Orchestration[] }>("/agents/orchestrations").then((r) => r.orchestrations);
 
 /** Every agent run as a CSV (audit trail), saved through the browser's download. */
-export async function exportAgentRuns() {
-  const response = await fetch("/api/agents/runs.csv", { headers: { "x-harness-token": await sessionToken() } });
+export const exportAgentRuns = () => downloadCsv("/api/agents/runs.csv", "aurora-agentes");
+/** Every action the agent took (wrote, moved, ran, sent) in any conversation: the audit trail. */
+export const exportAudit = () => downloadCsv("/api/audit.csv", "aurora-acoes");
+
+async function downloadCsv(path: string, name: string) {
+  const response = await fetch(path, { headers: { "x-harness-token": await sessionToken() } });
   if (!response.ok) throw new Error(`Falha ao exportar (${response.status}).`);
   const url = URL.createObjectURL(await response.blob());
   const a = document.createElement("a");
   a.href = url;
-  a.download = `aurora-agentes-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

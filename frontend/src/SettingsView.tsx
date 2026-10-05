@@ -17,6 +17,7 @@ import {
   type ProviderInfo,
   type Settings,
   type UpdateState,
+  exportAudit,
 } from "./api";
 import { ModelPicker } from "./LocalSetupPanel";
 import ModelTrainingPanel from './ModelTrainingPanel';
@@ -323,6 +324,14 @@ export default function SettingsView({
                 <button className="btn" onClick={() => void saveAgent({ agentAllowedRoots: rootsDraft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) })}>Salvar pastas</button>
               </div>
               {agentError && <p className="settings-error">{agentError}</p>}
+            </div>
+            <div className="section">
+              <h3 className="section-title">Registro de ações</h3>
+              <p className="section-desc">Tudo o que a Aurora fez no computador (arquivos criados, movidos e editados, comandos, formulários), em qualquer conversa, numa planilha para conferência.</p>
+              <div className="row">
+                <span>Planilha com data, conversa, ação e resultado</span>
+                <div className="row-control"><button className="btn btn-ghost btn-sm" onClick={() => void exportAudit().catch((e: Error) => setError(e.message))}>Exportar registro</button></div>
+              </div>
             </div>
             {settings.agentAlwaysAllow.length > 0 && <div className="section">
               <h3 className="section-title">Comandos sempre permitidos</h3>
