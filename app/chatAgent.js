@@ -188,6 +188,7 @@ export async function runChatAgent({
   let searches = 0;
   let confirmChecked = false;
   let sentChecked = false;
+  let fileChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -277,6 +278,16 @@ export async function runChatAgent({
       confirmChecked = true;
       checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });
+      continue;
+    }
+    // Asked for a spreadsheet, it read the data and wrote the list into the answer instead
+    // (orchestrated RH task, 05/10/2026): nothing claimed, nothing delivered.
+    if (!toolCalls.length && offered.length && !fileChecked && offered.some((t) => t.name === "write_document") && requestsFile(question)
+      && !steps.some((s) => (s.ok || s.denied) && (WRITE_TOOLS.has(s.tool) || s.tool === "move_file" || s.tool === "organize_folder"))
+      && !/\bn[ãa]o (consegui|encontrei|achei|foi poss[ií]vel|existe|h[áa])\b/i.test(text)) {
+      fileChecked = true;
+      checks.push({ check: "missing_delivery", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido é um arquivo, e nenhum foi gravado. Grave agora com write_document o que você levantou (no formato pedido: planilha é .xlsx, relatório é .docx) e responda com o caminho." });
       continue;
     }
     if (!toolCalls.length && offered.length && !nudged && announcesAction(text)) {

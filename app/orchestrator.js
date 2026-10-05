@@ -45,7 +45,12 @@ export function planPrompt(request, agents) {
 }
 
 /** Model answer → valid tasks (known agents, one task per agent, non-empty requests). */
-export function parsePlan(text, agents) {
+// Words that say one part comes after another. Without them the model still invented that the
+// Controladoria waits for RH and Financeiro (orchestrator eval, 05/10/2026), and a failed RH task
+// then stopped a report that never needed it.
+const SEQUENCE = /\b(primeiro|depois|em seguida|ap[oó]s|usando|com base|a partir d|com (ela|ele|essa|esse|isso|a planilha|o relat[oó]rio|a lista))\b/i;
+
+export function parsePlan(text, agents, request = null) {
   let parsed;
   try { parsed = JSON.parse(String(text || "").match(/\{[\s\S]*\}/)?.[0] || ""); } catch { return []; }
   const byName = new Map(agents.map((a) => [fold(a.name), a]));
@@ -55,7 +60,7 @@ export function parsePlan(text, agents) {
   return kept.map((t, i) => {
     // Only earlier tasks can be waited for: no cycles, and the order the plan was written in.
     const before = new Set(kept.slice(0, i).map((k) => k.agent.id));
-    const dependsOn = [...new Set(t.after.map((name) => byName.get(fold(name))?.id).filter((id) => id && before.has(id)))];
+    const dependsOn = request !== null && !SEQUENCE.test(request) ? [] : [...new Set(t.after.map((name) => byName.get(fold(name))?.id).filter((id) => id && before.has(id)))];
     return { agentId: t.agent.id, agentName: t.agent.name, request: `${t.request.slice(0, 1900)}${t.format && !t.request.includes(FORMATS[t.format]) ? ` Entregue como ${FORMATS[t.format]}.` : ""}`, ...(dependsOn.length ? { dependsOn } : {}) };
   });
 }
@@ -70,7 +75,7 @@ export async function planRequest({ request, agents, ask = runLocal, env = proce
   const names = active.map((a) => a.name);
   const schema = { type: "object", properties: { tasks: { type: "array", items: { type: "object", properties: { agent: { type: "string", enum: names }, request: { type: "string" }, formato: { type: "string", enum: Object.keys(FORMATS) }, depende_de: { type: "array", items: { type: "string", enum: names } } }, required: ["agent", "request", "formato"] } } }, required: ["tasks"] };
   const answer = await ask(planPrompt(request, active), { ...env, LOCAL_OUTPUT_SCHEMA: JSON.stringify(schema) }).catch((error) => ({ ok: false, error: error.message }));
-  const tasks = answer?.ok ? parsePlan(answer.text, active) : [];
+  const tasks = answer?.ok ? parsePlan(answer.text, active, request) : [];
   if (tasks.length) return { tasks, planner: "modelo" };
   const named = active.filter((a) => a.department && fold(request).includes(fold(a.department)));
   return { tasks: named.map((a) => ({ agentId: a.id, agentName: a.name, request })), planner: "palavras do pedido" };
@@ -81,7 +86,7 @@ export async function planRequest({ request, agents, ask = runLocal, env = proce
  * `dependsOn` waits for those agents' tasks and gets their delivered files in its request; if one
  * of them didn't deliver, it doesn't run.
  */
-export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2, onProgress = () => {} }) {
+export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2, onProgress = () => {}, original = null }) {
   const results = new Array(tasks.length);
   const finished = new Map(); // agentId → promise of its result
   const settle = new Map();
@@ -92,7 +97,10 @@ export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2
     const deps = await Promise.all((task.dependsOn || []).map((id) => finished.get(id)).filter(Boolean));
     const missing = deps.filter((d) => d.status !== "done" || !d.files.length);
     if (missing.length) return { ...task, status: "failed", files: [], answer: "", error: `Dependia de ${missing.map((d) => d.agentName).join(", ")}, que não entregou.` };
-    const request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
+    let request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
+    // The plan paraphrases: "títulos em atraso" became "contas a pagar em atraso" and the agent read
+    // the wrong sheet. The person's own words go along to check the criteria against.
+    if (original && original !== task.request) request += `\n\n(Esta tarefa é a sua parte de um pedido maior da pessoa: "${original.slice(0, 1200)}". Faça só a sua parte, com os critérios nas palavras dela.)`;
     onProgress({ index: i, status: "running" });
     try {
       // Read access to the folders of those deliveries: they sit in the other agents' folders.
@@ -152,7 +160,7 @@ export async function startOrchestration({ request, tasks, dir, runAgent, handle
 }
 
 async function finish({ db, id, request, tasks, dir, runAgent, handleChatTurn, concurrency }) {
-  const results = await runPlan({ tasks, runAgent, handleChatTurn, concurrency });
+  const results = await runPlan({ tasks, runAgent, handleChatTurn, concurrency, original: request });
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   const summaryFile = join(dir, `Resumo da equipe ${stamp}.docx`);

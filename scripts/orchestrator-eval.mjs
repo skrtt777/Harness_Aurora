@@ -66,7 +66,8 @@ async function deliveryChecks(department, taskId, result) {
   const delivered = result.results.find((r) => r.agentName === `Agente ${department}`) || { files: [], answer: "" };
   const score = await scoreAgentTask(task, delivered, await task.truth(COMPANY_ROOT));
   if (score.missing.length || score.extra.length) console.log(`  ${department}: faltaram ${score.missing.length}, sobraram ${score.extra.length} · ${delivered.status} · ${(delivered.files || []).map((f) => f.split(/[\\/]/).pop()).join(", ") || "nenhum arquivo"} · ${String(delivered.error || delivered.answer || "").replace(/\s+/g, " ").slice(0, 140)}`);
-  return score.checks.slice(0, 3).map((c) => ({ name: `${department}: ${c.name}`, ok: c.ok }));
+  const detail = (c) => (/todos os/.test(c.name) ? score.missing : /não inclui/.test(c.name) ? score.extra : []).join(", ");
+  return score.checks.slice(0, 3).map((c) => ({ name: `${department}: ${c.name}`, ok: c.ok, ...(c.ok ? {} : { detail: detail(c), steps: (delivered.steps || []).length }) }));
 }
 
 for (const department of Object.keys(chosen.team)) {

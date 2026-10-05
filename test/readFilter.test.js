@@ -102,3 +102,20 @@ test("'esse mês', 'mês que vem' and 'em outubro' become a ready date-range fil
   const sheet = ["## Contratos", "Fornecedor | Vencimento | Valor", "Papelaria | 12/10/2026 | 4200", "Limpa Bem | 28/10/2026 | 9800"];
   assert.match(dateFilterHint(sheet, "quais contratos vencem esse mês?", now), /filter="Vencimento>=01\/10\/2026; Vencimento<=31\/10\/2026"/);
 });
+
+test("'mais de 30 dias' and 'mais de 5%' become a ready filter on the columns of that unit", async () => {
+  const { numberFilterHint } = await import("../app/agentTools/files.js");
+  const bills = ["## Contas", "Cliente | Valor | Dias em atraso (em 04/10/2026) | Situação", "A | 100 | 62 | Em atraso"];
+  assert.match(numberFilterHint(bills, "títulos em atraso há mais de 30 dias"), /filter="Dias em atraso \(em 04\/10\/2026\)>30"/);
+  assert.match(numberFilterHint(bills, "atraso de pelo menos 15 dias"), />=15"/);
+  const budget = ["## Resumo", "Área | Orçado | Desvio (%) | Situação", "Adm | 100 | 0.62% | ok"];
+  assert.match(numberFilterHint(budget, "áreas que gastaram mais de 5% acima do orçado"), /filter="Desvio \(%\)>5"/);
+  assert.equal(numberFilterHint(budget, "mais de 30 dias"), "", "no column of that unit");
+  assert.equal(numberFilterHint(bills, "liste os clientes"), "");
+});
+
+test("the numeric hint skips a condition of another part of the request and uses the one this sheet has", async () => {
+  const { numberFilterHint } = await import("../app/agentTools/files.js");
+  const budget = ["## Resumo", "Área | Orçado | Desvio (%)", "Adm | 100 | 0.62%"];
+  assert.match(numberFilterHint(budget, "Relatório das áreas. (Parte de: títulos há mais de 30 dias e áreas mais de 5% acima do orçado)"), /filter="Desvio \(%\)>5"/);
+});

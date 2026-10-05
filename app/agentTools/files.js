@@ -164,6 +164,29 @@ export function monthRange(request, now = new Date()) {
   return { from: fmt(first), to: fmt(last) };
 }
 
+/**
+ * "títulos em atraso há mais de 30 dias", "mais de 5% acima do orçado": a number with a unit the
+ * sheet has a column for. Read whole, the Financeiro agent picked the rows by eye and sent 22 bills
+ * instead of 16 (orchestrator eval, 05/10/2026). The ready filter, with the columns of that unit.
+ */
+export function numberFilterHint(lines, request) {
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const ops = { "mais de": ">", "acima de": ">", "superior a": ">", "maior que": ">", "menos de": "<", "abaixo de": "<", "inferior a": "<", "menor que": "<", "pelo menos": ">=", "no minimo": ">=", "ate": "<=" };
+  // Every condition in the text: an orchestrated task carries the whole request, other parts too.
+  for (const m of text.matchAll(/\b(mais de|acima de|superior a|maior que|menos de|abaixo de|inferior a|menor que|pelo menos|no minimo|ate)\s+(\d+(?:[.,]\d+)?)\s*(%|por cento|dias?\b|mes(?:es)?\b|anos?\b)/g)) {
+    const unit = m[3].startsWith("%") || m[3] === "por cento" ? /%/ : m[3].startsWith("dia") ? /\bdias?\b/i : m[3].startsWith("mes") ? /\bm[eê]s(es)?\b/i : /\banos?\b/i;
+    const columns = header.filter((name, j) => unit.test(name) && cellValue(sample[j] || "") !== null);
+    if (!columns.length) continue;
+    const value = m[2].replace(",", ".");
+    return `\n(O pedido tem uma condição ("${m[0]}"): para a ferramenta comparar, leia de novo com filter=${columns.map((c) => `"${c}${ops[m[1]]}${value}"`).join(" ou ")}, em vez de escolher as linhas de olho.)`;
+  }
+  return "";
+}
+
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
@@ -624,7 +647,13 @@ export const fileTools = [
       }
       const shown = start - 1 + count < lines.length ? `\n(linhas ${start}–${Math.min(lines.length, start - 1 + count)} de ${lines.length})` : "";
       // Read whole, a sheet was filtered "by eye" and 10-day-late bills went into a >30 list.
-      const tip = sheet && text && !text.includes("… (cortado") ? (dateFilterHint(/\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines, ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()) || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`) : "";
+      let tip = "";
+      if (sheet && text && !text.includes("… (cortado")) {
+        const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
+        const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
+        tip = dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request)
+          || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
+      }
       return `${file}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },

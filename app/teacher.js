@@ -33,7 +33,7 @@ const CLAIM = new RegExp([
 
 /** "Crie um novo documento…", "gere uma planilha…": the person asked for a file. */
 export function requestsFile(text) {
-  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|monte|elabore|escreva|salve|produza|prepare)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|monte|elabore|escreva|salve|produza|prepare|entregue|entregar|forne[çc]a)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
 }
 
 /**

@@ -13,7 +13,7 @@ process.env.HARNESS_DB_FILE = join(temp, "test.db");
 process.env.LOCAL_BASE_URL = "http://127.0.0.1:1";
 process.env.EMBEDDINGS_ENABLED = "false";
 
-const { claimsDelivery, detectSignals, narratesCorrection, redoMessage } = await import("../app/teacher.js");
+const { claimsDelivery, detectSignals, narratesCorrection, redoMessage, requestsFile } = await import("../app/teacher.js");
 const { runChatAgent } = await import("../app/chatAgent.js");
 const { agentHistory } = await import("../app/server.js");
 const { executeTool } = await import("../app/agentTools/index.js");
@@ -165,4 +165,16 @@ test("claimed_submit: typing with submit in a multi-line field with no form is n
   const { claimsSentWithoutSubmit } = await import("../app/chatAgent.js");
   const steps = [{ tool: "browser_type", ok: true, args: { submit: true }, result: 'Digitei "oi". Este campo tem várias linhas e Enter não envia: clique no botão de enviar (browser_click).' }];
   assert.equal(claimsSentWithoutSubmit("Mensagem enviada com sucesso!", steps), true);
+});
+
+test("asked for a spreadsheet, a list written into the answer is sent back to become the file; a 'couldn't' is not", async () => {
+  const writer = { name: "write_document", description: "cria documento", parameters: { type: "object", properties: {} }, run: async () => "Criei C:/ferias.xlsx (XLSX, 10 bytes)." };
+  const replies = [{ ok: true, text: "Agora vou extrair os funcionários de outubro:\n- 1081 | Eduarda\n- 1091 | Henrique" }, { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "ferias.xlsx", content: "| a |" } }] }, { ok: true, text: "Criei C:/ferias.xlsx." }];
+  const result = await runChatAgent({ system: "s", input: "Crie a planilha de quem começa as férias em outubro.", tools: [writer], callModel: async () => replies.shift() });
+  assert.deepEqual(result.checks.map((c) => c.check), ["missing_delivery"]);
+  assert.equal(result.steps[0].tool, "write_document");
+  const honest = [{ ok: true, text: "Não encontrei a planilha de férias na pasta do RH." }];
+  const refused = await runChatAgent({ system: "s", input: "Crie a planilha de férias.", tools: [writer], callModel: async () => honest.shift() });
+  assert.deepEqual(refused.checks || [], [], "an honest 'não encontrei' is the answer");
+  assert.equal(requestsFile("Entregar a planilha dos títulos em atraso."), true);
 });
