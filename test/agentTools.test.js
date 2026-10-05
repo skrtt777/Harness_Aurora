@@ -406,3 +406,13 @@ test("a table built only from a sheet's excerpt in the context is sent back to r
   const read = await executeTool("write_document", { path: "lista2.xlsx", content: "| Cliente | Dias |\n|---|---|\n| A | 40 |\n| B | 50 |" }, c);
   assert.doesNotMatch(read.result, /TRECHO/);
 });
+
+test("the ready filter survives a whole read close to the result limit (it comes first)", async () => {
+  const dir = join(root, "quase-cheio");
+  mkdirSync(dir, { recursive: true });
+  const rows = Array.from({ length: 95 }, (_, i) => `Cliente ${String(i).padStart(3, "0")};Duplicata ${1000 + i};${(i * 7) % 90}`);
+  writeFileSync(join(dir, "receber.csv"), `Cliente;Título;Dias em atraso\n${rows.join("\n")}\n`);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "títulos em atraso há mais de 30 dias" });
+  const out = await executeTool("read_file", { path: "receber.csv" }, c);
+  assert.match(out.result.split("\n").slice(0, 3).join("\n"), /filter="Dias em atraso>30"/);
+});

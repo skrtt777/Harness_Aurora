@@ -53,7 +53,7 @@ export const knowledgeTools = [
     async run({ department, category }, ctx) {
       const map = await knowledgeMap({ department, category });
       if (!map.length) return "Nenhum documento indexado ainda. As pastas são cadastradas em Configurações → Conhecimento da empresa.";
-      return map.map((c) => `# ${c.category}\n${c.documents.map((d) => `- ${d.title} (${d.relPath})${d.summary ? `: ${clip(d.summary, 220)}` : ""}${d.flow.length ? `\n  Fluxo: ${d.flow.map((s, i) => `${i + 1}) ${clip(s, 80)}`).join(" ")}` : ""}`).join("\n")}`).join("\n\n").slice(0, 8000);
+      return map.map((c) => `# ${c.category}\n${c.documents.map((d) => `- ${d.title} — arquivo: ${d.path}${d.summary ? `: ${clip(d.summary, 220)}` : ""}${d.flow.length ? `\n  Fluxo: ${d.flow.map((s, i) => `${i + 1}) ${clip(s, 80)}`).join(" ")}` : ""}`).join("\n")}`).join("\n\n").slice(0, 8000);
     },
   },
   {
