@@ -201,3 +201,17 @@ test("asked why, an answer that found the number but not the cause searches othe
   assert.deepEqual(result.checks.map((c) => c.check), ["why_unexplained"]);
   assert.match(result.text, /embaladora/);
 });
+
+test("asked why, an answer that leaves the why out altogether also searches for the cause once", async () => {
+  const search = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "Ata: a embaladora da Linha 2 quebrou." };
+  const replies = [
+    { ok: true, text: "A Linha 2 teve o pior OEE em setembro: 61,2%, a menor das três linhas." },
+    { ok: true, text: "", toolCalls: [{ name: "knowledge_search", arguments: { query: "Linha 2 setembro parada" } }] },
+    { ok: true, text: "A Linha 2 (61,2%), porque a embaladora quebrou." },
+  ];
+  const result = await runChatAgent({ system: "s", input: "Qual linha teve o pior OEE em setembro e por quê?", tools: [search], callModel: async () => replies.shift() });
+  assert.deepEqual(result.checks.map((c) => c.check), ["why_unexplained"]);
+  const plain = [{ ok: true, text: "A Linha 2 teve o pior OEE." }];
+  const noWhy = await runChatAgent({ system: "s", input: "Qual linha teve o pior OEE em setembro?", tools: [search], callModel: async () => plain.shift() });
+  assert.deepEqual(noWhy.checks || [], [], "no why asked, no nudge");
+});
