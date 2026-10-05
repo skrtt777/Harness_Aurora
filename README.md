@@ -81,6 +81,8 @@ A aba **Agentes** reúne os "funcionários" da Aurora. Cada um tem uma missão e
 
   Ao terminar, aparece uma notificação do Windows. Cada agente roda uma tarefa por vez e no máximo 24 vezes por dia sozinho.
 - **Pedido para a equipe:** um pedido grande ("feche o mês") é dividido entre os agentes num plano que você confere e edita antes de rodar. Uma tarefa pode usar o que outra entregou, e no fim sai um resumo em Word.
+- **Modelos prontos:** "Organizar Downloads", "Notas que chegam numa pasta" e "Pesquisador" preenchem o formulário; você só escolhe a pasta.
+- **Acompanhar e conferir:** enquanto o agente trabalha, o cartão mostra a etapa e os passos ao vivo. **Exportar histórico** gera uma planilha com todas as execuções (auditoria), e uma execução que moveu arquivos tem **Desfazer**.
 - **Permissões:** a mesma autonomia do modo Auto. O agente é livre dentro da pasta dele e da pasta que o gatilho observa, e pede autorização para o resto. Ele nunca apaga arquivos sem pedir.
 
 Detalhes, decisões e medições estão em [docs/AGENTES_ROTEIRO.md](docs/AGENTES_ROTEIRO.md).
@@ -89,7 +91,7 @@ Detalhes, decisões e medições estão em [docs/AGENTES_ROTEIRO.md](docs/AGENTE
 
 Cada conversa usa um provedor fixo, escolhido no momento em que ela é criada (seletor na barra lateral, acima do "+ Nova conversa"). Codex e Claude seguem o mesmo princípio: reaproveitam a sessão já autenticada do CLI correspondente na sua máquina (`codex`/`claude`) — sem pedir chave de API nem token. `app/codex.js` e `app/claude.js` implementam a mesma interface (`runX(prompt, env)`), então o resto do backend (prompt, memória, extração) não precisa saber qual dos dois está respondendo.
 
-O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen3.5:4b`) — de graça, offline, sem gastar chamada de Codex/Claude. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
+O terceiro provedor, **Local**, roda um modelo pequeno via [Ollama](https://ollama.com) (`app/local.js`, HTTP em `127.0.0.1:11434`, modelo padrão `qwen3.5:4b`) — de graça, offline, sem gastar chamada de Codex/Claude. O agente roda no `llama-server` que vem com o Ollama (`app/llamaServer.js`): 4 vagas em paralelo, decodificação especulativa por n-gramas (`ngram-mod`, 2,5x mais rápido para copiar dados de uma ferramenta para um documento; `LLAMA_SPEC=off` desliga) e carregamento antecipado quando você começa a digitar. A ideia é usá-lo no dia a dia e, quando ele errar, corrigi-lo manualmente:
 
 - Ao criar uma conversa **Local**, você também escolhe um **Professor** (Codex ou Claude), guardado em `conversations.teacherProvider`.
 - Em qualquer resposta do modelo local, o botão **🔧 Corrigir** (com uma nota opcional explicando o erro) chama o professor escolhido numa única chamada que devolve a resposta corrigida **e** até 3 memórias de ensino (regras/fatos reutilizáveis, não um resumo da troca) — `app/correction.js`.
