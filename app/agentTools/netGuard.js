@@ -5,7 +5,7 @@
  * or the XR bridge accept unauthenticated local calls. Any other loopback
  * address (a dev server on localhost:3000) stays reachable on purpose.
  */
-const protectedPorts = new Set([8787, 8788, 11434]);
+const protectedPorts = new Set([8787, 8788, 11434, 18181]);
 
 export function protectPort(port) {
   const value = Number(port);

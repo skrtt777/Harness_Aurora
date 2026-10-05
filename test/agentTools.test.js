@@ -159,7 +159,7 @@ test("browser tools drive a real page through DOM refs, typing, clicks and new t
 
 test("the agent can't reach Aurora's own API/UI, Ollama or the XR bridge, even through redirects", async () => {
   const { isProtectedUrl, protectPort } = await import("../app/agentTools/netGuard.js");
-  for (const url of ["http://127.0.0.1:8787/api/session", "http://localhost:8787/", "http://[::1]:11434/api/tags", "https://0.0.0.0:8788/", "http://app.localhost:8787/", "http://127.1.2.3:8787"]) assert.equal(isProtectedUrl(url), true, url);
+  for (const url of ["http://127.0.0.1:8787/api/session", "http://localhost:8787/", "http://[::1]:11434/api/tags", "https://0.0.0.0:8788/", "http://app.localhost:8787/", "http://127.1.2.3:8787", "http://127.0.0.1:18181/v1/chat/completions"]) assert.equal(isProtectedUrl(url), true, url);
   for (const url of ["http://localhost:3000/", "https://youtube.com/", "http://192.168.0.10:8787/", "not a url"]) assert.equal(isProtectedUrl(url), false, url);
   protectPort(9999);
   assert.equal(isProtectedUrl("http://127.0.0.1:9999/"), true);

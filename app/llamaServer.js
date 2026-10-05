@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { protectPort } from "./agentTools/netGuard.js";
 
 /**
  * The local model served by llama-server for the agent, so several copies answer at once
@@ -106,6 +107,8 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   const blob = libDir && ollamaModelBlob(model, env);
   if (!blob) { failedAt = Date.now(); return null; }
   const baseUrl = `http://127.0.0.1:${port}`;
+  // Like Ollama's port: unauthenticated and local, so the agent's browser and web_fetch never reach it.
+  protectPort(port);
   const entry = { model, baseUrl, child: null, ready: null, lastUsed: Date.now() };
   server = entry;
   entry.ready = (async () => {
