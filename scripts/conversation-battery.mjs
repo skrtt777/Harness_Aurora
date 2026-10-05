@@ -50,7 +50,9 @@ for (let run = 1; run <= runs; run += 1) {
       const execution = reply.message?.execution || {};
       const turn = { text: reply.message?.content || reply.error || "", steps: execution.toolSteps || [], execution };
       const checks = await scoreTurn(turn, spec.checks, { dir, turns, site, extract: (file) => extractText(file) });
-      turns.push({ message, ms: Date.now() - started, text: turn.text, steps: turn.steps.map((s) => `${s.tool}${s.redo ? "(refazer)" : ""}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 120)})`}`), fallback: execution.agentFallback || null, checks });
+      turns.push({ message, ms: Date.now() - started, text: turn.text, steps: turn.steps.map((s) => `${s.tool}${s.redo ? "(refazer)" : ""}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 120)})`}`), fallback: execution.agentFallback || null, checks,
+        // What each step got and gave: a failure is diagnosed from the report, not by running again.
+        detail: turn.steps.map((s) => ({ tool: s.tool, args: JSON.stringify(s.args || {}).slice(0, 200), result: String(s.summary || "").slice(0, 200) })) });
       console.log(`- "${message}" (${((Date.now() - started) / 1000).toFixed(1)} s) ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
     }
     await site.close();
