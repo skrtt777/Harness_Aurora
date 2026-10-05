@@ -304,7 +304,7 @@ export async function runChatAgent({
     // "Qual linha teve o pior OEE e por quê?": the number is in Production's sheet, the cause in the
     // board's minutes. "Não há explicação nos dados" after one search (empresa producao-1, 05/10/2026).
     if (!toolCalls.length && !whyChecked && offered.some((t) => t.name === "knowledge_search") && /\bpor ?qu[eê](?![a-z])|\bmotivo\b|\bcausa\b|\braz[ãa]o(?![a-z])/i.test(question)
-      && (/n[ãa]o (h[áa]|encontrei|consta|tem|traz|explica|menciona|informa)[^.\n]{0,80}(explica|motivo|causa|raz[ãa]o|porqu)|sem (explica[çc][ãa]o|detalhe)|precisaria consultar/i.test(text)
+      && (/n[ãa]o (h[áa]|encontrei|consta|tem|traz|explica|menciona|informa)[^.\n]{0,80}(explica|motivo|causa|raz[ãa]o|porqu)|(motivo|causa|raz[ãa]o|explica[çc][ãa]o)[^.\n]{0,80}n[ãa]o (consta|h[áa]|aparece|est[áa]|foi encontrad)|sem (explica[çc][ãa]o|detalhe)|precisaria consultar|seria necess[áa]rio consultar/i.test(text)
         // …or it answered the "what" and left the "why" out altogether.
         || !/\b(porque|pois|devido|causad|causa|motivo|por conta d|em raz[ãa]o|por causa|deveu|explica|j[áa] que|em fun[çc][ãa]o)/i.test(text))
       && steps.filter((s) => s.tool === "knowledge_search").length < 2) {
