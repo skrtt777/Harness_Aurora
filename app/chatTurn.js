@@ -181,7 +181,9 @@ const SELF = /\b(meu nome [ée]|me chamo|pode me chamar de|eu sou (o|a)\b|trabal
 export function personFacts(history = []) {
   const said = history.filter((m) => m.role === "user" && SELF.test(m.content)).map((m) => String(m.content).slice(0, 300));
   if (!said.length) return [];
-  return [`O que a pessoa disse sobre si nesta conversa (use quando for útil, como o nome):\n${[...new Set(said)].slice(-6).map((t) => `- ${t}`).join("\n")}`];
+  // Said plainly: a 9B model still named the person after the Windows account in the folder paths.
+  const name = said.map((t) => t.match(/\b(?:[Mm]eu nome é|[Mm]e chamo|[Pp]ode me chamar de)\s+([A-ZÀ-Ú][\p{L}]+(?: [A-ZÀ-Ú][\p{L}]+)?)/u)?.[1]).filter(Boolean).at(-1);
+  return [`${name ? `A pessoa se chama ${name}.\n` : ""}O que a pessoa disse sobre si nesta conversa (use quando for útil, como o nome):\n${[...new Set(said)].slice(-6).map((t) => `- ${t}`).join("\n")}`];
 }
 
 // "Onde está?" right after a delivery: the answer is the path, not a new file (the model
@@ -375,7 +377,9 @@ const MODE_TEXT = {
 function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false, extensions = [] }) {
   return [
     `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${(process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
-    `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
+    // "Qual é meu nome?" was answered with the Windows account in these paths ("Lucas") instead of
+    // the name said in the conversation (qwen3.5:9b, 3 runs in 3, 05/10/2026).
+    `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}. (O nome nesses caminhos é só a conta do Windows: o nome da pessoa é o que ela disser na conversa.)`,
     workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (só o nome do arquivo, ou subpasta/nome), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
     // "A pasta do projeto está vazia, não encontrei a planilha": the company documents were in the
     // context all along. An empty folder is said up front.

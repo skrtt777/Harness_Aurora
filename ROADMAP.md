@@ -45,6 +45,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 - **Extensões MCP (05/10):** a pessoa conecta servidores MCP (e-mail, agenda, Notion…) em Configurações → Agente. Só-leitura roda direto; o resto pede autorização; o resultado conta como conteúdo de fora. Com o modelo local, 6 de 6 (achou a ferramenta e pediu autorização para criar).
 - **Empresa (05/10):** registro de ações exportável (tudo o que a Aurora fez, em qualquer conversa) e histórico dos agentes.
 - **Equipe (05/10):** dependência só quando o pedido diz sequência; trava `missing_delivery`; dica de filtro numérico. Testado e revertido: mandar o pedido inteiro a cada agente (eles faziam a parte dos outros).
+- **Modelo maior (05/10):** qwen3.5:9b × 4b, mesmo código, 3 rodadas: conversas 96,7% × 100%, agentes de setor 100% × 97,9%, agentes 45% mais lentos. O 4b continua o padrão. O 9b responde "qual é meu nome?" com a conta do Windows dos caminhos ("Lucas"), mesmo com "A pessoa se chama Rafaela" no contexto; se for oferecido para placas fortes (detecção já pronta), isso precisa de solução antes.
 - **Pesquisado e descartado (05/10):** amostragem recomendada do Qwen (temperatura 0,7, sem penalidade de repetição): conversas caíram de 100% para 86,7% (laços de busca). Template de chat "corrigido" da comunidade: o defeito do bloco `<think>` vazio não se aplica ao modo sem raciocínio que usamos.
 
 ## Agora

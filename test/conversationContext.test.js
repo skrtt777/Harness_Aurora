@@ -43,3 +43,10 @@ test("an answer that doesn't say where the delivered document is gets the path f
   assert.equal(withDeliveryPath("Oi!", [{ tool: "read_file", ok: true, summary: "Li x" }]), "Oi!");
   assert.equal(withDeliveryPath("Falhei.", [{ tool: "write_document", ok: false, summary: "Criei x.docx (…)" }]), "Falhei.");
 });
+
+test("a name the person gave is stated plainly in the context", async () => {
+  const { personFacts } = await import("../app/chatTurn.js");
+  const [block] = personFacts([{ role: "user", content: "Oi! Meu nome é Rafaela e eu cuido das parcerias." }, { role: "assistant", content: "Olá!" }]);
+  assert.match(block, /^A pessoa se chama Rafaela\./);
+  assert.doesNotMatch(personFacts([{ role: "user", content: "Eu cuido das parcerias da empresa." }])[0] || "", /se chama/);
+});

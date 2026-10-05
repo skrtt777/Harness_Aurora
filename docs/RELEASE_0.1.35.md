@@ -53,6 +53,12 @@
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | (preencher) |
-| Conversas reais, 5 cenários, 3 rodadas | 100% |
-| Agentes de setor, conferindo o arquivo entregue (3 rodadas) | 22 de 24 tarefas perfeitas (eram 18 a 20) |
+| Testes automáticos | 481 passaram, 0 falhas |
+| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 rodadas) | 97,8% a 100% |
+| Agentes de setor, conferindo o arquivo entregue (3 rodadas) | 97,9% (22 de 24 perfeitas) |
+| Perguntas sobre a empresa fictícia (49) | 100% e 96% em duas rodadas (eram 92% a 96,9%) |
+| Pedido para a equipe: fechamento do mês / tarefa que usa a entrega de outra | 93,9% / 100% (eram 72,7–87,9% / 85,7–90,5%) |
+| Agentes pessoais (organizar pasta, corrigir código) | 100% (eram 86,7–92%) |
+| Extensão MCP com o modelo local (ler agenda, criar evento pedindo autorização) | 6 de 6 |
+| Velocidade: copiar 40 linhas para um documento | 12,4 s → 3,4 s com placa de vídeo; 8,5 → 40 tokens/s no processador |
+| Primeira resposta num PC sem placa de vídeo | 55 s → 10 s |
