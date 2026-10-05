@@ -6,12 +6,22 @@
   - Com placa de vídeo: copiar 40 linhas de planilha caiu de 12,4 s para 3,4 s.
   - Sem placa de vídeo: de 8,5 para 40 tokens por segundo.
   - Os agentes de setor terminaram a bateria 19% mais rápido.
+- **O modelo carrega enquanto você digita:** numa conversa local, o modelo começa a carregar no primeiro caractere, e a resposta não espera o carregamento depois que você envia.
+
+## Organizar arquivos
+
+- **Organizar uma pasta numa vez só:** "organize meus Downloads" separa todos os arquivos soltos por tipo (Documentos, Planilhas, Imagens, Vídeos, Instaladores…) numa única ação. Subpastas e downloads em andamento ficam como estão, nada é apagado nem sobrescrito.
+- **Desfazer:** a resposta que moveu arquivos, no chat ou num agente, mostra **Desfazer**. Os arquivos voltam ao lugar, e um arquivo novo que ocupou o lugar antigo nunca é sobrescrito.
+- **Mover vários de uma vez:** a Aurora move uma lista de arquivos para a mesma pasta numa ação só.
 
 ## Agentes
 
-- **Desfazer:** uma execução que moveu arquivos (por exemplo, "organizar Downloads") mostra **Desfazer** no cartão do agente. Os arquivos voltam ao lugar, e um arquivo novo que ocupou o lugar antigo nunca é sobrescrito.
 - **A notificação leva à tela Agentes:** clicar em "<agente> terminou" abre a tela dos agentes.
 - **A resposta sempre diz onde está o arquivo:** se o agente entregou um documento e não disse onde, a Aurora acrescenta o caminho.
+
+## Navegador
+
+- **Formulários de contato enviados de verdade:** apertar Enter na caixa de mensagem só pulava uma linha, mas a Aurora dizia que tinha enviado. Agora o formulário é enviado como se você clicasse em Enviar.
 
 ## Planilhas
 
