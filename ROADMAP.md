@@ -36,12 +36,16 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 ## Agora
 
-1. **Agentes de tarefa (`docs/AGENTES_ROTEIRO.md`):**
-   - fase B concluída: tarefas conferíveis no `F:\EmpresaIA`, 96,7% (`npm run agents:eval`);
-   - fases C a F: setores, rotinas agendadas, orquestrador e agentes pessoais.
+1. **Agentes de tarefa (`docs/AGENTES_ROTEIRO.md`):** as fases B a F foram concluídas em 05/10:
+   - avaliação pelo arquivo entregue;
+   - 7 setores;
+   - agendador por horário e por pasta;
+   - orquestrador;
+   - agentes pessoais;
+   - a tela "Agentes".
 
-   Cada agente novo ganha cenários na bateria de conversas.
-2. **Bateria maior:** pesquisa na web com resumo, organizar uma pasta, corrigir um script e conversas longas (10 ou mais turnos). A bateria cobre o que as pessoas pedem de verdade.
+   Próximo: dependências entre as tarefas do orquestrador e a barra lateral sem um projeto por agente.
+2. **Bateria de conversas maior:** conversas longas (10 ou mais turnos) e mudança de assunto no meio. Pesquisa, organização de pastas e correção de código já estão na avaliação dos agentes pessoais.
 3. **Planilhas:** o filtro por comparação de números e datas já está no `read_file` (05/10). Falta fazer o modelo usá-lo sempre, em vez de comparar de cabeça quando a planilha cabe inteira.
 
 ## Depois
