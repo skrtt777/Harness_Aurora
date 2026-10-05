@@ -188,3 +188,16 @@ test("after a guard, the model's 'I'll fix it' sentence is not shown to the pers
   assert.equal(withoutCorrectionPreamble(table), table, "a plain answer stays");
   assert.equal(withoutCorrectionPreamble("Peço desculpas pela confusão."), "Peço desculpas pela confusão.", "nothing left after it: kept");
 });
+
+test("asked why, an answer that found the number but not the cause searches other documents once", async () => {
+  const search = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "Ata: a Linha 2 parou 3 dias por quebra da embaladora." };
+  const replies = [
+    { ok: true, text: "", toolCalls: [{ name: "knowledge_search", arguments: { query: "OEE setembro" } }] },
+    { ok: true, text: "A Linha 2 teve o pior OEE (61,2%). Não há explicação detalhada sobre o motivo nos dados disponíveis." },
+    { ok: true, text: "", toolCalls: [{ name: "knowledge_search", arguments: { query: "Linha 2 setembro parada motivo" } }] },
+    { ok: true, text: "A Linha 2 (61,2%): a embaladora quebrou e a linha parou 3 dias." },
+  ];
+  const result = await runChatAgent({ system: "s", input: "Qual linha teve o pior OEE em setembro e por quê?", tools: [search], callModel: async () => replies.shift() });
+  assert.deepEqual(result.checks.map((c) => c.check), ["why_unexplained"]);
+  assert.match(result.text, /embaladora/);
+});

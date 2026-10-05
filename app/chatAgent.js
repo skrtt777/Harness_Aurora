@@ -201,6 +201,7 @@ export async function runChatAgent({
   let confirmChecked = false;
   let sentChecked = false;
   let fileChecked = false;
+  let whyChecked = false;
 
   for (let round = 0; round <= maxSteps; round += 1) {
     if (signal?.aborted) return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls };
@@ -298,6 +299,16 @@ export async function runChatAgent({
       confirmChecked = true;
       checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });
+      continue;
+    }
+    // "Qual linha teve o pior OEE e por quê?": the number is in Production's sheet, the cause in the
+    // board's minutes. "Não há explicação nos dados" after one search (empresa producao-1, 05/10/2026).
+    if (!toolCalls.length && !whyChecked && offered.some((t) => t.name === "knowledge_search") && /\bpor ?qu[eê](?![a-z])|\bmotivo\b|\bcausa\b|\braz[ãa]o(?![a-z])/i.test(question)
+      && /n[ãa]o (h[áa]|encontrei|consta|tem|traz|explica|menciona|informa)[^.\n]{0,80}(explica|motivo|causa|raz[ãa]o|porqu)|sem (explica[çc][ãa]o|detalhe)|precisaria consultar/i.test(text)
+      && steps.filter((s) => s.tool === "knowledge_search").length < 2) {
+      whyChecked = true;
+      checks.push({ check: "why_unexplained", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "A causa costuma estar em outro documento (ata de reunião, relatório, e-mail, ocorrência), às vezes de outro setor. Procure agora com knowledge_search usando o assunto e o período com palavras como motivo, problema, parada ou falha; responda com o que encontrar, ou diga que não achou a causa." });
       continue;
     }
     // Asked for a spreadsheet, it read the data and wrote the list into the answer instead
