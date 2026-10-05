@@ -57,7 +57,7 @@ export function cosineSimilarity(a, b) {
  * Returns null — never throws — whenever an embedding isn't available right
  * now: Ollama isn't running, the embedding model isn't pulled yet, or the
  * request itself fails. This is deliberate: embeddings are an enhancement
- * layered on top of the existing keyword search (ROADMAP_MELHORIAS.md,
+ * layered on top of the existing keyword search (docs/historico/ROADMAP_MELHORIAS.md,
  * Marco 3 — "comparar as duas em paralelo, não substituir de uma vez"), so
  * a memory must always save successfully and search must always return
  * something even when no embedding is available.

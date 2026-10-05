@@ -6,7 +6,7 @@ import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
 
-// Marco 6 backlog (ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
+// Marco 6 backlog (docs/historico/ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
 // só memórias — útil pra compartilhar um resultado sem abrir o app. Pura
 // client-side (a conversa com mensagens já está inteira na página), mesma
 // técnica de Blob+<a download> que MemoryView.tsx já usa pra memórias.

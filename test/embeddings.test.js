@@ -152,7 +152,7 @@ test("selectRelevantMemories ranks a semantically similar memory (no shared word
 
     // Same topic vector as the query below, but shares no real words with
     // it ("bicicleta" vs "carro") — this is exactly the synonym/
-    // reformulation gap ROADMAP_MELHORIAS.md's Marco 3 targets.
+    // reformulation gap docs/historico/ROADMAP_MELHORIAS.md's Marco 3 targets.
     const semanticMatch = await createMemory({
       scope: "global",
       title: `Preferência de transporte ##vec:${transportTopic}##`,

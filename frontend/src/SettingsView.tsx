@@ -37,7 +37,7 @@ const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]["id"];
 
 /**
- * Marco 2 do ROADMAP_MELHORIAS.md: antes desta tela, ajustar qualquer
+ * Marco 2 do docs/historico/ROADMAP_MELHORIAS.md: antes desta tela, ajustar qualquer
  * preferência (provedor/professor padrão, modelo local, URL da comunidade)
  * exigia editar código ou variável de ambiente — nada disso tinha UI. Esta
  * view reúne tudo num só lugar, persistido via /api/settings (tabela

@@ -1,4 +1,4 @@
-> Vers?o 0.1.21: cat?logo Qwen3 ou superior e novo padr?o Qwen3.5 4B. [Notas da vers?o](docs/RELEASE_0.1.21.md) ? [Plano para PCs de 16 GB e SSD](docs/LOCAL_16GB.md) ? [Mem?ria central](docs/MEMORIA_CENTRAL.md).
+> Versão 0.1.32: documentos Word, Excel e PDF de verdade, travas contra entrega falsa e fim do terminal piscando. [Notas da versão](docs/RELEASE_0.1.32.md) · [Roteiro](ROADMAP.md) · [Plano para PCs de 16 GB e SSD](docs/LOCAL_16GB.md) · [Memória central](docs/MEMORIA_CENTRAL.md).
 
 # Harness Aurora
 
@@ -12,7 +12,7 @@ Harness de IA local no estilo ChatGPT/Claude: conversas organizadas em projetos,
 
 ## Para usuário final
 
-1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-0.1.21.exe`) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
+1. Baixe o instalador Windows x64 (`Harness-Aurora-Setup-<versão>.exe`, a mais recente) na página de [Releases do GitHub](https://github.com/skrtt777/Harness_Aurora/releases/latest).
 2. Rode o instalador — não pede administrador, instala só pro seu usuário e cria atalho no menu iniciar/desktop.
 3. Abra o "Harness Aurora". Depois disso, o app verifica atualizações sozinho a cada abertura.
 

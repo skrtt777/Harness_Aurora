@@ -155,7 +155,7 @@ export async function listConversations({ projectId, archived = false } = {}) {
   return rows.map(mapConversation);
 }
 
-// Marco 6 (ROADMAP_MELHORIAS.md): a busca da sidebar só olha o título, então
+// Marco 6 (docs/historico/ROADMAP_MELHORIAS.md): a busca da sidebar só olha o título, então
 // uma conversa com título genérico ("Nova conversa" truncado) é praticamente
 // impossível de reencontrar por assunto. Isto varre o conteúdo das
 // mensagens também — LIKE simples (case-insensitive via COLLATE NOCASE),
@@ -238,7 +238,7 @@ export async function touchConversation(id) {
   db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now(), id);
 }
 
-// Backlog item (ROADMAP_MELHORIAS.md): "tentar de novo do zero" mantendo o
+// Backlog item (docs/historico/ROADMAP_MELHORIAS.md): "tentar de novo do zero" mantendo o
 // histórico anterior intacto como referência — copia a conversa inteira
 // (mensagens incluídas) para uma nova, sem tocar na original. Timestamps
 // das mensagens são preservados (é uma cópia do histórico, não turnos
@@ -501,7 +501,7 @@ function scoreMemory(memory, queryTokens) {
 // same rough magnitude as keyword-overlap counts (usually a handful of
 // words), so neither signal drowns out the other by default. A memory that
 // shares no words with the query but is clearly "about" the same thing —
-// exactly the synonym/reformulation gap ROADMAP_MELHORIAS.md's Marco 3
+// exactly the synonym/reformulation gap docs/historico/ROADMAP_MELHORIAS.md's Marco 3
 // calls out — can now still out-rank a memory with a stray word match.
 const SEMANTIC_SCALE = 5;
 // Below this, cosine similarity is treated as noise rather than signal —
@@ -526,7 +526,7 @@ const pendingEmbeddings = new Set();
  * neurons plus whatever it inherited from its project and from the general
  * context, instead of a single undifferentiated bag of facts.
  *
- * Marco 3 (ROADMAP_MELHORIAS.md): ranking combines the original
+ * Marco 3 (docs/historico/ROADMAP_MELHORIAS.md): ranking combines the original
  * keyword-overlap score with semantic (embedding) similarity when both the
  * query and a given memory have a vector available — computed in parallel,
  * not as a replacement, per the roadmap's own principle of preferring

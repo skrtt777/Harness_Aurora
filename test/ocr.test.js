@@ -52,7 +52,7 @@ test("findTextBox matches a partial/substring query against a longer word", () =
 // it fetches trained language data over the network on first use, and this
 // sandbox's egress policy blocks that host (cdn.jsdelivr.net) with a 403 —
 // the same class of honest limitation already documented for Ollama's own
-// installer in PROJECT_LOG.md. Worse, a failed/hanging fetch leaves a
+// installer in docs/historico/PROJECT_LOG.md. Worse, a failed/hanging fetch leaves a
 // tesseract.js worker thread alive in a way this file's test runner can't
 // cleanly wait out, so a real end-to-end OCR pass is left for manual
 // verification on a machine with normal network access (see
