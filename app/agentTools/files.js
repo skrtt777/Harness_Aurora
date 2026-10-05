@@ -667,29 +667,23 @@ export const fileTools = [
     // Organizing a folder needs moving and renaming; through run_command a small model wrote
     // shell one-liners that were hard to check. Never overwrites, never deletes.
     name: "move_file",
-    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
-    parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\ ou /" } }, required: ["from", "to"] },
-    stage: (a) => `Movendo ${a.from}…`,
-    describe: (a, ctx) => ({ kind: "write", paths: [full(a.from, ctx), moveTarget(a, ctx)], summary: `Mover ${full(a.from, ctx)} para ${moveTarget(a, ctx)}` }),
+    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Para levar vários arquivos à mesma pasta numa chamada, use files (lista) e to com a pasta. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
+    parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual (um arquivo)" }, files: { type: "array", items: { type: "string" }, description: "Vários arquivos que vão para a mesma pasta (to)" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\ ou /" } }, required: ["to"] },
+    stage: (a) => `Movendo ${moveSources(a).length > 1 ? `${moveSources(a).length} arquivos` : moveSources(a)[0] || ""}…`,
+    describe: (a, ctx) => {
+      const pairs = moveSources(a).map((from) => [full(from, ctx), moveTarget({ from, to: moveFolder(a) }, ctx)]);
+      return { kind: "write", paths: pairs.flat(), summary: pairs.map(([f, t]) => `Mover ${f} para ${t}`).join("; ") };
+    },
     async run(args, ctx) {
-      // The exact path only: read_file's tolerant lookup found a same-named file in a subfolder
-      // and moved that one instead.
-      const from = full(args.from, ctx);
-      if (!existsSync(from)) {
-        // "notacoes.txt" for "anotacoes.txt": name the closest file and show what is there.
-        let names = [];
-        try { names = (await readdir(dirname(from))).slice(0, 40); } catch { /* folder missing */ }
-        const wanted = foldText(basename(from));
-        const close = names.find((n) => foldText(n).includes(wanted) || wanted.includes(foldText(n))) || names.find((n) => foldText(n).slice(-8) === wanted.slice(-8));
-        throw new Error(`${from} não existe.${close ? ` Você quis dizer "${close}"?` : ""}${names.length ? ` Nessa pasta: ${names.join(", ")}.` : ""}`);
-      }
-      let to = moveTarget({ ...args, from }, ctx);
-      if (resolve(from) === resolve(to)) return `${from} já está nesse lugar.`;
-      for (let n = 2; existsSync(to); n += 1) to = moveTarget({ ...args, from }, ctx).replace(/(\.[^.\\/]+)?$/, (ext) => ` (${n})${ext}`);
-      await mkdir(dirname(to), { recursive: true });
-      await rename(from, to);
-      ctx.onMove?.(from, to);
-      return `Movi ${from} para ${to}.`;
+      const sources = moveSources(args);
+      if (!sources.length) throw new Error("Diga o arquivo (from) ou a lista de arquivos (files).");
+      if (sources.length === 1) return moveOne(sources[0], moveFolder(args), ctx);
+      // Several files, one folder: a small model organizing Downloads listed the folder five times
+      // and moved one file per call. Each file goes or says why not; one failure stops nothing.
+      const lines = [];
+      for (const from of sources) lines.push(await moveOne(from, moveFolder(args), ctx).catch((error) => `ERRO em ${from}: ${error.message}`));
+      const failed = lines.filter((l) => l.startsWith("ERRO")).length;
+      return `${lines.join("\n")}\n${sources.length - failed} de ${sources.length} arquivo(s) movido(s).`;
     },
   },
   {
@@ -699,22 +693,57 @@ export const fileTools = [
     stage: (a) => `Editando ${a.path}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [full(a.path, ctx)], summary: `Editar ${full(a.path, ctx)}` }),
     async run({ path, before, after }, ctx) {
-      const file = full(path, ctx);
-      const text = await readFile(file, "utf8");
-      const count = text.split(String(before)).length - 1;
-      if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
-      if (before && count === 1) {
-        await writeFile(file, text.replace(String(before), () => String(after ?? "")), "utf8");
-        return `Editei ${file}.`;
-      }
-      // The model copies code with its own indentation (4 spaces for a 2-space file) and never
-      // matched: the same lines, ignoring leading spaces, found once, are replaced re-indented.
-      const loose = before ? looseReplace(text, String(before), String(after ?? "")) : null;
-      if (loose) {
-        await writeFile(file, loose, "utf8");
-        return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).`;
-      }
-      throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato (sem os números de linha).");
+      return editFile({ path, before, after }, ctx);
     },
   },
 ];
+
+/** The files a move_file call names: files (a list) and/or from. */
+function moveSources(args) {
+  const list = Array.isArray(args.files) ? args.files : typeof args.files === "string" ? args.files.split(/\s*[,;\n]\s*/) : [];
+  return [...new Set([...list, ...(args.from ? [args.from] : [])].map((f) => String(f).trim()).filter(Boolean))];
+}
+/** Several files go to a folder even when "to" has no trailing slash. */
+function moveFolder(args) {
+  return moveSources(args).length > 1 && !/[\\/]$/.test(String(args.to)) ? `${args.to}/` : args.to;
+}
+
+async function moveOne(fromArg, to, ctx) {
+  // The exact path only: read_file's tolerant lookup found a same-named file in a subfolder
+  // and moved that one instead.
+  const from = full(fromArg, ctx);
+  if (!existsSync(from)) {
+    // "notacoes.txt" for "anotacoes.txt": name the closest file and show what is there.
+    let names = [];
+    try { names = (await readdir(dirname(from))).slice(0, 40); } catch { /* folder missing */ }
+    const wanted = foldText(basename(from));
+    const close = names.find((n) => foldText(n).includes(wanted) || wanted.includes(foldText(n))) || names.find((n) => foldText(n).slice(-8) === wanted.slice(-8));
+    throw new Error(`${from} não existe.${close ? ` Você quis dizer "${close}"?` : ""}${names.length ? ` Nessa pasta: ${names.join(", ")}.` : ""}`);
+  }
+  let target = moveTarget({ from, to }, ctx);
+  if (resolve(from) === resolve(target)) return `${from} já está nesse lugar.`;
+  for (let n = 2; existsSync(target); n += 1) target = moveTarget({ from, to }, ctx).replace(/(\.[^.\\/]+)?$/, (ext) => ` (${n})${ext}`);
+  await mkdir(dirname(target), { recursive: true });
+  await rename(from, target);
+  ctx.onMove?.(from, target);
+  return `Movi ${from} para ${target}.`;
+}
+
+async function editFile({ path, before, after }, ctx) {
+  const file = full(path, ctx);
+  const text = await readFile(file, "utf8");
+  const count = text.split(String(before)).length - 1;
+  if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
+  if (before && count === 1) {
+    await writeFile(file, text.replace(String(before), () => String(after ?? "")), "utf8");
+    return `Editei ${file}.`;
+  }
+  // The model copies code with its own indentation (4 spaces for a 2-space file) and never
+  // matched: the same lines, ignoring leading spaces, found once, are replaced re-indented.
+  const loose = before ? looseReplace(text, String(before), String(after ?? "")) : null;
+  if (loose) {
+    await writeFile(file, loose, "utf8");
+    return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).`;
+  }
+  throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato (sem os números de linha).");
+}

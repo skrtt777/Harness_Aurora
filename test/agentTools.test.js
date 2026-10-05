@@ -308,3 +308,18 @@ test("submit in a multi-line message box sends its form; with no form the tool s
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("move_file takes a list of files to one folder; each goes or says why, one failure stops nothing", async () => {
+  const dir = join(root, "lote");
+  mkdirSync(dir, { recursive: true });
+  for (const f of ["a.pdf", "b.pdf", "c.pdf"]) writeFileSync(join(dir, f), f);
+  const moves = [];
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], onMove: (from, to) => moves.push(to) });
+  const out = await executeTool("move_file", { files: ["a.pdf", "b.pdf", "sumiu.pdf", "c.pdf"], to: "Documentos" }, c);
+  assert.equal(out.ok, true, out.result);
+  assert.match(out.result, /ERRO em sumiu\.pdf: .*não existe/);
+  assert.match(out.result, /3 de 4 arquivo\(s\) movido\(s\)/);
+  for (const f of ["a.pdf", "b.pdf", "c.pdf"]) assert.ok(existsSync(join(dir, "Documentos", f)), f);
+  assert.equal(moves.length, 3, "each move is recorded for Desfazer");
+  assert.equal((await executeTool("move_file", { files: "x.pdf, y.pdf", to: "Outros" }, c)).ok, true, "a comma-separated string is a list too");
+});
