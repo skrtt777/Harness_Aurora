@@ -247,7 +247,7 @@ export function filterRows(lines, filter, { sort, request } = {}) {
     return `${sheets.flatMap((s) => sheetBlock(s, s.rows, sort)).join("\n")}\n${sheets.reduce((n, s) => n + s.rows.length, 0)} linha(s)${sort ? `, em ordem de ${sort.col}${sort.desc ? " (decrescente)" : ""}` : ""}.`;
   }
   // The model copies the example literally: "Coluna=Dias em atraso>30", "\"Dias em atraso\">30".
-  filter = String(filter).split(/\s*;\s*/).map((c) => c.replace(/^\s*coluna\s*[=:>]\s*(?=\S+.*[=<>])/i, "").replace(/["“”']/g, "").trim()).join("; ");
+  filter = String(filter).split(/\s*;\s*/).map((c) => c.replace(/^\s*coluna\s*[=:>]\s*(?=\S+.*[=<>])/i, "").replace(/^\s*coluna\s+(?=\S.*[=<>])/i, "").replace(/["“”']/g, "").trim()).join("; ");
   // Several conditions: "Dias em atraso>30; Situação=Em atraso" (all must hold).
   const parts = String(filter).split(/\s*;\s*/).filter(Boolean);
   if (parts.length > 1) return filterAll(lines, parts, filter, sort);

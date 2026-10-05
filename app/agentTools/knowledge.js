@@ -38,6 +38,9 @@ export const knowledgeTools = [
       if (!hits.length && category) hits = await search(undefined);
       if (!hits.length) return "Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.";
       rememberRestricted(ctx, hits);
+      // Sheets seen here only as excerpts: a table written from them without reading them whole is
+      // flagged by write_document (a Controladoria agent wrote its report from this, 05/10/2026).
+      ctx.excerptSheets = [...new Set([...(ctx.excerptSheets || []), ...hits.map((h) => h.path).filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p))])];
       return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem.";
     },
   },

@@ -137,3 +137,11 @@ test("the person's words decide a document's format over a plain-text one", asyn
   assert.equal(requestedFormat("Salve as notas em markdown"), null, "a deliberate .md stays");
   assert.equal(requestedFormat("organize a pasta"), null);
 });
+
+test("'Coluna X>30' (the word Coluna then a space) still filters on X", async () => {
+  const { filterRows } = await import("../app/agentTools/files.js");
+  const sheet = ["## Contas", "Cliente | Dias em atraso (em 04/10/2026)", "A | 62", "B | 10"];
+  const out = filterRows(sheet, "Coluna Dias em atraso>=31");
+  assert.match(out, /1 linha\(s\)/);
+  assert.match(out, /\bA\b/);
+});
