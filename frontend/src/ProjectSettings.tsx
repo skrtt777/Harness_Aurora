@@ -24,12 +24,12 @@ export default function ProjectSettings({ project, onSave, onClose }: {
     }}>
       <h2>Configurar projeto</h2>
       <label>Nome<input value={name} onChange={event => setName(event.target.value)} disabled={busy} /></label>
-      <label>Pasta do projeto
+      <label>Pasta deste projeto
         <span className="project-folder-row">
           <input value={workspaceDir} onChange={event => setWorkspaceDir(event.target.value)} placeholder="Ex.: C:\Users\você\Projetos\meu-app" disabled={busy} />
           <button type="button" disabled={busy} onClick={async () => { const chosen = await pickFolder().catch(() => null); if (chosen) setWorkspaceDir(chosen); }}><Icon name="folder" size={13} /> Escolher…</button>
         </span>
-        <small>A Aurora trabalha nesta pasta. No modo Auto, ela lê, edita e roda comandos aqui sem perguntar. Um arquivo AURORA.md dentro dela vira instruções permanentes.</small>
+        <small>Nas conversas deste projeto, a Aurora guarda, organiza e edita os arquivos aqui sem precisar pedir. Fora dela, sempre pede.</small>
       </label>
       <label>Instruções do projeto<textarea rows={6} value={instructions} onChange={event => setInstructions(event.target.value)} placeholder="Ex.: responda em inglês; use TypeScript; rode npm test antes de concluir." disabled={busy} /></label>
       {error && <p className="memory-form-error">{error}</p>}

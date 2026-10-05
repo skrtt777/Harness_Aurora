@@ -57,12 +57,12 @@ function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d:
     </div>}
     {value.type === 'every' && <label>A cada <input type="number" min={5} max={10080} value={value.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })} /> minutos</label>}
     {value.type === 'file' && <div className="agent-trigger-row">
-      <label className="grow">Pasta observada <input value={value.folder} onChange={(e) => set({ folder: e.target.value })} placeholder="C:\Users\voce\Notas a lançar" /></label>
+      <label className="grow">Pasta que ele vigia <input value={value.folder} onChange={(e) => set({ folder: e.target.value })} placeholder="C:\Users\voce\Notas a lançar" /></label>
       <button type="button" onClick={() => void pickFolder().then((f) => f && set({ folder: f }))}>Escolher…</button>
-      <label>Arquivos <input value={value.pattern} onChange={(e) => set({ pattern: e.target.value })} placeholder="*.pdf" /></label>
+      <label>Tipo de arquivo <input value={value.pattern} onChange={(e) => set({ pattern: e.target.value })} placeholder="*.pdf" /></label>
     </div>}
     {value.type !== 'manual' && <label className="grow">O que fazer <textarea rows={2} value={value.request} onChange={(e) => set({ request: e.target.value })} placeholder="Ex.: gere a planilha de títulos com mais de 30 dias de atraso" /></label>}
-    {value.type === 'file' && <small>Os arquivos que já estão na pasta não disparam; só os que chegarem depois.</small>}
+    {value.type === 'file' && <small>Ele trabalha quando chegar um arquivo novo nessa pasta. Os que já estão lá não contam.</small>}
   </fieldset>;
 }
 
@@ -112,7 +112,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
       <span className={`agent-status ${running ? 'running' : latest?.status || ''}`}>{running ? 'Trabalhando…' : agent.enabled ? 'Pronto' : 'Desligado'}</span>
     </header>
     <p className="agent-mission">{agent.mission}</p>
-    <small className="agent-folder" title={agent.workDir}>Pasta: {agent.workDir}</small>
+    <small className="agent-folder" title={agent.workDir}>Guarda o que faz em: {agent.workDir}</small>
     {running && live && <div className="agent-live" aria-live="polite" aria-label="Andamento">
       {live.stage && <small>{live.stage}</small>}
       {live.steps.length > 0 && <ol>{live.steps.slice(-4).map((s, i) => <li key={i} className={s.status === 'running' ? 'running' : s.ok === false ? 'failed' : 'done'}>{stepText(s)}</li>)}</ol>}
@@ -231,13 +231,13 @@ const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department
 const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger: Partial<TriggerDraft>; hint: string }[] = [
   {
     label: 'Organizar Downloads',
-    hint: 'Escolha a sua pasta Downloads como pasta de trabalho.',
+    hint: 'Em "Pasta do agente", escolha a sua pasta Downloads.',
     agent: { name: 'Organizador de Downloads', kind: 'pessoal', mission: 'Manter a pasta organizada: cada arquivo numa subpasta por tipo (Documentos, Imagens, Planilhas, Instaladores, Compactados, Outros). Nunca apagar nada.' },
     trigger: { type: 'at', at: '09:00', weekdays: [1], request: 'Organize os arquivos soltos desta pasta em subpastas por tipo, sem apagar nada, e diga o que moveu.' },
   },
   {
     label: 'Notas que chegam numa pasta',
-    hint: 'Escolha a pasta de trabalho (onde fica a planilha) e a pasta observada (onde as notas chegam).',
+    hint: 'Escolha a pasta do agente (onde fica a planilha) e a pasta que ele vigia (onde as notas chegam).',
     agent: { name: 'Leitor de notas', kind: 'pessoal', mission: 'Ler cada nota fiscal ou boleto que chegar e manter uma planilha com fornecedor, número, vencimento e valor.' },
     trigger: { type: 'file', pattern: '*.pdf', request: 'Leia o(s) arquivo(s) novo(s) e acrescente fornecedor, número, vencimento e valor à planilha notas.xlsx da sua pasta (crie se não existir).' },
   },
@@ -280,7 +280,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
     <header className="page-header page-header-row">
       <div>
         <h1 className="page-title">Agentes</h1>
-        <p className="page-desc">Funcionários da Aurora. Cada um tem uma missão e uma pasta de trabalho, e entrega arquivos: rode quando quiser, num horário ou quando chegar um arquivo numa pasta. Eles trabalham sozinhos na pasta deles e pedem sua autorização para o resto.</p>
+        <p className="page-desc">Funcionários da Aurora. Cada um tem uma missão e uma pasta própria, onde guarda o que entrega: rode quando quiser, num horário ou quando chegar um arquivo numa pasta. Eles trabalham sozinhos na pasta deles e pedem sua autorização para o resto.</p>
       </div>
       <div className="agent-header-actions">
         {agents.length > 0 && <button onClick={() => void exportAgentRuns().catch((e: Error) => setError(e.message))} title="Todas as execuções, para conferência (abre no Excel)">Exportar histórico</button>}
@@ -302,7 +302,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
       </div>
       <label className="grow">Missão <textarea required rows={3} value={draft.mission} onChange={(e) => setDraft({ ...draft, mission: e.target.value })} placeholder="Acompanhar contas a receber e gerar a lista de cobrança toda segunda." /></label>
       <div className="agent-trigger-row">
-        <label className="grow">Pasta de trabalho <input required value={draft.workDir} onChange={(e) => setDraft({ ...draft, workDir: e.target.value })} placeholder="C:\Users\voce\Documents\Agentes\Financeiro" /></label>
+        <label className="grow">Pasta do agente (onde ele guarda o que entrega) <input required value={draft.workDir} onChange={(e) => setDraft({ ...draft, workDir: e.target.value })} placeholder="C:\Users\voce\Documents\Agentes\Financeiro" /></label>
         <button type="button" onClick={() => void pickFolder().then((f) => f && setDraft({ ...draft, workDir: f }))}>Escolher…</button>
       </div>
       <TriggerEditor value={trigger} onChange={setTrigger} />
@@ -315,7 +315,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
       <div className="agent-templates" role="group" aria-label="Começar por um modelo">
         {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => applyTemplate(t)}>{t.label}</button>)}
       </div>
-      <p>Ou, se as pastas da empresa já estão em Configurações → Conhecimento, crie um agente para cada setor:</p>
+      <p>Ou, se a pasta da empresa já está em Configurações → Pastas, crie um agente para cada setor:</p>
       <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
         <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
         <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>

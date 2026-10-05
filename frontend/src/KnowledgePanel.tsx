@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { createKnowledgeSource, decideKnowledgeSuggestion, deleteKnowledgeSource, getKnowledgeMap, getKnowledgeSources, getKnowledgeSuggestions, pickFolder, reindexKnowledgeSource, reviewKnowledgeSource, updateKnowledgeSource, type KnowledgeCategory, type KnowledgeSource, type KnowledgeSuggestion } from './api';
+import { decideKnowledgeSuggestion, deleteKnowledgeSource, getKnowledgeMap, getKnowledgeSources, getKnowledgeSuggestions, reindexKnowledgeSource, reviewKnowledgeSource, updateKnowledgeSource, type KnowledgeCategory, type KnowledgeSource, type KnowledgeSuggestion } from './api';
 
 const FIELD_LABEL: Record<KnowledgeSuggestion['field'], string> = { title: 'Título', summary: 'Resumo', keywords: 'Palavras-chave', type: 'Tipo', category: 'Categoria', flow: 'Passo a passo' };
 const shown = (value: string | string[] | null) => (Array.isArray(value) ? value.join(', ') : value || '—');
-import Icon from './Icon';
-import FolderSetup from './FolderSetup';
 
 // Company knowledge: folders on the network (\\servidor\RH) or SharePoint
 // libraries synced by OneDrive, indexed and organized by the local model.
 export default function KnowledgePanel() {
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [map, setMap] = useState<KnowledgeCategory[]>([]);
-  const [draft, setDraft] = useState({ name: '', department: '', path: '', paidAllowed: false });
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<KnowledgeSuggestion[]>([]);
   const [reviewing, setReviewing] = useState('');
   const [reviewNote, setReviewNote] = useState('');
@@ -29,7 +25,7 @@ export default function KnowledgePanel() {
   }, [indexing, refresh]);
   const act = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'Falha.'); } };
   return <div className="knowledge-panel">
-    <FolderSetup onChange={() => void refresh()} />
+    {sources.length === 0 && <p className="section-desc">Nenhuma pasta para consultar ainda. Adicione em Configurações → Pastas.</p>}
     {sources.map(source => <div key={source.id} className="knowledge-source">
       <div><strong>{source.department}</strong> · {source.name}<br /><small>{source.path}</small></div>
       <small>
@@ -47,16 +43,6 @@ export default function KnowledgePanel() {
         <button onClick={() => { if (confirm(`Remover "${source.name}" do conhecimento? Os arquivos na pasta não são apagados.`)) void act(() => deleteKnowledgeSource(source.id)); }}>Remover</button>
       </div>
     </div>)}
-    <form className="knowledge-add" onSubmit={e => { e.preventDefault(); setBusy(true); void act(async () => { await createKnowledgeSource(draft); setDraft({ name: '', department: '', path: '', paidAllowed: false }); }).finally(() => setBusy(false)); }}>
-      <input placeholder="Departamento (ex.: RH)" value={draft.department} onChange={e => setDraft({ ...draft, department: e.target.value })} required disabled={busy} />
-      <input placeholder="Nome (ex.: Pasta do RH)" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} disabled={busy} />
-      <span className="project-folder-row">
-        <input className="path-field" placeholder={'\\\\servidor\\RH ou a pasta do SharePoint sincronizada'} value={draft.path} onChange={e => setDraft({ ...draft, path: e.target.value })} required disabled={busy} />
-        <button type="button" disabled={busy} onClick={async () => { const chosen = await pickFolder().catch(() => null); if (chosen) setDraft(d => ({ ...d, path: chosen })); }}><Icon name="folder" size={13} /> Escolher…</button>
-      </span>
-      <label><input type="checkbox" checked={draft.paidAllowed} onChange={e => setDraft({ ...draft, paidAllowed: e.target.checked })} disabled={busy} /> IA paga (Codex/Claude) pode ver estes documentos sem perguntar</label>
-      <button className="primary" disabled={busy}>{busy ? 'Adicionando…' : 'Adicionar pasta'}</button>
-    </form>
     {error && <p className="memory-form-error">{error}</p>}
     {reviewNote && <p><small>{reviewNote}</small></p>}
     {suggestions.length > 0 && <details className="knowledge-map" open><summary>Sugestões da revisão ({suggestions.length})</summary>

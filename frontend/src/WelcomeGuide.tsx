@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getProviders, openExternalUrl, updateSettings, type ProviderInfo } from './api';
 import BrandMark from './BrandMark';
-import FolderSetup from './FolderSetup';
+import FoldersPanel from './FoldersPanel';
 import Icon from './Icon';
 import './welcome.css';
 
@@ -86,8 +86,8 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
         <button onClick={() => void finish(true)} disabled={saving}>Abrir configurações</button>
       </>}
       {step === 4 && <>
-        <p className="guide-lead">Para responder sobre os seus documentos, a Aurora precisa saber onde eles estão. Tudo é lido e organizado pela IA local, neste computador.</p>
-        <FolderSetup />
+        <p className="guide-lead">Quais pastas a Aurora pode usar? Adicione as pastas onde ficam os seus arquivos e escolha, em cada uma, se ela só consulta ou também organiza. Tudo fica neste computador, e dá para mudar depois em Configurações → Pastas.</p>
+        <FoldersPanel compact />
         <p className="guide-note">Você muda isso quando quiser em <strong>Configurações → Conhecimento</strong>.</p>
       </>}
       {error && <p role="alert" className="guide-error">{error}</p>}

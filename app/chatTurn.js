@@ -119,8 +119,10 @@ async function chatAgentEnabled(env) {
 
 async function agentAllowedRoots(folders) {
   try {
+    // An empty list is the person's choice (Configurações → Pastas, all removed): every change asks.
+    // Only a list never saved falls back to the usual folders.
     const saved = JSON.parse(await getSetting("agent_allowed_roots"));
-    if (Array.isArray(saved) && saved.length) return saved;
+    if (Array.isArray(saved)) return saved;
   } catch {}
   return [folders.desktop, folders.documents, folders.downloads];
 }
@@ -380,7 +382,7 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
     // "Qual é meu nome?" was answered with the Windows account in these paths ("Lucas") instead of
     // the name said in the conversation (qwen3.5:9b, 3 runs in 3, 05/10/2026).
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}. (O nome nesses caminhos é só a conta do Windows: o nome da pessoa é o que ela disser na conversa.)`,
-    workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (só o nome do arquivo, ou subpasta/nome), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
+    workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (só o nome do arquivo, ou subpasta/nome), nunca reescreva o caminho completo; comandos já rodam nela.` : allowedRoots.length ? `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.` : "Nenhuma pasta liberada para alterar: para criar ou mudar arquivos, a pessoa autoriza cada vez.",
     // "A pasta do projeto está vazia, não encontrei a planilha": the company documents were in the
     // context all along. An empty folder is said up front.
     ...(workspace && emptyWorkspace ? ["A pasta do projeto está VAZIA: não procure documentos nela. Documentos da empresa vêm dos trechos abaixo e de knowledge_search (leia-os com read_file pelo caminho completo da Fonte); arquivos do usuário, das pastas dele acima. A pasta do projeto serve para salvar o que você entregar."] : []),

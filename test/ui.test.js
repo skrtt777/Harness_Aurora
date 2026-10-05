@@ -369,7 +369,7 @@ test('agents page: a run with its delivered file, creating an agent with a sched
         if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'agentes-modelo.png'),fullPage:true});
         await form.getByLabel('Nome').fill('Organizador de downloads');
         await form.getByLabel('Missão').fill('Organizar a pasta Downloads por tipo de arquivo.');
-        await form.getByLabel('Pasta de trabalho').fill(join(temp,'agente-downloads'));
+        await form.getByLabel(/Pasta do agente/).fill(join(temp,'agente-downloads'));
         await form.getByLabel('Tipo de gatilho').selectOption('at');
         await form.getByLabel('O que fazer').fill('Organize os arquivos novos.');
         if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'agentes-novo.png'),fullPage:true});
@@ -548,5 +548,36 @@ test('a working agent that needs a yes gets it from its card', {skip,timeout:600
     await ask.getByRole('button',{name:'Permitir'}).click();
     await done;
     assert.equal(answer,true);
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
+
+test('Pastas: one list where each folder is "Só consultar" or "Consultar e organizar", and removing deletes no file', {skip,timeout:60000},async()=>{
+  const {mkdirSync,writeFileSync,existsSync}=await import('node:fs');
+  const {getSetting}=await import('../app/store.js');
+  const {listSources}=await import('../app/knowledge.js');
+  const dir=join(temp,'Contratos da casa');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'aluguel.txt'),'contrato');
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  const roots=async()=>JSON.parse(await getSetting('agent_allowed_roots')||'[]');
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    page.on('dialog',d=>void d.accept());
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:/Configurações/}).click();
+    await page.getByRole('button',{name:'Pastas',exact:true}).click();
+    await page.getByRole('button',{name:'Adicionar pasta',exact:true}).click();
+    await page.getByRole('textbox',{name:'Caminho da pasta'}).fill(dir);
+    await page.getByRole('group',{name:'Nova pasta'}).getByRole('button',{name:'Consultar e organizar'}).click();
+    const card=page.getByRole('listitem',{name:'Contratos da casa'});
+    await card.getByText('Pode ler, criar, organizar e editar arquivos aqui').waitFor();
+    assert.ok((await roots()).includes(dir),'organize: a folder the agent may change');
+    await card.getByRole('button',{name:'Só consultar'}).click();
+    await card.getByText(/Vai ler os documentos|documento\(s\) lido|Lendo os documentos/).waitFor();
+    assert.ok(!(await roots()).includes(dir),'consult: no longer changed');
+    assert.ok((await listSources()).some(s=>s.path===dir),'consult: read as knowledge');
+    await card.getByRole('button',{name:'Remover Contratos da casa'}).click();
+    await card.waitFor({state:'detached'});
+    assert.ok(!(await listSources()).some(s=>s.path===dir));
+    assert.ok(existsSync(join(dir,'aluguel.txt')),'no file is deleted');
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });

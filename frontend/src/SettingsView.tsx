@@ -27,14 +27,16 @@ import Icon from './Icon';
 import EvalPanel from './EvalPanel';
 import KnowledgePanel from './KnowledgePanel';
 import McpPanel from './McpPanel';
+import FoldersPanel from './FoldersPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
   { id: "general", label: "Geral" },
+  { id: "folders", label: "Pastas" },
   { id: "agent", label: "Agente" },
   { id: "teacher", label: "Professor" },
   { id: "local", label: "IA local" },
-  { id: "knowledge", label: "Conhecimento" },
+  { id: "knowledge", label: "Documentos lidos" },
   { id: "learning", label: "Aprendizado" },
   { id: "advanced", label: "Avançado" },
 ] as const;
@@ -77,7 +79,6 @@ export default function SettingsView({
   const [tuningSaved, setTuningSaved] = useState(false);
   const [hardware, setHardware] = useState<{ gpu: GpuInfo } | null>(null);
   const [tuningError, setTuningError] = useState("");
-  const [rootsDraft, setRootsDraft] = useState("");
   const [agentSaved, setAgentSaved] = useState(false);
   const [agentError, setAgentError] = useState("");
 
@@ -88,7 +89,6 @@ export default function SettingsView({
       setSandboxDraft(s.sandboxDir);
       setMaxFixAttemptsDraft(String(s.localMaxFixAttempts));
       setContextTokensDraft(String(s.localContextTokens));
-      setRootsDraft((s.agentAllowedRoots || []).join("\n"));
     }).catch(e => setError(e.message));
     getProviders().then(setProviders).catch(e => setError(e.message));
     getLocalStatus().then(setLocalStatus).catch(e => setError(e.message));
@@ -145,7 +145,6 @@ export default function SettingsView({
     try {
       const updated = await updateSettings(patch);
       setSettingsState((prev) => (prev ? { ...prev, ...updated } : prev));
-      setRootsDraft(updated.agentAllowedRoots.join("\n"));
       setAgentSaved(true);
       setTimeout(() => setAgentSaved(false), 2000);
     } catch (err) {
@@ -321,14 +320,8 @@ export default function SettingsView({
               </div>
             </div>
             <div className="section">
-              <h3 className="section-title">Pastas de trabalho</h3>
-              <p className="section-desc">Usadas quando a conversa não tem um projeto com pasta. Uma por linha.</p>
-              <textarea className="field mono" rows={3} value={rootsDraft} onChange={(e) => setRootsDraft(e.target.value)} aria-label="Pastas de trabalho" />
-              <div className="form-actions">
-                {agentSaved && <span className="settings-saved">Salvo</span>}
-                <button className="btn" onClick={() => void saveAgent({ agentAllowedRoots: rootsDraft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) })}>Salvar pastas</button>
-              </div>
-              {agentError && <p className="settings-error">{agentError}</p>}
+              <h3 className="section-title">Pastas</h3>
+              <p className="section-desc">As pastas que a Aurora pode consultar e organizar ficam em <button type="button" className="link-button" onClick={() => openSection("folders")}>Configurações → Pastas</button>.</p>
             </div>
             <div className="section">
               <h3 className="section-title">Registro de ações</h3>
@@ -407,10 +400,18 @@ export default function SettingsView({
             <div className="section legacy-panel"><ModelTrainingPanel /></div>
           </>}
 
+          {section === "folders" && <>
+            <header className="page-header">
+              <h2 className="page-title">Pastas</h2>
+              <p className="page-desc">A Aurora só usa as pastas desta lista. Em cada uma, escolha o que ela pode fazer. Fora delas, ela sempre pede sua permissão.</p>
+            </header>
+            <div className="section"><FoldersPanel /></div>
+          </>}
+
           {section === "knowledge" && <>
             <header className="page-header">
-              <h2 className="page-title">Conhecimento da empresa</h2>
-              <p className="page-desc">Pastas da rede ou do SharePoint sincronizadas pelo OneDrive. A IA local lê Word, Excel, PowerPoint, PDF (inclusive escaneado) e texto, organiza por categoria e responde citando o arquivo. Nada sai deste computador sem a sua autorização.</p>
+              <h2 className="page-title">Documentos lidos</h2>
+              <p className="page-desc">O que a Aurora já leu nas pastas marcadas como "Só consultar": quantos documentos, quando atualizou e como organizou. Para adicionar ou remover pastas, use <button type="button" className="link-button" onClick={() => openSection("folders")}>Pastas</button>.</p>
             </header>
             <div className="section legacy-panel"><KnowledgePanel /></div>
           </>}

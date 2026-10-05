@@ -65,3 +65,11 @@ test("the video card's name and memory are read from llama-server's device list"
   assert.deepEqual(parseDevice("Available devices:\n  Vulkan0: AMD Radeon RX 7600 (8176 MiB, 7900 MiB free)"), { name: "AMD Radeon RX 7600", memoryGb: 8, freeGb: 8 });
   assert.equal(parseDevice("Available devices:\n  (none)"), null);
 });
+
+test("removing every folder the Aurora may change keeps the list empty (it does not come back)", async () => {
+  const { agentSettingsPayload } = await import("../app/chatTurn.js");
+  await store.setSetting("agent_allowed_roots", JSON.stringify([]));
+  assert.deepEqual((await agentSettingsPayload()).agentAllowedRoots, []);
+  await store.setSetting("agent_allowed_roots", "");
+  assert.ok((await agentSettingsPayload()).agentAllowedRoots.length >= 1, "never set: the usual folders");
+});

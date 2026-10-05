@@ -948,3 +948,36 @@
 .badge.mcp-erro { color: var(--red); }
 .mcp-add { display: flex; gap: var(--gap-2); flex-wrap: wrap; margin-top: var(--gap-2); }
 .mcp-add input { flex: 1 1 200px; min-width: 0; }
+
+/* ---------- Pastas: one list, one choice per folder ---------- */
+.folders-panel { display: grid; gap: var(--gap-3); }
+.folders-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-2); }
+.folders-empty { color: var(--text-3); padding: var(--gap-3); border: 1px dashed var(--stroke-2); border-radius: var(--radius-md); }
+.folder-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px var(--stroke-1);
+}
+.folder-card > svg { color: var(--accent); }
+.folder-card-text { display: grid; gap: 2px; min-width: 0; }
+.folder-card-text strong { color: var(--text-1); }
+.folder-card-text .mono { color: var(--text-3); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-card-status { color: var(--text-2); font-size: var(--fs-xs); }
+.folder-card-error { color: var(--red); font-size: var(--fs-xs); }
+.folder-card-mode button { white-space: nowrap; }
+.folder-add-row { display: flex; flex-wrap: wrap; gap: var(--gap-2); align-items: center; }
+.folder-pending { display: grid; gap: var(--gap-2); padding: 12px 14px; border-radius: var(--radius-md); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.folder-pending p { margin: 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.folder-pending .mono { color: var(--text-3); font-size: var(--fs-xs); }
+.folder-pending-actions { display: flex; flex-wrap: wrap; gap: var(--gap-2); }
+.folder-company summary { cursor: pointer; color: var(--text-2); }
+.folder-company[open] summary { margin-bottom: var(--gap-2); }
+@media (max-width: 760px) {
+  .folder-card { grid-template-columns: auto minmax(0, 1fr); }
+  .folder-card-mode, .folder-card-remove { grid-column: 1 / -1; justify-self: start; }
+}
