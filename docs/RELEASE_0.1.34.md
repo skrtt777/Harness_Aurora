@@ -15,6 +15,11 @@ Os agentes são "funcionários" da Aurora. Cada um tem uma missão e uma pasta d
 - **Pedido para a equipe:** um pedido grande ("feche o mês de setembro") é dividido entre os agentes. Você confere e ajusta o plano antes de começar, e no fim sai um resumo em Word com a entrega de cada um.
 - **Barra lateral limpa:** as conversas dos agentes ficam na tela Agentes, e a barra lateral não ganha mais um projeto por agente.
 
+## Conversa
+
+- **A resposta aparece enquanto é escrita**, em vez de só no fim. O primeiro texto surge em cerca de 3 segundos.
+- **Conversas longas:** a Aurora lembra o que você disse sobre si (seu nome, seu trabalho) durante toda a conversa. Ao voltar a um assunto ("voltando ao kit de mídia…"), ela retoma o arquivo certo, e não o último citado.
+
 ## Agentes mais certeiros com planilhas
 
 - **Filtro que compara:** a Aurora filtra uma planilha comparando números e datas ("mais de 30 dias de atraso", "entrega até 15/10", "desvio acima de 5%"), valores diferentes ("não resolvidos") e duas colunas ("saldo abaixo do mínimo"). Antes ela comparava de cabeça e errava.
@@ -31,8 +36,8 @@ Os agentes são "funcionários" da Aurora. Cada um tem uma missão e uma pasta d
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | 433 passaram, 0 falhas |
-| Conversas reais (5 rodadas) | 98,7% |
+| Testes automáticos | 436 passaram, 0 falhas |
+| Conversas reais, inclusive uma de 10 turnos (3 rodadas) | 98,7% |
 | Agentes de 7 setores, conferindo o arquivo entregue (5 rodadas) | 95% |
 | Rotina de pasta, do arquivo chegar até a entrega | 93,8% |
 | "Feche o mês" pela equipe | plano certo em 100%, 87,9% no total |
