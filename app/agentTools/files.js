@@ -794,22 +794,26 @@ export const fileTools = [
     // "Organize my Downloads" is the most common personal task; a real Downloads folder has hundreds
     // of files, and moving them one call at a time is where a small model gets lost.
     name: "organize_folder",
-    description: "Organiza os arquivos soltos de uma pasta em subpastas por tipo (Documentos, Planilhas, Apresentações, Imagens, Vídeos, Áudio, Compactados, Instaladores, Código, Outros), de uma vez. Só mexe nos arquivos soltos na pasta (não nas subpastas), nunca sobrescreve nem apaga, e tudo pode ser desfeito. Use para \"organize a pasta X\".",
-    parameters: { type: "object", properties: { path: { type: "string", description: "A pasta a organizar (ex.: Downloads)" } }, required: ["path"] },
+    description: "Organiza os arquivos soltos de uma pasta em subpastas por tipo, de uma vez. Sem groups: Documentos, Planilhas, Apresentações, Imagens, Vídeos, Áudio, Compactados, Instaladores, Código, Outros. Se a pessoa disser as subpastas e os tipos de cada uma, passe-os em groups (ex.: \"Documentos: pdf, docx, txt; Imagens: jpg, png\"). Só mexe nos arquivos soltos (não nas subpastas), nunca sobrescreve nem apaga, e tudo pode ser desfeito.",
+    parameters: { type: "object", properties: { path: { type: "string", description: "A pasta a organizar (ex.: Downloads)" }, groups: { type: "string", description: "Opcional: as subpastas da pessoa, \"Pasta: ext, ext; Outra: ext\"" } }, required: ["path"] },
     stage: (a) => `Organizando ${a.path}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [full(a.path, ctx)], summary: `Organizar os arquivos soltos de ${full(a.path, ctx)} em subpastas por tipo` }),
-    async run({ path }, ctx) {
+    async run({ path, groups }, ctx) {
       const dir = await resolveExisting(path, ctx, { directory: true });
       const entries = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && !e.name.startsWith(".") && !/^desktop\.ini$|^thumbs\.db$/i.test(e.name) && !/\.(crdownload|part|tmp)$/i.test(e.name));
       if (!entries.length) return `Não há arquivos soltos em ${dir}: nada a organizar.`;
-      const counts = {}, errors = [];
+      // The person's own folders ("Documentos (pdf, docx, txt), Imagens (jpg, png)…"): with them the
+      // model went back to moving file by file with commands and misplaced one (05/10/2026).
+      const own = parseGroups(groups);
+      const counts = {}, errors = [], left = [];
       for (const entry of entries) {
-        const kind = fileKind(entry.name);
+        const kind = own.length ? own.find(([, exts]) => exts.has(extname(entry.name).slice(1).toLowerCase()))?.[0] : fileKind(entry.name);
+        if (!kind) { left.push(entry.name); continue; }
         try { await moveOne(join(dir, entry.name), join(dir, kind) + sep, ctx); counts[kind] = (counts[kind] || 0) + 1; }
         catch (error) { errors.push(`${entry.name}: ${error.message}`); }
       }
       const moved = Object.values(counts).reduce((a, b) => a + b, 0);
-      return `Organizei ${dir}: ${moved} arquivo(s) movido(s) — ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(", ")}.${errors.length ? `\nNão movidos (${errors.length}): ${errors.slice(0, 10).join("; ")}` : ""}\nNada foi apagado; a pessoa pode desfazer.`;
+      return `Organizei ${dir}: ${moved} arquivo(s) movido(s) — ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(", ")}.${left.length ? `\nFicaram soltos (nenhuma das pastas pedidas é para eles): ${left.slice(0, 20).join(", ")}.` : ""}${errors.length ? `\nNão movidos (${errors.length}): ${errors.slice(0, 10).join("; ")}` : ""}\nNada foi apagado; a pessoa pode desfazer.`;
     },
   },
   {
@@ -835,6 +839,18 @@ const KINDS = [
   ["Instaladores", /\.(exe|msi|msix|appx|dmg|pkg|deb|rpm|apk|iso)$/i],
   ["Código", /\.(js|mjs|ts|tsx|py|java|c|cpp|cs|go|rs|rb|php|html?|css|json|xml|ya?ml|sh|ps1|bat|sql)$/i],
 ];
+/**
+ * "Documentos: pdf, docx; Imagens (jpg, png)" or { Documentos: ["pdf"] } → [["Documentos", Set{pdf, docx}], …].
+ * Extensions without the dot, lower case.
+ */
+export function parseGroups(groups) {
+  if (!groups) return [];
+  const entries = typeof groups === "object" ? Object.entries(groups)
+    : String(groups).split(/\s*(?:;|\n)\s*/).map((part) => part.match(/^\s*([^:(]+?)\s*[:(]\s*([^)]*)\)?\s*$/)).filter(Boolean).map((m) => [m[1], m[2]]);
+  return entries.map(([name, exts]) => [String(name).trim(), new Set((Array.isArray(exts) ? exts : String(exts).split(/[\s,]+/)).map((e) => String(e).replace(/^\./, "").toLowerCase()).filter(Boolean))])
+    .filter(([name, exts]) => name && exts.size);
+}
+
 /** The subfolder a file goes to when a folder is organized by type. */
 export const fileKind = (name) => KINDS.find(([, re]) => re.test(name))?.[0] || "Outros";
 

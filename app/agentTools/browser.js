@@ -219,10 +219,13 @@ export const browserTools = [
       if (!ref && !field) {
         // No field named: the focused one, else the first visible text field
         // (usually the site's search box) — what a person would type into.
-        const focused = await page.evaluate(() => { const el = document.activeElement; return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA"].includes(el.tagName)); }).catch(() => false);
+        // The focused field only if it is still empty: after "nome" and "email", a third call with
+        // no field typed the message over the e-mail (battery, intermittent, 05/10/2026).
+        const focused = await page.evaluate(() => { const el = document.activeElement; return !!el && (el.isContentEditable ? !el.textContent.trim() : ["INPUT", "TEXTAREA"].includes(el.tagName) && !el.value); }).catch(() => false);
         if (!focused) {
           const data = await page.evaluate(collectElements, MAX_ELEMENTS).catch(() => ({ elements: [] }));
-          const first = data.elements.find((e) => TYPEABLE.has(e.role) && e.inView) || data.elements.find((e) => TYPEABLE.has(e.role));
+          const typeable = data.elements.filter((e) => TYPEABLE.has(e.role));
+          const first = typeable.find((e) => e.inView && !e.value) || typeable.find((e) => !e.value) || typeable.find((e) => e.inView) || typeable[0];
           if (!first) throw new Error("Não há campo de texto nesta página. Use browser_snapshot para ver a página.");
           locator = page.locator(`[data-aurora-ref="${first.ref}"]`).first();
         }

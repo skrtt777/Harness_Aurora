@@ -416,3 +416,41 @@ test("the ready filter survives a whole read close to the result limit (it comes
   const out = await executeTool("read_file", { path: "receber.csv" }, c);
   assert.match(out.result.split("\n").slice(0, 3).join("\n"), /filter="Dias em atraso>30"/);
 });
+
+test("organize_folder follows the person's own folders when given", async () => {
+  const { parseGroups } = await import("../app/agentTools/files.js");
+  assert.deepEqual(parseGroups("Documentos: pdf, docx, txt; Imagens (jpg, png)").map(([n, e]) => [n, [...e]]), [["Documentos", ["pdf", "docx", "txt"]], ["Imagens", ["jpg", "png"]]]);
+  assert.deepEqual(parseGroups({ Planilhas: [".xlsx", "CSV"] }).map(([n, e]) => [n, [...e]]), [["Planilhas", ["xlsx", "csv"]]]);
+  const dir = join(root, "organizar-proprio");
+  mkdirSync(dir, { recursive: true });
+  for (const f of ["relatorio anual.pdf", "notas.txt", "foto.jpg", "gastos.xlsx", "musica.mp3"]) writeFileSync(join(dir, f), f);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir] });
+  const out = await executeTool("organize_folder", { path: dir, groups: "Documentos: pdf, docx, txt; Imagens: jpg, png; Planilhas: xlsx, csv" }, c);
+  assert.equal(out.ok, true, out.result);
+  for (const f of ["Documentos/relatorio anual.pdf", "Documentos/notas.txt", "Imagens/foto.jpg", "Planilhas/gastos.xlsx"]) assert.ok(existsSync(join(dir, f)), f);
+  assert.ok(existsSync(join(dir, "musica.mp3")), "a type no folder was asked for stays loose");
+  assert.match(out.result, /Ficaram soltos .*musica\.mp3/);
+});
+
+test("typing with no field named goes to the next empty field, not over the one just filled", { skip: hasBrowser ? false : "Nenhum navegador disponível." }, async () => {
+  const { closeBrowserContext, resetBrowserContextForTests } = await import("../app/browserAgent.js");
+  const { resetBrowserBackendForTests } = await import("../app/browserBackend.js");
+  const page = `<!doctype html><title>Contato</title><form><input name="nome" placeholder="nome"><input name="email" placeholder="email"><textarea name="mensagem" placeholder="Mensagem"></textarea><button>Enviar</button></form>`;
+  const server = http.createServer((req, res) => { res.setHeader("content-type", "text/html; charset=utf-8"); res.end(page); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const env = { ...process.env, BROWSER_AGENT_HEADLESS: "1", BROWSER_AGENT_PROFILE_DIR: mkdtempSync(join(tmpdir(), "harness-agent-browser-")) };
+  const c = ctx(async () => false, { env, browserBackend: "aurora" });
+  resetBrowserContextForTests(); resetBrowserBackendForTests();
+  try {
+    await executeTool("browser_navigate", { url: `http://127.0.0.1:${server.address().port}/` }, c);
+    await executeTool("browser_type", { field: "nome", text: "Rafaela" }, c);
+    await executeTool("browser_type", { field: "email", text: "rafaela@exemplo.com" }, c);
+    await executeTool("browser_type", { text: "Quero um orçamento" }, c);
+    const snap = await executeTool("browser_snapshot", {}, c);
+    assert.match(snap.result, /email[^\n]*rafaela@exemplo\.com/i, "the e-mail stays");
+    assert.match(snap.result, /Mensagem[^\n]*Quero um orçamento/i, "the message went to its own box");
+  } finally {
+    await closeBrowserContext();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
