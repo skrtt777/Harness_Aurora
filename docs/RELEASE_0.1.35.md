@@ -36,10 +36,6 @@
 
 - **Formulários de contato enviados de verdade:** apertar Enter na caixa de mensagem só pulava uma linha, mas a Aurora dizia que tinha enviado. Agora o formulário é enviado como se você clicasse em Enviar.
 
-## Conversa
-
-- **Seu nome:** o nome que aparece nas pastas do Windows não é mais confundido com o nome que você disse na conversa.
-
 ## Perguntas sobre a empresa
 
 - **Menos respostas certas desmentidas:** duas travas de conferência acusavam erro onde não havia, e o modelo se retratava. "Compra de 50 mil" respondida com R$ 50.000,00 não é mais "valor inventado", e um arquivo com artigo no nome ("Treinamentos NR a Vencer.xlsx") não é mais "documento inventado".
