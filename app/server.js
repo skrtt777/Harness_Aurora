@@ -433,6 +433,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         return sendJson(response, 202, { id });
       }
       if (method === "GET" && pathname === "/api/agents/orchestrations") return sendJson(response, 200, { orchestrations: await listOrchestrations() });
+      // Audit trail for company use: every agent run as a spreadsheet (Excel opens the CSV).
+      if (method === "GET" && pathname === "/api/agents/runs.csv") {
+        const names = new Map((await taskAgents.listAgents()).map((a) => [a.id, a.name]));
+        const cell = (v) => { const s = String(v ?? "").replace(/\r?\n/g, " "); return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const rows = (await taskAgents.listRuns({ limit: 5000 })).map((r) => [r.startedAt, r.finishedAt || "", names.get(r.agentId) || r.agentId, r.trigger, r.status, r.request, r.files.join(" | "), r.steps ?? "", r.error || ""].map(cell).join(";"));
+        response.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="aurora-agentes-${new Date().toISOString().slice(0, 10)}.csv"`, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        return response.end(`﻿${["Início;Fim;Agente;Gatilho;Situação;Pedido;Arquivos entregues;Passos;Erro", ...rows].join("\r\n")}\r\n`);
+      }
       const taskAgentMatch = pathname.match(/^\/api\/agents\/([^/]+)(\/run|\/runs)?$/);
       if (taskAgentMatch) {
         const [, id, sub] = taskAgentMatch;

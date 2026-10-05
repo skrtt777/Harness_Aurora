@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, getPendingTurn, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
   type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PendingTurn, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
@@ -230,7 +230,10 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
         <h1 className="page-title">Agentes</h1>
         <p className="page-desc">Funcionários da Aurora. Cada um tem uma missão e uma pasta de trabalho, e entrega arquivos: rode quando quiser, num horário ou quando chegar um arquivo numa pasta. Eles trabalham sozinhos na pasta deles e pedem sua autorização para o resto.</p>
       </div>
-      <button className="primary" onClick={() => setCreating(!creating)}>{creating ? 'Cancelar' : 'Novo agente'}</button>
+      <div className="agent-header-actions">
+        {agents.length > 0 && <button onClick={() => void exportAgentRuns().catch((e: Error) => setError(e.message))} title="Todas as execuções, para conferência (abre no Excel)">Exportar histórico</button>}
+        <button className="primary" onClick={() => setCreating(!creating)}>{creating ? 'Cancelar' : 'Novo agente'}</button>
+      </div>
     </header>
     {error && <p role="alert" className="memory-form-error">{error}</p>}
 

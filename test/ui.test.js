@@ -351,6 +351,12 @@ test('agents page: a run with its delivered file, creating an agent with a sched
       await card.getByText('Concluída').waitFor();
       assert.equal(await card.locator('.delivered-file strong').first().textContent(),'cobranca.xlsx');
       assert.equal(await page.locator('.sb-project').filter({hasText:'Agente: Agente Financeiro'}).count(),0,'agent projects stay off the sidebar');
+      if (viewport.width>600) {
+        const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Exportar histórico'}).click()]);
+        const csv=(await import('node:fs')).readFileSync(await download.path(),'utf8');
+        assert.match(csv,/^﻿Início;Fim;Agente;Gatilho;Situação;Pedido;Arquivos entregues;Passos;Erro/);
+        assert.match(csv,/Agente Financeiro;manual;done;Gere a planilha de títulos com mais de 30 dias;.*cobranca.xlsx/);
+      }
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal scroll');
       if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,`agentes-${viewport.width}.png`),fullPage:true});
       if (viewport.width>600) {
