@@ -160,3 +160,9 @@ test("a form claimed as sent without pressing Send goes back to press it", async
   assert.equal(result.checks, undefined, "no typing in this turn: nothing to check");
   void history;
 });
+
+test("claimed_submit: typing with submit in a multi-line field with no form is not sending", async () => {
+  const { claimsSentWithoutSubmit } = await import("../app/chatAgent.js");
+  const steps = [{ tool: "browser_type", ok: true, args: { submit: true }, result: 'Digitei "oi". Este campo tem várias linhas e Enter não envia: clique no botão de enviar (browser_click).' }];
+  assert.equal(claimsSentWithoutSubmit("Mensagem enviada com sucesso!", steps), true);
+});

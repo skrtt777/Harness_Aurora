@@ -57,7 +57,10 @@ export function claimsSentWithoutSubmit(text, steps = []) {
   const lastType = steps.map((s) => s.tool).lastIndexOf("browser_type");
   if (lastType < 0) return false;
   const after = steps.slice(lastType + 1);
-  return !(steps[lastType].args?.submit && steps[lastType].ok) && !after.some((s) => s.ok && ["browser_click", "browser_key"].includes(s.tool));
+  // submit=true in a multi-line field with no form sends nothing: the tool says so.
+  const typed = steps[lastType];
+  const submitted = typed.args?.submit && typed.ok && !/Enter não envia: clique/.test(`${typed.result || ""} ${typed.summary || ""}`);
+  return !submitted && !after.some((s) => s.ok && ["browser_click", "browser_key"].includes(s.tool));
 }
 
 /** The answer is the request itself, copied back (a small model's dead end). */

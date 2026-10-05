@@ -279,3 +279,32 @@ test("a date filter is corrected by the request once; asked again as written, it
   assert.doesNotMatch(again.result, /PC-1/, "the model insisted: exactly the 15th");
   assert.match(again.result, /PC-2/);
 });
+
+test("submit in a multi-line message box sends its form; with no form the tool says to click", { skip: hasBrowser ? false : "Nenhum navegador disponível." }, async () => {
+  const { closeBrowserContext, resetBrowserContextForTests } = await import("../app/browserAgent.js");
+  const { resetBrowserBackendForTests } = await import("../app/browserBackend.js");
+  const received = [];
+  const page = `<!doctype html><title>Contato</title><form method="post" action="/enviar"><input name="nome" placeholder="Nome"><textarea name="mensagem" placeholder="Mensagem"></textarea><button>Enviar</button></form><textarea placeholder="Rascunho solto"></textarea>`;
+  const server = http.createServer((req, res) => {
+    let body = ""; req.on("data", (d) => { body += d; });
+    req.on("end", () => { if (req.method === "POST") received.push(body); res.setHeader("content-type", "text/html; charset=utf-8"); res.end(req.method === "POST" ? "<title>Obrigado</title><h1>Mensagem recebida</h1>" : page); });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const env = { ...process.env, BROWSER_AGENT_HEADLESS: "1", BROWSER_AGENT_PROFILE_DIR: mkdtempSync(join(tmpdir(), "harness-agent-browser-")) };
+  const c = ctx(async () => false, { env, browserBackend: "aurora" });
+  resetBrowserContextForTests(); resetBrowserBackendForTests();
+  try {
+    await executeTool("browser_navigate", { url: `http://127.0.0.1:${server.address().port}/` }, c);
+    const loose = await executeTool("browser_type", { field: "Rascunho solto", text: "oi", submit: true }, c);
+    assert.match(loose.result, /Enter não envia: clique no botão de enviar/);
+    await executeTool("browser_type", { field: "Nome", text: "Rafaela" }, c);
+    const typed = await executeTool("browser_type", { field: "Mensagem", text: "Quero um orçamento", submit: true }, c);
+    assert.match(typed.result, /enviei o formulário/);
+    for (let i = 0; i < 50 && !received.length; i += 1) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(received.length, 1, "the site got the form");
+    assert.match(decodeURIComponent(received[0].replace(/\+/g, " ")), /nome=Rafaela&mensagem=Quero um orçamento/);
+  } finally {
+    await closeBrowserContext();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

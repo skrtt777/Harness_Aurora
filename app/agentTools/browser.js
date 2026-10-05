@@ -214,12 +214,27 @@ export const browserTools = [
         try { await locator.fill(String(text), { timeout: 5000 }); }
         catch { await page.keyboard.press("Control+A"); await page.keyboard.type(String(text)); }
       } else await page.keyboard.type(String(text));
+      // Enter in a multi-line field (the message box of a contact form) only adds a line: the form
+      // was never sent while the tool said "apertei Enter" (battery, 05/10/2026). Its form is sent
+      // as a click on its button would; with no form, the model is told to click.
+      let sent = "";
       if (submit) {
-        await page.keyboard.press("Enter");
+        const multiline = await page.evaluate(() => {
+          const el = document.activeElement;
+          if (!el || !(el.tagName === "TEXTAREA" || el.isContentEditable)) return null;
+          if (el.form) { el.form.requestSubmit(); return "form"; }
+          return "none";
+        }).catch(() => null);
+        if (multiline === "form") sent = " e enviei o formulário (o campo tem várias linhas: Enter não envia)";
+        else if (multiline === "none") sent = ". Este campo tem várias linhas e Enter não envia: clique no botão de enviar (browser_click)";
+        else {
+          await page.keyboard.press("Enter");
+          sent = " e apertei Enter";
+        }
         // Closes autocomplete dropdowns so the snapshot shows the results.
         await page.evaluate(() => document.activeElement?.blur?.()).catch(() => {});
       }
-      return after(ctx, page, `Digitei "${text}"${submit ? " e apertei Enter" : ""}.`);
+      return after(ctx, page, `Digitei "${text}"${sent}.`);
     },
   },
   {
