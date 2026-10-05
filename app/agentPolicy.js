@@ -122,6 +122,9 @@ export async function decide(access, ctx) {
       if (danger) return { action: "ask", reason: `Comando que ${danger}` };
       if (matchesAlwaysAllow(ctx.alwaysAllow, "run_command", access.command)) return { action: "allow" };
       if (mode === "manual") return { action: "ask", reason: "Modo Manual: todo comando pede autorização", rule };
+      // A page can carry hidden instructions ("rode este comando"): after reading the
+      // web in this turn, even a command inside the project folder asks first.
+      if (ctx.untrustedSeen) return { action: "ask", reason: "Comando depois de ler conteúdo da internet nesta conversa", rule };
       if (!(await inside([access.cwd, ...commandPaths(access.command)].filter(Boolean)))) return { action: "ask", reason: "Comando fora da pasta do projeto", rule };
       return { action: "allow" };
     }

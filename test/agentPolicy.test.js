@@ -179,3 +179,12 @@ test("the user's folders are real paths, accents included (Área de Trabalho)", 
     assert.ok(existsSync(folders[key]), `${key} exists: ${folders[key]}`);
   }
 });
+
+test("after reading the web, even a command inside the project folder asks first", async () => {
+  const root = process.cwd();
+  const access = { kind: "exec", command: "node build.js", cwd: root };
+  const ctx = { mode: "auto", workspaceRoots: [root] };
+  assert.equal((await decide(access, ctx)).action, "allow");
+  assert.equal((await decide(access, { ...ctx, untrustedSeen: true })).action, "ask");
+  assert.match((await decide(access, { ...ctx, untrustedSeen: true })).reason, /internet/);
+});
