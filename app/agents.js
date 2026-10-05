@@ -144,7 +144,7 @@ const running = new Map(); // agentId → runId: one run per agent at a time
  * One run: a new chat in the agent's project, the request as the message. `handleChatTurn` is
  * passed in (server.js) so this module does not import the server.
  */
-export async function runAgent(id, { request, trigger = "manual", env = process.env, handleChatTurn }) {
+export async function runAgent(id, { request, trigger = "manual", env = process.env, handleChatTurn, readRoots = [] }) {
   // Claimed before the first await: the scheduler and "Rodar agora" arriving together must not
   // start the same agent twice.
   if (running.has(id)) throw httpError(409, "O agente já está trabalhando.");
@@ -167,7 +167,9 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
     throw error;
   }
   try {
-    const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env });
+    // Folders this run may read on top of its own (the deliveries of the tasks it depends on).
+    const runEnv = readRoots.length ? { ...env, AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : env;
+    const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env: runEnv });
     const execution = turn.message?.execution || {};
     const steps = execution.toolSteps || [];
     // The path the tool reported ("Criei/Salvei/Editei <path>"): it already went through the same resolution as the write.

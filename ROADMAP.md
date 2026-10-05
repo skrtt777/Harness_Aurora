@@ -10,8 +10,8 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 |---|---|---|
 | Testes automáticos | `npm test` | 438 passaram, 0 falhas (05/10) |
 | Conversas reais (4 cenários, inclusive 10 turnos) | `npm run battery -- --runs 3` | 98,7% com qwen3.5:4b (05/10, `reports/battery/`) |
-| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 5` | 7 setores: 95%, 28 de 35 perfeitas; rotina de pasta 93,8% (05/10, `reports/agentes/`) |
-| Orquestrador ("feche o mês") | `node scripts/orchestrator-eval.mjs --runs 3` | plano certo em 100%, 87,9% no total (05/10) |
+| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 97,9%, 22 de 24 perfeitas (05/10, `reports/agentes/`) |
+| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 87,9%; dependência 90,5%; plano certo em 100% (05/10) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 92%; pesquisa 91,7% (05/10) |
 | Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 93,9% (46/49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |

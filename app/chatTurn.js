@@ -18,6 +18,7 @@ import { diagnoseLocalArtifact } from "./localDiagnostics.js";
 import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan } from "./pendingTurns.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
+import { requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
@@ -445,6 +446,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         // (browser, web, apps, files, commands) and loops until done.
         if (agentOn) {
           const toolContext = await chatAgentToolContext({ conversation, project });
+          // A team task reads what the tasks it depends on delivered (orchestrator.js), read only.
+          try { const extra = JSON.parse(env.AGENT_EXTRA_READ_ROOTS || "[]"); if (Array.isArray(extra) && extra.length) toolContext.knowledgeRoots = [...(toolContext.knowledgeRoots || []), ...extra.filter((p) => typeof p === "string")]; } catch { /* malformed: ignored */ }
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // Company documents not cleared for paid AI: tracked per turn so the
           // teacher (or a paid chat) only sees them with the person's consent.
@@ -508,7 +511,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           if (conversation.provider === "local") {
             const companyQuestion = hasKnowledge && asksForInformation(trimmed) && (asksAboutCompany(trimmed) || autoDocs.length > 0);
             // The question qualifies first: plain chat never measures the computer nor waits for copies.
-            const eligible = shouldVote({ first: agent, companyQuestion, factQuestion: observation?.source === "calculator" });
+            // The extra copies only read (plan mode): a request for a file never goes to the vote, or
+            // a copy that could not write won and its "não consegui criar" became the delivery.
+            const eligible = !requestsFile(trimmed) && shouldVote({ first: agent, companyQuestion, factQuestion: observation?.source === "calculator" });
             const maxCopies = eligible ? await localCopies(localEnv) : 1;
             if (maxCopies > 1) {
               const copyContext = { ...toolContext, mode: "plan", onPlan: () => {} };

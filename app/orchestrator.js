@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { getDb } from "./db.js";
 import { renderDocument } from "./documentWriter.js";
 import { httpError } from "./httpSecurity.js";
@@ -95,7 +95,9 @@ export async function runPlan({ tasks, runAgent, handleChatTurn, concurrency = 2
     const request = deps.length ? `${task.request}\n\nUse o que a equipe já entregou:\n${deps.flatMap((d) => d.files.map((f) => `- ${d.agentName}: ${f}`)).join("\n")}` : task.request;
     onProgress({ index: i, status: "running" });
     try {
-      const run = await runAgent(task.agentId, { request, trigger: "orquestrador", handleChatTurn });
+      // Read access to the folders of those deliveries: they sit in the other agents' folders.
+      const readRoots = [...new Set(deps.flatMap((d) => d.files.map((f) => dirname(f))))];
+      const run = await runAgent(task.agentId, { request, trigger: "orquestrador", handleChatTurn, ...(readRoots.length ? { readRoots } : {}) });
       return { ...task, status: run?.status || "failed", files: run?.files || [], answer: run?.answer || "", error: run?.error || null, conversationId: run?.conversationId || null };
     } catch (error) {
       return { ...task, status: "failed", files: [], answer: "", error: error.message };
