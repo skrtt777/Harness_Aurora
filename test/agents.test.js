@@ -31,6 +31,11 @@ test("a run works in Auto mode, searches only its department and uses only its t
   assert.deepEqual(ctx.knowledgeSourceIds, ["s1"]);
   assert.deepEqual(ctx.knowledgeRoots, ["F:\\Empresa\\Financeiro"]);
   assert.deepEqual(ctx.agentTools, ["knowledge_search", "read_file", "write_file"]);
+  assert.deepEqual(ctx.watchedRoots, []);
+  // A file-triggered agent reads the folder it watches without asking (nobody is there to answer).
+  const inbox = join(temp, "entrada");
+  const watcher = await agents.createAgent({ name: "Agente Notas", kind: "pessoal", mission: "Lançar notas.", workDir: join(temp, "notas"), trigger: { type: "file", folder: inbox, pattern: "*.pdf" } });
+  assert.deepEqual((await agents.agentToolOverrides(watcher, { listSources: async () => sources })).watchedRoots, [inbox]);
 });
 
 test("a run is recorded with its delivery files, and one agent runs one task at a time", async () => {

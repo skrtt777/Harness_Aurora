@@ -103,6 +103,20 @@ export const AGENT_TASKS = [
       return { expected: rows.filter(low).map((r) => r["Código"]), excluded: rows.filter((r) => !low(r)).map((r) => r["Código"]) };
     },
   },
+  // Phase D end to end: nobody asks. The sheet lands in a watched folder and the scheduler starts the agent.
+  {
+    id: "fin-pasta-contas-a-pagar",
+    department: "Financeiro",
+    trigger: "file",
+    arrives: "Financeiro/Contas a Pagar - Outubro 2026.xlsx",
+    request: "Quando chegar uma planilha de contas a pagar, gere uma planilha só com as contas ainda a pagar (situação \"A pagar\") que vencem até 15/10/2026, com documento, fornecedor, vencimento e valor.",
+    format: [".xlsx", ".csv"],
+    async truth(root) {
+      const rows = sheetRows(await extractText(join(root, this.arrives)));
+      const due = (r) => { const [d, m] = String(r.Vencimento).split("/").map(Number); return r["Situação"] === "A pagar" && m === 10 && d <= 15; };
+      return { expected: rows.filter(due).map((r) => r.Documento), excluded: rows.filter((r) => !due(r)).map((r) => r.Documento) };
+    },
+  },
 ];
 
 /** Scores one run: the delivered file must exist, have every expected item and none of the excluded. */

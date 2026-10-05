@@ -3,7 +3,7 @@
 // Indexa só os setores das tarefas, cria os agentes de setor numa pasta temporária, roda cada
 // tarefa e confere o ARQUIVO entregue contra o gabarito tirado das planilhas da empresa.
 // Com --db, a cópia guarda o índice: a segunda rodada é rápida. Relatório em reports/agentes/.
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,7 @@ const { AGENT_TASKS, COMPANY_ROOT, scoreAgentTask } = await import("../app/agent
 const store = await import("../app/store.js");
 const knowledge = await import("../app/knowledge.js");
 const agents = await import("../app/agents.js");
+const scheduler = await import("../app/agentScheduler.js");
 const { handleChatTurn } = await import("../app/server.js");
 const { resolveLocalModel } = await import("../app/ollamaSetup.js");
 if (!process.argv.includes("--teacher")) await store.setSetting("teacher_mode", "off");
@@ -45,9 +46,25 @@ for (let run = 1; run <= runs; run += 1) {
   for (const task of tasks) {
     const workDir = join(base, `${task.id}-${run}`);
     mkdirSync(workDir, { recursive: true });
-    const agent = await agents.createAgent({ name: `Agente ${task.department} ${run}`, kind: "setor", mission: agents.SECTOR_TEMPLATES[task.department], department: task.department, workDir });
     const started = Date.now();
-    const result = await agents.runAgent(agent.id, { request: task.request, handleChatTurn });
+    let result;
+    if (task.trigger === "file") {
+      // Phase D end to end: a watched folder, a file that arrives, and the real scheduler tick.
+      const inbox = join(base, `${task.id}-${run}-entrada`);
+      mkdirSync(inbox, { recursive: true });
+      const agent = await agents.createAgent({ name: `Agente ${task.department} ${run}`, kind: "setor", mission: agents.SECTOR_TEMPLATES[task.department], department: task.department, workDir, trigger: { type: "file", folder: inbox, pattern: "*.xlsx", request: task.request } });
+      await scheduler.newFilesFor(await agents.getAgent(agent.id)); // the first look: an empty folder
+      copyFileSync(join(COMPANY_ROOT, task.arrives), join(inbox, task.arrives.split("/").pop()));
+      const stats = await scheduler.runStats();
+      const startedIds = await scheduler.schedulerTick({ listAgents: async () => [await agents.getAgent(agent.id)], runAgent: agents.runAgent, isAgentRunning: agents.isAgentRunning, ...stats, handleChatTurn });
+      if (!startedIds.length) console.log("  o agendador não disparou o agente");
+      while (agents.isAgentRunning(agent.id)) await new Promise((r) => setTimeout(r, 500));
+      result = (await agents.listRuns({ agentId: agent.id }))[0] || { files: [], answer: "", status: "failed" };
+      if (result.trigger !== "file") console.log(`  execução com gatilho inesperado: ${result.trigger}`);
+    } else {
+      const agent = await agents.createAgent({ name: `Agente ${task.department} ${run}`, kind: "setor", mission: agents.SECTOR_TEMPLATES[task.department], department: task.department, workDir });
+      result = await agents.runAgent(agent.id, { request: task.request, handleChatTurn });
+    }
     const truth = await task.truth(COMPANY_ROOT);
     const score = await scoreAgentTask(task, result, truth);
     const conversation = result.conversationId ? await store.getConversationWithMessages(result.conversationId) : null;

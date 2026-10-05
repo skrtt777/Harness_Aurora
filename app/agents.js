@@ -127,9 +127,13 @@ export async function deleteAgent(id) {
  */
 export async function agentToolOverrides(agent, { listSources }) {
   const sources = agent.department ? (await listSources()).filter((s) => String(s.department).toLowerCase() === agent.department.toLowerCase()) : [];
+  // The folder its trigger watches is read freely (read only): a file-triggered run asked for
+  // permission to open the very file that started it, and nobody is there to answer.
+  const watched = agent.trigger?.type === "file" && agent.trigger.folder ? [agent.trigger.folder] : [];
   return {
     mode: "auto",
     ...(sources.length ? { knowledgeSourceIds: sources.map((s) => s.id), knowledgeRoots: sources.map((s) => s.path) } : {}),
+    watchedRoots: watched,
     agentTools: agent.tools,
   };
 }
@@ -141,18 +145,27 @@ const running = new Map(); // agentId → runId: one run per agent at a time
  * passed in (server.js) so this module does not import the server.
  */
 export async function runAgent(id, { request, trigger = "manual", env = process.env, handleChatTurn }) {
-  const agent = await getAgent(id);
-  if (!agent) throw httpError(404, "Agente não encontrado.");
-  if (!agent.enabled) throw httpError(409, "O agente está desligado.");
-  if (running.has(id)) throw httpError(409, `${agent.name} já está trabalhando.`);
-  const text = String(request || agent.trigger.request || "").trim();
-  if (!text) throw httpError(400, "Diga o que o agente deve fazer.");
-  const db = await ready();
-  const runId = randomUUID();
-  const conversation = await createConversation({ provider: "local", projectId: agent.projectId, title: `${agent.name}: ${text.slice(0, 40)}` });
-  db.prepare("INSERT INTO agent_runs (id, agent_id, conversation_id, request, trigger, status, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?)")
-    .run(runId, id, conversation.id, text.slice(0, 4000), trigger, new Date().toISOString());
-  running.set(id, runId);
+  // Claimed before the first await: the scheduler and "Rodar agora" arriving together must not
+  // start the same agent twice.
+  if (running.has(id)) throw httpError(409, "O agente já está trabalhando.");
+  running.set(id, "starting");
+  let agent, runId, db, conversation, text;
+  try {
+    agent = await getAgent(id);
+    if (!agent) throw httpError(404, "Agente não encontrado.");
+    if (!agent.enabled) throw httpError(409, "O agente está desligado.");
+    text = String(request || agent.trigger.request || "").trim();
+    if (!text) throw httpError(400, "Diga o que o agente deve fazer.");
+    db = await ready();
+    runId = randomUUID();
+    conversation = await createConversation({ provider: "local", projectId: agent.projectId, title: `${agent.name}: ${text.slice(0, 40)}` });
+    db.prepare("INSERT INTO agent_runs (id, agent_id, conversation_id, request, trigger, status, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?)")
+      .run(runId, id, conversation.id, text.slice(0, 4000), trigger, new Date().toISOString());
+    running.set(id, runId);
+  } catch (error) {
+    running.delete(id);
+    throw error;
+  }
   try {
     const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env });
     const execution = turn.message?.execution || {};

@@ -278,7 +278,11 @@ async function chatAgentToolContext({ conversation, project }) {
 
 async function agentToolContext(projectId) {
   const agent = await agentForProject(projectId).catch(() => null);
-  return agent ? { ...(await agentToolOverrides(agent, { listSources })), agentId: agent.id } : {};
+  if (!agent) return {};
+  const { watchedRoots = [], ...overrides } = await agentToolOverrides(agent, { listSources });
+  // The folder its trigger watches is readable on top of the knowledge folders it already has.
+  const knowledgeRoots = overrides.knowledgeRoots || (await listSources().catch(() => [])).map((s) => s.path);
+  return { ...overrides, knowledgeRoots: [...knowledgeRoots, ...watchedRoots], agentId: agent.id };
 }
 
 const MODE_TEXT = {
