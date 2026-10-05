@@ -594,3 +594,9 @@ export type McpServer = { name: string; command: string; args: string[]; env?: R
 export type McpStatus = { name: string; status: "ativo" | "erro" | "desligado"; tools: string[]; error?: string };
 export const getMcp = () => request<{ servers: McpServer[]; status: McpStatus[] }>("/mcp");
 export const saveMcp = (servers: McpServer[]) => request<{ servers: McpServer[]; status: McpStatus[] }>("/mcp", { method: "PUT", body: JSON.stringify({ servers }) });
+
+/** The desktop app asks to open a conversation (a click on an authorization notification). */
+export function onOpenConversationRequest(callback: (id: string) => void): () => void {
+  const harness = (window as unknown as { harness?: { onOpenConversation?: (cb: (id: string) => void) => () => void } }).harness;
+  return harness?.onOpenConversation?.(callback) ?? (() => {});
+}

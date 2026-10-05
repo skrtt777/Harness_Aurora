@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("harness", {
     ipcRenderer.on("app:show-agents", handler);
     return () => ipcRenderer.removeListener("app:show-agents", handler);
   },
+  // A click on "A Aurora precisa da sua autorização" opens that conversation.
+  onOpenConversation: (callback) => {
+    const handler = (_event, id) => callback(id);
+    ipcRenderer.on("app:open-conversation", handler);
+    return () => ipcRenderer.removeListener("app:open-conversation", handler);
+  },
   onUpdateStatus: (callback) => {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on("updater:status", handler);

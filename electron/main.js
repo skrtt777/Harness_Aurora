@@ -10,6 +10,7 @@ import { closeBrowserContext } from "../app/browserAgent.js";
 import { terminateOcr } from "../app/ocr.js";
 import { onAutomaticRun } from "../app/agentScheduler.js";
 import { stopMcpServers } from "../app/mcp.js";
+import { approvalEvents } from "../app/pendingTurns.js";
 
 const PORT = Number(process.env.HARNESS_PORT || 8787);
 const HOST = "127.0.0.1";
@@ -275,6 +276,14 @@ if (hasSingleInstanceLock) {
     }
 
     // A scheduled or folder-triggered agent finished: tell the person, even with the window closed.
+    // An agent (or a chat left working) waiting for a yes while the window is behind: say so, or the
+    // request times out unseen. The click opens the conversation with the Permitir/Negar card.
+    approvalEvents.on("requested", ({ conversationId, summary }) => {
+      if (!Notification.isSupported() || (mainWindow?.isVisible() && mainWindow.isFocused())) return;
+      const note = new Notification({ title: "A Aurora precisa da sua autorização", body: String(summary || "").slice(0, 120) });
+      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:open-conversation", conversationId); });
+      note.show();
+    });
     onAutomaticRun((agent, run) => {
       if (!Notification.isSupported()) return;
       const ok = run?.status === "done";

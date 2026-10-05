@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+
+// "requested" ({ conversationId, tool, summary }): the desktop app tells the person when the window
+// is not in front (a scheduled agent waiting for a yes nobody saw just timed out).
+export const approvalEvents = new EventEmitter();
 
 /**
  * Tracks in-flight local-model turns (one per conversation) so the frontend
@@ -90,6 +95,7 @@ export function requestApproval(conversationId, request, { timeoutMs = APPROVAL_
     timer = setTimeout(() => settle(() => reject(new Error(`Ninguém respondeu ao pedido de autorização em ${Math.round(timeoutMs / 1000)} s; a ação não foi executada.`))), timeoutMs);
     timer.unref?.();
     entry.approval = approval;
+    approvalEvents.emit("requested", { conversationId, tool: approval.tool, summary: approval.summary });
     entry.controller.signal.addEventListener("abort", () => approval.resolve(false), { once: true });
   });
 }

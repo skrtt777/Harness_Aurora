@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, undoAgentRun, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, resolveApproval, undoAgentRun, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
   type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PendingTurn, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
@@ -112,7 +112,17 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
     {running && live && <div className="agent-live" aria-live="polite" aria-label="Andamento">
       {live.stage && <small>{live.stage}</small>}
       {live.steps.length > 0 && <ol>{live.steps.slice(-4).map((s, i) => <li key={i} className={s.status === 'running' ? 'running' : s.ok === false ? 'failed' : 'done'}>{stepText(s)}</li>)}</ol>}
-      {live.partial && <p>{live.partial.slice(-300)}</p>}
+      {live.partial && !live.approval && <p>{live.partial.slice(-300)}</p>}
+      {/* A running agent that needs a yes: answered right here (the conversation link only shows after the run). */}
+      {live.approval && runningConversation && <div className="agent-approval" role="alertdialog" aria-label="Autorização necessária">
+        <p>{agent.name} quer {live.approval.tool === 'run_command' ? 'executar este comando' : 'fazer isto'}:</p>
+        <code>{live.approval.summary}</code>
+        {live.approval.detail && <small>{live.approval.detail}</small>}
+        <div className="agent-approval-actions">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void resolveApproval(runningConversation, live.approval!.id, false).catch(() => {})}>Negar</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => void resolveApproval(runningConversation, live.approval!.id, true).catch(() => {})}>Permitir</button>
+        </div>
+      </div>}
     </div>}
 
     <form className="agent-run" onSubmit={(e) => { e.preventDefault(); if (requestText.trim()) act(() => runTaskAgent(agent.id, requestText.trim()).then(() => setRequestText(''))); }}>

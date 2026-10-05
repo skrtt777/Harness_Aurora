@@ -462,7 +462,7 @@
     opacity: 1;
   }
 }
-.app-shell .conversation-workspace .agent-approval {
+.app-shell :is(.conversation-workspace, .agents-view) .agent-approval {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -474,10 +474,10 @@
   color: var(--text-1);
   font-size: var(--fs-sm);
 }
-.app-shell .conversation-workspace .agent-approval p {
+.app-shell :is(.conversation-workspace, .agents-view) .agent-approval p {
   margin: 0;
 }
-.app-shell .conversation-workspace .agent-approval code {
+.app-shell :is(.conversation-workspace, .agents-view) .agent-approval code {
   display: block;
   padding: 8px 10px;
   border-radius: var(--radius-md);
@@ -488,10 +488,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.app-shell .conversation-workspace .agent-approval small {
+.app-shell :is(.conversation-workspace, .agents-view) .agent-approval small {
   color: var(--text-3);
 }
-.app-shell .conversation-workspace .agent-approval-actions {
+.app-shell :is(.conversation-workspace, .agents-view) .agent-approval-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;

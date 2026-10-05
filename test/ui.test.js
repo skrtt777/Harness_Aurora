@@ -523,3 +523,30 @@ test('with no agents yet, the ready templates are one click away', {skip,timeout
     await form.getByText('Escolha a sua pasta Downloads').waitFor();
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('a working agent that needs a yes gets it from its card', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  const pending=await import('../app/pendingTurns.js');
+  const agent=await agents.createAgent({name:'Agente Pede',kind:'pessoal',mission:'Organizar.',workDir:join(temp,'pede')});
+  let answer;
+  const done=agents.runAgent(agent.id,{request:'Organize',handleChatTurn:async({conversationId})=>{
+    const controller=pending.startTurn(conversationId);
+    pending.setStage(conversationId,'Aguardando sua autorização…');
+    answer=await pending.requestApproval(conversationId,{tool:'run_command',summary:'Remove-Item lixo.tmp',detail:'Comando que apaga arquivos'},{timeoutMs:30000}).catch(()=>'expirou');
+    pending.endTurn(conversationId,controller);
+    return {ok:true,message:{conversationId,content:'Feito.',execution:{toolSteps:[]}}};
+  }});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Agentes'}).click();
+    const card=page.getByRole('article',{name:'Agente Pede'});
+    const ask=card.getByRole('alertdialog',{name:'Autorização necessária'});
+    await ask.getByText('Remove-Item lixo.tmp').waitFor();
+    await ask.getByRole('button',{name:'Permitir'}).click();
+    await done;
+    assert.equal(answer,true);
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
