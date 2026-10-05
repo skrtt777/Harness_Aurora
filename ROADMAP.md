@@ -63,7 +63,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 ## Depois
 
-- **PCs sem placa de vídeo:** a especulação deu 5x na geração; falta medir o processamento do prompt inicial (cerca de 4.700 tokens fixos, já em cache entre conversas) num notebook de verdade.
+- **PCs sem placa de vídeo:** medido em 05/10 com o build só-CPU (`LLAMA_FORCE_CPU=1`): o início fixo do prompt (5,8 mil tokens) leva ~48 s; a pré-carga enquanto a pessoa digita levou a primeira resposta de 55 s para 10 s. Falta medir num notebook de verdade (CPU mais fraca).
 - **Empresa:**
   - perfis e políticas por pessoa;
   - registro de auditoria (feito: exportação das ações e do histórico dos agentes);

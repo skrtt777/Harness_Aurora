@@ -11,7 +11,7 @@
   - Com placa de vídeo: copiar 40 linhas de planilha caiu de 12,4 s para 3,4 s.
   - Sem placa de vídeo: de 8,5 para 40 tokens por segundo.
   - Os agentes de setor terminaram a bateria 19% mais rápido.
-- **O modelo carrega enquanto você digita:** numa conversa local, o modelo começa a carregar no primeiro caractere, e a resposta não espera o carregamento depois que você envia.
+- **O modelo se prepara enquanto você digita:** numa conversa local, ao primeiro caractere o modelo carrega e já lê as instruções fixas. Num PC sem placa de vídeo, a primeira resposta caiu de 55 s para 10 s.
 
 ## Organizar arquivos
 
