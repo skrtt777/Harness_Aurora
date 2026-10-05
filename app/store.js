@@ -64,6 +64,7 @@ function mapMemory(row) {
     source: row.source || undefined,
     stats: { uses: row.uses || 0, helped: row.helped || 0, failed: row.failed || 0 },
     status: row.status || "active",
+    candidate: isCandidateLesson(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     relations: [],
@@ -658,14 +659,25 @@ export async function getSavingsStats() {
 
 // ---------- Settings (small key/value store, e.g. the chosen local model) ----------
 
-// Proven lessons rank higher, lessons that keep failing sink (0.5x–1.5x).
+// A teacher's lesson is a candidate until it helps once: a correction made without
+// context ("pergunte antes de atualizar valores") went in at full weight and made the
+// next answers worse (04/10/2026).
+const TEACHER_SOURCE = /^(Lição de|Correção ensinada|Esqueleto ensinado)/;
+export function isCandidateLesson(row) {
+  return TEACHER_SOURCE.test(String(row.source || "")) && !(row.helped > 0);
+}
+
+// Proven lessons rank higher, lessons that keep failing sink (0.5x–1.5x); candidates start at 0.6x.
 function usefulness(row) {
   const helped = row.helped || 0;
   const failed = row.failed || 0;
+  if (isCandidateLesson(row)) return Math.max(0.3, 0.6 - 0.15 * failed);
   return Math.min(1.5, Math.max(0.5, 1 + 0.1 * helped - 0.15 * failed));
 }
 
 const ARCHIVE_AFTER_FAILURES = 3;
+// A candidate that failed twice without ever helping goes sooner.
+const ARCHIVE_CANDIDATE_AFTER = 2;
 
 /**
  * Records how a turn went for the memories that were in its context.
@@ -678,10 +690,10 @@ export async function recordMemoryOutcome(ids = [], outcome) {
   if (!unique.length || !["helped", "failed", "used"].includes(outcome)) return;
   const db = await getDb();
   const update = db.prepare(`UPDATE memories SET uses = uses + 1${outcome === "used" ? "" : `, ${outcome} = ${outcome} + 1`} WHERE id = ?`);
-  const archive = db.prepare("UPDATE memories SET status = 'archived' WHERE id = ? AND kind != 'manual' AND failed >= ? AND helped = 0");
+  const archive = db.prepare("UPDATE memories SET status = 'archived' WHERE id = ? AND kind != 'manual' AND helped = 0 AND failed >= (CASE WHEN source LIKE 'Lição de%' OR source LIKE 'Correção ensinada%' OR source LIKE 'Esqueleto ensinado%' THEN ? ELSE ? END)");
   db.exec("BEGIN");
   try {
-    for (const id of unique) { update.run(id); archive.run(id, ARCHIVE_AFTER_FAILURES); }
+    for (const id of unique) { update.run(id); archive.run(id, ARCHIVE_CANDIDATE_AFTER, ARCHIVE_AFTER_FAILURES); }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }

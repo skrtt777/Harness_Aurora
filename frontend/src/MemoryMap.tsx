@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getRecentRecalls, probeRecall, type RecallResult, type RecentRecall } from "./api";
-import { clusterColor, groupColor, groupKey, memoryHealth, type Memory, type MemoryCluster } from "./data";
+import { clusterColor, groupColor, groupKey, isCandidateLesson, memoryHealth, type Memory, type MemoryCluster } from "./data";
 
 /**
  * The memory map an agent would actually use: a treemap. Every topic is a
@@ -389,6 +389,7 @@ export default function MemoryMap({ memories, visible, clusters, selectedId, onS
                     <p>{m.content}</p>
                     <small>
                       {HEALTH[health].label}
+                      {isCandidateLesson(m) ? " · lição candidata (vale menos até ajudar)" : ""}
                       {m.stats ? ` · ${m.stats.uses}× usada · ajudou ${m.stats.helped}${m.stats.failed ? ` · falhou ${m.stats.failed}` : ""}` : ""}
                     </small>
                   </button>

@@ -48,6 +48,9 @@ export function memoryOrigin(m: Memory): Origin {
   return "pc";
 }
 
+/** A teacher's lesson that hasn't helped yet weighs less in the context (app/store.js). */
+export const isCandidateLesson = (m: Memory) => /^(lição de|correção ensinada|esqueleto ensinado)/i.test(m.source || "") && !((m.stats?.helped ?? 0) > 0);
+
 /** How useful a memory has proven: drives size, brightness and the health filters. */
 export type Health = "all" | "helpful" | "unused" | "failing" | "duplicates";
 export function memoryHealth(m: Memory) {

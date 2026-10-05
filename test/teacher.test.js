@@ -179,3 +179,18 @@ test("a redo that doesn't fit the context starts clean, and old tool results are
   assert.deepEqual(reruns[1], [], "the second try starts clean");
   assert.equal(result.text, "Criei C:/x.docx.");
 });
+
+test("a teacher's lesson is a candidate until it helps, and two failures archive it", async () => {
+  const lesson = await store.createMemory({ scope: "global", title: "Candidata", content: "Pergunte antes de atualizar valores.", kind: "extracted", source: "Correção ensinada por Claude após resposta do modelo local", env: { EMBEDDINGS_ENABLED: "false" } });
+  const plain = await store.createMemory({ scope: "global", title: "Comum", content: "Fato extraído da conversa.", kind: "extracted", source: "Extraída da conversa", env: { EMBEDDINGS_ENABLED: "false" } });
+  const find = async (id) => (await store.listMemories({})).find((m) => m.id === id);
+  assert.equal((await find(lesson.id)).candidate, true);
+  assert.equal((await find(plain.id)).candidate, false);
+  await store.recordMemoryOutcome([lesson.id, plain.id], "failed");
+  await store.recordMemoryOutcome([lesson.id, plain.id], "failed");
+  assert.equal((await find(lesson.id))?.status ?? "archived", "archived", "a candidate goes after 2 failures");
+  assert.equal((await find(plain.id)).status, "active", "others keep 3");
+  const proven = await store.createMemory({ scope: "global", title: "Provada", content: "Use o arquivo já lido.", kind: "extracted", source: "Lição de Claude (revisão automática)", env: { EMBEDDINGS_ENABLED: "false" } });
+  await store.recordMemoryOutcome([proven.id], "helped");
+  assert.equal((await find(proven.id)).candidate, false, "helping once makes it a regular lesson");
+});
