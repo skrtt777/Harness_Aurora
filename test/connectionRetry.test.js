@@ -1,0 +1,44 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const temp = mkdtempSync(join(tmpdir(), "aurora-retry-"));
+process.env.HARNESS_DB_FILE = join(temp, "test.db");
+process.env.EMBEDDINGS_ENABLED = "false";
+const store = await import("../app/store.js");
+const { handleChatTurn } = await import("../app/server.js");
+
+test("a turn whose llama-server connection drops is run once more instead of failing", async () => {
+  await store.setSetting("teacher_mode", "off");
+  let requests = 0;
+  const stub = http.createServer((req, res) => {
+    requests += 1;
+    if (requests === 1) { req.socket.destroy(); return; } // the connection drops: "fetch failed"
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      const stream = JSON.parse(body).stream;
+      if (stream) {
+        res.setHeader("content-type", "text/event-stream");
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "Tudo certo." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+      } else {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ choices: [{ message: { content: "Tudo certo." }, finish_reason: "stop" }] }));
+      }
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const conversation = await store.createConversation({ provider: "local" });
+    const url = `http://127.0.0.1:${stub.address().port}`;
+    const result = await handleChatTurn({ conversationId: conversation.id, message: "oi, tudo bem?", env: { ...process.env, LOCAL_CHAT_BASE_URL: url, LOCAL_BASE_URL: "http://127.0.0.1:1", LOCAL_MODEL: "qwen3.5:4b" } });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.message.content, "Tudo certo.");
+    assert.equal(requests, 2, "one dropped connection, one retry");
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});

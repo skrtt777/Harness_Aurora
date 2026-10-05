@@ -511,6 +511,12 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             ...overrides,
           });
           let agent = await runAgent(agentHistory(history), trimmed);
+          // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026): make sure
+          // it is up (it restarts if it died) and run the turn once more instead of failing it.
+          if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {
+            const again = await localChatServer(localEnv);
+            if (again) agent = await runAgent(agentHistory(history), trimmed, { env: { ...localEnv, LOCAL_CHAT_BASE_URL: again } });
+          }
           // A template that refuses the replayed calls still gets the agent (tools,
           // attachments, guards) with the past turns as plain text.
           if (agent.unsupported && !agent.steps.length && history.length) {
