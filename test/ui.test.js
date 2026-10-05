@@ -401,3 +401,29 @@ test('team request: the plan is shown, edited and sent as edited', {skip,timeout
     assert.deepEqual(sent.tasks.map(t=>t.request),['Gere a planilha de quem começa as férias em outubro.','Relatório em Word dos desvios acima de 5%.']);
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('a working agent shows its stage and steps live on its card', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  const pending=await import('../app/pendingTurns.js');
+  const agent=await agents.createAgent({name:'Agente Ao Vivo',kind:'pessoal',mission:'Organizar.',workDir:join(temp,'ao-vivo')});
+  let release;const gate=new Promise(r=>{release=r;});
+  const done=agents.runAgent(agent.id,{request:'Organize a pasta',handleChatTurn:async({conversationId})=>{
+    const controller=pending.startTurn(conversationId);
+    pending.setStage(conversationId,'Movendo arquivos…');
+    pending.pushTurnStep(conversationId,{tool:'move_file',args:{path:'relatorio.pdf'},status:'done',ok:true});
+    await gate;pending.endTurn(conversationId,controller);
+    return {ok:true,message:{conversationId,content:'Organizei.',execution:{toolSteps:[]}}};
+  }});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:'Agentes'}).click();
+    const card=page.getByRole('article',{name:'Agente Ao Vivo'});
+    const live=card.getByRole('generic',{name:'Andamento'}).or(card.locator('.agent-live'));
+    await live.first().waitFor();
+    await card.getByText('Movendo arquivos…').waitFor();
+    await card.getByText(/Moveu arquivo relatorio\.pdf/).waitFor();
+  }finally{release();await done;await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

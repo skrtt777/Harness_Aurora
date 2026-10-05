@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
-  type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PlannedTask, type TaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, getPendingTurn, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PendingTurn, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
+import { stepText } from './ChatView';
 
 /**
  * Task agents (docs/AGENTES_ROTEIRO.md): "employees" with a mission, a work folder and a trigger.
@@ -72,6 +73,16 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
   const [history, setHistory] = useState<AgentRun[] | null>(null);
   const [error, setError] = useState('');
   const running = runs.some((r) => r.status === 'running');
+  // While it works, the card follows its turn like the chat does: stage, steps, text so far.
+  const runningConversation = runs.find((r) => r.status === 'running')?.conversationId || null;
+  const [live, setLive] = useState<PendingTurn | null>(null);
+  useEffect(() => {
+    if (!runningConversation) { setLive(null); return undefined; }
+    const poll = () => void getPendingTurn(runningConversation).then(setLive).catch(() => {});
+    poll();
+    const id = setInterval(poll, 1500);
+    return () => clearInterval(id);
+  }, [runningConversation]);
   const latest = runs[0];
   const act = (fn: () => Promise<unknown>) => { setError(''); fn().then(onChanged).catch((e: Error) => setError(e.message)); };
   useEffect(() => { if (history) void listTaskAgentRuns(agent.id).then(setHistory).catch(() => {}); }, [runs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -86,6 +97,11 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
     </header>
     <p className="agent-mission">{agent.mission}</p>
     <small className="agent-folder" title={agent.workDir}>Pasta: {agent.workDir}</small>
+    {running && live && <div className="agent-live" aria-live="polite" aria-label="Andamento">
+      {live.stage && <small>{live.stage}</small>}
+      {live.steps.length > 0 && <ol>{live.steps.slice(-4).map((s, i) => <li key={i} className={s.status === 'running' ? 'running' : s.ok === false ? 'failed' : 'done'}>{stepText(s)}</li>)}</ol>}
+      {live.partial && <p>{live.partial.slice(-300)}</p>}
+    </div>}
 
     <form className="agent-run" onSubmit={(e) => { e.preventDefault(); if (requestText.trim()) act(() => runTaskAgent(agent.id, requestText.trim()).then(() => setRequestText(''))); }}>
       <textarea rows={2} value={requestText} onChange={(e) => setRequestText(e.target.value)} placeholder={`O que ${agent.name} deve fazer agora?`} aria-label={`Pedido para ${agent.name}`} disabled={!agent.enabled} />

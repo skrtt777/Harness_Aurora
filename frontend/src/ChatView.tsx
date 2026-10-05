@@ -104,7 +104,7 @@ function PlanList({ plan }: { plan: PlanItem[] }) {
   return <ol className="agent-plan">{plan.map((item, index) => <li key={index} className={item.status}>{item.status === 'done' ? '☑' : item.status === 'in_progress' ? '▸' : '☐'} {item.text}</li>)}</ol>;
 }
 
-function stepText(step: AgentStep) {
+export function stepText(step: AgentStep) {
   const args = step.args || {};
   const detail = args.url ?? args.query ?? args.target ?? args.text ?? args.key ?? args.command ?? args.path ?? args.ref ?? args.action ?? '';
   return `${TOOL_LABELS[step.tool] || step.tool}${detail ? ` ${String(detail).slice(0, 80)}` : ''}`;
