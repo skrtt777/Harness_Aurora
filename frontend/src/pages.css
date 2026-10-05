@@ -788,3 +788,128 @@
   .folder-setup-found li select { margin-left: 24px; justify-self: start; }
   .folder-setup-row { flex-direction: column; }
 }
+
+/* ---------- Agents ---------- */
+.app-shell .agents-view .agent-list {
+  display: grid;
+  gap: var(--gap-4);
+  margin-top: var(--gap-5);
+}
+.app-shell .agents-view .agent-card {
+  display: grid;
+  gap: var(--gap-2);
+  padding: 16px 18px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  min-width: 0;
+}
+.app-shell .agents-view .agent-card.disabled { opacity: 0.6; }
+.app-shell .agents-view .agent-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap-3);
+}
+.app-shell .agents-view .agent-card h3 { margin: 0; }
+.app-shell .agents-view .agent-meta { margin: 2px 0 0; }
+.app-shell .agents-view .agent-mission { margin: 0; color: var(--text-2); }
+.app-shell .agents-view .agent-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell .agents-view .agent-status {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fill-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.app-shell .agents-view .agent-status.running { background: var(--accent-soft); color: var(--accent); }
+.app-shell .agents-view .agent-status.failed { background: var(--red-soft); color: var(--red); }
+.app-shell .agents-view .agent-run {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gap-2);
+  margin-top: var(--gap-2);
+}
+.app-shell .agents-view .agent-run textarea { flex: 1; min-width: 0; resize: vertical; }
+.app-shell .agents-view .agent-latest {
+  padding: 10px 12px;
+  border-left: 2px solid var(--stroke-1);
+  background: var(--fill-soft);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.app-shell .agents-view .agent-latest p { margin: 0 0 4px; color: var(--text-2); }
+.app-shell .agents-view .agent-error { color: var(--red); }
+.app-shell .agents-view .agent-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+}
+.app-shell .agents-view .agent-actions-row button.danger { color: var(--red); }
+.app-shell .agents-view :is(.agent-new, .agent-edit) {
+  display: grid;
+  gap: var(--gap-3);
+  padding: 16px 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.app-shell .agents-view .agent-new { margin-top: var(--gap-4); }
+.app-shell .agents-view :is(.agent-new, .agent-edit) > button.primary { justify-self: start; }
+.app-shell .agents-view .agent-new-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--gap-3);
+}
+.app-shell .agents-view label { display: grid; gap: 4px; }
+.app-shell .agents-view label.grow { flex: 1; min-width: 0; }
+.app-shell .agents-view .agent-trigger {
+  display: grid;
+  gap: var(--gap-2);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--stroke-3);
+  border-radius: var(--radius-md);
+}
+.app-shell .agents-view .agent-trigger legend { padding: 0 4px; color: var(--text-2); font-size: var(--fs-sm); }
+.app-shell .agents-view .agent-trigger-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-2);
+}
+.app-shell .agents-view .agent-weekdays { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-shell .agents-view .agent-weekdays label { display: inline-flex; align-items: center; gap: 4px; }
+.app-shell .agents-view .agent-history {
+  display: grid;
+  gap: var(--gap-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-shell .agents-view .agent-history li {
+  padding: 8px 12px;
+  border-left: 2px solid var(--stroke-2);
+}
+.app-shell .agents-view .agent-history li.failed { border-left-color: var(--red); }
+.app-shell .agents-view .agent-history li.done { border-left-color: var(--green); }
+.app-shell .agents-view .agent-history p { margin: 0 0 4px; }
+.app-shell .agents-view .agent-history-request { color: var(--text-2); }
+.app-shell .agents-view .agents-empty {
+  margin-top: var(--gap-5);
+  padding: 18px;
+  border: 1px dashed var(--stroke-1);
+  border-radius: var(--radius-lg);
+}
+@media (max-width: 640px) {
+  .app-shell .page-skin.agents-view { padding: 20px 16px 48px; }
+  .app-shell .agents-view .page-header-row { flex-direction: column; }
+  .app-shell .agents-view .agent-run { flex-direction: column; align-items: stretch; }
+  .app-shell .agents-view .agent-card-head { flex-direction: column; }
+}
+
+.app-shell .agents-view .page-header-row > button { flex-shrink: 0; white-space: nowrap; }

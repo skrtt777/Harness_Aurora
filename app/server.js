@@ -30,6 +30,7 @@ import { TEACHER_MODES } from "./teacher.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAccess.js";
 import * as taskAgents from "./agents.js";
+import { runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
 import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir } from "./chatTurn.js";
 import { BROWSER_BACKENDS } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
@@ -90,7 +91,7 @@ async function serveStatic(response, pathname) {
   }
 }
 
-export function createServer({ allowDev = !process.versions.electron, centralSync = true } = {}) {
+export function createServer({ allowDev = !process.versions.electron, centralSync = true, agentScheduler = Boolean(process.versions.electron) } = {}) {
   const apiToken = randomBytes(32).toString("hex");
   const server = http.createServer(async (request, response) => {
     try {
@@ -835,6 +836,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
   server.apiToken = apiToken;
   // Electron may pick a free port other than 8787: keep the agent off it too.
   server.on("listening", () => protectPort(server.address()?.port));
+  // Scheduled and folder-triggered agents (docs/AGENTES_ROTEIRO.md, phase D): the desktop app only.
+  if (agentScheduler) {
+    server.on("listening", async () => {
+      const stats = await runStats();
+      startAgentScheduler({ listAgents: taskAgents.listAgents, runAgent: taskAgents.runAgent, isAgentRunning: taskAgents.isAgentRunning, ...stats, handleChatTurn });
+    });
+    server.on("close", () => stopAgentScheduler());
+  }
   if (centralSync) {
     let stop;
     server.on('listening', () => { stop = startCentralScheduler(); });

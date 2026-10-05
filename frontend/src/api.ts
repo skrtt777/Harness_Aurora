@@ -520,3 +520,26 @@ export type EngineEvaluation={id:string;model:string;seeds:number[];taskCount:nu
 export const getEngineSummary=()=>request<{version:string;knowledge:EngineKnowledge[];metrics:EngineMetrics}>('/engine/summary');
 export const getEngineEvaluation=()=>request<{evaluation:EngineEvaluation|null}>('/engine/evaluation').then(r=>r.evaluation);
 export const reviewEngineKnowledge=(id:string,accepted:boolean)=>request('/engine/knowledge/'+id+'/review',{method:'POST',body:JSON.stringify({accepted})});
+
+// ---------- Task agents (app/agents.js, app/agentScheduler.js) ----------
+export type AgentTrigger =
+  | { type: "manual" }
+  | { type: "schedule"; everyMinutes?: number; at?: string; weekdays?: number[]; request?: string }
+  | { type: "file"; folder: string; pattern?: string; request?: string };
+export type TaskAgent = {
+  id: string; name: string; kind: "setor" | "pessoal"; mission: string; department: string | null; workDir: string;
+  tools: string[] | null; trigger: AgentTrigger; enabled: boolean; projectId: string | null; createdAt: string; updatedAt: string;
+};
+export type AgentRun = {
+  id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file"; status: "running" | "done" | "failed";
+  startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
+};
+export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
+
+export const listTaskAgents = () => request<{ agents: TaskAgent[]; runs: AgentRun[] }>("/agents");
+export const createTaskAgent = (agent: NewTaskAgent) => request<{ agent: TaskAgent }>("/agents", { method: "POST", body: JSON.stringify(agent) }).then((r) => r.agent);
+export const updateTaskAgent = (id: string, patch: Partial<NewTaskAgent> & { enabled?: boolean }) => request<{ agent: TaskAgent }>(`/agents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }).then((r) => r.agent);
+export const deleteTaskAgent = (id: string) => request<{ deleted: boolean }>(`/agents/${id}`, { method: "DELETE" });
+export const runTaskAgent = (id: string, requestText: string) => request<{ started: boolean }>(`/agents/${id}/run`, { method: "POST", body: JSON.stringify({ request: requestText }) });
+export const listTaskAgentRuns = (id: string) => request<{ runs: AgentRun[] }>(`/agents/${id}/runs`).then((r) => r.runs);
+export const createSectorAgents = (baseDir: string) => request<{ agents: TaskAgent[] }>("/agents/sector", { method: "POST", body: JSON.stringify({ baseDir }) }).then((r) => r.agents);

@@ -328,3 +328,47 @@ test('an answer that created a file shows it with Abrir and Mostrar na pasta', {
     }
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('agents page: a run with its delivered file, creating an agent with a schedule, on desktop and mobile', {skip,timeout:60000},async()=>{
+  const agents=await import('../app/agents.js');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const workDir=join(temp,'agente-fin');mkdirSync(workDir,{recursive:true});
+  const agent=await agents.createAgent({name:'Agente Financeiro',kind:'setor',department:'Financeiro',mission:'Gerar a lista de cobrança.',workDir});
+  const file=join(workDir,'cobranca.xlsx');writeFileSync(file,'x');
+  await agents.runAgent(agent.id,{request:'Gere a planilha de títulos com mais de 30 dias',handleChatTurn:async({conversationId})=>({ok:true,message:{conversationId,content:'Criei cobranca.xlsx.',execution:{toolSteps:[{tool:'write_document',ok:true,summary:`Criei ${file} (XLSX, 900 bytes).`,args:{path:file}}]}}})});
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    for (const viewport of [{width:1280,height:900},{width:390,height:900}]) {
+      const page=await browser.newPage({viewport});
+      await page.goto(`http://127.0.0.1:${server.address().port}/`);
+      if (viewport.width<600) await page.locator('.mobile-menu-button, [aria-label="Abrir menu"]').first().click().catch(()=>{});
+      await page.getByRole('button',{name:'Agentes'}).click();
+      const card=page.getByRole('article',{name:'Agente Financeiro'});
+      await card.waitFor();
+      await page.waitForFunction(()=>!document.querySelector('.sb.mobile-open'));
+      await page.waitForTimeout(300);
+      await card.getByText('Concluída').waitFor();
+      assert.equal(await card.locator('.delivered-file strong').first().textContent(),'cobranca.xlsx');
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal scroll');
+      if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,`agentes-${viewport.width}.png`),fullPage:true});
+      if (viewport.width>600) {
+        await page.getByRole('button',{name:'Novo agente'}).click();
+        const form=page.getByRole('form',{name:'Novo agente'});
+        await form.getByLabel('Nome').fill('Organizador de downloads');
+        await form.getByLabel('Missão').fill('Organizar a pasta Downloads por tipo de arquivo.');
+        await form.getByLabel('Pasta de trabalho').fill(join(temp,'agente-downloads'));
+        await form.getByLabel('Tipo de gatilho').selectOption('at');
+        await form.getByLabel('O que fazer').fill('Organize os arquivos novos.');
+        if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'agentes-novo.png'),fullPage:true});
+        await form.getByRole('button',{name:'Criar agente'}).click();
+        const created=page.getByRole('article',{name:'Organizador de downloads'});
+        await created.waitFor();
+        assert.match(await created.locator('.agent-meta').textContent(),/Às 08:00 \(Seg, Ter, Qua, Qui, Sex\)/);
+      }
+      await page.close();
+    }
+    const saved=(await agents.listAgents()).find(a=>a.name==='Organizador de downloads');
+    assert.deepEqual(saved.trigger,{type:'schedule',at:'08:00',weekdays:[1,2,3,4,5],request:'Organize os arquivos novos.'});
+  }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

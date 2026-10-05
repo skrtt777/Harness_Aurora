@@ -1,0 +1,193 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import {
+  createSectorAgents, createTaskAgent, deleteTaskAgent, listTaskAgentRuns, listTaskAgents, pickFolder, runTaskAgent, updateTaskAgent,
+  type AgentRun, type AgentTrigger, type NewTaskAgent, type TaskAgent,
+} from './api';
+import DeliveredFiles from './DeliveredFiles';
+
+/**
+ * Task agents (docs/AGENTES_ROTEIRO.md): "employees" with a mission, a work folder and a trigger.
+ * Run one now, on a schedule or when a file arrives in a folder; each run's delivery (files)
+ * stays in its history.
+ */
+
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const STATUS: Record<AgentRun['status'], string> = { running: 'Trabalhando…', done: 'Concluída', failed: 'Não concluída' };
+const TRIGGER_LABEL: Record<AgentRun['trigger'], string> = { manual: 'pedido seu', schedule: 'horário', file: 'arquivo novo' };
+
+export function describeTrigger(trigger: AgentTrigger): string {
+  if (trigger.type === 'schedule' && trigger.everyMinutes) return `A cada ${trigger.everyMinutes} min`;
+  if (trigger.type === 'schedule') return `Às ${trigger.at} (${(trigger.weekdays || []).map((d) => WEEKDAYS[d]).join(', ') || 'nenhum dia'})`;
+  if (trigger.type === 'file') return `Arquivo novo em ${trigger.folder}${trigger.pattern && trigger.pattern !== '*' ? ` (${trigger.pattern})` : ''}`;
+  return 'Quando você pedir';
+}
+
+const when = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+type TriggerDraft = { type: 'manual' | 'at' | 'every' | 'file'; at: string; weekdays: number[]; everyMinutes: number; folder: string; pattern: string; request: string };
+const draftOf = (t: AgentTrigger): TriggerDraft => ({
+  type: t.type === 'schedule' ? (t.everyMinutes ? 'every' : 'at') : t.type,
+  at: t.type === 'schedule' && t.at ? t.at : '08:00',
+  weekdays: t.type === 'schedule' && t.weekdays ? t.weekdays : [1, 2, 3, 4, 5],
+  everyMinutes: t.type === 'schedule' && t.everyMinutes ? t.everyMinutes : 60,
+  folder: t.type === 'file' ? t.folder : '',
+  pattern: t.type === 'file' ? t.pattern || '*' : '*',
+  request: t.type !== 'manual' ? t.request || '' : '',
+});
+const triggerOf = (d: TriggerDraft): AgentTrigger =>
+  d.type === 'at' ? { type: 'schedule', at: d.at, weekdays: d.weekdays, request: d.request }
+    : d.type === 'every' ? { type: 'schedule', everyMinutes: d.everyMinutes, request: d.request }
+      : d.type === 'file' ? { type: 'file', folder: d.folder, pattern: d.pattern, request: d.request }
+        : { type: 'manual' };
+
+function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d: TriggerDraft) => void }) {
+  const set = (patch: Partial<TriggerDraft>) => onChange({ ...value, ...patch });
+  return <fieldset className="agent-trigger">
+    <legend>Quando ele trabalha</legend>
+    <select value={value.type} onChange={(e) => set({ type: e.target.value as TriggerDraft['type'] })} aria-label="Tipo de gatilho">
+      <option value="manual">Só quando eu pedir</option>
+      <option value="at">Num horário, em dias da semana</option>
+      <option value="every">A cada tantos minutos</option>
+      <option value="file">Quando chegar um arquivo numa pasta</option>
+    </select>
+    {value.type === 'at' && <div className="agent-trigger-row">
+      <label>Horário <input type="time" value={value.at} onChange={(e) => set({ at: e.target.value })} /></label>
+      <span className="agent-weekdays" role="group" aria-label="Dias">{WEEKDAYS.map((d, i) => <label key={d}><input type="checkbox" checked={value.weekdays.includes(i)} onChange={(e) => set({ weekdays: e.target.checked ? [...value.weekdays, i].sort() : value.weekdays.filter((x) => x !== i) })} />{d}</label>)}</span>
+    </div>}
+    {value.type === 'every' && <label>A cada <input type="number" min={5} max={10080} value={value.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })} /> minutos</label>}
+    {value.type === 'file' && <div className="agent-trigger-row">
+      <label className="grow">Pasta observada <input value={value.folder} onChange={(e) => set({ folder: e.target.value })} placeholder="C:\Users\voce\Notas a lançar" /></label>
+      <button type="button" onClick={() => void pickFolder().then((f) => f && set({ folder: f }))}>Escolher…</button>
+      <label>Arquivos <input value={value.pattern} onChange={(e) => set({ pattern: e.target.value })} placeholder="*.pdf" /></label>
+    </div>}
+    {value.type !== 'manual' && <label className="grow">O que fazer <textarea rows={2} value={value.request} onChange={(e) => set({ request: e.target.value })} placeholder="Ex.: gere a planilha de títulos com mais de 30 dias de atraso" /></label>}
+    {value.type === 'file' && <small>Os arquivos que já estão na pasta não disparam; só os que chegarem depois.</small>}
+  </fieldset>;
+}
+
+function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: TaskAgent; runs: AgentRun[]; onChanged: () => void; onOpenConversation: (id: string) => void }) {
+  const [requestText, setRequestText] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [trigger, setTrigger] = useState(draftOf(agent.trigger));
+  const [history, setHistory] = useState<AgentRun[] | null>(null);
+  const [error, setError] = useState('');
+  const running = runs.some((r) => r.status === 'running');
+  const latest = runs[0];
+  const act = (fn: () => Promise<unknown>) => { setError(''); fn().then(onChanged).catch((e: Error) => setError(e.message)); };
+  useEffect(() => { if (history) void listTaskAgentRuns(agent.id).then(setHistory).catch(() => {}); }, [runs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <article className={`agent-card ${agent.enabled ? '' : 'disabled'}`} aria-label={agent.name}>
+    <header className="agent-card-head">
+      <div>
+        <h3>{agent.name}</h3>
+        <p className="agent-meta">{agent.kind === 'setor' ? `Setor ${agent.department || ''}` : 'Pessoal'} · {describeTrigger(agent.trigger)}</p>
+      </div>
+      <span className={`agent-status ${running ? 'running' : latest?.status || ''}`}>{running ? 'Trabalhando…' : agent.enabled ? 'Pronto' : 'Desligado'}</span>
+    </header>
+    <p className="agent-mission">{agent.mission}</p>
+    <small className="agent-folder" title={agent.workDir}>Pasta: {agent.workDir}</small>
+
+    <form className="agent-run" onSubmit={(e) => { e.preventDefault(); if (requestText.trim()) act(() => runTaskAgent(agent.id, requestText.trim()).then(() => setRequestText(''))); }}>
+      <textarea rows={2} value={requestText} onChange={(e) => setRequestText(e.target.value)} placeholder={`O que ${agent.name} deve fazer agora?`} aria-label={`Pedido para ${agent.name}`} disabled={!agent.enabled} />
+      <button className="primary" disabled={running || !agent.enabled || !requestText.trim()}>Rodar agora</button>
+    </form>
+    {error && <p role="alert" className="memory-form-error">{error}</p>}
+
+    {latest && <section className="agent-latest" aria-label="Última execução">
+      <p><b>{STATUS[latest.status]}</b> · {when(latest.startedAt)} · {TRIGGER_LABEL[latest.trigger]}: “{latest.request.slice(0, 120)}{latest.request.length > 120 ? '…' : ''}”</p>
+      {latest.status !== 'running' && latest.files.length > 0 && <DeliveredFiles files={latest.files} />}
+      {latest.status === 'failed' && latest.error && <p className="agent-error">{latest.error.slice(0, 300)}</p>}
+      {latest.conversationId && latest.status !== 'running' && <button type="button" className="link-button" onClick={() => onOpenConversation(latest.conversationId!)}>Ver a conversa completa</button>}
+    </section>}
+
+    <div className="agent-actions-row">
+      <button type="button" onClick={() => (history ? setHistory(null) : void listTaskAgentRuns(agent.id).then(setHistory).catch((e: Error) => setError(e.message)))}>{history ? 'Fechar histórico' : 'Histórico'}</button>
+      <button type="button" onClick={() => setEditing(!editing)}>{editing ? 'Cancelar' : 'Quando trabalha'}</button>
+      <button type="button" onClick={() => act(() => updateTaskAgent(agent.id, { enabled: !agent.enabled }))}>{agent.enabled ? 'Desligar' : 'Ligar'}</button>
+      <button type="button" className="danger" onClick={() => { if (window.confirm(`Apagar ${agent.name}? A pasta e os arquivos entregues continuam no disco.`)) act(() => deleteTaskAgent(agent.id)); }}>Apagar</button>
+    </div>
+
+    {editing && <form className="agent-edit" onSubmit={(e) => { e.preventDefault(); act(() => updateTaskAgent(agent.id, { trigger: triggerOf(trigger) }).then(() => setEditing(false))); }}>
+      <TriggerEditor value={trigger} onChange={setTrigger} />
+      <button className="primary">Salvar</button>
+    </form>}
+
+    {history && <ol className="agent-history" aria-label={`Histórico de ${agent.name}`}>
+      {history.length === 0 && <li><small>Nenhuma execução ainda.</small></li>}
+      {history.map((run) => <li key={run.id} className={run.status}>
+        <p><b>{STATUS[run.status]}</b> · {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger]}</p>
+        <p className="agent-history-request">{run.request.slice(0, 200)}</p>
+        {run.files.length > 0 && <DeliveredFiles files={run.files} />}
+        {run.conversationId && run.status !== 'running' && <button type="button" className="link-button" onClick={() => onOpenConversation(run.conversationId!)}>Ver a conversa</button>}
+      </li>)}
+    </ol>}
+  </article>;
+}
+
+const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department: '', workDir: '' };
+
+export default function AgentsView({ onOpenConversation }: { onOpenConversation: (id: string) => void }) {
+  const [agents, setAgents] = useState<TaskAgent[]>([]);
+  const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<NewTaskAgent>(EMPTY);
+  const [trigger, setTrigger] = useState(draftOf({ type: 'manual' }));
+  const [sectorDir, setSectorDir] = useState('');
+
+  const refresh = useCallback(() => listTaskAgents().then((r) => { setAgents(r.agents); setRuns(r.runs); setLoaded(true); }).catch((e: Error) => { setError(e.message); setLoaded(true); }), []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const anyRunning = runs.some((r) => r.status === 'running');
+  // While someone works, the page follows it; otherwise a slow check picks up scheduled runs.
+  useEffect(() => { const id = setInterval(() => void refresh(), anyRunning ? 3000 : 20000); return () => clearInterval(id); }, [anyRunning, refresh]);
+  const runsOf = useMemo(() => (id: string) => runs.filter((r) => r.agentId === id), [runs]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    createTaskAgent({ ...draft, department: draft.kind === 'setor' ? draft.department : null, trigger: triggerOf(trigger) })
+      .then(() => { setCreating(false); setDraft(EMPTY); setTrigger(draftOf({ type: 'manual' })); return refresh(); })
+      .catch((err: Error) => setError(err.message));
+  };
+
+  return <section className="agents-view page-skin" aria-label="Agentes">
+    <header className="page-header page-header-row">
+      <div>
+        <h1 className="page-title">Agentes</h1>
+        <p className="page-desc">Funcionários da Aurora. Cada um tem uma missão e uma pasta de trabalho, e entrega arquivos: rode quando quiser, num horário ou quando chegar um arquivo numa pasta. Eles trabalham sozinhos na pasta deles e pedem sua autorização para o resto.</p>
+      </div>
+      <button className="primary" onClick={() => setCreating(!creating)}>{creating ? 'Cancelar' : 'Novo agente'}</button>
+    </header>
+    {error && <p role="alert" className="memory-form-error">{error}</p>}
+
+    {creating && <form className="agent-new" onSubmit={submit} aria-label="Novo agente">
+      <div className="agent-new-grid">
+        <label>Nome <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Agente Financeiro" /></label>
+        <label>Tipo <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as NewTaskAgent['kind'] })}><option value="pessoal">Pessoal</option><option value="setor">Setor da empresa</option></select></label>
+        {draft.kind === 'setor' && <label>Setor <input value={draft.department || ''} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Financeiro" /></label>}
+      </div>
+      <label className="grow">Missão <textarea required rows={3} value={draft.mission} onChange={(e) => setDraft({ ...draft, mission: e.target.value })} placeholder="Acompanhar contas a receber e gerar a lista de cobrança toda segunda." /></label>
+      <div className="agent-trigger-row">
+        <label className="grow">Pasta de trabalho <input required value={draft.workDir} onChange={(e) => setDraft({ ...draft, workDir: e.target.value })} placeholder="C:\Users\voce\Documents\Agentes\Financeiro" /></label>
+        <button type="button" onClick={() => void pickFolder().then((f) => f && setDraft({ ...draft, workDir: f }))}>Escolher…</button>
+      </div>
+      <TriggerEditor value={trigger} onChange={setTrigger} />
+      <button className="primary">Criar agente</button>
+    </form>}
+
+    {loaded && agents.length === 0 && !creating && <section className="agents-empty">
+      <h2>Nenhum agente ainda</h2>
+      <p>Crie um agente pessoal (organizar downloads, resumir relatórios) ou, se as pastas da empresa já estão em Configurações → Conhecimento, um agente para cada setor.</p>
+      <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
+        <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
+        <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>
+        <button className="primary">Criar agentes por setor</button>
+      </form>
+    </section>}
+
+    <div className="agent-list">
+      {agents.map((agent) => <AgentCard key={agent.id} agent={agent} runs={runsOf(agent.id)} onChanged={() => void refresh()} onOpenConversation={onOpenConversation} />)}
+    </div>
+  </section>;
+}

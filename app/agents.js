@@ -109,6 +109,10 @@ export async function updateAgent(id, patch = {}) {
   db.prepare("UPDATE agents SET name = ?, mission = ?, department = ?, tools = ?, trigger = ?, enabled = ?, updated_at = ? WHERE id = ?")
     .run(String(next.name).slice(0, 80), String(next.mission).slice(0, 4000), next.department || null, next.tools ? JSON.stringify(next.tools) : null, JSON.stringify(cleanTrigger(next.trigger)), next.enabled ? 1 : 0, new Date().toISOString(), id);
   if (agent.projectId && (await getProject(agent.projectId))) await updateProject(agent.projectId, { instructions: agentInstructions(next) });
+  // A new folder (or pattern) is a new watch: its existing files are backlog, not arrivals.
+  if (patch.trigger && JSON.stringify(cleanTrigger(patch.trigger)) !== JSON.stringify(agent.trigger)) {
+    try { db.prepare("DELETE FROM agent_seen_files WHERE agent_id = ?").run(id); } catch { /* never watched */ }
+  }
   return getAgent(id);
 }
 
@@ -186,6 +190,10 @@ export const SECTOR_TEMPLATES = {
   RH: "Cuidar das rotinas de pessoal: férias, admissões e desligamentos, quadro de funcionários, benefícios e treinamentos. Produz relatórios e listas em planilha ou texto.",
   Financeiro: "Acompanhar contas a pagar e a receber, inadimplência e fluxo de caixa. Produz listas de cobrança, totais por período e alertas de vencimento.",
   Controladoria: "Acompanhar o orçamento (orçado x realizado), centros de custo e o relatório gerencial. Produz resumos por área e aponta desvios.",
+  Compras: "Acompanhar pedidos de compra em aberto, prazos de entrega, fornecedores homologados e alçadas. Produz listas de cobrança de fornecedores e alertas de atraso.",
+  "Jurídico": "Acompanhar contratos vigentes (términos, renovações, valores) e processos judiciais. Produz relatórios de vencimento e de situação para a diretoria.",
+  TI: "Acompanhar chamados, inventário de equipamentos e a política de segurança. Produz listas de chamados pendentes por setor e categoria e alertas de equipamentos.",
+  "Logística": "Acompanhar estoque, frota, expedição e indicadores de entrega. Produz listas de reposição (abaixo do mínimo) e relatórios de entrega.",
 };
 
 export async function createSectorAgents({ baseDir, departments }) {

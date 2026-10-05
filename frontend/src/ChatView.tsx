@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { canOpenFiles, deliveredFiles, getArtifacts, getSettings, openDeliveredFile, showDeliveredFile, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
+import { getArtifacts, getSettings, updateSettings, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
+import DeliveredFiles from './DeliveredFiles';
 
 // Marco 6 backlog (docs/historico/ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
 // só memórias — útil pra compartilhar um resultado sem abrir o app. Pura
@@ -107,28 +108,6 @@ function stepText(step: AgentStep) {
   const args = step.args || {};
   const detail = args.url ?? args.query ?? args.target ?? args.text ?? args.key ?? args.command ?? args.path ?? args.ref ?? args.action ?? '';
   return `${TOOL_LABELS[step.tool] || step.tool}${detail ? ` ${String(detail).slice(0, 80)}` : ''}`;
-}
-
-/** The files an answer delivered, so "onde está?" isn't needed: open it or show it in Explorer. */
-function DeliveredFiles({ steps }: { steps: AgentStep[] }) {
-  const files = deliveredFiles(steps);
-  const [error, setError] = useState('');
-  if (!files.length) return null;
-  const act = (fn: () => Promise<unknown> | undefined) => { setError(''); Promise.resolve(fn()).catch((e: Error) => setError(e.message)); };
-  return <div className="delivered-files">
-    {files.map((file) => {
-      const name = file.split(/[\\/]/).pop() || file;
-      return <div key={file} className="delivered-file" title={file}>
-        <Icon name="file" size={16} />
-        <span className="delivered-file-name"><strong>{name}</strong><small>{file.slice(0, file.length - name.length - 1)}</small></span>
-        {canOpenFiles() && <span className="delivered-file-actions">
-          <button type="button" onClick={() => act(() => openDeliveredFile(file))}>Abrir</button>
-          <button type="button" onClick={() => act(() => showDeliveredFile(file))}>Mostrar na pasta</button>
-        </span>}
-      </div>;
-    })}
-    {error && <p className="delivered-file-error" role="alert">{error}</p>}
-  </div>;
 }
 
 function StepList({ steps }: { steps: AgentStep[] }) {

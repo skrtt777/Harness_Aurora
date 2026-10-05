@@ -3,7 +3,7 @@ import { getHealth, getProviders, listConversations, searchConversations, type C
 import BrandMark from "./BrandMark";
 import Icon from "./Icon";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents";
 
 type Props = {
   projects: Project[];
@@ -300,6 +300,10 @@ export default function Sidebar({
           <Icon name="memory" size={15} />
           <span>Memória</span>
           <span className="sb-count">{memoryCount.toLocaleString("pt-BR")}</span>
+        </button>
+        <button className={`sb-link ${activeView === "agents" ? "active" : ""}`} onClick={() => onSelectView("agents")}>
+          <Icon name="briefcase" size={15} />
+          <span>Agentes</span>
         </button>
         <button className={`sb-link ${activeView === "skills" ? "active" : ""}`} onClick={() => onSelectView("skills")}>
           <Icon name="puzzle" size={15} />

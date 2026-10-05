@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Tray, Menu, globalShortcut, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Tray, Menu, Notification, globalShortcut, ipcMain, screen, shell } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
 import fs from "node:fs";
@@ -8,6 +8,7 @@ import { createServer } from "../app/server.js";
 import { createMemory } from "../app/store.js";
 import { closeBrowserContext } from "../app/browserAgent.js";
 import { terminateOcr } from "../app/ocr.js";
+import { onAutomaticRun } from "../app/agentScheduler.js";
 
 const PORT = Number(process.env.HARNESS_PORT || 8787);
 const HOST = "127.0.0.1";
@@ -271,6 +272,16 @@ if (hasSingleInstanceLock) {
       await new Promise((resolve) => server.listen(PORT, HOST, resolve));
       startUrl = `http://${HOST}:${server.address().port}/`;
     }
+
+    // A scheduled or folder-triggered agent finished: tell the person, even with the window closed.
+    onAutomaticRun((agent, run) => {
+      if (!Notification.isSupported()) return;
+      const ok = run?.status === "done";
+      const files = run?.files?.length ? ` Entregou ${run.files.length} arquivo(s).` : "";
+      const note = new Notification({ title: `${agent.name} ${ok ? "terminou" : "não conseguiu terminar"}`, body: ok ? `${String(run.request || "").slice(0, 80)}${files}` : String(run?.error || "Veja o histórico do agente.").slice(0, 120) });
+      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
+      note.show();
+    });
 
     await createWindow(startUrl);
 

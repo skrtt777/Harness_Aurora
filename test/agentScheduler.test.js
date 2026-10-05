@@ -1,0 +1,77 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const temp = mkdtempSync(join(tmpdir(), "aurora-scheduler-"));
+process.env.HARNESS_DB_FILE = join(temp, "test.db");
+const { DAILY_LIMIT, newFilesFor, patternTest, scheduleDue, schedulerTick } = await import("../app/agentScheduler.js");
+
+// Monday 05/10/2026 08:30 local time.
+const at = (h, m, day = 5) => new Date(2026, 9, day, h, m);
+
+test("'at HH:MM on weekdays' runs once a day from that time on", () => {
+  const trigger = { type: "schedule", at: "08:00", weekdays: [1, 2, 3, 4, 5] };
+  assert.equal(scheduleDue(trigger, null, at(7, 59)), false, "before the time");
+  assert.equal(scheduleDue(trigger, null, at(8, 30)), true);
+  assert.equal(scheduleDue(trigger, at(8, 0, 5).toISOString(), at(9, 0)), false, "already ran today");
+  assert.equal(scheduleDue(trigger, at(8, 0, 2).toISOString(), at(8, 1)), true, "last run was Friday");
+  assert.equal(scheduleDue(trigger, null, at(9, 0, 4)), false, "Sunday is not a weekday here");
+});
+
+test("'every N minutes' waits N minutes since the last scheduled run", () => {
+  const trigger = { type: "schedule", everyMinutes: 30 };
+  assert.equal(scheduleDue(trigger, null, at(8, 0)), true);
+  assert.equal(scheduleDue(trigger, at(8, 0).toISOString(), at(8, 29)), false);
+  assert.equal(scheduleDue(trigger, at(8, 0).toISOString(), at(8, 30)), true);
+  assert.equal(scheduleDue({ type: "manual" }, null, at(8, 0)), false);
+});
+
+test("file patterns", () => {
+  const pdf = patternTest("*.pdf; nota*");
+  assert.equal(pdf("Fatura Outubro.PDF"), true);
+  assert.equal(pdf("nota fiscal 12.xml"), true);
+  assert.equal(pdf("planilha.xlsx"), false);
+  assert.equal(patternTest("*")("x"), true);
+});
+
+test("a watched folder ignores its backlog and fires on files that arrive (or are saved again)", async () => {
+  const folder = mkdtempSync(join(temp, "entrada-"));
+  writeFileSync(join(folder, "antigo.pdf"), "x");
+  const agent = { id: "agent-files", trigger: { type: "file", folder, pattern: "*.pdf" } };
+  assert.deepEqual(await newFilesFor(agent), [], "the first look only records what is there");
+  assert.deepEqual(await newFilesFor(agent), []);
+  writeFileSync(join(folder, "novo.pdf"), "y");
+  writeFileSync(join(folder, "ignorado.txt"), "z");
+  assert.deepEqual(await newFilesFor(agent), [join(folder, "novo.pdf")]);
+  assert.deepEqual(await newFilesFor(agent), [], "fires once");
+  utimesSync(join(folder, "antigo.pdf"), new Date(), new Date(Date.now() + 60_000));
+  assert.deepEqual(await newFilesFor(agent), [join(folder, "antigo.pdf")], "saved again");
+
+  const empty = { id: "agent-empty", trigger: { type: "file", folder: mkdtempSync(join(temp, "vazia-")), pattern: "*" } };
+  assert.deepEqual(await newFilesFor(empty), []);
+  writeFileSync(join(empty.trigger.folder, "primeiro.csv"), "a");
+  assert.deepEqual(await newFilesFor(empty), [join(empty.trigger.folder, "primeiro.csv")], "an empty folder has no backlog");
+});
+
+test("a tick starts due agents only: enabled, not running, under the daily limit", async () => {
+  const agents = [
+    { id: "a", name: "A", enabled: true, mission: "m", trigger: { type: "schedule", everyMinutes: 30, request: "relatório" } },
+    { id: "b", name: "B", enabled: false, mission: "m", trigger: { type: "schedule", everyMinutes: 30 } },
+    { id: "c", name: "C", enabled: true, mission: "missão C", trigger: { type: "schedule", everyMinutes: 30 } },
+    { id: "d", name: "D", enabled: true, mission: "m", trigger: { type: "schedule", everyMinutes: 30 } },
+    { id: "e", name: "E", enabled: true, mission: "m", trigger: { type: "manual" } },
+  ];
+  const runs = [];
+  const started = await schedulerTick({
+    listAgents: async () => agents,
+    runAgent: async (id, opts) => { runs.push([id, opts.request, opts.trigger]); return { status: "done" }; },
+    isAgentRunning: (id) => id === "d",
+    lastRunStart: async () => null,
+    runsToday: async (id) => (id === "c" ? DAILY_LIMIT : 0),
+    now: () => at(8, 0),
+  });
+  assert.deepEqual(started, ["a"]);
+  assert.deepEqual(runs, [["a", "relatório", "schedule"]]);
+});

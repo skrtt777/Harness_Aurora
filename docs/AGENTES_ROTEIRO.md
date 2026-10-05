@@ -40,11 +40,28 @@ O Ollama não roda o qwen3.5 em paralelo. Já o llama-server que vem com o Ollam
 
 ## Fase C: agentes por setor
 
-- [ ] RH, Financeiro e Controladoria primeiro (onde a avaliação já existe), depois os demais setores.
+- [x] **RH, Financeiro e Controladoria** (fase B), e depois **Compras, Jurídico, TI e Logística** (05/10). Cada setor tem um modelo de missão (`SECTOR_TEMPLATES` em `app/agents.js`) e uma tarefa na avaliação, e cada tarefa testa um tipo diferente de raciocínio:
+  - **Compras:** entrega até 15/10, um corte por data;
+  - **Jurídico:** contratos que terminam em 2026;
+  - **TI:** chamados não resolvidos, pelo "diferente de";
+  - **Logística:** produtos abaixo do estoque mínimo, comparando duas colunas da mesma linha.
+
+  O filtro do `read_file` ganhou `!=` e a comparação entre colunas (`"Saldo<Estoque mínimo"`).
+  - **Resultado:** com as 7 tarefas, 5 rodadas, deu **95%** (133/140) e **28 de 35 tarefas perfeitas**.
+  - **Erro que resta (Compras):** o modelo escreve `"Entrega prevista=15/10/2026"` quando o pedido é "até 15/10". Um lembrete simples foi ignorado 5 vezes em 5. Agora a resposta do filtro mostra quantas linhas daria cada leitura ("até" dá 7, "a partir de" dá 9); falta medir esse efeito.
+  - **Também corrigido:**
+    - o `write_file` recusa .xlsx, .docx, .pdf e .pptx (gravava texto num .xlsx que o Excel não abre) e manda usar o `write_document`;
+    - uma resposta que só repete o pedido volta para o modelo fazer a tarefa.
+- [ ] Os demais setores (Administrativo, Comercial, Diretoria, Fiscal, Marketing, Produção, Qualidade, SSMA) ganham uma tarefa na avaliação quando houver uma rotina pedida de verdade.
 
 ## Fase D: rotinas agendadas e gatilhos
 
-- [ ] Horário marcado (por exemplo, toda segunda às 8h) e arquivo novo numa pasta, com fila, limite de execuções e aviso quando terminar.
+- [x] **Agendador (`app/agentScheduler.js`, 05/10).** Ele roda só no app desktop e confere a cada 30 s:
+  - **Horário:** "às HH:MM nos dias X", uma vez por dia a partir do horário, ou "a cada N minutos".
+  - **Arquivo novo numa pasta (com padrão, ex.: `*.pdf`):** os arquivos que já estão lá quando o gatilho é ligado não disparam; só os que chegarem depois ou forem salvos de novo. Os novos que chegam juntos vão numa execução só, com o nome de cada um. Trocar a pasta conta como observação nova.
+  - **Limites:** uma execução por agente de cada vez e no máximo 24 automáticas por dia por agente.
+  - **Aviso:** ao terminar, o Windows mostra uma notificação com o resultado e o número de arquivos entregues; clicar nela abre o app.
+- [x] **Tela "Agentes"** (`frontend/src/AgentsView.tsx`): criar um agente (pessoal ou de setor, missão, pasta de trabalho e gatilho), rodar agora com um pedido, ver a última entrega com os botões Abrir e Mostrar na pasta, o histórico e a conversa completa, mudar quando ele trabalha, desligar e apagar. Com as pastas da empresa cadastradas, cria um agente por setor de uma vez. Antes disso, os agentes só existiam pela API.
 
 ## Fase E: orquestrador
 

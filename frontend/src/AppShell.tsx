@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import SkillsView from "./SkillsView";
+import AgentsView from "./AgentsView";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import SettingsView from "./SettingsView";
@@ -38,7 +39,7 @@ import {
   type SavingsStats,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -443,6 +444,15 @@ export default function AppShell() {
           />
         )}
         {view === "skills" && <SkillsView />}
+        {view === "agents" && (
+          <AgentsView
+            onOpenConversation={(id) => {
+              if (id !== activeConversationId) { setActiveConversation(null); setLoadingConversation(true); }
+              setActiveConversationId(id);
+              setView("chat");
+            }}
+          />
+        )}
       </main>
       {guideOpen && <WelcomeGuide onClose={(settings) => { setGuideOpen(false); if (settings) { setView('settings'); setSidebarOpen(false); } }} />}
       {configuringProject && <ProjectSettings project={configuringProject} onClose={() => setConfiguringProject(null)} onSave={(patch) => handleConfigureProject(configuringProject.id, patch)} />}
