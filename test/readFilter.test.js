@@ -119,3 +119,12 @@ test("the numeric hint skips a condition of another part of the request and uses
   const budget = ["## Resumo", "Área | Orçado | Desvio (%)", "Adm | 100 | 0.62%"];
   assert.match(numberFilterHint(budget, "Relatório das áreas. (Parte de: títulos há mais de 30 dias e áreas mais de 5% acima do orçado)"), /filter="Desvio \(%\)>5"/);
 });
+
+test("asked about now, a filter on the start date alone gets the rows in progress today", async () => {
+  const { nowNote } = await import("../app/agentTools/files.js");
+  const sheet = ["## Férias", "Nome | Início das férias | Fim das férias", "Ana | 20/09/2026 | 10/10/2026", "Bia | 13/10/2026 | 30/10/2026", "Caio | 01/09/2026 | 15/09/2026"];
+  const now = new Date(2026, 9, 4);
+  assert.match(nowNote(sheet, "Quem está de férias agora?", "Início das férias>=01/10/2026", now), /filter="Início das férias<=04\/10\/2026; Fim das férias>=04\/10\/2026": 1 linha\(s\)/);
+  assert.equal(nowNote(sheet, "Quem tira férias em outubro?", "Início das férias>=01/10/2026", now), "", "not about now");
+  assert.equal(nowNote(sheet, "quem está de férias hoje", "Início das férias<=04/10/2026; Fim das férias>=04/10/2026", now), "", "already the right filter");
+});

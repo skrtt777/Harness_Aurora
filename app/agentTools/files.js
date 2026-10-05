@@ -187,6 +187,27 @@ export function numberFilterHint(lines, request) {
   return "";
 }
 
+/**
+ * "Quem está de férias agora?" filtered as "início em outubro" listed people starting on the 13th
+ * (empresa eval rh-2, again on 05/10/2026). When the request says now/today and the sheet has a
+ * start and an end date, the rows in progress today, with the filter that brings them.
+ */
+export function nowNote(lines, request, filter, now = new Date()) {
+  if (!/\b(agora|hoje|neste momento|atualmente|em curso|vigentes? hoje)\b/i.test(String(request || ""))) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const dated = header.filter((_, j) => DATE.test(sample[j] || ""));
+  const start = dated.find((c) => /in[ií]cio|come[çc]o|sa[ií]da|desde/i.test(c));
+  const end = dated.find((c) => /\bfim\b|t[ée]rmino|retorno|volta|\bat[ée]\b|final/i.test(c));
+  if (!start || !end || (String(filter).includes(start) && String(filter).includes(end))) return "";
+  const today = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const wanted = `${start}<=${today}; ${end}>=${today}`;
+  const count = Number(/(\d+) linha\(s\)/.exec(filterAll(lines, wanted.split("; "), wanted))?.[1] || 0);
+  return `\n(ATENÇÃO: o pedido é sobre hoje (${today}). Quem está no período HOJE é filter="${wanted}": ${count} linha(s). Se o pedido é "agora", leia de novo com esse filtro.)`;
+}
+
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
@@ -626,7 +647,8 @@ export const fileTools = [
         ctx.correctedFilters ??= new Set();
         const request = ctx.correctedFilters.has(key) ? null : ctx.request;
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
-        const rows = filterRows(table, String(filter || ""), { sort, request });
+        const today = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
+        const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
         if (request && rows.includes("\n(Usei ")) ctx.correctedFilters.add(key);
         const found = `${file}\n${rows}`;
         ctx.lastRows = rowKeys(found);
