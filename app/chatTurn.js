@@ -376,7 +376,7 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
   return [
     `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${(process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     `Pastas do usuário: Desktop = ${folders.desktop}; Documentos = ${folders.documents}; Downloads = ${folders.downloads}.`,
-    workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (ex.: "soma.js", "src/app.js"), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
+    workspace ? `Pasta do projeto: ${workspace}\nUse caminhos RELATIVOS a ela (só o nome do arquivo, ou subpasta/nome), nunca reescreva o caminho completo; comandos já rodam nela.` : `Sem pasta de projeto: você trabalha em ${allowedRoots.join("; ")}.`,
     // "A pasta do projeto está vazia, não encontrei a planilha": the company documents were in the
     // context all along. An empty folder is said up front.
     ...(workspace && emptyWorkspace ? ["A pasta do projeto está VAZIA: não procure documentos nela. Documentos da empresa vêm dos trechos abaixo e de knowledge_search (leia-os com read_file pelo caminho completo da Fonte); arquivos do usuário, das pastas dele acima. A pasta do projeto serve para salvar o que você entregar."] : []),

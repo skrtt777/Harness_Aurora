@@ -128,3 +128,12 @@ test("asked about now, a filter on the start date alone gets the rows in progres
   assert.equal(nowNote(sheet, "Quem tira férias em outubro?", "Início das férias>=01/10/2026", now), "", "not about now");
   assert.equal(nowNote(sheet, "quem está de férias hoje", "Início das férias<=04/10/2026; Fim das férias>=04/10/2026", now), "", "already the right filter");
 });
+
+test("the person's words decide a document's format over a plain-text one", async () => {
+  const { requestedFormat } = await import("../app/agentTools/files.js");
+  assert.equal(requestedFormat("Gere a planilha de quem começa as férias em outubro"), "xlsx");
+  assert.equal(requestedFormat("Faça um relatório em Word com os contratos"), "docx");
+  assert.equal(requestedFormat("Quero o resumo em PDF"), "pdf");
+  assert.equal(requestedFormat("Salve as notas em markdown"), null, "a deliberate .md stays");
+  assert.equal(requestedFormat("organize a pasta"), null);
+});

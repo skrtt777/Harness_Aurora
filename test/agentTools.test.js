@@ -346,3 +346,24 @@ test("organize_folder sorts the loose files by type at once, leaves subfolders a
   assert.equal(moves.length, 6, "every move can be undone");
   assert.match((await executeTool("organize_folder", { path: dir }, c)).result, /baixando|1 arquivo|nada a organizar/i);
 });
+
+test("a big sheet read whole and cut starts with the ready filter for the request", async () => {
+  const dir = join(root, "receber");
+  mkdirSync(dir, { recursive: true });
+  const rows = Array.from({ length: 300 }, (_, i) => `Cliente ${i};Duplicata ${1000 + i};${(i * 7) % 90}`);
+  writeFileSync(join(dir, "receber.csv"), `Cliente;Título;Dias em atraso\n${rows.join("\n")}\n`);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "títulos em atraso há mais de 30 dias" });
+  const out = await executeTool("read_file", { path: "receber.csv" }, c);
+  assert.match(out.result, /cortado/);
+  assert.match(out.result.split("\n").slice(0, 3).join("\n"), /filter="Dias em atraso>30"/, "the tip comes before the rows");
+});
+
+test("write_document asked for a spreadsheet saves .xlsx even when the model wrote .md", async () => {
+  const dir = join(root, "formato");
+  mkdirSync(dir, { recursive: true });
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "Gere a planilha de férias de outubro" });
+  const out = await executeTool("write_document", { path: "ferias_outubro.md", content: "| Nome | Início |\n|---|---|\n| Ana | 13/10/2026 |" }, c);
+  assert.equal(out.ok, true, out.result);
+  assert.ok(existsSync(join(dir, "ferias_outubro.xlsx")));
+  assert.equal(existsSync(join(dir, "ferias_outubro.md")), false);
+});

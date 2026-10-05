@@ -445,8 +445,22 @@ function documentPath(args, ctx) {
   if (!String(path || "").trim()) throw new Error('Falta "path": informe o caminho com o nome do arquivo (ex.: C:\\Users\\voce\\Documents\\proposta_atualizada.docx) e o "content" completo em markdown.');
   const file = full(path, ctx);
   const ext = extname(file).slice(1).toLowerCase();
-  const wanted = DOCUMENT_FORMATS.includes(String(format || "").toLowerCase()) ? String(format).toLowerCase() : DOCUMENT_FORMATS.includes(ext) ? ext : "docx";
+  let wanted = DOCUMENT_FORMATS.includes(String(format || "").toLowerCase()) ? String(format).toLowerCase() : DOCUMENT_FORMATS.includes(ext) ? ext : "docx";
+  // Asked for a "planilha", it wrote funcionarios_ferias.md (agents eval, 05/10/2026): the person's
+  // words decide over a plain-text format. A deliberate .md/.txt request stays.
+  const asked = requestedFormat(ctx.request);
+  if (asked && ["md", "txt"].includes(wanted)) wanted = asked;
   return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
+}
+
+/** The format the person's words ask for: planilha → xlsx, Word/relatório → docx, PDF → pdf. */
+export function requestedFormat(request) {
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (/\b(markdown|\.md|texto puro|\.txt)\b/.test(text)) return null;
+  if (/\b(planilha|excel|xlsx)\b/.test(text)) return "xlsx";
+  if (/\bpdf\b/.test(text)) return "pdf";
+  if (/\b(word|docx|relatorio|documento)\b/.test(text)) return "docx";
+  return null;
 }
 
 // Explicit folder, else the project, else the person's usual folders.
@@ -669,14 +683,17 @@ export const fileTools = [
       }
       const shown = start - 1 + count < lines.length ? `\n(linhas ${start}–${Math.min(lines.length, start - 1 + count)} de ${lines.length})` : "";
       // Read whole, a sheet was filtered "by eye" and 10-day-late bills went into a >30 list.
+      // The ready filter for the request's date or number. A cut read needs it most: the Financeiro
+      // agent re-read the same cut sheet until the repetition guard stopped it (05/10/2026).
       let tip = "";
-      if (sheet && text && !text.includes("… (cortado")) {
+      if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        tip = dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request)
-          || `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
+        const ready = dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request);
+        tip = ready || (text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`);
       }
-      return `${file}\n${text || "(vazio)"}${shown}${tip}`;
+      // A cut read fills the result: there the tip goes first, or the 4.5k limit would cut it.
+      return text.includes("… (cortado") && tip ? `${file}${tip}\n${text}${shown}` : `${file}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },
   {
