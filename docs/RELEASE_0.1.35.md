@@ -21,6 +21,10 @@
 
 ## Agentes
 
+- **Autorizar sem sair da tela:** quando um agente precisa de autorização, o cartão dele mostra o pedido com **Permitir** e **Negar**. Se a janela está minimizada, o Windows avisa e o clique abre o pedido. Antes, o pedido expirava sem ninguém ver.
+- **Desligou no meio?** Um trabalho cortado porque a Aurora fechou ou o PC desligou aparece como "interrompido" ao abrir de novo, em vez de "trabalhando" para sempre.
+- **Primeiros passos:** sem nenhum agente, a tela já mostra os modelos prontos.
+
 - **Equipe mais certeira:** o plano não inventa mais que uma tarefa espera outra (só quando o pedido diz "primeiro… depois…"), e um agente que listou os dados na resposta em vez de gravar a planilha é cobrado a gravar. Fechamento do mês: 93,9% (era 72,7% a 87,9%); tarefa que usa a entrega de outra: 100%.
 - **Registro de ações:** Configurações → Agente → Exportar registro gera uma planilha com tudo o que a Aurora fez no computador, em qualquer conversa (arquivos, comandos, formulários), com data e resultado.
 
@@ -30,6 +34,12 @@
 ## Navegador
 
 - **Formulários de contato enviados de verdade:** apertar Enter na caixa de mensagem só pulava uma linha, mas a Aurora dizia que tinha enviado. Agora o formulário é enviado como se você clicasse em Enviar.
+
+## Perguntas sobre a empresa
+
+- **Menos respostas certas desmentidas:** duas travas de conferência acusavam erro onde não havia, e o modelo se retratava. "Compra de 50 mil" respondida com R$ 50.000,00 não é mais "valor inventado", e um arquivo com artigo no nome ("Treinamentos NR a Vencer.xlsx") não é mais "documento inventado".
+- **"Quem está de férias agora?"** usa o período de hoje (início até hoje e fim depois de hoje), e não quem começa no mês.
+- **Conversa longa demais:** em vez de parar com erro de contexto, a Aurora resume os resultados antigos e continua.
 
 ## Planilhas
 
