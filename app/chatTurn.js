@@ -172,10 +172,37 @@ export function fileMentions(text) {
   return [...found].filter((s) => s.length >= 4).slice(0, 6);
 }
 
+// "Meu nome é Rafaela", "eu cuido das parcerias": what the person says about themselves stays in the
+// context for the whole conversation (the agent history keeps only the last turns, and "como é o
+// meu nome?" failed 3 times out of 3 at turn 9).
+const SELF = /\b(meu nome [ée]|me chamo|pode me chamar de|eu sou (o|a)\b|trabalho (com|na|no|em)|cuido d[aoe]s?|sou respons[áa]vel|minha empresa|prefiro que)/i;
+export function personFacts(history = []) {
+  const said = history.filter((m) => m.role === "user" && SELF.test(m.content)).map((m) => String(m.content).slice(0, 300));
+  if (!said.length) return [];
+  return [`O que a pessoa disse sobre si nesta conversa (use quando for útil, como o nome):\n${[...new Set(said)].slice(-6).map((t) => `- ${t}`).join("\n")}`];
+}
+
+const nameWords = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^\d+$/.test(w));
+/** The file (among those the conversation named) whose name shares the most words with `text`. */
+export function topicFile(text, mentions) {
+  const words = new Set(nameWords(text));
+  let best = null, score = 0;
+  for (const mention of mentions) {
+    const hits = nameWords(mention.replace(/\.[a-z0-9]{2,5}$/i, "")).filter((w) => words.has(w)).length;
+    if (hits > score) { best = mention; score = hits; }
+  }
+  return best;
+}
+
 // Files named in this message; if none, the ones named earlier in the
 // conversation stay attached ("quanto custa o pacote X?" after a summary).
 async function mentionedFiles(text, ctx, history = []) {
-  const earlier = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
+  const recent = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
+  // "voltando ao kit de mídia…" after talking about a spreadsheet: a file named earlier in the
+  // conversation whose name shares words with the message wins over the most recent one.
+  const all = [...new Set(history.filter((m) => m.role === "user").slice(-30).reverse().flatMap((m) => fileMentions(m.content)))];
+  const byTopic = topicFile(text, all);
+  const earlier = byTopic ? [byTopic, ...recent.filter((m) => m !== byTopic)] : recent;
   const current = fileMentions(text);
   const files = [];
   for (const mention of current.length ? current : earlier) {
@@ -379,7 +406,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:observation?[observation.block]:[],
+      required:[...(observation?[observation.block]:[]),...personFacts(history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from
