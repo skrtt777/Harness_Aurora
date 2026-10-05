@@ -6,7 +6,7 @@ import { localExperiment } from "./localModelRelease.js";
 import { centralStatus, updateCentralConfig, listCentralMemories, previewContribution, approveContribution, cancelContribution, syncCentral, startCentralScheduler, githubIdentity } from "./centralMemory.js";
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
-import { undoMoves } from "./undoMoves.js";
+import { undoChanges } from "./undoMoves.js";
 import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
 import { detectGpu } from "./llamaServer.js";
 import { importMemories } from "./memoryImport.js";
@@ -463,11 +463,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       const messageUndo = pathname.match(/^\/api\/messages\/([0-9a-f-]{36})\/undo-moves$/);
       if (method === "POST" && messageUndo) {
         const message = await getMessage(messageUndo[1]);
-        const moves = message?.execution?.moves || [];
+        const moves = message?.execution?.moves || [], edits = message?.execution?.edits || [];
         if (!message) throw httpError(404, "Mensagem não encontrada.");
-        if (message.execution?.movesUndoneAt) throw httpError(409, "Estes movimentos já foram desfeitos.");
-        if (!moves.length) throw httpError(400, "Esta resposta não moveu arquivos.");
-        const result = await undoMoves(moves);
+        if (message.execution?.movesUndoneAt) throw httpError(409, "Estas mudanças já foram desfeitas.");
+        if (!moves.length && !edits.length) throw httpError(400, "Esta resposta não moveu nem editou arquivos.");
+        const result = await undoChanges({ moves, edits });
         (await getDb()).prepare("UPDATE messages SET execution = ? WHERE id = ?").run(JSON.stringify({ ...message.execution, movesUndoneAt: new Date().toISOString() }), message.id);
         return sendJson(response, 200, result);
       }

@@ -115,3 +115,30 @@ test("a run left 'running' by a closed app or a shutdown is marked interrupted w
   assert.equal(status, "failed");
   assert.match(error, /Interrompida: a Aurora foi fechada ou o computador desligou/);
 });
+
+test("Desfazer also puts back a file the agent edited or replaced, but never over a later change", async () => {
+  const { writeFileSync, readFileSync } = await import("node:fs");
+  const { executeTool } = await import("../app/agentTools/index.js");
+  const workDir = join(temp, "codigo");
+  const agent = await agents.createAgent({ name: "Programador", kind: "pessoal", mission: "Corrigir.", workDir });
+  writeFileSync(join(workDir, "media.js"), "export const media = (a) => a.length + 1;\n");
+  writeFileSync(join(workDir, "notas.txt"), "minhas notas");
+  writeFileSync(join(workDir, "outro.txt"), "versão 1");
+  const run = await agents.runAgent(agent.id, { request: "Corrija", handleChatTurn: async ({ conversationId }) => {
+    const edits = [];
+    const ctx = { approve: async () => true, workspace: workDir, workspaceRoots: [workDir], onEdit: (e) => edits.push(e) };
+    assert.equal((await executeTool("edit_file", { path: "media.js", before: "a.length + 1", after: "a.length" }, ctx)).ok, true);
+    assert.equal((await executeTool("write_file", { path: "notas.txt", content: "substituído" }, ctx)).ok, true);
+    assert.equal((await executeTool("write_file", { path: "outro.txt", content: "versão 2" }, ctx)).ok, true);
+    assert.equal((await executeTool("write_file", { path: "novo.txt", content: "novo" }, ctx)).ok, true);
+    return { ok: true, message: { conversationId, content: "Corrigi.", execution: { toolSteps: [], edits } } };
+  } });
+  assert.equal(run.edits.length, 3, "a new file has nothing to put back");
+  writeFileSync(join(workDir, "outro.txt"), "versão 3 da pessoa"); // changed again after the agent
+  const result = await agents.undoRunMoves(run.id);
+  assert.equal(readFileSync(join(workDir, "media.js"), "utf8"), "export const media = (a) => a.length + 1;\n");
+  assert.equal(readFileSync(join(workDir, "notas.txt"), "utf8"), "minhas notas");
+  assert.equal(readFileSync(join(workDir, "outro.txt"), "utf8"), "versão 3 da pessoa", "the person's later change stays");
+  assert.match(result.skipped.map((s) => s.reason).join(), /mudou depois da edição/);
+  assert.ok(existsSync(join(workDir, "novo.txt")), "nothing is deleted");
+});

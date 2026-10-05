@@ -127,15 +127,16 @@ type Props = {
 
 /** "Moveu 12 arquivos · Desfazer" under an answer that organized a folder. */
 function UndoChatMoves({ message }: { message: ChatMessage }) {
-  const [done, setDone] = useState(message.execution?.movesUndoneAt ? 'Movimentos desfeitos.' : '');
-  const count = message.execution?.moves?.length ?? 0;
+  const [done, setDone] = useState(message.execution?.movesUndoneAt ? 'Mudanças desfeitas.' : '');
+  const moved = message.execution?.moves?.length ?? 0, edited = message.execution?.edits?.length ?? 0;
   const undo = () => {
-    if (!window.confirm(`Devolver os ${count} arquivo(s) movidos ao lugar de antes?`)) return;
+    if (!window.confirm('Desfazer o que esta resposta mudou nos seus arquivos?')) return;
     undoMessageMoves(message.id)
-      .then((r) => setDone(`Movimentos desfeitos: ${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`))
+      .then((r) => setDone(`Mudanças desfeitas: ${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`))
       .catch((e: Error) => setDone(e.message));
   };
-  return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>Moveu {count} arquivo(s).</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
+  const text = moved && edited ? `Moveu ${moved} e editou ${edited} arquivo(s).` : moved ? `Moveu ${moved} arquivo(s).` : `Editou ${edited} arquivo(s).`;
+  return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>{text}</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
 }
 
 function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect }: {
@@ -164,7 +165,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} />}
-      {!isUser && (message.execution?.moves?.length ?? 0) > 0 && <UndoChatMoves message={message} />}
+      {!isUser && ((message.execution?.moves?.length ?? 0) + (message.execution?.edits?.length ?? 0)) > 0 && <UndoChatMoves message={message} />}
       {!isUser && <div className="message-actions">
         <button className="btn btn-text btn-sm" onClick={async () => {
           try { await navigator.clipboard.writeText(message.content); setFeedback('Resposta copiada'); }

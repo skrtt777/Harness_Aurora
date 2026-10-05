@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import { undoMoves } from "./undoMoves.js";
+import { undoChanges } from "./undoMoves.js";
 import { getDb } from "./db.js";
 import { createConversation, createProject, getProject, updateProject } from "./store.js";
 import { httpError } from "./httpSecurity.js";
@@ -32,6 +32,7 @@ async function ready() {
   const columns = new Set(db.prepare("PRAGMA table_info(agent_runs)").all().map((c) => c.name));
   if (!columns.has("moves")) db.exec("ALTER TABLE agent_runs ADD COLUMN moves TEXT");
   if (!columns.has("undone_at")) db.exec("ALTER TABLE agent_runs ADD COLUMN undone_at TEXT");
+  if (!columns.has("edits")) db.exec("ALTER TABLE agent_runs ADD COLUMN edits TEXT");
   // A run still "running" from before this process started was cut by the app closing or the PC
   // shutting down: the card would say "Trabalhando…" forever.
   if (!recovered) {
@@ -51,7 +52,7 @@ const mapRun = (r) => r && ({
   id: r.id, agentId: r.agent_id, conversationId: r.conversation_id, request: r.request, trigger: r.trigger, status: r.status,
   startedAt: r.started_at, finishedAt: r.finished_at, answer: r.answer, files: parse(r.files, []), steps: r.steps,
   checks: parse(r.checks, []), review: parse(r.review, null), copies: parse(r.copies, null), error: r.error,
-  moves: parse(r.moves, []), undoneAt: r.undone_at || null,
+  moves: parse(r.moves, []), edits: parse(r.edits, []), undoneAt: r.undone_at || null,
 });
 
 /** The instructions every run starts from: the mission plus how this agent works. */
@@ -188,10 +189,10 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
     const steps = execution.toolSteps || [];
     // The path the tool reported ("Criei/Salvei/Editei <path>"): it already went through the same resolution as the write.
     const files = [...new Set(steps.filter((s) => s.ok && ["write_file", "edit_file", "write_document"].includes(s.tool)).map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)/.exec(s.summary || "")?.[1] || resolve(agent.workDir, String(s.args?.path || ""))))];
-    db.prepare("UPDATE agent_runs SET status = ?, finished_at = ?, answer = ?, files = ?, steps = ?, checks = ?, review = ?, copies = ?, error = ?, moves = ? WHERE id = ?")
+    db.prepare("UPDATE agent_runs SET status = ?, finished_at = ?, answer = ?, files = ?, steps = ?, checks = ?, review = ?, copies = ?, error = ?, moves = ?, edits = ? WHERE id = ?")
       .run(turn.ok ? "done" : "failed", new Date().toISOString(), String(turn.message?.content || "").slice(0, 20000), JSON.stringify(files), steps.length,
         JSON.stringify(execution.checks || []), execution.review ? JSON.stringify(execution.review) : null, execution.copies ? JSON.stringify(execution.copies) : null, turn.ok ? null : String(turn.error || "falhou").slice(0, 2000),
-        execution.moves?.length ? JSON.stringify(execution.moves) : null, runId);
+        execution.moves?.length ? JSON.stringify(execution.moves) : null, execution.edits?.length ? JSON.stringify(execution.edits) : null, runId);
   } catch (error) {
     db.prepare("UPDATE agent_runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?").run(new Date().toISOString(), String(error.message).slice(0, 2000), runId);
   } finally {
@@ -225,8 +226,8 @@ export async function undoRunMoves(runId) {
   if (!run) throw httpError(404, "Execução não encontrada.");
   if (running.get(run.agentId) === runId) throw httpError(409, "Espere o agente terminar.");
   if (run.undoneAt) throw httpError(409, "Esta execução já foi desfeita.");
-  if (!run.moves.length) throw httpError(400, "Esta execução não moveu arquivos.");
-  const { restored, skipped } = await undoMoves(run.moves);
+  if (!run.moves.length && !run.edits.length) throw httpError(400, "Esta execução não moveu nem editou arquivos.");
+  const { restored, skipped } = await undoChanges(run);
   db.prepare("UPDATE agent_runs SET undone_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
   return { restored, skipped };
 }

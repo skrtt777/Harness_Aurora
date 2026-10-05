@@ -1,3 +1,4 @@
+import { backupBeforeChange, sha } from "../undoMoves.js";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -707,7 +708,8 @@ export const fileTools = [
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, String(content ?? ""), "utf8");
+      // Replacing a file the person had loses what was there: a copy goes to Desfazer.
+      await changeFile(file, String(content ?? ""), ctx);
       return `Salvei ${file} (${Buffer.byteLength(String(content ?? ""))} bytes).`;
     },
   },
@@ -833,20 +835,27 @@ async function moveOne(fromArg, to, ctx) {
   return `Movi ${from} para ${target}.`;
 }
 
+/** Writes over an existing file keeping a copy of before, so "Desfazer" can put it back. */
+async function changeFile(file, content, ctx) {
+  const backup = await backupBeforeChange(file);
+  await writeFile(file, content, "utf8");
+  if (backup) ctx.onEdit?.({ file, backup, after: sha(Buffer.from(content, "utf8")) });
+}
+
 async function editFile({ path, before, after }, ctx) {
   const file = full(path, ctx);
   const text = await readFile(file, "utf8");
   const count = text.split(String(before)).length - 1;
   if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
   if (before && count === 1) {
-    await writeFile(file, text.replace(String(before), () => String(after ?? "")), "utf8");
+    await changeFile(file, text.replace(String(before), () => String(after ?? "")), ctx);
     return `Editei ${file}.`;
   }
   // The model copies code with its own indentation (4 spaces for a 2-space file) and never
   // matched: the same lines, ignoring leading spaces, found once, are replaced re-indented.
   const loose = before ? looseReplace(text, String(before), String(after ?? "")) : null;
   if (loose) {
-    await writeFile(file, loose, "utf8");
+    await changeFile(file, loose, ctx);
     return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).`;
   }
   throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato (sem os números de linha).");

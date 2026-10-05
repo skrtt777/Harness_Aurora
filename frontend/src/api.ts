@@ -38,7 +38,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; movesUndoneAt?: string } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
@@ -535,7 +535,7 @@ export type TaskAgent = {
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
-  moves?: { from: string; to: string }[]; undoneAt?: string | null;
+  moves?: { from: string; to: string }[]; edits?: { file: string }[]; undoneAt?: string | null;
 };
 export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
 

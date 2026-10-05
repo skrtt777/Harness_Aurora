@@ -67,15 +67,19 @@ function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d:
 }
 
 /** "Moved 12 files · Desfazer": puts every file the run moved back where it was. */
+/** "Moveu 3 e editou 1 arquivo(s)." */
+const changesText = (moved: number, edited: number) => (moved && edited ? `Moveu ${moved} e editou ${edited} arquivo(s).` : moved ? `Moveu ${moved} arquivo(s).` : `Editou ${edited} arquivo(s).`);
+
 function UndoMoves({ run, onChanged }: { run: AgentRun; onChanged: () => void }) {
   const [result, setResult] = useState('');
-  if (!run.moves?.length || run.status === 'running') return null;
-  if (run.undoneAt) return <p className="agent-undo"><small>Movimentos desfeitos em {when(run.undoneAt)}.{result && ` ${result}`}</small></p>;
+  const moved = run.moves?.length ?? 0, edited = run.edits?.length ?? 0;
+  if ((!moved && !edited) || run.status === 'running') return null;
+  if (run.undoneAt) return <p className="agent-undo"><small>Mudanças desfeitas em {when(run.undoneAt)}.{result && ` ${result}`}</small></p>;
   const undo = () => {
-    if (!window.confirm(`Devolver os ${run.moves!.length} arquivo(s) movidos ao lugar de antes?`)) return;
+    if (!window.confirm(`Desfazer o que esta execução mudou${moved ? ` (${moved} arquivo(s) movidos` : ' ('}${moved && edited ? ', ' : ''}${edited ? `${edited} editado(s)` : ''})?`)) return;
     undoAgentRun(run.id).then((r) => { setResult(`${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`); onChanged(); }).catch((e: Error) => setResult(e.message));
   };
-  return <p className="agent-undo"><small>Moveu {run.moves.length} arquivo(s).</small> <button type="button" className="link-button" onClick={undo}>Desfazer</button>{result && <small> {result}</small>}</p>;
+  return <p className="agent-undo"><small>{changesText(moved, edited)}</small> <button type="button" className="link-button" onClick={undo}>Desfazer</button>{result && <small> {result}</small>}</p>;
 }
 
 function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: TaskAgent; runs: AgentRun[]; onChanged: () => void; onOpenConversation: (id: string) => void }) {

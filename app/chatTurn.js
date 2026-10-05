@@ -487,6 +487,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     let agentPlan = null;
     // Every file move of the turn, in order: what "Desfazer" puts back.
     const agentMoves = [];
+    // Files the agent changed, with a copy of before: Desfazer puts them back.
+    const agentEdits = [];
     let agentAttachments = [];
     let agentDocs = [];
     let agentReview = null;
@@ -513,6 +515,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const extensionTools = await mcpAgentTools().catch(() => []);
           toolContext.extensions = [...new Set(extensionTools.map((t) => t.mcp.server))];
           toolContext.onMove = (from, to) => agentMoves.push({ from, to });
+          toolContext.onEdit = (edit) => agentEdits.push(edit);
           // Company documents not cleared for paid AI: tracked per turn so the
           // teacher (or a paid chat) only sees them with the person's consent.
           toolContext.provider = conversation.provider;
@@ -657,6 +660,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (agentMoves.length) result.execution = { ...(result.execution || {}), moves: agentMoves };
+    if (agentEdits.length) result.execution = { ...(result.execution || {}), edits: agentEdits };
     if (agentReview) result.execution = { ...(result.execution || {}), review: agentReview };
     if (agentFallbackError) result.execution = { ...(result.execution || {}), agentFallback: String(agentFallbackError).slice(0, 300) };
     if (agentAttachments.length) result.execution = { ...(result.execution || {}), attachments: agentAttachments };

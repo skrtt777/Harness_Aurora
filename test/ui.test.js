@@ -456,7 +456,7 @@ test('a run that moved files can be undone from its card', {skip,timeout:60000},
     const card=page.getByRole('article',{name:'Agente Desfazer'});
     await card.getByText('Moveu 1 arquivo(s).').waitFor();
     await card.getByRole('button',{name:'Desfazer'}).click();
-    await card.getByText(/Movimentos desfeitos em/).waitFor();
+    await card.getByText(/Mudanças desfeitas em/).waitFor();
     assert.ok(existsSync(join(workDir,'nota.pdf')),'the file is back');
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
@@ -477,11 +477,11 @@ test('a chat answer that moved files can be undone under the message', {skip,tim
     await page.getByText('Organizar fotos').first().click();
     await page.getByText('Moveu 1 arquivo(s).').waitFor();
     await page.getByRole('button',{name:'Desfazer'}).click();
-    await page.getByText(/Movimentos desfeitos: 1 voltaram/).waitFor();
+    await page.getByText(/Mudanças desfeitas: 1 voltaram/).waitFor();
     assert.ok(existsSync(join(dir,'foto.jpg')),'the file is back');
     await page.reload();
     await page.getByText('Organizar fotos').first().click();
-    await page.getByText('Movimentos desfeitos.').waitFor();
+    await page.getByText('Mudanças desfeitas.').waitFor();
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 
