@@ -239,8 +239,16 @@ export async function runChatAgent({
       continue;
     }
     if (!toolCalls.length) {
-      messages.push({ role: "assistant", content: text || "Pronto." });
-      return { ok: true, status: 200, text: text || "Pronto.", steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
+      // Still claiming a file nothing wrote (the forced summary has no tools to fix it):
+      // the person must not go looking for it.
+      let final = text || "Pronto.";
+      if (claimsDelivery(final, steps)) {
+        const failed = steps.filter((s) => !s.ok && WRITE_TOOLS.has(s.tool)).at(-1);
+        checks.push({ check: "claimed_delivery_final", answer: final.slice(0, 300) });
+        final += `\n\n> **Atenção:** nenhum arquivo foi gravado nesta resposta${failed ? ` (${String(failed.summary || "").replace(/^ERRO:\s*/, "").slice(0, 160)})` : ""}. Peça de novo ou autorize a gravação quando ela for pedida.`;
+      }
+      messages.push({ role: "assistant", content: final });
+      return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
     }
 
     // One call per assistant message (some chat templates refuse several in one).

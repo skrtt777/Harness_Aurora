@@ -22,3 +22,6 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# OCR language data tesseract.js caches in the working directory when run from source
+*.traineddata

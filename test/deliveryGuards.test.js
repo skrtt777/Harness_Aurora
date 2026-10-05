@@ -124,3 +124,11 @@ test("after a few web searches the model is told to deliver with what it has", a
   assert.doesNotMatch(results[2], /Pare de pesquisar/);
   assert.match(results[3], /já fez 4 pesquisas.*Pare de pesquisar/s);
 });
+
+test("a forced summary that still claims a file gets an honest warning", async () => {
+  const writer = { name: "write_document", description: "cria documento", parameters: { type: "object", properties: {} }, run: async () => { throw new Error("Ninguém respondeu ao pedido de autorização em 1 s; a ação não foi executada."); } };
+  const result = await runChatAgent({ system: "s", input: "crie um documento", tools: [writer], maxSteps: 1, callModel: async (messages, tools) => tools.length ? { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "x.md", content: "# x" } }] } : { ok: true, text: "Já criei o arquivo com os valores atualizados." } });
+  assert.match(result.text, /^Já criei o arquivo/);
+  assert.match(result.text, /Atenção:\*\* nenhum arquivo foi gravado nesta resposta \(Ninguém respondeu/);
+  assert.ok(result.checks.some((c) => c.check === "claimed_delivery_final"));
+});
