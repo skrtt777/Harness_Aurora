@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,13 +22,23 @@ export async function undoMoves(moves = []) {
   return { restored, skipped };
 }
 
-const backupDir = () => join(dirname(process.env.HARNESS_DB_FILE || fileURLToPath(new URL("../data/harness.db", import.meta.url))), "undo");
+const backupDir = () => join(dirname(process.env.HARNESS_DB_FILE || fileURLToPath(new URL("./data/harness.db", import.meta.url))), "undo");
 export const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+let pruned = false;
 
 /** A copy of a file about to be changed by the agent: what "Desfazer" puts back. */
 export async function backupBeforeChange(file) {
   if (!existsSync(file)) return null;
   await mkdir(backupDir(), { recursive: true });
+  // The app's own copies (not the person's files) older than 30 days go, once per run.
+  if (!pruned) {
+    pruned = true;
+    const old = Date.now() - 30 * 86_400_000;
+    for (const name of await readdir(backupDir()).catch(() => [])) {
+      const path = join(backupDir(), name);
+      if (name.endsWith(".bak") && (await stat(path).catch(() => null))?.mtimeMs < old) await unlink(path).catch(() => {});
+    }
+  }
   const backup = join(backupDir(), `${randomUUID()}.bak`);
   await copyFile(file, backup);
   return backup;
