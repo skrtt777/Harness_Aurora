@@ -56,9 +56,9 @@
 
 | O quê | Resultado |
 |---|---|
-| Testes automáticos | 487 passaram, 0 falhas |
-| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (5 rodadas) | 97,3% |
-| Agentes de setor, conferindo o arquivo entregue (3 rodadas) | 99% (23 de 24 perfeitas) |
+| Testes automáticos | 488 passaram, 0 falhas |
+| Conversas reais: documento, planilha, 10 turnos, navegador e honestidade (3 a 5 rodadas) | 97,3% a 100% |
+| Agentes de setor, conferindo o arquivo entregue (5 rodadas) | 98,8% (38 de 40 perfeitas) |
 | Perguntas sobre a empresa fictícia (49) | 96% a 100% em três rodadas (eram 92% a 96,9%) |
 | Pedido para a equipe: fechamento do mês / tarefa que usa a entrega de outra | 100% / 95,2% (eram 72,7–87,9% / 85,7–90,5%) |
 | Agentes pessoais (organizar pasta, corrigir código) | 86,7% a 100%; com pesquisa na web, 96,3% |
