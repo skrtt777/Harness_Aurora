@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
 import { DOCUMENT_FORMATS, renderDocument } from "../documentWriter.js";
 
@@ -104,6 +104,12 @@ function documentPath(args, ctx) {
   // Small models name the field after other tools ("file_path", "filename").
   const path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
   const format = args.format;
+  // "planilha-1/contratos.xlsx" inside the folder planilha-1 meant the folder itself,
+  // not a new planilha-1\planilha-1 (a small model repeats the project's name).
+  if (ctx.workspace && !isAbsolute(String(path || ""))) {
+    const [head, ...rest] = String(path).split(/[\\/]/);
+    if (rest.length && head.toLowerCase() === basename(ctx.workspace).toLowerCase() && !existsSync(join(ctx.workspace, head))) return documentPath({ ...args, path: rest.join("/"), file_path: undefined, filePath: undefined, filename: undefined, file: undefined, name: undefined }, ctx);
+  }
   if (!String(path || "").trim()) throw new Error('Falta "path": informe o caminho com o nome do arquivo (ex.: C:\\Users\\voce\\Documents\\proposta_atualizada.docx) e o "content" completo em markdown.');
   const file = full(path, ctx);
   const ext = extname(file).slice(1).toLowerCase();

@@ -42,12 +42,12 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
 const GROUNDING_TOOLS = new Set(["knowledge_search", "knowledge_map", "read_file", "web_search", "web_fetch", "browser_read", "grep"]);
 export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(String(text || ""));
 
-const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar";
+const ACTION_VERBS = "rolar|tentar|clicar|abrir|pesquisar|verificar|procurar|digitar|acessar|navegar|buscar|carregar|conferir|checar|olhar|ler|recarregar|voltar|selecionar|executar|rodar|criar|gerar|salvar|montar|escrever|preparar|elaborar|atualizar|fazer";
 
 /** "Vou rolar a página e verificar…" — a promise of an action, not an answer. */
 export function announcesAction(text) {
   const tail = String(text || "").slice(-400);
-  return new RegExp(`\\b(vou|irei|vamos|deixa eu|deixe-me|agora vou)\\s+(\\w+\\s+)?(${ACTION_VERBS})`, "i").test(tail)
+  return new RegExp(`\\b(vou|vai|irei|vamos|deixa eu|deixe-me|agora vou)\\s+(\\w+\\s+)?(${ACTION_VERBS})`, "i").test(tail)
     && !/\?\s*$/.test(tail.trim());
 }
 
@@ -226,7 +226,7 @@ export async function runChatAgent({
       continue;
     }
     // Asked to create a file, it answers with "quer que eu crie?": the request already says so.
-    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (/\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer)|deseja que|precisa confirmar|confirme)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
+    if (!toolCalls.length && offered.length && !confirmChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && (/\?\s*$/.test(text) || /\b(quer que eu|prefere|posso (criar|gerar|fazer|prosseguir|seguir|continuar)|deseja que|precisa confirmar|confirme|gostaria d[oa] seu|seu ok)\b/i.test(text.slice(-400))) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) {
       confirmChecked = true;
       checks.push({ check: "asked_instead_of_doing", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido já é para criar o arquivo: não peça confirmação. Crie agora com write_document, usando os dados da conversa e marcando como estimativa o que não puder confirmar, e responda com o caminho." });

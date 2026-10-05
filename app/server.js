@@ -375,6 +375,10 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
  * model was trained on — a follow-up like "agora pesquise lá" then knows
  * where "lá" is without the model imitating an ad-hoc annotation.
  */
+// A replayed write_document carried the whole document again: thousands of tokens,
+// and the model called it once more to answer "onde está?". Long values are cut.
+const shortArgs = (args = {}) => Object.fromEntries(Object.entries(args || {}).map(([k, v]) => [k, typeof v === "string" && v.length > 200 ? `${v.slice(0, 200)}… (conteúdo já salvo)` : v]));
+
 export function agentHistory(history, limit = 8, { replaySteps = true } = {}) {
   return history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-limit).flatMap((m) => {
     // Only what worked is replayed: a small model imitates past calls, so a
@@ -388,7 +392,7 @@ export function agentHistory(history, limit = 8, { replaySteps = true } = {}) {
     // turn then fell back to plain chat with no tools.
     return [
       ...steps.flatMap((step) => [
-        { role: "assistant", content: "", tool_calls: [{ function: { name: step.tool, arguments: step.args || {} } }] },
+        { role: "assistant", content: "", tool_calls: [{ function: { name: step.tool, arguments: shortArgs(step.args) } }] },
         { role: "tool", tool_name: step.tool, content: step.summary || "ok" },
       ]),
       { role: "assistant", content },

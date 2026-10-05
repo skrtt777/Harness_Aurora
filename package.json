@@ -17,7 +17,8 @@
     "electron:dev": "concurrently -k -n backend,frontend,electron \"npm:start\" \"npm:frontend:dev\" \"npm:electron:wait\"",
     "electron:wait": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
     "dist": "npm run frontend:build && electron-builder --publish never",
-    "prepare": "node scripts/install-git-hooks.mjs"
+    "prepare": "node scripts/install-git-hooks.mjs",
+    "battery": "node scripts/conversation-battery.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
