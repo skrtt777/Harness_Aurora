@@ -50,17 +50,13 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 ## Agora
 
-1. **Agentes de tarefa (`docs/AGENTES_ROTEIRO.md`):** as fases B a F foram concluídas em 05/10:
-   - avaliação pelo arquivo entregue;
-   - 7 setores;
-   - agendador por horário e por pasta;
-   - orquestrador;
-   - agentes pessoais;
-   - a tela "Agentes".
+1. **Publicar a 0.1.35** (instalador em `release/`, notas em `docs/RELEASE_0.1.35.md`): `gh release create v0.1.35 …` (a 0.1.34 nunca foi publicada; a 0.1.35 a substitui).
+2. **Busca da empresa ainda erra o documento** em perguntas curtas: "próximo imposto a vencer" (vai à web em vez do calendário de obrigações), "quem é o gerente de logística" (não traz a lista de ramais), "área mais acima do orçamento" (lê o orçamento do ano anterior). Medir com `empresa-eval --only fiscal-1,administrativo-2,controladoria-2 --samples 5`.
+3. **Perguntas de "maior/menor/mais acima"** numa planilha: o mesmo tipo de dica pronta que já existe para datas ("vence primeiro" → sort), escolhendo a coluna pelas palavras do pedido.
+4. **Extensões MCP com servidores reais** (Google Agenda, Gmail): só foram testadas com um servidor de teste; falta um teste de ponta a ponta com um servidor público.
+5. **qwen3.5:9b** para placas fortes: melhor nos agentes, pior nas conversas; antes de oferecer, resolver o nome da conta do Windows tomado como nome da pessoa.
 
-   Feito depois: dependências entre tarefas do orquestrador, barra lateral sem um projeto por agente, modelos prontos, andamento ao vivo, exportar histórico, Desfazer.
-2. **Bateria de conversas maior:** conversas longas (10 ou mais turnos) e mudança de assunto no meio. Pesquisa, organização de pastas e correção de código já estão na avaliação dos agentes pessoais.
-3. **Planilhas:** o filtro por comparação de números e datas já está no `read_file` (05/10). Falta fazer o modelo usá-lo sempre, em vez de comparar de cabeça quando a planilha cabe inteira.
+Feito em 05/10 (detalhes acima, em Feito): agentes de tarefa completos (fases B a F), tela Agentes, Desfazer, MCP, registro de ações, especulação e preparo antecipado do modelo.
 
 ## Depois
 
