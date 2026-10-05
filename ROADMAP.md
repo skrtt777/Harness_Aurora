@@ -8,11 +8,11 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 458 passaram, 0 falhas (05/10) |
+| Testes automáticos | `npm test` | 468 passaram, 0 falhas (05/10) |
 | Conversas reais (5 cenários: documento, planilha, 10 turnos, navegador, honestidade) | `npm run battery -- --runs 3` | 100% com qwen3.5:4b e especulação ligada (05/10, `reports/battery/`) |
 | Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 96,9%, 22 de 24 perfeitas (05/10, `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
-| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 87,9%; dependência 90,5%; plano certo em 100% (05/10) |
-| Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 92%; pesquisa 91,7% (05/10) |
+| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 93,9%; dependência 100% (05/10, tarde; eram 87,9% e 90,5%) |
+| Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 100% (6 de 6, com `organize_folder`); pesquisa 91,7% (05/10) |
 | Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96,9% (47 e 48 de 49 em 2 rodadas) com a escalada do app no llama-server, 2 s por pergunta (05/10); era 83% com 1 resposta |
 | Velocidade do modelo local | `node scripts/spec-bench.mjs` | cópia de 40 linhas: 12,4 s → 3,4 s (GPU); 8,5 → 40 tokens/s (CPU) com `ngram-mod` (05/10) |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
@@ -41,7 +41,10 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - `read_file` filtra CSV, segue o "até/a partir de" do pedido, sugere o filtro de período ("esse mês") e acha caminhos relativos à pasta da empresa;
   - `write_document` avisa linhas que ficaram de fora; a resposta sempre diz onde está o arquivo;
   - navegador: Enter num campo de várias linhas envia o formulário de verdade;
-  - `move_file` leva vários arquivos de uma vez.
+  - `move_file` leva vários arquivos de uma vez; `organize_folder` organiza uma pasta por tipo numa chamada.
+- **Extensões MCP (05/10):** a pessoa conecta servidores MCP (e-mail, agenda, Notion…) em Configurações → Agente. Só-leitura roda direto; o resto pede autorização; o resultado conta como conteúdo de fora. Com o modelo local, 6 de 6 (achou a ferramenta e pediu autorização para criar).
+- **Empresa (05/10):** registro de ações exportável (tudo o que a Aurora fez, em qualquer conversa) e histórico dos agentes.
+- **Equipe (05/10):** dependência só quando o pedido diz sequência; trava `missing_delivery`; dica de filtro numérico. Testado e revertido: mandar o pedido inteiro a cada agente (eles faziam a parte dos outros).
 - **Pesquisado e descartado (05/10):** amostragem recomendada do Qwen (temperatura 0,7, sem penalidade de repetição): conversas caíram de 100% para 86,7% (laços de busca). Template de chat "corrigido" da comunidade: o defeito do bloco `<think>` vazio não se aplica ao modo sem raciocínio que usamos.
 
 ## Agora
@@ -63,7 +66,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 - **PCs sem placa de vídeo:** a especulação deu 5x na geração; falta medir o processamento do prompt inicial (cerca de 4.700 tokens fixos, já em cache entre conversas) num notebook de verdade.
 - **Empresa:**
   - perfis e políticas por pessoa;
-  - registro de auditoria;
+  - registro de auditoria (feito: exportação das ações e do histórico dos agentes);
   - instalador assinado com certificado de empresa (o SmartScreen e a TI bloqueiam sem isso);
   - atualização controlada pela TI.
 - **Quest/XR:** a mesma "mente" do PC (mesmo contexto e memória). O backend é do Claude; o visual do Unreal é do Codex.
