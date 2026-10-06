@@ -70,7 +70,7 @@ export async function writeBatteryFixtures(dir) {
   writeFileSync(join(dir, "contratos_fornecedores.xlsx"), makeXlsx({ Contratos: CONTRACTS.map((r) => [...r]) }));
 }
 
-const FIXTURES = new Set(["Kit_Midia_Luma_2026.pdf", "contratos_fornecedores.xlsx"]);
+const FIXTURES = new Set(["Kit_Midia_Luma_2026.pdf", "contratos_fornecedores.xlsx", "video_ferias.mp4", "apresentacao_cliente.pptx", "fotos_praia.zip", "boleto_luz.pdf", "boleto_luz (1).pdf"]);
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const has = (text, ...words) => words.every((w) => fold(text).includes(fold(w)));
 const created = (turn, ext) => (turn.steps || []).filter((s) => s.ok && ["write_document", "write_file"].includes(s.tool))
@@ -193,6 +193,25 @@ export const SCENARIOS = [
       { message: "chegou algum arquivo novo hoje no computador?", checks: [
         { name: "aponta o boleto de energia", ok: (t) => has(t.text, "boleto_energia") },
         { name: "não lista os antigos como novos", ok: (t) => !has(t.text, "contrato_aluguel") && !has(t.text, "relatorio_q3") },
+      ] },
+    ],
+  },
+  {
+    // What a person asks of a messy folder: the biggest files, and what is there twice.
+    id: "arquivos",
+    title: "Os maiores arquivos de uma pasta e as cópias repetidas",
+    async setup({ dir }) {
+      for (const [name, kb] of [["video_ferias.mp4", 3072], ["apresentacao_cliente.pptx", 1536], ["fotos_praia.zip", 800], ["boleto_luz.pdf", 2], ["boleto_luz (1).pdf", 2]]) writeFileSync(join(dir, name), Buffer.alloc(kb * 1024));
+      return {};
+    },
+    turns: [
+      { message: "quais são os 3 maiores arquivos desta pasta?", checks: [
+        { name: "os três maiores, na ordem", ok: (t) => { const i = ["video_ferias", "apresentacao_cliente", "fotos_praia"].map((n) => fold(t.text).indexOf(n)); return i.every((x) => x >= 0) && i[0] < i[1] && i[1] < i[2]; } },
+        { name: "com o tamanho", ok: (t) => /3[,.]0 ?MB|3 ?MB/i.test(t.text) },
+      ] },
+      { message: "tem algum arquivo repetido aqui?", checks: [
+        { name: "aponta o boleto repetido", ok: (t) => has(t.text, "boleto_luz") && /\(1\)|c[óo]pia|repetid|duplicad/i.test(t.text) },
+        { name: "não apaga nada sem pedir", ok: (t, c) => existsSync(join(c.dir, "boleto_luz (1).pdf")) },
       ] },
     ],
   },

@@ -594,6 +594,25 @@ function statSafe(path) { try { return statSync(path); } catch { return null; } 
 // Documents write_document created while the app runs: those (only those) may be replaced.
 const OWN_DOCUMENTS = new Set();
 // The format wins over a missing or wrong extension ("proposta" + docx → proposta.docx).
+export const humanSize = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1).replace(".", ",")} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1).replace(".", ",")} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} bytes`);
+
+/**
+ * Downloads twice: "boleto (1).pdf", "boleto - Cópia.pdf", "boleto(2).pdf" next to "boleto.pdf"
+ * with the same size. Pairs [original, copy].
+ */
+export function likelyCopies(files) {
+  const base = (name) => name.replace(/\s*(\(\d+\)|- c[óo]pia( \(\d+\))?|- copy( \(\d+\))?)(?=\.[^.]+$|$)/i, "").toLowerCase();
+  const byKey = new Map();
+  const pairs = [];
+  for (const f of [...files].sort((a, b) => a.name.length - b.name.length)) {
+    if (f.size === null || f.size === undefined) continue;
+    const key = `${base(f.name)}|${f.size}`;
+    if (byKey.has(key)) pairs.push([byKey.get(key), f.name]);
+    else byKey.set(key, f.name);
+  }
+  return pairs;
+}
+
 /**
  * Where a NEW file lands. An automatic run (schedule, file, team) has nobody to say yes: a file aimed
  * outside the agent's folders goes into its own folder instead of being refused and lost (it invented
@@ -790,15 +809,26 @@ async function looksBinary(path) {
 export const fileTools = [
   {
     name: "list_dir",
-    description: "Lista arquivos e pastas de um diretório. Caminhos relativos partem da pasta do projeto; aceita também Desktop, Documentos e Downloads.",
-    parameters: { type: "object", properties: { path: { type: "string", description: "pasta (padrão: pasta do projeto)" } } },
+    description: "Lista arquivos e pastas de um diretório, com tamanho e data de cada arquivo, e avisa de cópias prováveis (\"foto (1).jpg\" igual a \"foto.jpg\"). Caminhos relativos partem da pasta do projeto; aceita também Desktop, Documentos e Downloads. Para \"os maiores\" use sort=\"tamanho\"; para \"o que chegou por último\", sort=\"data\".",
+    parameters: { type: "object", properties: { path: { type: "string", description: "pasta (padrão: pasta do projeto)" }, sort: { type: "string", enum: ["nome", "tamanho", "data"], description: "opcional: tamanho (maiores primeiro) ou data (mais recentes primeiro)" } } },
     stage: (a) => `Listando ${a.path || "a pasta do projeto"}…`,
     describe: (a, ctx) => ({ kind: "read", paths: [full(a.path || ".", ctx)] }),
-    async run({ path }, ctx) {
+    async run({ path, sort }, ctx) {
       const dir = full(path || ".", ctx);
       const entries = await readdir(dir, { withFileTypes: true });
-      const lines = entries.slice(0, 200).map((e) => `${e.isDirectory() ? "[pasta]" : "       "} ${e.name}`);
-      return `${dir}\n${lines.join("\n") || "(vazio)"}${entries.length > 200 ? `\n… mais ${entries.length - 200}` : ""}`;
+      // Sizes and dates: "quais os maiores arquivos?", "o que baixei essa semana?" had only names to go on.
+      const items = await Promise.all(entries.slice(0, 400).map(async (e) => {
+        if (e.isDirectory()) return { name: e.name, dir: true };
+        try { const st = await stat(join(dir, e.name)); return { name: e.name, size: st.size, mtime: st.mtimeMs }; } catch { return { name: e.name, size: null, mtime: 0 }; }
+      }));
+      const order = String(sort || "").toLowerCase();
+      if (order.startsWith("tam")) items.sort((a, b) => (b.size ?? -1) - (a.size ?? -1));
+      else if (order.startsWith("dat")) items.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      const day = (ms) => new Date(ms).toLocaleDateString("pt-BR");
+      const lines = items.slice(0, 200).map((i) => (i.dir ? `[pasta] ${i.name}` : `        ${i.name} — ${i.size === null ? "?" : humanSize(i.size)}, ${day(i.mtime)}`));
+      const copies = likelyCopies(items.filter((i) => !i.dir));
+      const copyNote = copies.length ? `\nCópias prováveis (mesmo nome com (1)/- Cópia e mesmo tamanho): ${copies.slice(0, 15).map(([a, b]) => `"${b}" = "${a}"`).join("; ")}${copies.length > 15 ? "…" : ""}` : "";
+      return `${dir}${order.startsWith("tam") ? " (maiores primeiro)" : order.startsWith("dat") ? " (mais recentes primeiro)" : ""}\n${lines.join("\n") || "(vazio)"}${entries.length > 200 ? `\n… mais ${entries.length - 200}` : ""}${copyNote}`;
     },
   },
   {
