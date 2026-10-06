@@ -303,3 +303,14 @@
 .chat-composer { position: relative; }
 .chat-composer.is-dropping { outline: 2px dashed var(--accent, #5fd3c6); outline-offset: 3px; }
 .chat-composer .composer-drop { position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; background: color-mix(in srgb, var(--bg-surface, #15181d) 88%, transparent); color: var(--accent, #5fd3c6); font-weight: 600; pointer-events: none; z-index: 2; }
+
+/* Start screen: greeting, today's agents and the latest files */
+.chat-welcome .home-today { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.chat-welcome .home-today h1 { margin: 0; }
+.chat-welcome .home-today > p { margin: 0; color: var(--text-3, #9aa3ad); max-width: 560px; }
+.chat-welcome .home-today-list { list-style: none; margin: 10px 0 4px; padding: 0; display: grid; gap: 6px; justify-items: center; }
+.chat-welcome .home-today-list li { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--stroke-2, #2a2f36); background: var(--bg-surface, #15181d); font-size: 13px; color: var(--text-2, #c8ced6); max-width: 100%; }
+.chat-welcome .home-tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #5fd3c6) 18%, transparent); color: var(--accent, #5fd3c6); }
+.chat-welcome .home-tag.done { background: rgba(130, 200, 130, 0.16); color: #8fd48f; }
+.chat-welcome .home-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+.chat-welcome .home-today-list { margin-bottom: 14px; }

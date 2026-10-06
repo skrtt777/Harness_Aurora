@@ -12,6 +12,7 @@ import { detectGpu } from "./llamaServer.js";
 import { clearComputerMap, mapChildren, mapSearch, mapStatus, scanComputer, startMapSchedule } from "./computerMap.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { getProfile, saveProfile } from "./profile.js";
+import { diaryEntries } from "./diary.js";
 import { connectTelegram, disconnectTelegram, notifyRunOnPhone, sendToPhone, startTelegram, stopTelegram, telegramStatus } from "./telegram.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
@@ -461,6 +462,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (pathname === "/api/telegram" && method === "PUT") return sendJson(response, 200, await connectTelegram((await readJson(request)).token, { handleChatTurn }));
       if (pathname === "/api/telegram" && method === "DELETE") return sendJson(response, 200, await disconnectTelegram());
       if (pathname === "/api/telegram/test" && method === "POST") return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este chat está ligado ao seu computador.") });
+      // The Aurora's diary (today and yesterday): the start screen shows the files it made.
+      if (pathname === "/api/diary" && method === "GET") return sendJson(response, 200, { entries: await diaryEntries() });
       // "Sobre você": the person's profile, in every conversation.
       if (pathname === "/api/profile" && method === "GET") return sendJson(response, 200, await getProfile());
       if (pathname === "/api/profile" && method === "PUT") return sendJson(response, 200, await saveProfile(await readJson(request)));

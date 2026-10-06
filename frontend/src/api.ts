@@ -630,3 +630,7 @@ export const getTelegram = () => request<TelegramStatus>("/telegram");
 export const connectTelegram = (token: string) => request<TelegramStatus>("/telegram", { method: "PUT", body: JSON.stringify({ token }) });
 export const disconnectTelegram = () => request<TelegramStatus>("/telegram", { method: "DELETE" });
 export const testTelegram = () => request<{ sent: boolean }>("/telegram/test", { method: "POST" });
+
+/** What the Aurora made today and yesterday (its diary). */
+export type DiaryEntry = { day: "hoje" | "ontem"; time: string; title: string; files: string[]; moved: number; undone: boolean };
+export const getDiary = () => request<{ entries: DiaryEntry[] }>("/diary").then((r) => r.entries);

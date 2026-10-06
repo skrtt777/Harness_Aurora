@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import HomeToday from './HomeToday';
 import { droppedFilePath, getArtifacts, getProviders, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
@@ -297,7 +298,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
       </header>
       <LocalSetupPanel active={conversation.provider === 'local'} compact />
       <div className="chat-messages" ref={scrollRef}>
-        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><h1>O que vamos fazer hoje?</h1><p>Peça do seu jeito. A Aurora organiza seus arquivos, cria documentos e planilhas e pesquisa para você.</p>
+        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><HomeToday />
           <div className="starter-prompts">{STARTERS.map(([label, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
         </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
