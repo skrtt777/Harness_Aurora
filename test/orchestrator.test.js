@@ -100,3 +100,13 @@ test("a dependency the request never asked for is dropped; each agent gets only 
   await runPlan({ tasks: parsePlan(text, team, together), handleChatTurn: null, runAgent: async (id, { request }) => { seen.push(request); return { status: "done", files: [`${id}.xlsx`], answer: "ok" }; } });
   assert.ok(seen.every((r) => !r.includes(together)));
 });
+
+test("a plan never delivers .md text unless text was asked: lists become sheets, summaries Word", async () => {
+  const { parsePlan } = await import("../app/orchestrator.js");
+  const agents = [{ id: "f", name: "Agente Financeiro", department: "Financeiro", mission: "x" }, { id: "c", name: "Agente Controladoria", department: "Controladoria", mission: "y" }];
+  const plan = JSON.stringify({ tasks: [{ agent: "Agente Financeiro", request: "Faça a lista dos títulos em atraso há mais de 30 dias.", formato: "texto" }, { agent: "Agente Controladoria", request: "Faça um resumo das áreas acima do orçamento.", formato: "texto" }] });
+  const [fin, ctrl] = parsePlan(plan, agents, "feche o mês: inadimplentes acima de 30 dias e áreas acima do orçamento");
+  assert.match(fin.request, /planilha Excel \(\.xlsx\)/);
+  assert.match(ctrl.request, /relatório em Word \(\.docx\)/);
+  assert.match(parsePlan(plan, agents, "quero tudo em texto")[0].request, /texto \(\.md\)/);
+});

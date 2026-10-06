@@ -63,7 +63,14 @@ export function parsePlan(text, agents, request = null) {
   try { parsed = JSON.parse(String(text || "").match(/\{[\s\S]*\}/)?.[0] || ""); } catch { return []; }
   const byName = new Map(agents.map((a) => [fold(a.name), a]));
   const seen = new Set();
-  const kept = (Array.isArray(parsed?.tasks) ? parsed.tasks : []).map((t) => ({ agent: byName.get(fold(t?.agent)), request: String(t?.request || "").trim(), format: FORMATS[t?.formato] ? t.formato : null, after: Array.isArray(t?.depende_de) ? t.depende_de : [] }))
+  // "Texto (.md)" only when the person asked for text: for "inadimplentes acima de 30 dias" the
+  // planner chose it in 2 of 4 runs, and a .md list is a poor delivery for anyone (06/10).
+  const formatOf = (t) => {
+    const chosen = FORMATS[t?.formato] ? t.formato : null;
+    if (chosen !== "texto" || request === null || /\b(texto|markdown|\.md|\.txt)\b/i.test(String(request))) return chosen;
+    return /\b(relat[oó]rio|resumo|an[aá]lise|carta|e-?mail|parecer)\b/i.test(String(t?.request || "")) ? "relatório em Word" : "planilha";
+  };
+  const kept = (Array.isArray(parsed?.tasks) ? parsed.tasks : []).map((t) => ({ agent: byName.get(fold(t?.agent)), request: String(t?.request || "").trim(), format: formatOf(t), after: Array.isArray(t?.depende_de) ? t.depende_de : [] }))
     .filter((t) => t.agent && t.request.length >= 10 && !seen.has(t.agent.id) && seen.add(t.agent.id));
   return kept.map((t, i) => {
     // Only earlier tasks can be waited for: no cycles, and the order the plan was written in.
