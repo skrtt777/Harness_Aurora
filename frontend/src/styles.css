@@ -2464,3 +2464,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .skills-view details { margin:18px 0; padding:14px; border:1px solid #41445a; border-radius:8px; }
 .skill-catalog { max-height:340px; overflow:auto; margin-top:12px; }
 .skill-catalog > div { display:flex; gap:12px; justify-content:space-between; align-items:center; padding:8px; }
+
+/* A link that is a button, the same everywhere (in Settings it looked like a grey block). */
+.app-shell button.link-button,
+.app-shell .page-skin button.link-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  box-shadow: none;
+}
+.app-shell button.link-button:hover { color: var(--accent-strong); }
+
+/* Four starts in a balanced 2×2 (one per row on narrow windows). */
+.chat-welcome .starter-prompts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; margin-inline: auto; }
+.chat-welcome .starter-prompts button { justify-content: space-between; }
+@media (max-width: 560px) { .chat-welcome .starter-prompts { grid-template-columns: 1fr; } }

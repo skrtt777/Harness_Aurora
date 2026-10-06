@@ -57,6 +57,14 @@ function exportConversation(conversation: ConversationWithMessages, format: 'md'
   else downloadBlob(conversationToJson(conversation), `${slug}.json`, 'application/json');
 }
 
+// What the Aurora does best for anyone, as ready starts (the old ones — a game, a dashboard — were a programmer's).
+const STARTERS: [string, string][] = [
+  ['Organizar meus Downloads', 'Organize a minha pasta Downloads por tipo de arquivo, sem apagar nada.'],
+  ['Resumir um documento', 'Resuma este documento em tópicos: '],
+  ['Criar uma planilha', 'Crie uma planilha com '],
+  ['Pesquisar na internet', 'Pesquise na internet e me dê um resumo com as fontes sobre '],
+];
+
 const TOOL_LABELS: Record<string, string> = {
   browser_navigate: 'Abriu site', browser_snapshot: 'Olhou a página', browser_click: 'Clicou', browser_type: 'Digitou',
   browser_key: 'Apertou tecla', browser_scroll: 'Rolou a página', browser_read: 'Leu a página', browser_tabs: 'Abas',
@@ -283,8 +291,8 @@ export default function ChatView({ conversation, project, loading, sending, pend
       </header>
       <LocalSetupPanel active={conversation.provider === 'local'} compact />
       <div className="chat-messages" ref={scrollRef}>
-        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><h1>O que vamos criar?</h1><p>Conte sua ideia. A Aurora ajuda a dar forma a ela.</p>
-          <div className="starter-prompts">{['Criar um jogo', 'Montar um dashboard', 'Explorar uma ideia'].map(label => <button key={label} onClick={() => { setDraft(label === 'Criar um jogo' ? 'Crie um jogo em HTML que ' : label === 'Montar um dashboard' ? 'Crie um dashboard para ' : 'Quero explorar uma ideia: '); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
+        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><h1>O que vamos fazer hoje?</h1><p>Peça do seu jeito. A Aurora organiza seus arquivos, cria documentos e planilhas e pesquisa para você.</p>
+          <div className="starter-prompts">{STARTERS.map(([label, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
         </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">

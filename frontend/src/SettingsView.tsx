@@ -313,7 +313,7 @@ export default function SettingsView({
             </header>
             <div className="section">
               <div className="row">
-                <div className="row-text"><div className="row-label">Ações do chat</div><div className="row-desc">Desligado, o chat só conversa.</div></div>
+                <div className="row-text"><div className="row-label">Ações do chat</div><div className="row-desc">{settings.agentToolsEnabled ? "Ligado: a Aurora pode agir por você (arquivos, navegador, programas)." : "Desligado: a Aurora só conversa."}</div></div>
                 <div className="row-control"><input type="checkbox" className="switch" aria-label="Ações do chat" checked={settings.agentToolsEnabled} onChange={(e) => void saveAgent({ agentToolsEnabled: e.target.checked })} /></div>
               </div>
               <div className="row">

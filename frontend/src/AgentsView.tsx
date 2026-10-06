@@ -111,10 +111,10 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
         <h3>{agent.name}</h3>
         <p className="agent-meta">{agent.kind === 'setor' ? `Setor ${agent.department || ''}` : 'Pessoal'} · {describeTrigger(agent.trigger)}</p>
       </div>
-      <span className={`agent-status ${running ? 'running' : latest?.status || ''}`}>{running ? 'Trabalhando…' : agent.enabled ? 'Pronto' : 'Desligado'}</span>
+      <span className={`agent-status ${running ? 'running' : !agent.enabled ? 'off' : latest?.status || ''}`}><i aria-hidden="true" />{running ? 'Trabalhando…' : agent.enabled ? 'Pronto' : 'Desligado'}</span>
     </header>
     <p className="agent-mission">{agent.mission}</p>
-    <small className="agent-folder" title={agent.workDir}>Guarda o que faz em: {agent.workDir}</small>
+    <small className="agent-folder" title={agent.workDir}>Pasta: <b>{agent.workDir.split(/[\\/]/).filter(Boolean).pop()}</b></small>
     {running && live && <div className="agent-live" aria-live="polite" aria-label="Andamento">
       {live.stage && <small>{live.stage}</small>}
       {live.steps.length > 0 && <ol>{live.steps.slice(-4).map((s, i) => <li key={i} className={s.status === 'running' ? 'running' : s.ok === false ? 'failed' : 'done'}>{stepText(s)}</li>)}</ol>}
@@ -133,7 +133,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
 
     <form className="agent-run" onSubmit={(e) => { e.preventDefault(); if (requestText.trim()) act(() => runTaskAgent(agent.id, requestText.trim()).then(() => setRequestText(''))); }}>
       <textarea rows={2} value={requestText} onChange={(e) => setRequestText(e.target.value)} placeholder={`O que ${agent.name} deve fazer agora?`} aria-label={`Pedido para ${agent.name}`} disabled={!agent.enabled} />
-      <button className="primary" disabled={running || !agent.enabled || !requestText.trim()}>Rodar agora</button>
+      <button className="btn btn-primary" disabled={running || !agent.enabled || !requestText.trim()}>Rodar agora</button>
     </form>
     {error && <p role="alert" className="memory-form-error">{error}</p>}
 
@@ -146,15 +146,15 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
     </section>}
 
     <div className="agent-actions-row">
-      <button type="button" onClick={() => (history ? setHistory(null) : void listTaskAgentRuns(agent.id).then(setHistory).catch((e: Error) => setError(e.message)))}>{history ? 'Fechar histórico' : 'Histórico'}</button>
-      <button type="button" onClick={() => setEditing(!editing)}>{editing ? 'Cancelar' : 'Quando trabalha'}</button>
-      <button type="button" onClick={() => act(() => updateTaskAgent(agent.id, { enabled: !agent.enabled }))}>{agent.enabled ? 'Desligar' : 'Ligar'}</button>
-      <button type="button" className="danger" onClick={() => { if (window.confirm(`Apagar ${agent.name}? A pasta e os arquivos entregues continuam no disco.`)) act(() => deleteTaskAgent(agent.id)); }}>Apagar</button>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => (history ? setHistory(null) : void listTaskAgentRuns(agent.id).then(setHistory).catch((e: Error) => setError(e.message)))}>{history ? 'Fechar histórico' : 'Histórico'}</button>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancelar' : 'Quando trabalha'}</button>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => act(() => updateTaskAgent(agent.id, { enabled: !agent.enabled }))}>{agent.enabled ? 'Desligar' : 'Ligar'}</button>
+      <button type="button" className="btn btn-ghost btn-sm agent-delete" onClick={() => { if (window.confirm(`Apagar ${agent.name}? A pasta e os arquivos entregues continuam no disco.`)) act(() => deleteTaskAgent(agent.id)); }}>Apagar</button>
     </div>
 
     {editing && <form className="agent-edit" onSubmit={(e) => { e.preventDefault(); act(() => updateTaskAgent(agent.id, { trigger: triggerOf(trigger) }).then(() => setEditing(false))); }}>
       <TriggerEditor value={trigger} onChange={setTrigger} />
-      <button className="primary">Salvar</button>
+      <button className="btn btn-primary">Salvar</button>
     </form>}
 
     {history && <ol className="agent-history" aria-label={`Histórico de ${agent.name}`}>

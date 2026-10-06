@@ -46,8 +46,8 @@ export default function McpPanel() {
       </div>;
     })}
     <form className="mcp-add" onSubmit={(e) => { e.preventDefault(); add(); }}>
-      <input aria-label="Nome da extensão" placeholder="Nome (ex.: Agenda)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-      <input aria-label="Comando da extensão" placeholder="Comando (ex.: npx -y pacote-do-servidor-mcp)" value={draft.line} onChange={(e) => setDraft({ ...draft, line: e.target.value })} />
+      <input className="field" aria-label="Nome da extensão" placeholder="Nome (ex.: Agenda)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+      <input className="field mono" aria-label="Comando da extensão" placeholder="Comando (ex.: npx -y pacote-do-servidor-mcp)" value={draft.line} onChange={(e) => setDraft({ ...draft, line: e.target.value })} />
       <button className="btn btn-sm" disabled={busy}>{busy ? "Conectando…" : "Adicionar"}</button>
     </form>
     {error && <p role="alert" className="memory-form-error">{error}</p>}
