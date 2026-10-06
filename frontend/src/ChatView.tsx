@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { droppedFilePath, getArtifacts, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
+import { droppedFilePath, getArtifacts, getProviders, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
@@ -212,6 +212,9 @@ export default function ChatView({ conversation, project, loading, sending, pend
   const setDraft = (value: string, id = draftId) => { drafts.set(id, value); setDraftState(new Map(drafts)); };
   const [panel, setPanel] = useState<'files' | 'tools' | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  // "Revisar com Codex/Claude" only when that program is there: without it the click was just an error.
+  const [teachers, setTeachers] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => { void getProviders().then((list) => setTeachers(Object.fromEntries(list.map((p) => [p.id, p.configured])))).catch(() => {}); }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fileError, setFileError] = useState('');
   const [dropping, setDropping] = useState(false);
@@ -297,7 +300,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
         {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><h1>O que vamos fazer hoje?</h1><p>Peça do seu jeito. A Aurora organiza seus arquivos, cria documentos e planilhas e pesquisa para você.</p>
           <div className="starter-prompts">{STARTERS.map(([label, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
         </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
-          correctable={!sending && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
+          correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
           {pendingTurn?.plan && <PlanList plan={pendingTurn.plan} />}
           {(pendingTurn?.steps.length ?? 0) > 0 && <StepList steps={pendingTurn!.steps} />}
