@@ -74,6 +74,8 @@ export async function executeTool(name, args, ctx, tools = AGENT_TOOLS) {
 let foldersPromise = null;
 /** Real Desktop/Documents/Downloads (may be redirected to OneDrive). */
 export function knownFolders() {
+  // Evaluations point these at fake folders (a phone eval wrote into the real Downloads, 06/10).
+  try { const fixed = JSON.parse(process.env.HARNESS_KNOWN_FOLDERS || "null"); if (fixed?.downloads) return Promise.resolve(fixed); } catch { /* the real ones */ }
   const fallback = { desktop: join(homedir(), "Desktop"), documents: join(homedir(), "Documents"), downloads: join(homedir(), "Downloads"), home: homedir() };
   if (process.platform !== "win32") return Promise.resolve(fallback);
   foldersPromise ||= new Promise((resolve) => {
