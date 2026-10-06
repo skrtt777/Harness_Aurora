@@ -139,3 +139,14 @@ test("computer_map with recent_days lists what changed lately, newest first", as
   assert.match(out, /boleto novo\.pdf/);
   assert.doesNotMatch(out, /velho\.pdf/);
 });
+
+test("map search ignores little words and falls back to any word", async () => {
+  const map = await import("../app/computerMap.js");
+  put("Documentos/Casa/contrato_aluguel_2025.pdf");
+  put("Documentos/Casa/recibo_iptu.pdf");
+  await scan();
+  const exact = await map.mapSearch("contrato de aluguel");
+  assert.ok(exact.files.some((f) => /contrato_aluguel_2025/.test(f.path)));
+  const loose = await map.mapSearch("contrato de locação aluguel imóvel");
+  assert.ok(loose.files[0] && /contrato_aluguel_2025/.test(loose.files[0].path), JSON.stringify(loose.files));
+});

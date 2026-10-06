@@ -240,16 +240,27 @@ export async function mapChildren(path = null, { limit = 60 } = {}) {
 }
 
 /** Files (and folders) by name: every word, accents ignored, newest first among the best. */
+const SEARCH_STOPWORDS = new Set(["de", "da", "do", "das", "dos", "e", "o", "a", "os", "as", "um", "uma", "no", "na", "em", "meu", "minha", "meus", "minhas", "com", "para", "pra", "por", "arquivo", "arquivos", "pasta"]);
+// "2026-10-06 02:27" in the PC's own time (toISOString is UTC: a file from 02:27 read as 05:27).
+const localStamp = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
 export async function mapSearch(query, { limit = 20 } = {}) {
   const db = await ready();
-  const words = String(query || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]{2,}/g) || [];
+  // "contrato de aluguel" asked for a file with "de" in the name and found nothing (battery, 06/10):
+  // the little words go, and if every word together finds nothing, any of them does (best first).
+  const all = String(query || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]{2,}/g) || [];
+  const words = all.filter((w) => !SEARCH_STOPWORDS.has(w));
   if (!words.length) return { files: [], folders: [] };
-  const match = words.map((w) => `"${w}"*`).join(" ");
-  const files = db.prepare(`SELECT d.path AS dir, f.name, f.size, f.mtime FROM map_names JOIN map_items f ON f.id = map_names.rowid JOIN map_dirs d ON d.rowid = f.dir_id
+  const findFiles = (match) => db.prepare(`SELECT d.path AS dir, f.name, f.size, f.mtime FROM map_names JOIN map_items f ON f.id = map_names.rowid JOIN map_dirs d ON d.rowid = f.dir_id
     WHERE map_names MATCH ? ORDER BY bm25(map_names), f.mtime DESC LIMIT ?`).all(match, limit)
-    .map((f) => ({ path: join(f.dir, f.name), size: gb(f.size || 0), modified: f.mtime ? new Date(f.mtime).toISOString().slice(0, 10) : null }));
-  const folders = db.prepare("SELECT * FROM map_dirs WHERE " + words.map(() => "lower(name) LIKE ?").join(" AND ") + " ORDER BY total_files DESC LIMIT ?")
+    .map((f) => ({ path: join(f.dir, f.name), size: gb(f.size || 0), modified: f.mtime ? localStamp(f.mtime).slice(0, 10) : null }));
+  const terms = words.map((w) => `"${w}"*`);
+  let files = findFiles(terms.join(" "));
+  if (!files.length && terms.length > 1) files = findFiles(terms.join(" OR "));
+  const findFolders = (join_) => db.prepare("SELECT * FROM map_dirs WHERE " + words.map(() => "lower(name) LIKE ?").join(join_) + " ORDER BY total_files DESC LIMIT ?")
     .all(...words.map((w) => `%${w}%`), Math.ceil(limit / 2)).map(row);
+  let folders = findFolders(" AND ");
+  if (!folders.length && !files.length && words.length > 1) folders = findFolders(" OR ");
   return { files, folders };
 }
 
@@ -259,7 +270,7 @@ export async function mapRecent(days = 1, { limit = 30 } = {}) {
   const since = Date.now() - Math.max(0.1, Number(days) || 1) * 86_400_000;
   return db.prepare(`SELECT d.path AS dir, f.name, f.size, f.mtime FROM map_items f JOIN map_dirs d ON d.rowid = f.dir_id
     WHERE f.mtime >= ? ORDER BY f.mtime DESC LIMIT ?`).all(since, limit)
-    .map((f) => ({ path: join(f.dir, f.name), size: gb(f.size || 0), modified: new Date(f.mtime).toISOString().slice(0, 16).replace("T", " ") }));
+    .map((f) => ({ path: join(f.dir, f.name), size: gb(f.size || 0), modified: localStamp(f.mtime) }));
 }
 
 /** A few lines on how this PC is organized: what the agent reads before it acts. */

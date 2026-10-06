@@ -40,16 +40,19 @@ for (let run = 1; run <= runs; run += 1) {
     await writeBatteryFixtures(dir);
     const site = await startBatterySite();
     const project = await store.createProject({ name: `Bateria ${scenario.id}`, workspaceDir: dir });
-    const conversation = await store.createConversation({ provider: "local", projectId: project.id, teacherProvider: "claude" });
+    const extra = scenario.setup ? await scenario.setup({ dir }) : {};
+    let conversation = await store.createConversation({ provider: "local", projectId: project.id, teacherProvider: "claude" });
     const turns = [];
     console.log(`\n## ${scenario.id} (rodada ${run}): ${scenario.title}`);
     for (const spec of scenario.turns) {
+      // A turn in a fresh conversation: what carries over is the profile, the diary and the map.
+      if (spec.newConversation) conversation = await store.createConversation({ provider: "local", projectId: project.id, teacherProvider: "claude" });
       const started = Date.now();
       const message = typeof spec.message === "function" ? spec.message({ site }) : spec.message;
       const reply = await handleChatTurn({ conversationId: conversation.id, message });
       const execution = reply.message?.execution || {};
       const turn = { text: reply.message?.content || reply.error || "", steps: execution.toolSteps || [], execution };
-      const checks = await scoreTurn(turn, spec.checks, { dir, turns, site, extract: (file) => extractText(file) });
+      const checks = await scoreTurn(turn, spec.checks, { dir, turns, site, ...extra, extract: (file) => extractText(file) });
       turns.push({ message, ms: Date.now() - started, text: turn.text, steps: turn.steps.map((s) => `${s.tool}${s.redo ? "(refazer)" : ""}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 120)})`}`), fallback: execution.agentFallback || null, checks,
         // What each step got and gave: a failure is diagnosed from the report, not by running again.
         detail: turn.steps.map((s) => ({ tool: s.tool, args: JSON.stringify(s.args || {}).slice(0, 200), result: String(s.summary || "").slice(0, 200) })) });

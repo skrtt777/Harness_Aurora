@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { makePdfDocument, parseBlocks } from "./documentWriter.js";
 import { narratesCorrection } from "./teacher.js";
 
@@ -164,6 +164,53 @@ export const SCENARIOS = [
       { message: (c) => `Agora abra ${c.site.url}/contato e envie uma mensagem com o nome Rafaela, o e-mail rafaela@exemplo.com e o texto "Quero um orçamento de 10 teclados".`, checks: [
         { name: "o site recebeu o formulário", ok: (t, c) => c.site.submissions.length > 0 },
         { name: "com nome, e-mail e mensagem certos", ok: (t, c) => c.site.submissions.some((s) => /rafaela/i.test(s.nome || "") && s.email === "rafaela@exemplo.com" && /10 teclados/i.test(s.mensagem || "")) },
+      ] },
+    ],
+  },
+  {
+    // The computer map: a file far from the project folder, found by name in the map (no disk
+    // walk, no approval), and "o que chegou hoje" from the map's dates.
+    id: "mapa",
+    title: "Achar um arquivo em qualquer lugar do PC e dizer o que chegou hoje",
+    async setup({ dir }) {
+      const pc = `${dir}-pc`;
+      const old = (Date.now() - 20 * 86_400_000) / 1000;
+      const put = (rel, fresh = false) => { const f = join(pc, rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, "x"); if (!fresh) utimesSync(f, old, old); };
+      for (const f of ["Documentos/Casa/contrato_aluguel_2025.pdf", "Documentos/Casa/condominio_agosto.pdf", "Documentos/Trabalho/relatorio_q3.docx", "Fotos/Praia 2025/IMG_0001.jpg", "Fotos/Praia 2025/IMG_0002.jpg", "Downloads/setup_programa.exe"]) put(f);
+      put("Downloads/boleto_energia_outubro.pdf", true);
+      const store = await import("./store.js");
+      const map = await import("./computerMap.js");
+      await store.setSetting("computer_map", "true");
+      await map.clearComputerMap();
+      await map.scanComputer({ roots: [pc], home: pc, pauseMs: 0 });
+      return { pc };
+    },
+    turns: [
+      { message: "onde está o meu contrato de aluguel no computador?", checks: [
+        { name: "diz a pasta do contrato", ok: (t) => has(t.text, "contrato_aluguel_2025") && /Casa/.test(t.text) },
+        { name: "usou o mapa", ok: (t) => (t.steps || []).some((s) => s.tool === "computer_map" && s.ok) },
+      ] },
+      { message: "chegou algum arquivo novo hoje no computador?", checks: [
+        { name: "aponta o boleto de energia", ok: (t) => has(t.text, "boleto_energia") },
+        { name: "não lista os antigos como novos", ok: (t) => !has(t.text, "contrato_aluguel") && !has(t.text, "relatorio_q3") },
+      ] },
+    ],
+  },
+  {
+    // OpenClaw's continuity: a new conversation still knows the person and what the Aurora did.
+    id: "continuidade",
+    title: "Lembrar o nome e o arquivo feito noutra conversa",
+    turns: [
+      { message: "Oi! Eu me chamo Rafaela e trabalho com parcerias de marketing.", checks: [
+        { name: "responde", ok: (t) => String(t.text).length > 0 },
+      ] },
+      { message: "crie uma planilha com os formatos e preços do documento Kit_Midia_Luma_2026", checks: [
+        { name: "cria um .xlsx", ok: (t, c) => newFiles(c.dir).some((f) => f.toLowerCase().endsWith(".xlsx")) },
+      ] },
+      { newConversation: true, message: "qual é o meu nome?", checks: [{ name: "lembra: Rafaela (outra conversa)", ok: (t) => has(t.text, "Rafaela") }] },
+      { message: "onde ficou aquela planilha que você criou?", checks: [
+        { name: "diz o arquivo (outra conversa)", ok: (t, c) => newFiles(c.dir).some((f) => f.toLowerCase().endsWith(".xlsx") && named(t.text, f)) },
+        { name: "não cria outra", ok: (t, c) => newFiles(c.dir).filter((f) => f.toLowerCase().endsWith(".xlsx")).length === 1 },
       ] },
     ],
   },

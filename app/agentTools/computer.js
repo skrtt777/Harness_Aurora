@@ -19,7 +19,7 @@ export const computerTools = [
       if (recentDays) {
         const recent = await mapRecent(recentDays);
         const asOf = s.finishedAt ? ` (mapa atualizado em ${new Date(s.finishedAt).toLocaleString("pt-BR")})` : "";
-        return recent.length ? `Arquivos novos ou alterados nos últimos ${recentDays} dia(s)${asOf}:\n${recent.map((f) => `- ${f.path} (${f.size}, ${f.modified})`).join("\n")}${note}` : `Nenhum arquivo novo ou alterado nos últimos ${recentDays} dia(s)${asOf}.${note}`;
+        return recent.length ? `Arquivos novos ou alterados nos últimos ${recentDays} dia(s)${asOf}:\n${recent.map((f) => `- ${f.path} (${f.size}, ${f.modified})`).join("\n")}\n(Na resposta, diga o nome de cada arquivo e a pasta onde está.)${note}` : `Nenhum arquivo novo ou alterado nos últimos ${recentDays} dia(s)${asOf}.${note}`;
       }
       if (query) {
         const { files, folders } = await mapSearch(query, { limit: 20 });
