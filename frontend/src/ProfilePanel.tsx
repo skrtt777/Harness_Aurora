@@ -16,6 +16,7 @@ export default function ProfilePanel() {
 
   return <div className="profile-panel">
     <textarea className="field" rows={3} maxLength={1500} aria-label="Sobre você" value={draft} onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { if (draft !== profile.text) save({ text: draft }); }}
       placeholder="Ex.: Sou a Rafaela, cuido das parcerias de uma agência de marketing. Prefiro respostas curtas e em tópicos." />
     <div className="form-actions">
       {saved && <span className="settings-saved">Salvo</span>}

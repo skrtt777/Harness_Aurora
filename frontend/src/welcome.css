@@ -43,3 +43,7 @@
 .guide-footer div { display: flex; gap: 8px; }
 .welcome-guide .guide-primary { background: linear-gradient(110deg, #185c71, #51438b); border-color: #77b8e2; }
 @media(max-width: 600px) { .welcome-guide { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 16px; } .guide-header { padding: 10px 16px; } .guide-header img { width: 130px; height: 48px; } .guide-steps { display: grid; grid-template-columns: 1fr 1fr; padding: 0 16px 14px; } .guide-steps button { padding: 8px; text-align: left; } .guide-content { padding: 20px; } .guide-cards { grid-template-columns: 1fr; } .guide-footer { padding: 12px; } .guide-footer button { padding: 9px; font-size: 12px; } }
+.guide-examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 8px 0 20px; }
+.guide-examples .guide-example p { font-size: 15px; }
+.welcome-guide .profile-panel textarea { width: 100%; min-height: 90px; }
+@media (max-width: 600px) { .guide-examples { grid-template-columns: 1fr; } }

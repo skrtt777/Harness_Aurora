@@ -26,7 +26,7 @@ test('first-run guide persists across restart, reopens, handles failures and exp
     await page.goto(await start());
     const guide = page.getByRole('dialog'); await guide.waitFor();
     assert.equal(await guide.getAttribute('aria-labelledby'), 'guide-title');
-    await page.getByRole('button', { name: '3 Conectar uma IA', exact: true }).click();
+    await page.getByRole('button', { name: '5 IA na nuvem', exact: true }).click();
     await page.getByRole('button', { name: 'Codex', exact: true }).click();
     assert.equal(await guide.locator('code').first().innerText(), 'codex login');
     assert.match(await guide.getByRole('link').getAttribute('href'), /^https:\/\/developers.openai.com\//);
@@ -55,8 +55,8 @@ test('first-run guide persists across restart, reopens, handles failures and exp
     await page.getByRole('button', { name: 'Abrir guia de boas-vindas', exact: true }).click(); await guide.waitFor();
     await page.keyboard.press('Escape'); await guide.waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Abrir guia de boas-vindas', exact: true }).click();
-    await page.getByRole('button', { name: '4 Memórias', exact: true }).click();
-    await page.getByRole('button', { name: 'Continuar →', exact: true }).click();
+    await page.getByRole('button', { name: '3 Suas pastas', exact: true }).click();
+    // (the folders step; "Começar a usar" is on the last one)
     // Last step: which folders the Aurora uses, one list, one plain choice per folder.
     const { mkdtempSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
@@ -68,6 +68,9 @@ test('first-run guide persists across restart, reopens, handles failures and exp
     await guide.getByRole('list', { name: 'Pastas que a Aurora usa' }).getByRole('listitem', { name: folder.split(/[\\/]/).pop() }).waitFor();
     await guide.getByText('Procurar em todo o computador').waitFor();
     assert.notEqual(await getSetting('full_computer_access'), 'true', 'full access is never turned on by itself');
+    await page.getByRole('button', { name: 'Continuar →', exact: true }).click();
+    await guide.getByText('Peça do seu jeito.').waitFor();
+    await page.getByRole('button', { name: 'Continuar →', exact: true }).click();
     await page.getByRole('button', { name: 'Começar a usar', exact: true }).click(); await guide.waitFor({ state: 'hidden' });
     assert.equal(inference, 0);
     const invalid = await page.evaluate(async () => { const { token } = await fetch('/api/session').then(r => r.json()); return (await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-harness-token': token }, body: JSON.stringify({ onboardingCompleted: 'true', defaultProvider: 'claude' }) })).status; });

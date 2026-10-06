@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { getProviders, openExternalUrl, updateSettings, type ProviderInfo } from './api';
 import BrandMark from './BrandMark';
 import FoldersPanel from './FoldersPanel';
+import ProfilePanel from './ProfilePanel';
 import Icon from './Icon';
 import './welcome.css';
 
-const steps = ['Boas-vindas', 'Como usar', 'Conectar uma IA', 'Memórias', 'Seus arquivos'];
+const steps = ['Boas-vindas', 'Sobre você', 'Suas pastas', 'Como pedir', 'IA na nuvem'];
 const docs = {
   codex: 'https://developers.openai.com/codex/cli',
   claude: 'https://code.claude.com/docs/en/setup',
@@ -24,7 +25,7 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
   const content = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const [step, setStep] = useState(0);
-  const [provider, setProvider] = useState<'local' | 'codex' | 'claude'>('local');
+  const [provider, setProvider] = useState<'codex' | 'claude'>('codex');
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,22 +50,30 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
     <nav className="guide-steps" aria-label="Etapas do guia">{steps.map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{" "}{label}</button>)}</nav>
     <div className="guide-content" ref={content}>
       <p className="guide-eyebrow">SEU PRIMEIRO PASSO COM A AURORA · {step + 1} DE {steps.length}</p>
-      <h1 id="guide-title" ref={title} tabIndex={-1}>{['Uma ideia. Um lugar para criar.', 'Peça, acompanhe e refine.', 'Escolha quem vai responder.', 'Conhecimento que você pode reutilizar.', 'Onde estão os seus arquivos.'][step]}</h1>
+      <h1 id="guide-title" ref={title} tabIndex={-1}>{['Sua assistente, no seu computador.', 'Conte um pouco sobre você.', 'Quais pastas a Aurora pode usar?', 'Peça do seu jeito.', 'Quer usar também uma IA na nuvem?'][step]}</h1>
       {step === 0 && <>
-        <p className="guide-lead">Bem-vindo à Aurora. Converse com uma IA para criar jogos, páginas, aplicativos e analisar ideias, mantendo seus projetos organizados.</p>
-        <div className="guide-cards"><article><h2>Você pede</h2><p>Descreva o resultado, os dados e o que precisa funcionar.</p></article><article><h2>A IA trabalha</h2><p>A Aurora reúne o contexto disponível e encaminha seu pedido ao modelo escolhido.</p></article><article><h2>Você evolui</h2><p>Veja os arquivos, confira o resultado e peça ajustes na mesma conversa.</p></article></div>
-        <p>Este guia é parte do aplicativo: não usa IA nem gasta tokens. Você pode revê-lo em <strong>Configurações → Primeiros passos</strong>.</p>
+        <p className="guide-lead">A Aurora é uma assistente que trabalha nos seus arquivos: organiza pastas, cria documentos e planilhas, resume o que você manda e pesquisa na internet. Ela roda aqui, no seu computador.</p>
+        <div className="guide-cards"><article><h2>Você pede</h2><p>Do seu jeito, como pediria a uma pessoa: “organize meus Downloads”, “resuma esse PDF”.</p></article><article><h2>Ela faz</h2><p>Abre, cria e organiza os arquivos. Antes de algo delicado, como apagar ou instalar, ela pergunta.</p></article><article><h2>Você confere</h2><p>Os arquivos aparecem na conversa. Dá para pedir ajustes ou desfazer uma organização.</p></article></div>
+        <p>Leva um minuto. Este guia não usa IA, e você pode revê-lo em <strong>Configurações → Geral</strong>.</p>
       </>}
       {step === 1 && <>
-        <ol className="guide-instructions"><li><strong>Escolha Local, Codex ou Claude</strong> no seletor Modelo e clique em <strong>Nova conversa</strong>. A escolha vale para a nova conversa.</li><li><strong>Explique seu objetivo.</strong> Diga o formato, as regras e como conferir que deu certo.</li><li><strong>Abra Arquivos</strong> no chat para consultar os arquivos gerados no painel lateral. Quando houver uma prévia compatível, você poderá visualizá-la.</li><li><strong>Teste e peça uma correção.</strong> Conte o que aconteceu e o comportamento esperado. Um resultado gerado ainda precisa ser conferido.</li></ol>
-        <div className="guide-example"><span>Experimente pedir</span><p>“Crie um jogo da memória em HTML, com contador de jogadas e botão de reiniciar. Explique como testar cada função.”</p></div>
-        <p>Use <strong>Projetos</strong> para reunir conversas e instruções do mesmo trabalho. No modo Local, <strong>Revisar com Codex/Claude</strong> solicita uma correção ao professor escolhido e pode consumir sua cota desse serviço.</p>
+        <p className="guide-lead">A Aurora lê isto em todas as conversas. Seu nome, o que você faz e como prefere as respostas já ajudam muito. É opcional.</p>
+        <ProfilePanel />
       </>}
       {step === 2 && <>
-        <div className="guide-providers" role="group" aria-label="Guia de conexão">{(['local', 'codex', 'claude'] as const).map(id => <button key={id} aria-pressed={provider === id} onClick={() => setProvider(id)}>{id === 'local' ? 'Local' : id === 'codex' ? 'Codex' : 'Claude'}</button>)}</div>
-        {provider === 'local' ? <>
-          <h2>No seu computador</h2><p>Selecione <strong>Local</strong> e abra uma nova conversa. Siga o painel de preparação do Ollama e do modelo. O primeiro preparo pode baixar arquivos grandes e precisa de internet.</p><p>Depois de preparado, o modelo local pode responder sem conexão. A velocidade depende da memória e do processador/GPU disponíveis. Em Configurações, mantenha a seleção automática para usar o modelo local estável.</p>
-        </> : <>
+        <p className="guide-lead">Adicione as pastas onde ficam os seus arquivos e escolha, em cada uma, se ela só consulta ou também organiza. Tudo fica neste computador, e dá para mudar depois em Configurações → Pastas.</p>
+        <FoldersPanel compact />
+      </>}
+      {step === 3 && <>
+        <div className="guide-examples">
+          {[['Organizar', 'Organize a minha pasta Downloads por tipo de arquivo, sem apagar nada.'], ['Resumir', 'Resuma esse contrato em tópicos e me diga as datas importantes.'], ['Criar', 'Crie uma planilha com os gastos deste mês a partir das notas na pasta Documentos.'], ['Encontrar', 'Onde está o meu contrato de aluguel?']].map(([title, text]) => <div className="guide-example" key={title}><span>{title}</span><p>“{text}”</p></div>)}
+        </div>
+        <p>Dica: para falar de um arquivo, digite <strong>&gt;</strong> e o nome dele. Em <strong>Agentes</strong>, você cria ajudantes que trabalham sozinhos num horário, como um resumo toda manhã.</p>
+      </>}
+      {step === 4 && <>
+        <p className="guide-lead">Não é preciso: a Aurora já funciona com a IA deste computador. Depois de preparada, ela responde sem internet e sem mandar nada para fora. Se você já tem Codex ou Claude, dá para usá-los também.</p>
+        <div className="guide-providers" role="group" aria-label="Guia de conexão">{(['codex', 'claude'] as const).map(id => <button key={id} aria-pressed={provider === id} onClick={() => setProvider(id)}>{id === 'codex' ? 'Codex' : 'Claude'}</button>)}</div>
+        <>
           <h2>{provider === 'codex' ? 'Conectar Codex CLI' : 'Conectar Claude Code'}</h2>
           <p>A Aurora usa o programa de terminal do provedor. Faça a instalação e o login no <strong>mesmo usuário do Windows</strong> que abre a Aurora. Uma sessão apenas no navegador ou no WSL não garante acesso pelo aplicativo.</p>
           <ol className="guide-instructions">
@@ -76,19 +85,8 @@ export default function WelcomeGuide({ onClose }: { onClose: (openSettings?: boo
           <button disabled={checking} onClick={() => void check()}>{checking ? 'Verificando…' : 'Verificar detecção'}</button>
           {providers && <p role="status">{detected ? 'Programa encontrado. O login será confirmado ao enviar uma mensagem.' : 'Programa não encontrado pela Aurora. Confira a instalação e reinicie o aplicativo.'}</p>}
           <details><summary>O programa não foi encontrado ou o login falhou?</summary><p>Em um novo PowerShell, confira se este comando mostra uma versão:</p><Command key={`${provider}-version`} text={`${provider} --version`} /><p>Se o comando não existir, siga a instalação oficial e verifique o PATH do Windows. Se existir, reabra a Aurora. Para falhas de login, entre novamente no terminal e confira o acesso e os limites da conta.</p>{provider === 'codex' && <Command text="codex login status" />}</details>
-        </>}
+        </>
         <p className="guide-note">Ao usar Codex ou Claude, seu pedido e o contexto selecionado são enviados ao provedor. Este guia não altera seu modelo nem inicia um login automaticamente.</p>
-      </>}
-      {step === 3 && <>
-        <div className="guide-cards"><article><h2>Central compartilhada</h2><p>Referências públicas revisadas. Ative o recebimento em Ferramentas → Memória. Sincroniza a cada 6 horas por padrão, com o app aberto.</p></article><article><h2>Memória do chat</h2><p>Contexto e decisões ligados a uma conversa. Informações específicas do trabalho têm preferência na consulta.</p></article><article><h2>Sua coleção pessoal</h2><p>Gerencie notas em Memória e explore conexões no Atlas. Consultar outros chats é uma opção separada.</p></article></div>
-        <p>A Aurora seleciona referências relevantes para ajudar nas respostas. Isso reutiliza conhecimento, mas <strong>não treina automaticamente os pesos do modelo</strong> nem garante que uma resposta esteja correta.</p>
-        <p>Compartilhar é opcional: você revisa e aprova uma cópia pública, e o mantenedor revisa a contribuição antes de distribuí-la. Conversas privadas não são publicadas automaticamente.</p>
-        <button onClick={() => void finish(true)} disabled={saving}>Abrir configurações</button>
-      </>}
-      {step === 4 && <>
-        <p className="guide-lead">Quais pastas a Aurora pode usar? Adicione as pastas onde ficam os seus arquivos e escolha, em cada uma, se ela só consulta ou também organiza. Tudo fica neste computador, e dá para mudar depois em Configurações → Pastas.</p>
-        <FoldersPanel compact />
-        <p className="guide-note">Você muda isso quando quiser em <strong>Configurações → Conhecimento</strong>.</p>
       </>}
       {error && <p role="alert" className="guide-error">{error}</p>}
     </div>
