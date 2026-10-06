@@ -29,12 +29,14 @@ import KnowledgePanel from './KnowledgePanel';
 import McpPanel from './McpPanel';
 import FoldersPanel from './FoldersPanel';
 import ProfilePanel from './ProfilePanel';
+import PhonePanel from './PhonePanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
   { id: "general", label: "Geral" },
   { id: "folders", label: "Pastas" },
   { id: "agent", label: "Agente" },
+  { id: "phone", label: "Celular" },
   { id: "teacher", label: "Professor" },
   { id: "local", label: "IA local" },
   { id: "knowledge", label: "Documentos lidos" },
@@ -414,6 +416,14 @@ export default function SettingsView({
               <p className="page-desc">A Aurora só usa as pastas desta lista. Em cada uma, escolha o que ela pode fazer. Fora delas, ela sempre pede sua permissão.</p>
             </header>
             <div className="section"><FoldersPanel /></div>
+          </>}
+
+          {section === "phone" && <>
+            <header className="page-header">
+              <h2 className="page-title">Celular</h2>
+              <p className="page-desc">Converse com a Aurora pelo Telegram, receba os arquivos que ela criar e os avisos dos agentes, e autorize ações com um toque.</p>
+            </header>
+            <div className="section"><PhonePanel /></div>
           </>}
 
           {section === "knowledge" && <>

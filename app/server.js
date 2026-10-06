@@ -12,6 +12,7 @@ import { detectGpu } from "./llamaServer.js";
 import { clearComputerMap, mapChildren, mapSearch, mapStatus, scanComputer, startMapSchedule } from "./computerMap.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { getProfile, saveProfile } from "./profile.js";
+import { connectTelegram, disconnectTelegram, notifyRunOnPhone, sendToPhone, startTelegram, stopTelegram, telegramStatus } from "./telegram.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -37,7 +38,7 @@ import { protectPort } from "./agentTools/netGuard.js";
 import { knownFolders } from "./agentTools/index.js";
 import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAccess.js";
 import * as taskAgents from "./agents.js";
-import { runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
+import { onAutomaticRun, runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
 import { listOrchestrations, planRequest, startOrchestration } from "./orchestrator.js";
 import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir, warmLocalChat } from "./chatTurn.js";
 import { BROWSER_BACKENDS } from "./browserBackend.js";
@@ -455,6 +456,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         if (warmLocal) void warmLocalChat().catch(() => {});
         return sendJson(response, 202, { warming: warmLocal });
       }
+      // Celular (Telegram): the person's own bot, linked to one chat. The token never comes back out.
+      if (pathname === "/api/telegram" && method === "GET") return sendJson(response, 200, await telegramStatus());
+      if (pathname === "/api/telegram" && method === "PUT") return sendJson(response, 200, await connectTelegram((await readJson(request)).token, { handleChatTurn }));
+      if (pathname === "/api/telegram" && method === "DELETE") return sendJson(response, 200, await disconnectTelegram());
+      if (pathname === "/api/telegram/test" && method === "POST") return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este chat está ligado ao seu computador.") });
       // "Sobre você": the person's profile, in every conversation.
       if (pathname === "/api/profile" && method === "GET") return sendJson(response, 200, await getProfile());
       if (pathname === "/api/profile" && method === "PUT") return sendJson(response, 200, await saveProfile(await readJson(request)));
@@ -943,6 +949,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     let stopMap = null;
     server.on("listening", () => { stopMap = startMapSchedule({ enabled: mapEnabled, busy: () => activeTurns().count > 0 }); });
     server.on("close", () => stopMap?.());
+    // Celular (Telegram), when the person linked a bot: messages in, answers and agent results out.
+    server.on("listening", () => { void startTelegram({ handleChatTurn }).catch(() => {}); });
+    const offPhone = onAutomaticRun((agent, run) => { void notifyRunOnPhone(agent, run).catch(() => {}); });
+    server.on("close", () => { stopTelegram(); offPhone(); });
   }
   if (centralSync) {
     let stop;

@@ -1041,3 +1041,14 @@ button.map-node:hover { background: var(--fill-hover); }
 
 /* Memória: who you are, first */
 .app-shell .memory-page .memory-about { display: grid; gap: var(--gap-2); margin: var(--gap-4) 0 var(--gap-5); padding-bottom: var(--gap-5); border-bottom: 1px solid var(--stroke-2); }
+
+/* ---------- Celular (Telegram) ---------- */
+.app-shell .phone-panel { display: grid; gap: var(--gap-3); }
+.app-shell .phone-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
+.app-shell .phone-connect { display: flex; gap: var(--gap-2); }
+.app-shell .phone-connect .field { flex: 1; }
+.app-shell .phone-pair, .app-shell .phone-linked { padding: 14px 16px; border-radius: var(--radius-md, 10px); border: 1px solid var(--stroke-2); background: var(--bg-surface); display: grid; gap: 6px; }
+.app-shell .phone-pair p, .app-shell .phone-linked p { margin: 0; }
+.app-shell .phone-code { font-size: 18px; letter-spacing: 0.08em; }
+.app-shell .phone-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: middle; }
+.app-shell .phone-privacy { margin: 0; }

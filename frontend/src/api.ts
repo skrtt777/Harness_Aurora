@@ -617,3 +617,10 @@ export const searchComputerMap = (q: string) => request<{ files: { path: string;
 export type UserProfile = { text: string; learned: { text: string; at: string }[] };
 export const getUserProfile = () => request<UserProfile>("/profile");
 export const saveUserProfile = (patch: Partial<UserProfile>) => request<UserProfile>("/profile", { method: "PUT", body: JSON.stringify(patch) });
+
+/** Celular (Telegram): the person's bot, linked to their chat. The token is never read back. */
+export type TelegramStatus = { configured: boolean; running: boolean; bot: string | null; error: string | null; linked: boolean; pairCode: string | null };
+export const getTelegram = () => request<TelegramStatus>("/telegram");
+export const connectTelegram = (token: string) => request<TelegramStatus>("/telegram", { method: "PUT", body: JSON.stringify({ token }) });
+export const disconnectTelegram = () => request<TelegramStatus>("/telegram", { method: "DELETE" });
+export const testTelegram = () => request<{ sent: boolean }>("/telegram/test", { method: "POST" });
