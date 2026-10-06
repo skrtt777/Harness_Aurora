@@ -3,6 +3,7 @@
 // --samples N: cada pergunta N vezes ao mesmo tempo (várias cópias do modelo) e o consenso entre elas.
 // A cópia do banco guarda o índice: a segunda rodada na mesma cópia só confere as datas dos arquivos.
 // Relatório em reports/empresa/<label>.json e .md.
+import "./evalSandbox.mjs";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

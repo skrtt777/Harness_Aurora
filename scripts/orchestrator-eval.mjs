@@ -4,6 +4,7 @@
 //   cada agente), cada arquivo contra o gabarito da fase B e o resumo.
 // dependencia: o Financeiro gera a planilha dos títulos com mais de 30 dias e DEPOIS a Controladoria
 //   faz o relatório por cliente usando essa planilha; confere a dependência no plano e as duas entregas.
+import "./evalSandbox.mjs";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

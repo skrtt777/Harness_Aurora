@@ -3,6 +3,7 @@
 // Sem --db, usa um banco novo (sem memórias do usuário): o resultado depende só do código e do modelo.
 // --teacher liga o professor pago (gasta chamadas). Relatório em reports/battery/<label>.json;
 // sai com código 1 se a nota cair mais de 5 pontos em relação à rodada anterior.
+import "./evalSandbox.mjs";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -388,6 +388,11 @@ export async function runChatAgent({
       if (fromWeb) ctx.untrustedSeen = true;
       messages.push({ role: "tool", tool_name: call.name, content: (fromWeb ? `${WEB_NOTE}\n` : "") + outcome.result + searchNote });
       if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
+      // A job an agent finished is answered with the agent's own words: one more round, the 4B model
+      // searched for the agent's file, didn't find it and called it a "simulação" (06/10).
+      if (call.name === "agent_delegate" && outcome.ok && ctx.delegatedAnswer) {
+        return { ok: true, status: 200, text: ctx.delegatedAnswer, steps, calls, forced: null, messages, threadId: null };
+      }
     }
   }
   return { ok: false, status: 500, error: "O agente não conseguiu concluir.", steps, calls };

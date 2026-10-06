@@ -2,6 +2,7 @@
 // de um boleto com a legenda "quanto é esse boleto e quando vence?" e a resposta que volta ao celular
 // precisa trazer o valor e o vencimento; depois pede "faça uma planilha com isso" e o arquivo volta.
 //   node scripts/phone-eval.mjs [--runs 3]
+import "./evalSandbox.mjs";
 import http from "node:http";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,12 +12,7 @@ const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); r
 const runs = Math.max(1, Number(arg("runs", 3)) || 3);
 const base = mkdtempSync(join(tmpdir(), "aurora-celular-"));
 process.env.HARNESS_DB_FILE = join(base, "harness.db");
-// The phone's conversation works in the person's folders (Downloads, Documentos): here, fake ones,
-// so a run never writes into the real Downloads.
-process.env.USERPROFILE = join(base, "pessoa");
-process.env.OneDrive = "";
-for (const dir of ["Documents", "Downloads", "Desktop"]) mkdirSync(join(process.env.USERPROFILE, dir), { recursive: true });
-process.env.HARNESS_KNOWN_FOLDERS = JSON.stringify({ desktop: join(process.env.USERPROFILE, "Desktop"), documents: join(process.env.USERPROFILE, "Documents"), downloads: join(process.env.USERPROFILE, "Downloads"), home: process.env.USERPROFILE });
+// The phone conversation works in the person folders: evalSandbox.mjs makes them fake ones.
 process.env.AGENT_APPROVAL_TIMEOUT_MS ||= "1000";
 setInterval(() => {}, 60_000);
 

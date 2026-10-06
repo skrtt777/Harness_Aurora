@@ -4,6 +4,7 @@
 //   - com um boleto que chegou hoje: deve avisar, citando o arquivo;
 //   - de novo, com o mesmo boleto já avisado: deve responder só OK (não repetir).
 //   node scripts/heartbeat-eval.mjs [--runs 3]
+import "./evalSandbox.mjs";
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

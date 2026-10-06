@@ -2,6 +2,7 @@
 //   node scripts/personal-tasks.mjs [--only organizar-pasta] [--runs 3] [--online] [--label nome]
 // Cada tarefa ganha uma pasta gerada na hora; o agente trabalha nela e o resultado é conferido no
 // disco (arquivos no lugar, testes rodando). --online inclui a pesquisa na web.
+import "./evalSandbox.mjs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

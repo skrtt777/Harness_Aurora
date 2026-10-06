@@ -141,6 +141,11 @@ export async function discoverCompanyFolders({ roots = [], env = process.env, de
 
 /** Folders a person usually wants Aurora to know by meaning (personal use). */
 export function personalFolders(env = process.env) {
+  // Evaluations point these at fake folders (HARNESS_KNOWN_FOLDERS): a run once wrote into the real Documentos.
+  try {
+    const fixed = JSON.parse(env.HARNESS_KNOWN_FOLDERS || "null");
+    if (fixed?.documents) return [{ name: "Documentos", path: fixed.documents }, { name: "Área de Trabalho", path: fixed.desktop }, { name: "Downloads", path: fixed.downloads }].filter((f) => f.path);
+  } catch { /* the real ones */ }
   const home = env.USERPROFILE || homedir();
   const oneDrive = env.OneDrive && existsSync(env.OneDrive) ? env.OneDrive : null;
   const pick = (name, alt) => [oneDrive && join(oneDrive, alt || name), join(home, name)].find((p) => p && existsSync(p));

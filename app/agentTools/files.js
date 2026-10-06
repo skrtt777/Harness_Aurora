@@ -676,7 +676,7 @@ function documentPath(args, ctx) {
   // "Crie um documento" saved as a spreadsheet lost the text around the table (kit de mídia, 05/10).
   if (asked === "docx" && wanted === "xlsx") wanted = "docx";
   // "Gere uma planilha…" delivered as a PDF (agent battery, 06/10): unless PDF or Word was named too.
-  if (asked === "xlsx" && ["pdf", "docx"].includes(wanted) && !/\b(pdf|word|docx)\b/i.test(String(ctx.request || ""))) wanted = "xlsx";
+  if (asked === "xlsx" && ["pdf", "docx", "csv"].includes(wanted) && !/\b(pdf|word|docx|csv)\b/i.test(String(ctx.request || ""))) wanted = "xlsx";
   return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
 }
 
@@ -995,6 +995,7 @@ export const fileTools = [
     stage: (a) => `Salvando ${a.path}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [landing(full(a.path, ctx), ctx)], summary: `Salvar ${landing(full(a.path, ctx), ctx)}` }),
     async run({ path, content }, ctx) {
+      if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       const file = landing(full(path, ctx), ctx);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
@@ -1014,6 +1015,7 @@ export const fileTools = [
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
     async run(args, ctx) {
+      if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       let file = documentPath(args, ctx);
       const format = extname(file).slice(1).toLowerCase();
       // A list missing rows of the read it came from is not written the first time: written and

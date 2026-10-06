@@ -3,6 +3,7 @@
 // Indexa só os setores das tarefas, cria os agentes de setor numa pasta temporária, roda cada
 // tarefa e confere o ARQUIVO entregue contra o gabarito tirado das planilhas da empresa.
 // Com --db, a cópia guarda o índice: a segunda rodada é rápida. Relatório em reports/agentes/.
+import "./evalSandbox.mjs";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
