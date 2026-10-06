@@ -1033,3 +1033,8 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .agents-view .agent-actions-row .agent-delete { margin-left: auto; color: var(--text-3); }
 .app-shell .agents-view .agent-actions-row .agent-delete:hover { color: var(--red); }
 @media (prefers-reduced-motion: reduce) { .app-shell .agents-view .agent-status.running i { animation: none; } }
+
+/* Settings nav: the basics first, the fine-tuning in its own group. */
+.app-shell .settings-nav-group { margin: 14px 10px 4px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.app-shell .settings-nav-group:first-of-type { margin-top: 4px; }
+@media (max-width: 900px) { .app-shell .settings-nav-group { display: none; } }

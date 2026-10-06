@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   checkForUpdates,
   getLocalModels,
@@ -239,11 +239,13 @@ export default function SettingsView({
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Seções das configurações">
           <h1 className="settings-nav-title">Configurações</h1>
-          {SECTIONS.map((s) => (
-            <button key={s.id} className={`settings-nav-item ${section === s.id ? "active" : ""}`} aria-current={section === s.id ? "page" : undefined} onClick={() => openSection(s.id)}>
+          {SECTIONS.map((s, i) => (<Fragment key={s.id}>
+            {i === 0 && <p className="settings-nav-group">Básico</p>}
+            {s.id === "teacher" && <p className="settings-nav-group">Para quem quer ajustar</p>}
+            <button className={`settings-nav-item ${section === s.id ? "active" : ""}`} aria-current={section === s.id ? "page" : undefined} onClick={() => openSection(s.id)}>
               {s.label}
             </button>
-          ))}
+          </Fragment>))}
         </nav>
 
         <div className="settings-content">
@@ -277,7 +279,7 @@ export default function SettingsView({
             </div>
             <div className="section">
               <div className="row">
-                <div className="row-text"><div className="row-label">Guia de boas-vindas</div><div className="row-desc">Como usar a Aurora, conectar Codex ou Claude e aproveitar as memórias.</div></div>
+                <div className="row-text"><div className="row-label">Guia de boas-vindas</div><div className="row-desc">O passo a passo do primeiro uso: o que a Aurora faz, suas pastas e exemplos de pedidos.</div></div>
                 <div className="row-control"><button className="btn" onClick={onOpenGuide}>Abrir guia de boas-vindas</button></div>
               </div>
               {update && (
