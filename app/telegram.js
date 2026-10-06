@@ -54,7 +54,7 @@ export async function connectTelegram(token, { env = process.env, handleChatTurn
 
 export async function disconnectTelegram() {
   stopTelegram();
-  for (const key of ["telegram_token", "telegram_chat_id", "telegram_pair_code"]) await setSetting(key, "");
+  for (const key of ["telegram_token", "telegram_chat_id", "telegram_pair_code", "telegram_offset"]) await setSetting(key, "");
   state.bot = null; state.error = null;
   return telegramStatus();
 }
@@ -221,6 +221,9 @@ export async function startTelegram({ env = process.env, handleChatTurn } = {}) 
   state.controller = controller; state.running = true; state.error = null; state.env = env;
   approvalEvents.on("requested", onApproval);
   if (!state.bot) state.bot = (await call(token, "getMe", {}, { env }).catch(() => null))?.username || null;
+  // Where reading stopped survives a restart: closed right after a message, the app would get it
+  // again from Telegram and answer twice.
+  state.offset = Math.max(state.offset, Number(await getSetting("telegram_offset")) || 0);
   (async () => {
     let backoff = 1000;
     while (!controller.signal.aborted) {
@@ -229,6 +232,7 @@ export async function startTelegram({ env = process.env, handleChatTurn } = {}) 
         backoff = 1000; state.error = null;
         for (const update of updates) {
           state.offset = update.update_id + 1;
+          await setSetting("telegram_offset", String(state.offset)).catch(() => {});
           // One at a time: the conversation is one, and a turn can take a while.
           await handleUpdate(update, { env, handleChatTurn }).catch((e) => { state.error = e.message; });
         }
