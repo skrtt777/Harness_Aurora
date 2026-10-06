@@ -100,8 +100,10 @@ test("'esse mês', 'mês que vem' and 'em outubro' become a ready date-range fil
   assert.deepEqual(monthRange("contratos que vencem em fevereiro de 2027", now), { from: "01/02/2027", to: "28/02/2027" });
   assert.deepEqual(monthRange("pedidos de dezembro", new Date(2026, 11, 20)), { from: "01/12/2026", to: "31/12/2026" });
   assert.equal(monthRange("liste os contratos", now), null);
-  const sheet = ["## Contratos", "Fornecedor | Vencimento | Valor", "Papelaria | 12/10/2026 | 4200", "Limpa Bem | 28/10/2026 | 9800"];
+  const sheet = ["## Contratos", "Fornecedor | Vencimento | Valor", "Papelaria | 12/10/2026 | 4200", "Limpa Bem | 28/10/2026 | 9800", "TransNorte | 05/11/2026 | 1000"];
   assert.match(dateFilterHint(sheet, "quais contratos vencem esse mês?", now), /filter="Vencimento>=01\/10\/2026; Vencimento<=31\/10\/2026"/);
+  // Every row in the month: the date narrows nothing, so nothing is said.
+  assert.equal(dateFilterHint(sheet.slice(0, 4), "quais contratos vencem esse mês?", now), "");
 });
 
 test("'mais de 30 dias' and 'mais de 5%' become a ready filter on the columns of that unit", async () => {
@@ -201,4 +203,32 @@ test("'abaixo do estoque mínimo' compares the stock column with the minimum one
   assert.match(out, /CAF-001[\s\S]*FUB-001/);
   assert.doesNotMatch(out, /FAR-001/);
   assert.equal(limitHint(sheet, "liste os produtos"), "");
+});
+
+test("'de cada cliente' comes with the totals per client, ready", async () => {
+  const { groupHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Títulos", "Cliente | Título | Valor | Dias em atraso", "Alfa | Duplicata 1 | 100,00 | 40", "Beta | Duplicata 2 | 50,00 | 35", "Alfa | Duplicata 3 | 25,50 | 60"];
+  const out = groupHint(sheet, "relatório com o valor total em atraso de cada cliente");
+  assert.match(out, /Totais por Cliente, já somados das 3 linhas \(2 grupos\)/);
+  assert.match(out, /Alfa \| 2 \| 125,50/);
+  assert.match(out, /Beta \| 1 \| 50,00/);
+  assert.doesNotMatch(out, /Total Dias/, "days don't add up");
+  assert.equal(groupHint(sheet, "liste os títulos, por favor"), "");
+});
+
+test("row keys find the id when the sheet starts with a name; extras are rows the condition left out", async () => {
+  const { rowKeys, extraRows } = await import("../app/agentTools/files.js");
+  const found = "## T\nCliente | Título | Vencimento | Valor\n    3  Bom Preço | Duplicata 2592 | 03/08/2026 | 10\n    7  Mercadinho | Duplicata 1479 | 16/09/2026 | 20";
+  assert.deepEqual(rowKeys(found), ["Duplicata 2592", "Duplicata 1479"]);
+  assert.deepEqual(extraRows(["Duplicata 1479"], "| Duplicata 2592 |\n| Duplicata 1479 |"), ["Duplicata 1479"]);
+  assert.deepEqual(extraRows(["Duplicata 14"], "| Duplicata 1479 |"), [], "a key inside a longer one is not it");
+});
+
+test("the column the request's verb points to: 'começam' is Início, 'volta' is Fim, a shared word decides nothing", async () => {
+  const { requestColumn } = await import("../app/agentTools/files.js");
+  const cols = ["Início das férias", "Fim das férias"];
+  assert.equal(requestColumn(cols, "funcionários que começam as férias em outubro"), "Início das férias");
+  assert.equal(requestColumn(cols, "quem volta de férias em outubro"), "Fim das férias");
+  assert.equal(requestColumn(cols, "férias em outubro"), null);
+  assert.equal(requestColumn(["Emissão", "Vencimento"], "títulos que vencem até 15/10"), "Vencimento");
 });

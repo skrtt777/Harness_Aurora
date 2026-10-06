@@ -168,6 +168,9 @@ function defaultCallModel(provider) {
  * REPEAT_LIMIT times), and both end with one last tool-less call so the
  * user always gets a summary instead of a silent stop.
  */
+// The text the model was given (system, history, tool results): where a file named in an answer may come from.
+const contextText = (messages) => messages.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
+
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
@@ -286,7 +289,7 @@ export async function runChatAgent({
       continue;
     }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.
-    if (!toolCalls.length && offered.length && !deliveryChecked && claimsDelivery(text, steps)) {
+    if (!toolCalls.length && offered.length && !deliveryChecked && claimsDelivery(text, steps, { context: contextText(messages) })) {
       deliveryChecked = true;
       checks.push({ check: "claimed_delivery", answer: text.slice(0, 300) });
       const writer = offered.some((t) => t.name === "write_document") ? "write_document" : "write_file";
@@ -336,7 +339,7 @@ export async function runChatAgent({
       // A guard sent the answer back: its reaction ("Vou corrigir a resposta com os dados…",
       // "Vocês estão corretos…") is not for the person (empresa controladoria-1, 05/10/2026).
       if (checks.length) final = withoutCorrectionPreamble(final);
-      if (claimsDelivery(final, steps)) {
+      if (claimsDelivery(final, steps, { context: contextText(messages) })) {
         const failed = steps.filter((s) => !s.ok && WRITE_TOOLS.has(s.tool)).at(-1);
         checks.push({ check: "claimed_delivery_final", answer: final.slice(0, 300) });
         final += `\n\n> **Atenção:** nenhum arquivo foi gravado nesta resposta${failed ? ` (${String(failed.summary || "").replace(/^ERRO:\s*/, "").slice(0, 160)})` : ""}. Peça de novo ou autorize a gravação quando ela for pedida.`;

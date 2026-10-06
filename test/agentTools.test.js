@@ -467,3 +467,31 @@ test("typing with no field named goes to the next empty field, not over the one 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a whole-sheet read with the request's condition holds back a list that carries rows outside it", async () => {
+  const dir = join(root, "fin-extra");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "titulos.csv"), "Cliente;Título;Dias em atraso\nAlfa;Duplicata 111;40\nBeta;Duplicata 222;18\nGama;Duplicata 333;75\n");
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "planilha dos títulos em atraso há mais de 30 dias" });
+  const read = await executeTool("read_file", { path: "titulos.csv" }, c);
+  assert.match(read.result, /Já apliquei filter="Dias em atraso>30"/);
+  const wrong = await executeTool("write_document", { path: "cobranca.md", content: "| Duplicata 111 |\n| Duplicata 222 |\n| Duplicata 333 |" }, c);
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.result, /não atendem à condição do pedido: Duplicata 222/);
+  const right = await executeTool("write_document", { path: "cobranca.md", content: "| Duplicata 111 |\n| Duplicata 333 |" }, c);
+  assert.equal(right.ok, true, right.result);
+});
+
+test("an automatic run saves a new file aimed outside its folders into its own folder", async () => {
+  const dir = join(root, "agente-auto");
+  mkdirSync(dir, { recursive: true });
+  const outside = join(root, "agente-auto-saida", "contas.md");
+  const auto = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], env: { ...process.env, AGENT_RUN_TRIGGER: "file" } });
+  const out = await executeTool("write_document", { path: outside, content: "# Contas" }, auto);
+  assert.equal(out.ok, true, out.result);
+  assert.ok(existsSync(join(dir, "contas.md")), out.result);
+  assert.match(out.result, /agente-auto[\\/]contas\.md/);
+  // A person at the screen is still asked (and here says no).
+  const manual = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], env: { ...process.env, AGENT_RUN_TRIGGER: "manual" } });
+  assert.equal((await executeTool("write_document", { path: join(root, "outra-saida", "x.md"), content: "x" }, manual)).ok, false);
+});

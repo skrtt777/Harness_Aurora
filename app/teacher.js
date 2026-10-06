@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { runClaude } from "./claude.js";
 import { runCodex } from "./codex.js";
 
@@ -41,9 +42,25 @@ export function requestsFile(text) {
  * a file: a delivery the person will look for and not find. Negations
  * ("não criei") and offers ("posso criar") don't count.
  */
-export function claimsDelivery(text, steps = []) {
+export function claimsDelivery(text, steps = [], { context = "" } = {}) {
   if (steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))) return false;
+  // "A planilha que criei está em C:\…\Precos.xlsx": a file made earlier (the diary, another
+  // conversation) that is on disk. Flagged as false, the model took it back: "não criei nenhum
+  // arquivo" (battery, 06/10).
+  if (refersToExistingFile(text, context)) return false;
   return String(text || "").split(/(?<=[.!?\n])\s+/).some((sentence) => CLAIM.test(sentence) && !/\bn[ãa]o\s+(\w+\s+)?(criei|salvei|gerei|consegui|foi)\b/i.test(sentence));
+}
+
+const DOC_EXT = "docx|xlsx|pdf|md|csv|txt|pptx|html";
+/** The answer names a file that exists: by its full path, or by a name the context gives the path of. */
+export function refersToExistingFile(text, context = "") {
+  const answer = String(text || "");
+  const paths = answer.match(new RegExp(`[A-Za-z]:[\\\\/][^\\n"\`*|<>]+?\\.(?:${DOC_EXT})\\b`, "gi")) || [];
+  if (paths.some((p) => { try { return existsSync(p.trim()); } catch { return false; } })) return true;
+  const names = (answer.match(new RegExp(`[\\p{L}\\p{N}_\\-.() ]+\\.(?:${DOC_EXT})\\b`, "giu")) || []).map((n) => n.trim().split(/\s/).pop()).filter((n) => n.length > 4);
+  if (!names.length || !context) return false;
+  const known = String(context).match(new RegExp(`[A-Za-z]:[\\\\/][^\\n"\`*|<>]+?\\.(?:${DOC_EXT})\\b`, "gi")) || [];
+  return names.some((name) => known.some((p) => p.toLowerCase().endsWith(name.toLowerCase()) && existsSync(p)));
 }
 
 /** Error signals found without any paid call. */
