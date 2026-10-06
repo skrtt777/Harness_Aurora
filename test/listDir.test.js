@@ -24,6 +24,17 @@ test("list_dir shows sizes and dates, sorts by size or date, and points out like
   assert.ok(byDate.indexOf("video_ferias.mp4") > byDate.indexOf("nota.txt"), "the old video comes last");
 });
 
+test("a 'planilha' typed as CSV text is refused with the way to an .xlsx", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aurora-csv-"));
+  const ctx = { mode: "auto", workspace: dir, workspaceRoots: [dir], approve: async () => true, env: process.env, request: "Gere uma planilha com os títulos em atraso" };
+  const out = await executeTool("write_file", { path: "titulos.csv", content: "Cliente,Valor\nAlfa,R$ 1.000,00" }, ctx);
+  assert.equal(out.ok, false);
+  assert.match(out.result, /write_document em \.xlsx \(titulos\.xlsx\)/);
+  // A CSV asked for by name is written.
+  const asked = await executeTool("write_file", { path: "dados.csv", content: "a;b\n1;2" }, { ...ctx, request: "salve os dados num arquivo csv" });
+  assert.equal(asked.ok, true, asked.result);
+});
+
 test("likely copies need the same size, not just a similar name", () => {
   assert.deepEqual(likelyCopies([{ name: "foto.jpg", size: 10 }, { name: "foto (1).jpg", size: 10 }, { name: "foto - Cópia.jpg", size: 10 }, { name: "relatorio (1).docx", size: 5 }, { name: "relatorio.docx", size: 6 }]),
     [["foto.jpg", "foto (1).jpg"], ["foto.jpg", "foto - Cópia.jpg"]]);

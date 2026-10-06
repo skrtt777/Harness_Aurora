@@ -477,7 +477,18 @@ function filterAll(lines, conditions, label, sort = null) {
   let total = 0;
   let found = false;
   for (const s of sheets) {
-    const columnOf = (name) => { const exact = s.header?.cells.findIndex((c) => c === name) ?? -1; return exact >= 0 ? exact : s.header?.cells.findIndex((c) => c.includes(name)) ?? -1; };
+    const columnOf = (name) => {
+      const exact = s.header?.cells.findIndex((c) => c === name) ?? -1;
+      if (exact >= 0) return exact;
+      const part = s.header?.cells.findIndex((c) => c.includes(name)) ?? -1;
+      if (part >= 0) return part;
+      // Accents lost on the way ("Situa o", "Situa??o" for Situação: 3 runs in a row, 06/10): each gap
+      // stands for up to 3 characters.
+      const pieces = String(name).split(/[^a-z0-9]+/).filter(Boolean);
+      if (pieces.length < 2) return -1;
+      const loose = new RegExp(`^${pieces.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".{1,3}")}`);
+      return s.header?.cells.findIndex((c) => loose.test(c)) ?? -1;
+    };
     const indexes = parsed.map((p) => columnOf(p.col));
     const others = parsed.map((p) => (p.otherCol ? columnOf(p.otherCol) : null));
     if (indexes.some((i) => i < 0) || others.some((i) => i !== null && i < 0)) continue;
@@ -655,6 +666,8 @@ function documentPath(args, ctx) {
   if (asked && ["md", "txt"].includes(wanted)) wanted = asked;
   // "Crie um documento" saved as a spreadsheet lost the text around the table (kit de mídia, 05/10).
   if (asked === "docx" && wanted === "xlsx") wanted = "docx";
+  // "Gere uma planilha…" delivered as a PDF (agent battery, 06/10): unless PDF or Word was named too.
+  if (asked === "xlsx" && ["pdf", "docx"].includes(wanted) && !/\b(pdf|word|docx)\b/i.test(String(ctx.request || ""))) wanted = "xlsx";
   return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
 }
 
@@ -953,6 +966,13 @@ export const fileTools = [
           ctx.excludedRows = rowKeys(filterRows(table, "")).filter((k) => !ctx.anchorRows.includes(k));
         } else { ctx.excludedRows = []; ctx.anchorRows = []; }
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
+        // "Quantos títulos tinha a planilha?": the line numbers (3 to 18) were counted as 15 instead
+        // of 16, 3 runs in 3 (06/10). The count, ready.
+        const counts = parseSheets(table).filter((s) => s.header && s.rows.length).map((s) => {
+          const data = s.rows.filter((r) => r.line.includes(" | ") && !/^\s*(\d+ {2})?total\b/i.test(r.line));
+          return `${s.name.replace(/^##\s*/, "") || "Tabela"}: ${data.length} linha(s) de dados`;
+        });
+        if (counts.length) tip = `\n(${counts.join("; ")}, sem contar o cabeçalho nem a linha de total.)${tip}`;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
@@ -969,6 +989,9 @@ export const fileTools = [
       const file = landing(full(path, ctx), ctx);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
+      // A "planilha" typed as CSV text: title lines over the header and "R$ 69.062,05" split by its
+      // comma, and Excel in Portuguese opens a comma CSV in one column (agent run, 06/10).
+      if (/\.csv$/i.test(file) && requestedFormat(ctx.request) === "xlsx") throw new Error(`Foi pedida uma planilha: grave com write_document em .xlsx (${basename(file).replace(/\.csv$/i, ".xlsx")}), com a tabela em markdown | a | b |. Um .csv digitado abre torto no Excel em português.`);
       await mkdir(dirname(file), { recursive: true });
       // Replacing a file the person had loses what was there: a copy goes to Desfazer.
       await changeFile(file, String(content ?? ""), ctx);
@@ -988,14 +1011,19 @@ export const fileTools = [
       // flagged, the agent saved the full list under another name and left the 2-row sheet beside
       // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
       const body = String(args.content ?? args.text ?? args.markdown ?? "");
-      const gaps = missingRows(ctx.lastRows, body);
+      let gaps = missingRows(ctx.lastRows, body);
+      // From a ready filter (one condition of the request), fewer than half of its rows is a list cut
+      // short, not another condition at work: 1 of 7 orders "até 15/10" went out (06/10).
+      const anchorGaps = missingRows(ctx.anchorRows, body);
+      let reference = ctx.lastRows || [];
+      if (!gaps.length && (ctx.anchorRows || []).length >= 3 && anchorGaps.length > ctx.anchorRows.length / 2) { gaps = anchorGaps; reference = ctx.anchorRows; }
       // Rows the condition left out, in a document built from that read (it has some of the right ones).
       const extras = [...(ctx.lastRows || []), ...(ctx.anchorRows || [])].some((k) => body.includes(k)) ? extraRows(ctx.excludedRows, body) : [];
       ctx.heldDocuments ??= new Set();
       if ((gaps.length || extras.length) && !ctx.heldDocuments.has(file.toLowerCase())) {
         ctx.heldDocuments.add(file.toLowerCase());
         const problems = [
-          ...(gaps.length ? [`o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - gaps.length}. Faltam: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? "…" : ""}`] : []),
+          ...(gaps.length ? [`o último filtro trouxe ${reference.length} linha(s) e o documento tem só ${reference.length - gaps.length}. Faltam: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? "…" : ""}`] : []),
           ...(extras.length ? [`o documento tem linha(s) que não atendem à condição do pedido: ${extras.slice(0, 20).join(", ")}${extras.length > 20 ? "…" : ""}. Tire essas`] : []),
         ];
         throw new Error(`Não gravei ainda: ${problems.join("; ")}. Chame write_document de novo com o mesmo caminho e só as linhas certas (as do filtro); se o pedido é mesmo assim, repita igual que eu gravo.`);
@@ -1050,6 +1078,9 @@ export const fileTools = [
     stage: (a) => `Organizando ${a.path}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [full(a.path, ctx)], summary: `Organizar os arquivos soltos de ${full(a.path, ctx)} em subpastas por tipo` }),
     async run({ path, groups }, ctx) {
+      // Only when it was asked: "tem algum arquivo repetido aqui?" reorganized the whole folder
+      // (battery, 06/10). Moving many files is the person's call.
+      if (ctx.request && !ORGANIZE_ASKED.test(fold(ctx.request))) throw new Error("A pessoa não pediu para organizar a pasta: não mova nada. Responda o que ela perguntou (para ver a pasta, use list_dir) e, se achar útil, ofereça organizar.");
       const dir = await resolveExisting(path, ctx, { directory: true });
       const entries = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && !e.name.startsWith(".") && !/^desktop\.ini$|^thumbs\.db$/i.test(e.name) && !/\.(crdownload|part|tmp)$/i.test(e.name));
       if (!entries.length) return `Não há arquivos soltos em ${dir}: nada a organizar.`;
@@ -1094,6 +1125,8 @@ const KINDS = [
  * "Documentos: pdf, docx; Imagens (jpg, png)" or { Documentos: ["pdf"] } → [["Documentos", Set{pdf, docx}], …].
  * Extensions without the dot, lower case.
  */
+const ORGANIZE_ASKED = /\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|ponha em pastas|por tipo|em subpastas|deixe em ordem)/;
+
 export function parseGroups(groups) {
   if (!groups) return [];
   const entries = typeof groups === "object" ? Object.entries(groups)
