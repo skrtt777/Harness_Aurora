@@ -485,7 +485,10 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     // The diary only when the message looks back ("ontem", "aquele arquivo", "onde ficou"): in every
     // turn, other conversations' spreadsheets made a "crie um documento" come out as .xlsx (battery).
     const looksBack = /\b(ontem|anteontem|hoje cedo|mais cedo|aquel[ea]s?|onde (est[áa]|ficou|foi parar|salvou)|[uú]ltim[oa]s?|anterior|semana passada|(voc[êe]|vc) (fez|criou|salvou|gerou|organizou|mexeu|mudou))\b/i.test(trimmed);
-    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : []), ...previousWork(env)];
+    // An agent's earlier deliveries only for a request about them: shown always, an RH agent took
+    // last week's file for today's work and wrote nothing (team eval, 06/10).
+    const aboutEarlierWork = looksBack || /\b(atualiz|complement|acrescent|corrij|revis|a mesma|o mesmo|de novo|outra vez|da [uú]ltima vez|que (voc[êe] )?(fez|criou|entregou|gerou))/i.test(trimmed);
+    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : []), ...(aboutEarlierWork ? previousWork(env) : [])];
     const promptArgs = {
       input: trimmed,
       history,

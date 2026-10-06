@@ -392,8 +392,17 @@ export function filterRows(lines, filter, { sort, request } = {}) {
   if (request && String(filter || "").trim()) {
     const words = { "<=": "até", ">=": "a partir de", "<": "antes de", ">": "depois de" };
     const changed = [];
+    // "Em outubro" is the whole month: a filter that starts or ends inside it ("Início>=13/10/2026",
+    // an RH agent's, 06/10) gets the month's own first and last day.
+    const month = monthRange(request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date());
+    const dayNumber = (d) => { const [dd, mm, yy] = d.split("/").map(Number); return yy * 10000 + mm * 100 + dd; };
     const parts = [...new Set(String(filter).replace(/["“”']/g, "").split(/\s*;\s*/).filter(Boolean).map((part) => {
       const m = part.match(/^([^=<>!]{1,60}?)\s*(>=|<=|>|<|=)\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*$/);
+      if (m && month && !dateIntent(request, m[3])) {
+        const inside = dayNumber(m[3]) > dayNumber(month.from) && dayNumber(m[3]) < dayNumber(month.to);
+        if (inside && (m[2] === ">=" || m[2] === ">")) { changed.push(`${m[1].trim()}>=${month.from} (o pedido fala do mês inteiro)`); return `${m[1].trim()}>=${month.from}`; }
+        if (inside && (m[2] === "<=" || m[2] === "<")) { changed.push(`${m[1].trim()}<=${month.to} (o pedido fala do mês inteiro)`); return `${m[1].trim()}<=${month.to}`; }
+      }
       const intended = m && dateIntent(request, m[3]);
       if (!intended || intended === m[2]) return part.trim();
       changed.push(`${m[1].trim()}${intended}${m[3]} (o pedido diz "${words[intended]}" essa data)`);
@@ -1020,6 +1029,12 @@ export const fileTools = [
       // Rows the condition left out, in a document built from that read (it has some of the right ones).
       const extras = [...(ctx.lastRows || []), ...(ctx.anchorRows || [])].some((k) => body.includes(k)) ? extraRows(ctx.excludedRows, body) : [];
       ctx.heldDocuments ??= new Set();
+      // What was kept of a call cut at the output limit: written only whole, and never over a file
+      // (a cut write replaced a correct 16-row sheet with a 2-row one, 06/10).
+      if (args.__salvaged) {
+        const short = [...new Set([...missingRows(ctx.lastRows, body), ...missingRows(ctx.anchorRows, body)])];
+        if (short.length || existsSync(file)) throw new Error(`Sua chamada foi cortada no limite de saída e o que chegou ${short.length ? `não tem todas as linhas (faltam ${short.slice(0, 12).join(", ")})` : "substituiria um arquivo que já existe"}: nada foi gravado. Grave de novo só a tabela, sem introdução nem análise.`);
+      }
       if ((gaps.length || extras.length) && !ctx.heldDocuments.has(file.toLowerCase())) {
         ctx.heldDocuments.add(file.toLowerCase());
         const problems = [
