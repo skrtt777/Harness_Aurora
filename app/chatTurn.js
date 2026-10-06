@@ -25,7 +25,7 @@ import { asksAboutCompany } from "./grounding.js";
 import { AGENT_TOOLS, knownFolders, toolSchemas } from "./agentTools/index.js";
 import { mcpAgentTools } from "./mcp.js";
 import { mapOverview } from "./computerMap.js";
-import { learnFromMessage, profileBlock } from "./profile.js";
+import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { resolveExisting } from "./agentTools/files.js";
@@ -470,7 +470,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
-    const observation=clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||mathObservation(trimmed);
+    const observation=clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
     // Who the person is and what the Aurora did lately, in every conversation (OpenClaw's USER.md and
     // daily notes). A name said here is learned for the next conversations too.
     await learnFromMessage(trimmed).catch(() => null);

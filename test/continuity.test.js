@@ -38,3 +38,11 @@ test("the diary lists what was created and organized today and yesterday, with f
   assert.match(block, /"Organizar Downloads": organizou 2 arquivo\(s\)/);
   assert.doesNotMatch(block, /velho/, "older than yesterday is not in it");
 });
+
+test("'qual é o meu nome?' with a name in the profile is answered from it, as an observation", async () => {
+  const profile = await import("../app/profile.js");
+  await profile.learnFromMessage("Pode me chamar de Rafa.");
+  const seen = await profile.nameObservation("qual é o meu nome?");
+  assert.match(seen.block, /é Rafa\b/);
+  assert.equal(await profile.nameObservation("qual é o nome do arquivo?"), null);
+});

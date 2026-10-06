@@ -49,3 +49,17 @@ export async function profileBlock() {
   const nameLine = name ? [`A pessoa se chama ${name}. Se ela perguntar o próprio nome, é ${name} (o nome nos caminhos das pastas é só a conta do Windows).`] : [];
   return [`Sobre a pessoa (perfil que vale em todas as conversas; use quando ajudar, como o nome):\n${[...nameLine, text.trim(), ...learned.filter((l) => !/^Nome: /.test(l.text)).map((l) => `- ${l.text}`)].filter(Boolean).join("\n").slice(0, 1200)}`];
 }
+
+/**
+ * "Qual é o meu nome?" with a name in the profile: said as a fact of the device, like the clock.
+ * Even told plainly, the 4B model answered with the Windows account in the paths in 1 of 6 (06/10).
+ */
+export async function nameObservation(message) {
+  const text = String(message || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (!/\b(qual (e |eh )?o? ?meu nome|como (e |eh )?(o )?meu nome|como (e que )?eu me chamo|(sabe|lembra)( d?o)? meu nome|quem sou eu)\b/.test(text)) return null;
+  const { learned } = await getProfile();
+  const name = learned.map((l) => /^Nome: (.+)$/.exec(l.text)?.[1]).find(Boolean);
+  if (!name) return null;
+  return { source: "profile", observedAt: new Date().toISOString(), timeZone: null, local: `Nome: ${name}`,
+    block: `O nome da pessoa, pelo perfil "Sobre você", é ${name}. Para essa pergunta, responda com esse nome (não com o da conta do Windows).` };
+}
