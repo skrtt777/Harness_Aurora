@@ -94,3 +94,28 @@ test("a quiet check that finds nothing is recorded silently; one that finds some
   assert.equal(sched.nothingNew("OK, nada novo"), true);
   assert.equal(sched.nothingNew("Ok, encontrei 3 boletos novos que vencem esta semana e criei a planilha."), false, "a long answer that starts with ok is news");
 });
+
+test("a quiet check is told what it already announced today, and quiet runs don't count toward the daily limit", async () => {
+  const sched = await import("../app/agentScheduler.js");
+  const agents = await import("../app/agents.js");
+  const agent = await agents.createAgent({ name: "Vigia", mission: "Vigiar boletos", workDir: join(temp, "vigia"), trigger: { type: "schedule", everyMinutes: 30, quiet: true, request: "Veja se chegou boleto." } });
+  const fake = (answer) => async ({ conversationId }) => ({ ok: true, message: { conversationId, content: answer, execution: { toolSteps: [] } } });
+  const quietRun = await agents.runAgent(agent.id, { request: "x", trigger: "schedule", handleChatTurn: fake("OK") });
+  await agents.markRunQuiet(quietRun.id);
+  await agents.runAgent(agent.id, { request: "x", trigger: "schedule", handleChatTurn: fake("Chegou o boleto da luz, vence dia 10.") });
+  const stats = await sched.runStats();
+  assert.equal(await stats.runsToday(agent.id), 1, "the quiet run is not counted");
+  assert.deepEqual(await stats.announcedToday(agent.id), ["Chegou o boleto da luz, vence dia 10."]);
+  let request = "";
+  await sched.schedulerTick({ listAgents: async () => [await agents.getAgent(agent.id)], isAgentRunning: () => false, lastRunStart: async () => null, runsToday: async () => 0, announcedToday: stats.announcedToday,
+    runAgent: async (id, opts) => { request = opts.request; return { id: "r", status: "done", answer: "OK" }; } });
+  assert.match(request, /já avisou hoje[\s\S]*boleto da luz/);
+});
+
+test("an answer that only names files already announced today is not news", async () => {
+  const { repeatsOnly } = await import("../app/agentScheduler.js");
+  const told = ["Chegou o **boleto_energia_outubro.pdf** em Downloads."];
+  assert.equal(repeatsOnly("Boletos: boleto_energia_outubro.pdf — Downloads.", told), true);
+  assert.equal(repeatsOnly("Chegaram boleto_energia_outubro.pdf e nota_fiscal_123.pdf.", told), false, "a new file is news");
+  assert.equal(repeatsOnly("O condomínio subiu 10%.", told), false, "no file named: not judged");
+});

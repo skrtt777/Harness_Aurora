@@ -81,6 +81,17 @@ export const QUIET_NOTE = "\n\n(Verificação automática: se não houver nada p
 const QUIET_ANSWER = /^(ok|heartbeat_ok|tudo certo|nada novo|nada (a|para) (fazer|avisar)|nenhuma novidade|sem novidades?)([.!,;:]?\s*(ok|heartbeat_ok|tudo certo|nada novo|nada (a|para) (fazer|avisar)|nenhuma novidade|sem novidades?))?[.!]?$/i;
 export const nothingNew = (answer) => QUIET_ANSWER.test(String(answer || "").replace(/[*_`]/g, "").trim());
 
+/**
+ * An answer that only repeats today's news: every file it names was already announced. The 4B
+ * model, told what it said before, still repeated the same boleto in 2 of 4 checks (06/10).
+ */
+const FILE_NAME = /[\p{L}\p{N}_\-.]+\.(pdf|docx?|xlsx?|csv|txt|pptx?|jpe?g|png|zip|xml|ofx|eml)\b/giu;
+export const repeatsOnly = (answer, told = []) => {
+  const names = [...new Set((String(answer || "").match(FILE_NAME) || []).map((n) => n.toLowerCase()))];
+  const before = told.join("\n").toLowerCase();
+  return names.length > 0 && names.every((n) => before.includes(n));
+};
+
 const listeners = new Set();
 /** Called with (agent, run) when a scheduled or file-triggered run finishes (desktop notification). */
 export function onAutomaticRun(listener) { listeners.add(listener); return () => listeners.delete(listener); }
@@ -89,7 +100,7 @@ export function onAutomaticRun(listener) { listeners.add(listener); return () =>
  * One pass: start every due agent. `deps` makes it testable: listAgents, runAgent(id, opts),
  * isAgentRunning(id), lastRunStart(id, trigger), runsToday(id), now().
  */
-export async function schedulerTick({ listAgents, runAgent, isAgentRunning, lastRunStart, runsToday, handleChatTurn, markQuiet = null, now = () => new Date() } = {}) {
+export async function schedulerTick({ listAgents, runAgent, isAgentRunning, lastRunStart, runsToday, handleChatTurn, markQuiet = null, announcedToday = null, now = () => new Date() } = {}) {
   const started = [];
   for (const agent of await listAgents()) {
     const trigger = agent.trigger || {};
@@ -104,10 +115,14 @@ export async function schedulerTick({ listAgents, runAgent, isAgentRunning, last
     }
     if (!request) continue;
     started.push(agent.id);
-    void runAgent(agent.id, { request: trigger.quiet ? `${request}${QUIET_NOTE}` : request, trigger: trigger.type, handleChatTurn })
+    // A check every 30 minutes must not announce the same boleto all day: what it already said
+    // today goes along, and only something beyond that is news (OpenClaw's heartbeat state).
+    const told = trigger.quiet ? ((await announcedToday?.(agent.id)) || []) : [];
+    const quietNote = told.length ? `${QUIET_NOTE}\n\nVocê já avisou hoje (não repita; se não houver nada além disso, responda apenas OK):\n${told.map((t) => `- ${t.replace(/\s+/g, " ").slice(0, 300)}`).join("\n")}` : QUIET_NOTE;
+    void runAgent(agent.id, { request: trigger.quiet ? `${request}${quietNote}` : request, trigger: trigger.type, handleChatTurn })
       .then(async (run) => {
         // Nothing new on a quiet check: recorded, not announced.
-        if (trigger.quiet && run?.status === "done" && nothingNew(run.answer)) { await markQuiet?.(run.id); return; }
+        if (trigger.quiet && run?.status === "done" && (nothingNew(run.answer) || repeatsOnly(run.answer, told))) { await markQuiet?.(run.id); return; }
         for (const listener of listeners) { try { listener(agent, run); } catch { /* a listener never breaks the scheduler */ } }
       })
       .catch(() => {});
@@ -133,8 +148,15 @@ export function stopAgentScheduler() {
 /** Last start of a run with this trigger, and how many runs started today (local day). */
 export async function runStats() {
   const db = await getDb();
+  // The queries below read agent_runs.quiet: make sure it exists even before agents.js touched the table.
+  const columns = new Set(db.prepare("PRAGMA table_info(agent_runs)").all().map((c) => c.name));
+  if (columns.size && !columns.has("quiet")) db.exec("ALTER TABLE agent_runs ADD COLUMN quiet INTEGER");
   return {
     lastRunStart: async (id, trigger) => db.prepare("SELECT started_at FROM agent_runs WHERE agent_id = ? AND trigger = ? ORDER BY started_at DESC LIMIT 1").get(id, trigger)?.started_at || null,
-    runsToday: async (id) => db.prepare("SELECT started_at FROM agent_runs WHERE agent_id = ? AND trigger != 'manual' ORDER BY started_at DESC LIMIT ?").all(id, DAILY_LIMIT + 1).filter((r) => localDay(new Date(r.started_at)) === localDay(new Date())).length,
+    // Quiet checks that found nothing don't count: the limit is for runs that do or say something.
+    runsToday: async (id) => db.prepare("SELECT started_at FROM agent_runs WHERE agent_id = ? AND trigger != 'manual' AND COALESCE(quiet, 0) = 0 ORDER BY started_at DESC LIMIT ?").all(id, DAILY_LIMIT + 1).filter((r) => localDay(new Date(r.started_at)) === localDay(new Date())).length,
+    // What automatic runs announced today (newest first): the next quiet check doesn't repeat it.
+    announcedToday: async (id) => db.prepare("SELECT started_at, answer FROM agent_runs WHERE agent_id = ? AND trigger != 'manual' AND status = 'done' AND COALESCE(quiet, 0) = 0 AND answer IS NOT NULL ORDER BY started_at DESC LIMIT 6").all(id)
+      .filter((r) => localDay(new Date(r.started_at)) === localDay(new Date()) && !nothingNew(r.answer)).slice(0, 3).map((r) => r.answer),
   };
 }
