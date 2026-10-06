@@ -73,7 +73,7 @@ const TOOL_LABELS: Record<string, string> = {
   search_files: 'Procurou arquivos', grep: 'Procurou texto', command_output: 'Conferiu processo', command_stop: 'Encerrou processo',
   memory_search: 'Consultou memórias', memory_save: 'Guardou na memória', skill_search: 'Procurou skills', skill_use: 'Usou skill',
   skill_create: 'Criou skill', update_plan: 'Atualizou o plano', knowledge_search: 'Consultou documentos da empresa', knowledge_map: 'Consultou o mapa de documentos',
-  computer_map: 'Consultou o mapa do computador', organize_folder: 'Organizou a pasta', knowledge_setup: 'Cadastrou documentos da empresa', agent_delegate: 'Pediu ao agente',
+  computer_map: 'Consultou o mapa do computador', organize_folder: 'Organizou a pasta', knowledge_setup: 'Cadastrou documentos da empresa', agent_delegate: 'Pediu ao agente', team_request: 'Pediu à equipe',
 };
 
 const MODE_LABEL: Record<AgentMode, string> = { auto: 'Auto', manual: 'Manual', plan: 'Plano' };
