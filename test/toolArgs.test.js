@@ -17,3 +17,16 @@ test("broken tool arguments are marked: cut at the limit, or bad JSON with its s
   assert.deepEqual(parseToolArguments({ path: "x" }), { path: "x" }, "already an object");
   assert.deepEqual(parseToolArguments(""), {});
 });
+
+test("a document call cut at the limit keeps its whole lines, without rows said twice", async () => {
+  const { salvageCut } = await import("../app/localLlama.js");
+  const row = "| Alfa | Duplicata 1 | 10 |";
+  const raw = `{"path":"cobranca.xlsx","content":"# Cobrança\n\n| Cliente | Título | Valor |\n|---|---|---|\n${row}\n| Beta | Duplicata 2 | 20 |\n${row}\n${row}\n| Gam`;
+  const args = parseToolArguments(raw, "length");
+  assert.equal(args.__salvaged, true);
+  assert.equal(args.path, "cobranca.xlsx");
+  assert.equal(args.content.split("\n").filter((l) => l === row).length, 1);
+  assert.match(args.content, /Duplicata 2/);
+  assert.doesNotMatch(args.content, /Gam/);
+  assert.equal(salvageCut('{"path":"a.md","content":"sem quebra'), null);
+});

@@ -376,6 +376,7 @@ export async function runChatAgent({
         try { outcome = await executeTool(call.name, call.arguments, ctx, tools); }
         catch { return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls }; }
       }
+      if (call.arguments?.__salvaged && outcome.ok) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });

@@ -134,7 +134,32 @@ export function parseToolArguments(raw,finishReason){
     fixed+=ch;
   }
   try{return JSON.parse(fixed);}catch{/* not repairable */}
+  if(finishReason==='length'){const salvaged=salvageCut(fixed);if(salvaged)return salvaged;}
   return finishReason==='length'?{__cut:true}:{__badjson:true,__raw:text.slice(0,160)};
+}
+
+/**
+ * A document call cut at the output limit, kept up to its last whole line, rows said twice dropped
+ * (a 16-row sheet ran past 4096 tokens three times in a row, 06/10: the model was repeating rows).
+ * The delivery check still applies to what is written.
+ */
+export function salvageCut(raw){
+  const path=/"(?:path|file_path|filename)"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+  const start=raw.search(/"content"\s*:\s*"/);
+  if(!path||start<0)return null;
+  let body=raw.slice(raw.indexOf('"',raw.indexOf(':',start))+1);
+  const lastLine=body.lastIndexOf('\\n');
+  if(lastLine<0)return null;
+  body=body.slice(0,lastLine);
+  let content;
+  try{content=JSON.parse(`"${body}"`);}catch{return null;}
+  const seen=new Set();
+  const lines=content.split('\n').filter((line)=>{const key=line.trim();if(!key.startsWith('|')||/^\|[\s|:-]+\|$/.test(key))return true;if(seen.has(key))return false;seen.add(key);return true;});
+  if(seen.size<1)return null;
+  let file;
+  try{file=JSON.parse(`"${path[1]}"`);}catch{return null;}
+  const format=/"format"\s*:\s*"(\w+)"/.exec(raw)?.[1];
+  return {path:file,...(format?{format}:{}),content:lines.join('\n'),__salvaged:true};
 }
 
 export function toOpenAiMessages(messages){
