@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 /**
  * Bridges two things the sandbox-execution feature needs that only the
@@ -12,6 +12,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("harness", {
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   pickFolder: () => ipcRenderer.invoke("dialog:pick-folder"),
+  // A file dropped on the chat: its real path (File.path is gone in recent Electron).
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file) || ""; } catch { return ""; } },
   openFile: (file) => ipcRenderer.invoke("shell:open-file", file, false),
   showInFolder: (file) => ipcRenderer.invoke("shell:open-file", file, true),
   getUpdateState: () => ipcRenderer.invoke("updater:state"),

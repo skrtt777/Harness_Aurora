@@ -298,3 +298,8 @@
 .knowledge-map details { margin: 4px 0 4px 12px; }
 .knowledge-map ul { margin: 4px 0; padding-left: 18px; }
 .knowledge-map p { margin: 2px 0; color: #aaa4b5; }
+
+/* A file dragged over the message box */
+.chat-composer { position: relative; }
+.chat-composer.is-dropping { outline: 2px dashed var(--accent, #5fd3c6); outline-offset: 3px; }
+.chat-composer .composer-drop { position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; background: color-mix(in srgb, var(--bg-surface, #15181d) 88%, transparent); color: var(--accent, #5fd3c6); font-weight: 600; pointer-events: none; z-index: 2; }

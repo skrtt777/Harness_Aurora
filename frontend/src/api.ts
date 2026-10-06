@@ -403,6 +403,12 @@ export const runSandbox = (conversationId: string, messageId: string) =>
  * falls back to a plain new tab — the only option a normal webpage has —
  * when it isn't (dev mode in a browser, this project's own tests).
  */
+/** The path of a file dropped on the window: only in the desktop app ("" in a browser). */
+export function droppedFilePath(file: File): string {
+  const harness = (window as unknown as { harness?: { pathForFile?: (f: File) => string } }).harness;
+  return harness?.pathForFile?.(file) || '';
+}
+
 export function openExternalUrl(url: string) {
   const harness = (window as unknown as { harness?: { openExternal?: (url: string) => void } }).harness;
   if (harness?.openExternal) harness.openExternal(url);

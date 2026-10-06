@@ -16,7 +16,7 @@ export const NEWS: Record<string, { title: string; items: [string, string][] }> 
       ['Sobre você', 'Em Memória ou Configurações → Geral: o que você contar de si vale em todas as conversas, e dá para corrigir ou fazer esquecer.'],
       ['Agentes que só avisam quando importa', 'O modelo "Resumo da manhã" confere o que chegou no computador e só manda notificação se houver novidade. E o cartão mostra quando cada agente trabalha de novo.'],
       ['Entregas mais certeiras', 'Planilhas e relatórios dos agentes saem com a lista certa: datas, valores e "abaixo do mínimo" são conferidos pela própria Aurora antes de gravar.'],
-      ['Pastas e arquivos', 'Peça "quais os maiores arquivos?" ou "tem arquivo repetido?": a Aurora vê tamanho, data e cópias de cada pasta.'],
+      ['Pastas e arquivos', 'Arraste um arquivo para a caixa de mensagem para a Aurora usá-lo. E peça "quais os maiores arquivos?" ou "tem arquivo repetido?": ela vê tamanho, data e cópias de cada pasta.'],
     ],
   },
 };
