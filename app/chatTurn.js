@@ -28,7 +28,7 @@ import { mapOverview } from "./computerMap.js";
 import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
-import { resolveExisting } from "./agentTools/files.js";
+import { resolveExisting, totalRowsNote } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
@@ -571,7 +571,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const fullSheets = new Map();
           const sheet = autoDocs.find((d) => /\.(xlsx|csv|tsv)$/i.test(d.path));
           if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, text); }
-          const docsBlockOf = (whole) => (autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${whole && fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "");
+          const docsBlockOf = (whole) => (autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${whole && fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):${totalRowsNote(fullSheets.get(d.path).split(/\r?\n/))}\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "");
           const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.

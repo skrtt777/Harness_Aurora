@@ -290,6 +290,19 @@ export function dateFilterHint(lines, request, now = new Date()) {
   return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"} na coluna ${column}. Já apliquei filter="${filter}"; a lista certa para essa data é esta (se o pedido tem outra condição, aplique-a também), não escolha de olho na tabela inteira abaixo:\n${rows}\n)`;
 }
 
+/** The sheet's TOTAL row with its column names, as a note ("" when there is none). */
+export function totalRowsNote(lines) {
+  const totals = parseSheets(lines).filter((s) => s.header).flatMap((s) => s.rows
+    .filter((r) => /(^|\|)\s*total\s*(\||$)/i.test(r.line))
+    .map((r) => {
+      const names = s.header.line.split(" | ");
+      const cells = r.line.replace(/^\s*\d+ {2}/, "").split(" | ");
+      const values = names.map((n, j) => (cellValue(cells[j] || "") !== null ? `${n.trim()} = ${cells[j].trim()}` : null)).filter(Boolean);
+      return values.length ? `${s.name.replace(/^##\s*/, "") || "Tabela"}: ${values.join("; ")}` : null;
+    }).filter(Boolean)).slice(0, 2);
+  return totals.length ? `\n(Linha TOTAL da planilha, para "como está", "quanto no total": ${totals.join(" | ")})` : "";
+}
+
 /**
  * "Valor total em atraso de cada cliente", "por fornecedor", "por área": the sums per group, ready.
  * The Controladoria agent, with the Financeiro's 16 rows in hand, went looking for a TOTAL row and
@@ -995,6 +1008,9 @@ export const fileTools = [
           return `${s.name.replace(/^##\s*/, "") || "Tabela"}: ${data.length} linha(s) de dados`;
         });
         if (counts.length) tip = `\n(${counts.join("; ")}, sem contar o cabeçalho nem a linha de total.)${tip}`;
+        // "Como está o budget esse ano?" got every area and no total (empresa eval controladoria-1):
+        // the sheet's TOTAL row, with its column names, goes first.
+        ready = totalRowsNote(table) + ready;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).

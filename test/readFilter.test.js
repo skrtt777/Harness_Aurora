@@ -242,3 +242,10 @@ test("'acima do orçamento' with no number compares spent with the budget of the
   assert.doesNotMatch(out.split("Já apliquei")[1], /\bRH\b/);
   assert.equal(limitHint(sheet, "áreas mais de 5% acima do orçado"), "", "a number is the number filter's");
 });
+
+test("a sheet's TOTAL row is surfaced with its column names", async () => {
+  const { totalRowsNote } = await import("../app/agentTools/files.js");
+  const sheet = ["## Resumo", "Centro | Área | Orçado | Realizado", "CC-1 | TI | 100 | 120", " | TOTAL | 300 | 310"];
+  assert.match(totalRowsNote(sheet), /Linha TOTAL[\s\S]*Orçado = 300; Realizado = 310/);
+  assert.equal(totalRowsNote(sheet.slice(0, 3)), "");
+});
