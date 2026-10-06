@@ -18,3 +18,10 @@ test("organize_folder only runs when organizing was asked", async () => {
   assert.equal(done.ok, true, done.result);
   assert.ok(!existsSync(join(dir, "boleto.pdf")));
 });
+
+test("an agent's own run may organize without the word in the day's request (its mission says so)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aurora-organize-agent-"));
+  writeFileSync(join(dir, "nota.pdf"), "x");
+  const out = await executeTool("organize_folder", { path: dir }, { mode: "auto", workspace: dir, workspaceRoots: [dir], approve: async () => true, env: { ...process.env, AGENT_RUN_TRIGGER: "schedule" }, request: "Faça a sua rotina de hoje." });
+  assert.equal(out.ok, true, out.result);
+});

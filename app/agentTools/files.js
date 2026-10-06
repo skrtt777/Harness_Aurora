@@ -1097,7 +1097,8 @@ export const fileTools = [
     async run({ path, groups }, ctx) {
       // Only when it was asked: "tem algum arquivo repetido aqui?" reorganized the whole folder
       // (battery, 06/10). Moving many files is the person's call.
-      if (ctx.request && !ORGANIZE_ASKED.test(fold(ctx.request))) throw new Error("A pessoa não pediu para organizar a pasta: não mova nada. Responda o que ela perguntou (para ver a pasta, use list_dir) e, se achar útil, ofereça organizar.");
+      // (An agent's run is exempt: its mission, set by the person, is the request.)
+      if (ctx.request && !ctx.env?.AGENT_RUN_TRIGGER && !ORGANIZE_ASKED.test(fold(ctx.request))) throw new Error("A pessoa não pediu para organizar a pasta: não mova nada. Responda o que ela perguntou (para ver a pasta, use list_dir) e, se achar útil, ofereça organizar.");
       const dir = await resolveExisting(path, ctx, { directory: true });
       const entries = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && !e.name.startsWith(".") && !/^desktop\.ini$|^thumbs\.db$/i.test(e.name) && !/\.(crdownload|part|tmp)$/i.test(e.name));
       if (!entries.length) return `Não há arquivos soltos em ${dir}: nada a organizar.`;
@@ -1142,7 +1143,7 @@ const KINDS = [
  * "Documentos: pdf, docx; Imagens (jpg, png)" or { Documentos: ["pdf"] } → [["Documentos", Set{pdf, docx}], …].
  * Extensions without the dot, lower case.
  */
-const ORGANIZE_ASKED = /\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|ponha em pastas|por tipo|em subpastas|deixe em ordem)/;
+const ORGANIZE_ASKED = /\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|orden|em ordem|ponha em pastas|coloque em pastas|por tipo|em subpastas|(mova|mover|move|distribua|distribuir) (os|todos os|cada) arquivos)/;
 
 export function parseGroups(groups) {
   if (!groups) return [];
