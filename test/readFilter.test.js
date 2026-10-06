@@ -192,3 +192,13 @@ test("a number condition with one matching column comes with the filtered rows",
   assert.match(out, /TI[\s\S]*Logística/);
   assert.doesNotMatch(out.split("Já apliquei")[1], /\bRH\b/);
 });
+
+test("'abaixo do estoque mínimo' compares the stock column with the minimum one", async () => {
+  const { limitHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Estoque", "Código | Produto | Saldo (caixas) | Estoque mínimo (caixas)", "FAR-001 | Farinha | 3844 | 1000", "CAF-001 | Café | 310 | 1000", "FUB-001 | Flocão | 427 | 1500"];
+  const out = limitHint(sheet, "produtos que estão abaixo do estoque mínimo");
+  assert.match(out, /Já apliquei filter="Saldo \(caixas\)<Estoque mínimo \(caixas\)"/);
+  assert.match(out, /CAF-001[\s\S]*FUB-001/);
+  assert.doesNotMatch(out, /FAR-001/);
+  assert.equal(limitHint(sheet, "liste os produtos"), "");
+});

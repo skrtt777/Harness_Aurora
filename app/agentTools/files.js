@@ -274,6 +274,27 @@ export function dateFilterHint(lines, request, now = new Date()) {
   return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"} na coluna ${column}. Já apliquei filter="${filter}"; a lista certa é esta, não escolha de olho na tabela inteira abaixo:\n${filterRows(lines, filter)}\n)`;
 }
 
+/**
+ * "Abaixo do (estoque) mínimo" / "acima do máximo": a column against another. Read whole (11 rows),
+ * the Logística agent left CAF-001 (310 < 1000) out of the list by eye (agent battery, 06/10).
+ */
+export function limitHint(lines, request) {
+  const text = foldText(request);
+  const below = /\b(abaixo d[oa]|menor (que|do) o?|inferior ao?)\s*(estoque\s+)?minim/.test(text);
+  const above = /\b(acima d[oa]|maior (que|do) o?|superior ao?)\s*(estoque\s+)?maxim/.test(text);
+  if (!below && !above) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const numeric = header.filter((name, j) => cellValue(sample[j] || "") !== null);
+  const limit = numeric.find((c) => foldText(c).includes(below ? "minim" : "maxim"));
+  const amount = numeric.find((c) => c !== limit && /saldo|estoque|quantidade|qtd|atual|disponivel/.test(foldText(c)));
+  if (!limit || !amount) return "";
+  const filter = `${amount}${below ? "<" : ">"}${limit}`;
+  return `\n(O pedido compara com o ${below ? "mínimo" : "máximo"}. Já apliquei filter="${filter}"; a lista certa é esta, não escolha de olho na tabela inteira abaixo:\n${filterRows(lines, filter)}\n)`;
+}
+
 /** The one date column the request speaks of, by the stem of its name ("terminam" → "Término"). */
 const COLUMN_FILLER = new Set(["data", "prevista", "previsto", "dia", "para"]);
 export function requestColumn(columns, request) {
@@ -794,7 +815,7 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || extremeHint(table, ctx.request);
+        ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
         // Rows the tool already filtered for the request are what the document is checked against.
         if (ready.includes("Já apliquei filter=")) ctx.lastRows = rowKeys(ready);
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
