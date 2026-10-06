@@ -1052,3 +1052,17 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .phone-code { font-size: 18px; letter-spacing: 0.08em; }
 .app-shell .phone-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: middle; }
 .app-shell .phone-privacy { margin: 0; }
+
+/* ---------- Agents: empty state with template cards ---------- */
+.app-shell .agents-view .agent-template-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--gap-3); margin: var(--gap-2) 0 var(--gap-4); }
+.app-shell .agents-view .agent-template-card { display: grid; gap: 6px; align-content: start; text-align: left; padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid var(--stroke-2); background: var(--bg-surface); color: var(--text-1); cursor: pointer; transition: border-color 0.15s ease, transform 0.15s ease; }
+.app-shell .agents-view .agent-template-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.app-shell .agents-view .agent-template-card strong { font-size: var(--fs-md, 15px); }
+.app-shell .agents-view .agent-template-card span { color: var(--text-3); font-size: var(--fs-sm, 13px); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.app-shell .agents-view .agent-sector-setup summary { cursor: pointer; color: var(--text-2); }
+.app-shell .agents-view .agent-sector-setup[open] summary { margin-bottom: var(--gap-2); }
+@media (prefers-reduced-motion: reduce) { .app-shell .agents-view .agent-template-card { transition: none; } }
+.app-shell .page-skin .agents-view button.agent-template-card,
+.app-shell .agents-view button.agent-template-card.agent-template-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; height: auto; min-height: 96px; white-space: normal; padding: 14px 16px; font-weight: 400; }
+.app-shell .agents-view button.agent-template-card strong,
+.app-shell .agents-view button.agent-template-card span { text-align: left; width: 100%; }

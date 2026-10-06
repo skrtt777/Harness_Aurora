@@ -347,16 +347,22 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
 
     {loaded && agents.length === 0 && !creating && <section className="agents-empty">
       <h2>Nenhum agente ainda</h2>
-      <p>Comece por um modelo pronto: você só escolhe a pasta.</p>
-      <div className="agent-templates" role="group" aria-label="Começar por um modelo">
-        {TEMPLATES.map((t) => <button type="button" key={t.label} onClick={() => applyTemplate(t)}>{t.label}</button>)}
+      <p>Um agente faz um trabalho seu sozinho, quando você pedir ou num horário. Comece por um destes:</p>
+      <div className="agent-template-cards" role="group" aria-label="Começar por um modelo">
+        {TEMPLATES.map((t) => <button type="button" key={t.label} className="agent-template-card" onClick={() => applyTemplate(t)}>
+          <strong>{t.label}</strong>
+          <span>{t.agent.mission}</span>
+        </button>)}
       </div>
-      <p>Ou, se a pasta da empresa já está em Configurações → Pastas, crie um agente para cada setor:</p>
-      <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
-        <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
-        <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>
-        <button className="btn btn-primary">Criar agentes por setor</button>
-      </form>
+      <details className="agent-sector-setup">
+        <summary>Para empresas: um agente para cada setor</summary>
+        <p>Se a pasta da empresa já está em Configurações → Pastas, a Aurora cria um agente para cada setor dela.</p>
+        <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
+          <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
+          <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>
+          <button className="btn btn-primary">Criar agentes por setor</button>
+        </form>
+      </details>
     </section>}
 
     <TeamRequest agents={agents} onOpenConversation={onOpenConversation} />
