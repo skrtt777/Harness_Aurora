@@ -310,10 +310,11 @@ export async function clearComputerMap() {
 }
 
 /**
- * Keeps the map current in the desktop app: a first pass a little after it opens, then every few
- * hours, only while the map is on; it waits while the Aurora is answering someone.
+ * Keeps the map current in the desktop app: a first pass a little after it opens, then every hour
+ * (an update pass costs ~5 s of CPU; the morning summary needs a fresh map), only while the map is
+ * on; it waits while the Aurora is answering someone.
  */
-export function startMapSchedule({ enabled, busy = () => false, firstDelayMs = 90_000, everyMs = 6 * 3600_000 }) {
+export function startMapSchedule({ enabled, busy = () => false, firstDelayMs = 90_000, everyMs = 3600_000 }) {
   let timer = null, stopped = false;
   const run = async () => {
     if (stopped) return;
