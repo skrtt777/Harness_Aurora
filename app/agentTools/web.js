@@ -67,6 +67,26 @@ async function get(url, signal, fetchImpl = fetch) {
   throw new Error("Redirecionamentos demais.");
 }
 
+const SEARCH_FILLER = new Set(["qual", "quais", "quem", "como", "onde", "quando", "mais", "menos", "para", "pela", "pelo", "sobre", "esse", "este", "essa", "esta", "isso", "ano", "anos", "anual", "anuais", "atual", "hoje", "brasil"]);
+/**
+ * "Quem é o vendedor que mais vendeu no ano?" went to the internet (empresa eval comercial-1, 06/10):
+ * the company's documents had the sales sheet. When they have a passage sharing two or more of the
+ * query's words, it comes first. Only for the local model (company documents never go to a paid one
+ * from here) and only when there are company sources.
+ */
+async function companyFirst(query, ctx) {
+  if (ctx.provider && ctx.provider !== "local") return "";
+  const { listSources, searchKnowledge } = await import("../knowledge.js");
+  if (!(await listSources()).length) return "";
+  const fold = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const words = [...new Set(fold(query).match(/[a-z]{4,}/g) || [])].filter((w) => !SEARCH_FILLER.has(w)).map((w) => w.slice(0, 6));
+  if (words.length < 2) return "";
+  const [hit] = await searchKnowledge(String(query), { env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
+  if (!hit || words.filter((w) => fold(hit.text).includes(w)).length < 2) return "";
+  const sheet = /\.(xlsx|csv|tsv)$/i.test(hit.path) ? ` Para listar ou ordenar, leia com read_file path="${hit.path}" (filter/sort).` : "";
+  return `Nos documentos da EMPRESA (antes da internet; a internet não tem os dados internos):\nFonte: ${hit.path}\n${String(hit.text).slice(0, 700)}\n(Se a pergunta é sobre a empresa, responda com isto.${sheet})\n\nNa internet:\n`;
+}
+
 export const webTools = [
   {
     name: "web_search",
@@ -78,8 +98,9 @@ export const webTools = [
       if (!String(query || "").trim()) throw new Error("Informe o que pesquisar.");
       const response = await get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=br-pt`, ctx.signal, ctx.fetch);
       const results = parseDuckDuckGo(await response.text());
-      if (!results.length) return `Nenhum resultado para "${query}".`;
-      return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n");
+      const internal = await companyFirst(query, ctx).catch(() => "");
+      if (!results.length) return `${internal}Nenhum resultado para "${query}".`;
+      return internal + results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n");
     },
   },
   {
@@ -89,6 +110,8 @@ export const webTools = [
     risk: "safe",
     stage: (a) => `Lendo ${a.url}…`,
     async run({ url }, ctx) {
+      // "F:\EmpresaIA\...\Tabela de Preços.pdf" sent here failed as "fetch failed" (empresa eval, 06/10).
+      if (/^([a-z]:[\\/]|\\\\|file:)/i.test(String(url || "").trim())) throw new Error(`"${url}" é um arquivo do computador, não um site: leia com read_file usando esse caminho em path.`);
       const target = new URL(/^[a-z]+:\/\//i.test(url) ? url : `https://${url}`);
       if (!["http:", "https:"].includes(target.protocol)) throw new Error("Só é possível ler páginas HTTP/HTTPS.");
       const response = await get(target.href, ctx.signal, ctx.fetch);
