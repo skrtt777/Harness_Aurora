@@ -44,6 +44,9 @@ export async function connectTelegram(token, { env = process.env, handleChatTurn
   const me = await call(clean, "getMe", {}, { env });
   await setSetting("telegram_token", clean);
   await setSetting("telegram_chat_id", "");
+  // A new bot starts reading from its own beginning.
+  await setSetting("telegram_offset", "");
+  state.offset = 0;
   await setSetting("telegram_pair_code", String(randomInt(100000, 999999)));
   state.bot = me.username || me.first_name || null;
   // The bot's Menu button: the two commands a person may not guess.
