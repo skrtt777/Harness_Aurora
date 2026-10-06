@@ -119,3 +119,11 @@ test("an answer that only names files already announced today is not news", asyn
   assert.equal(repeatsOnly("Chegaram boleto_energia_outubro.pdf e nota_fiscal_123.pdf.", told), false, "a new file is news");
   assert.equal(repeatsOnly("O condomínio subiu 10%.", told), false, "no file named: not judged");
 });
+
+test("an agent created without a folder gets one of its own under Documentos\Aurora\Agentes", async () => {
+  const agents = await import("../app/agents.js");
+  const { mkdtempSync: mk } = await import("node:fs");
+  const home = mk(join(tmpdir(), "aurora-home-"));
+  const dir = agents.defaultAgentFolder("Resumo: da manhã?", { USERPROFILE: home });
+  assert.match(dir, /Aurora[\\/]Agentes[\\/]Resumo da manhã$/);
+});

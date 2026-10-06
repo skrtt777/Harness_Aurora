@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { undoChanges } from "./undoMoves.js";
 import { getDb } from "./db.js";
 import { createConversation, createProject, getProject, updateProject } from "./store.js";
 import { httpError } from "./httpSecurity.js";
+import { personalFolders } from "./fileAccess.js";
 
 /**
  * Task agents (docs/AGENTES_ROTEIRO.md): "employees" of Aurora with a mission, a work folder
@@ -101,11 +103,24 @@ function cleanTrigger(trigger) {
   return { type: "manual" };
 }
 
+/** Documentos\Aurora\Agentes\<name>, a fresh one if that exists (Agentes\Resumo da manhã (2)). */
+export function defaultAgentFolder(name, env = process.env) {
+  const documents = personalFolders(env).find((f) => f.name === "Documentos")?.path || join(env.USERPROFILE || homedir(), "Documents");
+  const safe = String(name || "Agente").replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "Agente";
+  const base = join(documents, "Aurora", "Agentes", safe);
+  let dir = base;
+  for (let n = 2; existsSync(dir); n += 1) dir = `${base} (${n})`;
+  return dir;
+}
+
 export async function createAgent({ name, kind = "pessoal", mission, department = null, workDir, tools = null, trigger = null }) {
   if (!String(name || "").trim()) throw httpError(400, "Dê um nome ao agente.");
   if (!String(mission || "").trim()) throw httpError(400, "Descreva a missão do agente.");
   if (!AGENT_KINDS.includes(kind)) throw httpError(400, "Tipo de agente inválido.");
-  if (!workDir || !isAbsolute(String(workDir))) throw httpError(400, "Informe o caminho completo da pasta de trabalho do agente.");
+  // No folder given: one of its own under Documentos\Aurora\Agentes (a path to type was the hard
+  // part of creating an agent for someone who just wants "um resumo toda manhã").
+  if (!String(workDir || "").trim()) workDir = defaultAgentFolder(name);
+  if (!isAbsolute(String(workDir))) throw httpError(400, "Informe o caminho completo da pasta de trabalho do agente.");
   const dir = resolve(String(workDir));
   mkdirSync(dir, { recursive: true });
   const db = await ready();

@@ -239,19 +239,19 @@ const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger:
   },
   {
     label: 'Notas que chegam numa pasta',
-    hint: 'Escolha a pasta do agente (onde fica a planilha) e a pasta que ele vigia (onde as notas chegam).',
+    hint: 'Escolha a pasta que ele vigia (onde as notas chegam). A pasta do agente, onde fica a planilha, pode ficar vazia.',
     agent: { name: 'Leitor de notas', kind: 'pessoal', mission: 'Ler cada nota fiscal ou boleto que chegar e manter uma planilha com fornecedor, número, vencimento e valor.' },
     trigger: { type: 'file', pattern: '*.pdf', request: 'Leia o(s) arquivo(s) novo(s) e acrescente fornecedor, número, vencimento e valor à planilha notas.xlsx da sua pasta (crie se não existir).' },
   },
   {
     label: 'Resumo da manhã',
-    hint: 'Ligue o mapa do computador (Configurações → Pastas) e escolha uma pasta para o agente.',
+    hint: 'Ligue o mapa do computador em Configurações → Pastas. A pasta do agente pode ficar vazia.',
     agent: { name: 'Resumo da manhã', kind: 'pessoal', mission: 'Toda manhã, conferir o que chegou ou mudou no computador e só avisar o que merece atenção: boletos, notas, contratos, documentos novos.' },
     trigger: { type: 'at', at: '08:00', weekdays: [1, 2, 3, 4, 5], quiet: true, request: 'Veja com computer_map (recent_days=1) o que chegou ou mudou desde ontem e diga, em até 5 linhas, o que merece atenção (boletos e vencimentos, notas, contratos, documentos novos), com o caminho de cada um.' },
   },
   {
     label: 'Pesquisador',
-    hint: 'Escolha uma pasta para guardar os resumos.',
+    hint: 'A pasta do agente pode ficar vazia: a Aurora cria uma para os resumos.',
     agent: { name: 'Pesquisador', kind: 'pessoal', mission: 'Pesquisar na web o que for pedido e entregar um resumo em Word com as fontes (links) no fim.' },
     trigger: { type: 'manual' },
   },
@@ -310,11 +310,11 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
       </div>
       <label className="grow">Missão <textarea required rows={3} value={draft.mission} onChange={(e) => setDraft({ ...draft, mission: e.target.value })} placeholder="Acompanhar contas a receber e gerar a lista de cobrança toda segunda." /></label>
       <div className="agent-trigger-row">
-        <label className="grow">Pasta do agente (onde ele guarda o que entrega) <input required value={draft.workDir} onChange={(e) => setDraft({ ...draft, workDir: e.target.value })} placeholder="C:\Users\voce\Documents\Agentes\Financeiro" /></label>
+        <label className="grow">Pasta do agente (opcional) <input value={draft.workDir} onChange={(e) => setDraft({ ...draft, workDir: e.target.value })} placeholder="Deixe vazio: a Aurora cria uma em Documentos\Aurora\Agentes" /></label>
         <button type="button" onClick={() => void pickFolder().then((f) => f && setDraft({ ...draft, workDir: f }))}>Escolher…</button>
       </div>
       <TriggerEditor value={trigger} onChange={setTrigger} />
-      <button className="primary">Criar agente</button>
+      <button className="btn btn-primary">Criar agente</button>
     </form>}
 
     {loaded && agents.length === 0 && !creating && <section className="agents-empty">
@@ -327,7 +327,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
       <form className="agent-trigger-row" onSubmit={(e) => { e.preventDefault(); setError(''); createSectorAgents(sectorDir).then(refresh).catch((err: Error) => setError(err.message)); }}>
         <label className="grow">Pasta onde os agentes de setor guardam as entregas <input required value={sectorDir} onChange={(e) => setSectorDir(e.target.value)} placeholder="C:\Users\voce\Documents\Agentes" /></label>
         <button type="button" onClick={() => void pickFolder().then((f) => f && setSectorDir(f))}>Escolher…</button>
-        <button className="primary">Criar agentes por setor</button>
+        <button className="btn btn-primary">Criar agentes por setor</button>
       </form>
     </section>}
 
