@@ -3,8 +3,10 @@
 // from it is a turn in the "Celular (Telegram)" conversation and the answer goes back, with the files
 // it created; an action that needs a yes comes as Permitir/Negar buttons; automatic agents report there.
 import { randomInt } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+import { personalFolders } from "./fileAccess.js";
 import { getSetting, setSetting, createConversation, getConversationWithMessages } from "./store.js";
 import { approvalEvents, getApproval, resolveApproval } from "./pendingTurns.js";
 
@@ -85,6 +87,22 @@ async function sendFile(token, chat, file, env) {
   return true;
 }
 
+/** Downloads a file the phone sent (Telegram serves up to 20 MB) into Documentos\Aurora\Recebidos do celular. */
+export async function receiveFile(token, attachment, env = process.env) {
+  if ((attachment.file_size || 0) > MAX_FILE) throw new Error("maior que 20 MB");
+  const info = await call(token, "getFile", { file_id: attachment.file_id }, { env });
+  const response = await fetch(`${API(env)}/file/bot${token}/${info.file_path}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const documents = personalFolders(env).find((f) => f.name === "Documentos")?.path || join(env.USERPROFILE || homedir(), "Documents");
+  const dir = join(documents, "Aurora", "Recebidos do celular");
+  mkdirSync(dir, { recursive: true });
+  const name = basename(String(attachment.file_name || basename(info.file_path || "arquivo"))).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_") || "arquivo";
+  let file = join(dir, name);
+  for (let n = 2; existsSync(file); n += 1) file = join(dir, name.replace(/(\.[^.]+)?$/, ` (${n})$1`));
+  writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+  return file;
+}
+
 /** Files a turn wrote ("Criei C:\…\x.xlsx (XLSX, …)"), to send along with the answer. */
 export function deliveredFiles(execution) {
   const steps = execution?.toolSteps || [];
@@ -107,9 +125,10 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
     return;
   }
   const message = update.message;
-  const text = String(message?.text || "").trim();
   const chat = String(message?.chat?.id || "");
-  if (!text || !chat) return;
+  const attachment = message?.document || (message?.photo?.length ? { ...message.photo.at(-1), file_name: `foto_${message.message_id || Date.now()}.jpg` } : null);
+  let text = String(message?.text || message?.caption || "").trim();
+  if (!chat || (!text && !attachment)) return;
   if (!linked) {
     // Pairing: the code shown in Configurações, from the person's own chat with the bot.
     const code = await getSetting("telegram_pair_code");
@@ -124,6 +143,12 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   }
   if (chat !== linked) return; // anyone else who finds the bot is ignored
   if (/^\/start\b/.test(text)) return;
+  // A file or photo from the phone lands in Documentos\Aurora\Recebidos do celular; the caption is the request.
+  if (attachment) {
+    let saved;
+    try { saved = await receiveFile(token, attachment, env); } catch (e) { await sendToPhone(`Não consegui receber o arquivo (${e.message}).`, { env }); return; }
+    text = `${text || "Guardei este arquivo que mandei pelo celular. Diga em uma linha o que ele é."}\n\n(Arquivo recebido pelo celular e salvo em: ${saved})`;
+  }
   const id = await conversationId();
   await call(token, "sendChatAction", { chat_id: chat, action: "typing" }, { env }).catch(() => {});
   // A person is on the other end (the buttons answer approvals): not an automatic run.

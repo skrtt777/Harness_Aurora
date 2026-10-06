@@ -421,7 +421,7 @@ export default function SettingsView({
           {section === "phone" && <>
             <header className="page-header">
               <h2 className="page-title">Celular</h2>
-              <p className="page-desc">Converse com a Aurora pelo Telegram, receba os arquivos que ela criar e os avisos dos agentes, e autorize ações com um toque.</p>
+              <p className="page-desc">Converse com a Aurora pelo Telegram: mande arquivos e fotos para o computador, receba o que ela criar e os avisos dos agentes, e autorize ações com um toque.</p>
             </header>
             <div className="section"><PhonePanel /></div>
           </>}

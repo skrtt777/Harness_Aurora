@@ -11,7 +11,7 @@ export const NEWS: Record<string, { title: string; items: [string, string][] }> 
   '0.1.37': {
     title: 'A Aurora agora conhece você e o seu computador',
     items: [
-      ['Aurora no celular', 'Em Configurações → Celular, ligue o seu Telegram: converse com a Aurora de qualquer lugar, receba os arquivos que ela criar e os avisos dos agentes, e autorize ações com um toque.'],
+      ['Aurora no celular', 'Em Configurações → Celular, ligue o seu Telegram: converse com a Aurora de qualquer lugar, mande e receba arquivos, veja os avisos dos agentes e autorize ações com um toque.'],
       ['Mapa do computador', 'Ligue em Configurações → Pastas: a Aurora aprende onde ficam seus documentos, fotos e projetos (só os nomes, sem abrir nada) e acha qualquer arquivo na hora.'],
       ['Sobre você', 'Em Memória ou Configurações → Geral: o que você contar de si vale em todas as conversas, e dá para corrigir ou fazer esquecer.'],
       ['Agentes que só avisam quando importa', 'O modelo "Resumo da manhã" confere o que chegou no computador e só manda notificação se houver novidade. E o cartão mostra quando cada agente trabalha de novo.'],

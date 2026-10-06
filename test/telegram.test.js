@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,10 +14,11 @@ const server = http.createServer((req, res) => {
   let body = Buffer.alloc(0);
   req.on("data", (d) => { body = Buffer.concat([body, d]); });
   req.on("end", () => {
+    if (req.url.startsWith("/file/")) return res.end("conteudo do boleto");
     const method = req.url.split("/").pop();
     const json = /json/.test(req.headers["content-type"] || "") ? JSON.parse(body.toString() || "{}") : { raw: body.toString("latin1") };
     sent.push({ method, body: json });
-    const result = method === "getMe" ? { username: "aurora_teste_bot" } : method === "getUpdates" ? [] : true;
+    const result = method === "getMe" ? { username: "aurora_teste_bot" } : method === "getUpdates" ? [] : method === "getFile" ? { file_path: "documents/file_7.pdf" } : true;
     setTimeout(() => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ ok: true, result })); }, method === "getUpdates" ? 50 : 0);
   });
 });
@@ -78,6 +79,15 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   await tg.notifyRunOnPhone({ name: "Resumo da manhã" }, { status: "done", answer: "Chegou o boleto da luz.", files: [delivered] }, { env });
   assert.match(last("sendMessage").text, /Resumo da manhã:\nChegou o boleto da luz\./);
   tg.stopTelegram();
+
+  // A file from the phone lands in Documentos\Aurora\Recebidos do celular; its caption is the request.
+  const home = mkdtempSync(join(tmpdir(), "aurora-tg-home-"));
+  mkdirSync(join(home, "Documents"));
+  const phoneEnv = { ...env, USERPROFILE: home, OneDrive: "" };
+  await tg.handleUpdate({ update_id: 6, message: { message_id: 7, chat: { id: 555 }, caption: "resuma isso", document: { file_id: "abc", file_name: "boleto luz.pdf", file_size: 18 } } }, { env: phoneEnv, handleChatTurn });
+  const saved = join(home, "Documents", "Aurora", "Recebidos do celular", "boleto luz.pdf");
+  assert.equal(readFileSync(saved, "utf8"), "conteudo do boleto");
+  assert.match(turns.at(-1), /^resuma isso[\s\S]*Arquivo recebido pelo celular e salvo em: .*boleto luz\.pdf/);
 
   const off = await tg.disconnectTelegram();
   assert.equal(off.configured, false);
