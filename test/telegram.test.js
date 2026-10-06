@@ -43,6 +43,13 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   assert.match(String(status.pairCode), /^\d{6}$/);
   assert.equal(status.linked, false);
 
+  // Guessing codes: after five wrong ones, that chat is not answered any more (not even the right code).
+  for (let n = 0; n < 5; n += 1) await tg.handleUpdate({ update_id: 100 + n, message: { chat: { id: 777 }, text: String(100000 + n) } }, { env, handleChatTurn });
+  const before = sent.length;
+  await tg.handleUpdate({ update_id: 110, message: { chat: { id: 777 }, text: `/start ${status.pairCode}` } }, { env, handleChatTurn });
+  assert.equal(sent.length, before, "a chat that guessed five times is ignored");
+  assert.equal((await tg.telegramStatus()).linked, false);
+
   // Before pairing, a message only gets the instructions.
   await tg.handleUpdate({ update_id: 1, message: { chat: { id: 555 }, text: "oi" } }, { env, handleChatTurn });
   assert.match(last("sendMessage").text, /mande o código/);

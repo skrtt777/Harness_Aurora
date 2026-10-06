@@ -14,7 +14,7 @@ const API = (env) => env.TELEGRAM_API_BASE || "https://api.telegram.org";
 const MAX_TEXT = 4000;
 const MAX_FILE = 20 * 1024 * 1024;
 
-const state = { running: false, bot: null, error: null, controller: null, offset: 0, approvals: new Map(), env: process.env };
+const state = { running: false, bot: null, error: null, controller: null, offset: 0, approvals: new Map(), env: process.env, wrongCodes: new Map() };
 
 async function call(token, method, body, { env = process.env, signal } = {}) {
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
@@ -132,9 +132,13 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   let text = String(message?.text || message?.caption || "").trim();
   if (!chat || (!text && !attachment && !message?.voice && !message?.audio && !message?.video_note)) return;
   if (!linked) {
-    // Pairing: the code shown in Configurações, from the person's own chat with the bot.
+    // Pairing: the code shown in Configurações, from the person's own chat with the bot. Five wrong
+    // codes and that chat is no longer answered (a 6-digit code must not be guessable by trying).
+    if ((state.wrongCodes.get(chat) || 0) >= 5) return;
     const code = await getSetting("telegram_pair_code");
-    if (code && text.replace(/^\/start\s*/, "").trim() === code) {
+    const sent = text.replace(/^\/start\s*/, "").trim();
+    if (code && sent && sent !== code && /^\d{4,8}$/.test(sent)) state.wrongCodes.set(chat, (state.wrongCodes.get(chat) || 0) + 1);
+    if (code && sent === code) {
       await setSetting("telegram_chat_id", chat);
       await setSetting("telegram_pair_code", "");
       await call(token, "sendMessage", { chat_id: chat, text: "Pronto! Este chat agora fala com a Aurora do seu computador. Os agentes também avisam aqui." }, { env });
