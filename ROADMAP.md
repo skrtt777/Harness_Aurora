@@ -8,16 +8,18 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 488 passaram, 0 falhas (05/10) |
-| Conversas reais (5 cenários: documento, planilha, 10 turnos, navegador, honestidade) | `npm run battery -- --runs 3` | 100% com qwen3.5:4b e especulação ligada (05/10, `reports/battery/`) |
-| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 7 setores + rotina de pasta: 98,8%, 38 de 40 perfeitas em 5 rodadas (05/10, noite; `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
-| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 100%; dependência 95,2% (05/10, noite; eram 87,9% e 90,5%) |
+| Testes automáticos | `npm test` | 542 passaram, 0 falhas (06/10) |
+| Conversas reais (8 cenários: documento, planilha, 10 turnos, navegador, honestidade, mapa, continuidade, arquivos) | `npm run battery -- --runs 3` | 99,2% com qwen3.5:4b (06/10, `reports/battery/`) |
+| Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 99–100% (24 de 24 perfeitas em duas rodadas seguidas, 06/10; `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
+| Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 97–100%; dependência 100% (06/10) |
+| Vigia ("avisar só quando houver novidade") | `node scripts/heartbeat-eval.mjs --runs 3` | 8/9 a 11/12 (06/10) |
+| Celular (Telegram falso, boleto + planilha) | `node scripts/phone-eval.mjs --runs 2` | 4/4 (06/10) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 100% (6 de 6, com `organize_folder`); pesquisa 91,7% (05/10) |
 | Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96% a 100% em 3 rodadas (05/10, noite), 2-3 s por pergunta; era 83% com 1 resposta |
 | Velocidade do modelo local | `node scripts/spec-bench.mjs` | cópia de 40 linhas: 12,4 s → 3,4 s (GPU); 8,5 → 40 tokens/s (CPU) com `ngram-mod` (05/10) |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
-**Regra:** uma versão só sai se a bateria de conversas não cair mais de 5 pontos.
+**Regra:** uma versão só sai se a bateria de conversas não cair mais de 5 pontos. Toda avaliação importa `scripts/evalSandbox.mjs` (Desktop, Documentos e Downloads falsos).
 
 ## Feito
 
@@ -48,9 +50,17 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 - **Modelo maior (05/10):** qwen3.5:9b × 4b, mesmo código, 3 rodadas: conversas 96,7% × 100%, agentes de setor 100% × 97,9%, agentes 45% mais lentos. O 4b continua o padrão. O 9b responde "qual é meu nome?" com a conta do Windows dos caminhos ("Lucas"), mesmo com "A pessoa se chama Rafaela" no contexto; se for oferecido para placas fortes (detecção já pronta), isso precisa de solução antes.
 - **Pesquisado e descartado (05/10):** amostragem recomendada do Qwen (temperatura 0,7, sem penalidade de repetição): conversas caíram de 100% para 86,7% (laços de busca). Template de chat "corrigido" da comunidade: o defeito do bloco `<think>` vazio não se aplica ao modo sem raciocínio que usamos.
 
+- **Noite de 06/10 (0.1.37, `docs/NOITE_2026-10-06.md`):**
+  - Aurora no celular (Telegram): conversa, arquivos nos dois sentidos, autorização por botão, avisos dos agentes;
+  - mapa do computador, "Sobre você", diário, vigia que não repete aviso;
+  - conversa e celular passam trabalho a um agente ou à equipe;
+  - filtros prontos pela intenção do pedido e entrega conferida antes de gravar;
+  - guia de boas-vindas para leigos, novidades após atualizar, tela inicial com saudação e o dia.
+
 ## Agora
 
-1. **Publicar a 0.1.35** (instalador em `release/`, notas em `docs/RELEASE_0.1.35.md`): `gh release create v0.1.35 …` (a 0.1.34 nunca foi publicada; a 0.1.35 a substitui).
+1. **Publicar a 0.1.37** (instalador em `release-0.1.37-final/`): `gh release create v0.1.37 …` com o .exe, o .blockmap e o latest.yml.
+1. **Áudio pelo celular:** hoje a mensagem de voz recebe "mande por texto"; falta uma transcrição local leve (a do Quest depende de um serviço à parte).
 2. **Busca da empresa ainda erra o documento** em perguntas curtas: "próximo imposto a vencer" (vai à web em vez do calendário de obrigações), "quem é o gerente de logística" (não traz a lista de ramais), "área mais acima do orçamento" (lê o orçamento do ano anterior). Medir com `empresa-eval --only fiscal-1,administrativo-2,controladoria-2 --samples 5`.
 3. **Perguntas de "maior/menor/mais acima"** numa planilha: o mesmo tipo de dica pronta que já existe para datas ("vence primeiro" → sort), escolhendo a coluna pelas palavras do pedido.
 4. **Extensões MCP com servidores reais** (Google Agenda, Gmail): só foram testadas com um servidor de teste; falta um teste de ponta a ponta com um servidor público.
