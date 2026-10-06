@@ -183,6 +183,12 @@ export function numberFilterHint(lines, request) {
     const columns = header.filter((name, j) => unit.test(name) && cellValue(sample[j] || "") !== null);
     if (!columns.length) continue;
     const value = m[2].replace(",", ".");
+    // One column with that unit: the filtered rows come right here (the hint alone was ignored and
+    // every area went into "áreas mais de 5% acima do orçado", agent battery 06/10).
+    if (columns.length === 1) {
+      const filter = `${columns[0]}${ops[m[1]]}${value}`;
+      return `\n(O pedido tem uma condição ("${m[0]}"). Já apliquei filter="${filter}"; a lista certa é esta, não escolha de olho na tabela inteira abaixo:\n${filterRows(lines, filter)}\n)`;
+    }
     return `\n(O pedido tem uma condição ("${m[0]}"): para a ferramenta comparar, leia de novo com filter=${columns.map((c) => `"${c}${ops[m[1]]}${value}"`).join(" ou ")}, em vez de escolher as linhas de olho.)`;
   }
   return "";
@@ -258,7 +264,23 @@ export function dateFilterHint(lines, request, now = new Date()) {
   const columns = header.filter((_, j) => DATE.test(sample[j] || ""));
   if (!columns.length) return "";
   const filters = range ? columns.map((c) => `"${c}>=${range.from}; ${c}<=${range.to}"`) : columns.map((c) => `"${c}${wanted[1]}${wanted[0]}"`);
-  return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"}: para a ferramenta comparar, leia de novo com filter=${filters.join(" ou ")}, em vez de escolher as linhas de olho.)`;
+  const hint = `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"}: para a ferramenta comparar, leia de novo com filter=${filters.join(" ou ")}, em vez de escolher as linhas de olho.)`;
+  // The hint alone was ignored: "contratos que terminam até 31/12/2026" picked by eye let 2027 in
+  // (agent battery, 06/10). When the request names the column ("terminam" → Término, "entrega" →
+  // Entrega prevista), the filtered rows come right here.
+  const column = requestColumn(columns, request);
+  if (!column) return hint;
+  const filter = range ? `${column}>=${range.from}; ${column}<=${range.to}` : `${column}${wanted[1]}${wanted[0]}`;
+  return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"} na coluna ${column}. Já apliquei filter="${filter}"; a lista certa é esta, não escolha de olho na tabela inteira abaixo:\n${filterRows(lines, filter)}\n)`;
+}
+
+/** The one date column the request speaks of, by the stem of its name ("terminam" → "Término"). */
+const COLUMN_FILLER = new Set(["data", "prevista", "previsto", "dia", "para"]);
+export function requestColumn(columns, request) {
+  const text = foldText(request);
+  const stems = (c) => foldText(c).split(/[^a-z]+/).filter((w) => w.length >= 4 && !COLUMN_FILLER.has(w)).map((w) => w.slice(0, 4));
+  const hits = columns.filter((c) => stems(c).some((s) => new RegExp(`\\b${s}`).test(text)));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 export function filterRows(lines, filter, { sort, request } = {}) {
@@ -470,6 +492,15 @@ function statSafe(path) { try { return statSync(path); } catch { return null; } 
 // Documents write_document created while the app runs: those (only those) may be replaced.
 const OWN_DOCUMENTS = new Set();
 // The format wins over a missing or wrong extension ("proposta" + docx → proposta.docx).
+/**
+ * A date in a file name is not a path: "Contas a Pagar - Até 15/10/2026.xlsx" became the folders
+ * "Até 15\10\" holding "2026.xlsx" (agent battery, 06/10). dd/mm/yyyy in the last part of the path
+ * (the name, and the folder pieces the slashes made of it) becomes dd-mm-yyyy.
+ */
+export function undatedSlashes(path) {
+  return String(path).replace(/(\d{1,2})[\\/](\d{1,2})[\\/](\d{4})(?=[^\\/]*$)/, "$1-$2-$3");
+}
+
 function documentPath(args, ctx) {
   // Small models name the field after other tools ("file_path", "filename").
   const path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
@@ -481,7 +512,7 @@ function documentPath(args, ctx) {
     if (rest.length && head.toLowerCase() === basename(ctx.workspace).toLowerCase() && !existsSync(join(ctx.workspace, head))) return documentPath({ ...args, path: rest.join("/"), file_path: undefined, filePath: undefined, filename: undefined, file: undefined, name: undefined }, ctx);
   }
   if (!String(path || "").trim()) throw new Error('Falta "path": informe o caminho com o nome do arquivo (ex.: C:\\Users\\voce\\Documents\\proposta_atualizada.docx) e o "content" completo em markdown.');
-  const file = full(path, ctx);
+  const file = full(undatedSlashes(path), ctx);
   const ext = extname(file).slice(1).toLowerCase();
   let wanted = DOCUMENT_FORMATS.includes(String(format || "").toLowerCase()) ? String(format).toLowerCase() : DOCUMENT_FORMATS.includes(ext) ? ext : "docx";
   // Asked for a "planilha", it wrote funcionarios_ferias.md (agents eval, 05/10/2026): the person's
@@ -729,9 +760,17 @@ export const fileTools = [
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
         const today = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
-        if (request && rows.includes("\n(Usei ")) ctx.correctedFilters.add(key);
-        const found = `${file}\n${rows}`;
-        ctx.lastRows = rowKeys(found);
+        const corrected = request && rows.includes("\n(Usei ");
+        if (corrected) ctx.correctedFilters.add(key);
+        let found = `${file}\n${rows}`;
+        // Asked again as written after the correction ("=15/10/2026" for "até 15/10"), the rows the
+        // request means stay the ones the document is checked against: an agent copied the 2 rows of
+        // the literal re-read instead of the 7 (agent battery, 2 runs in 5, 06/10).
+        ctx.correctedRows ??= new Map();
+        const intended = !request && ctx.correctedRows.get(key);
+        if (corrected) ctx.correctedRows.set(key, rowKeys(found));
+        if (intended?.length) found += `\n(Este é o filtro como você escreveu. O pedido fala de um período: a lista certa são as ${intended.length} linha(s) da leitura anterior (${intended.slice(0, 12).join(", ")}${intended.length > 12 ? "…" : ""}). Use aquelas.)`;
+        ctx.lastRows = intended?.length ? intended : rowKeys(found);
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);
@@ -756,6 +795,8 @@ export const fileTools = [
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         ready = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || extremeHint(table, ctx.request);
+        // Rows the tool already filtered for the request are what the document is checked against.
+        if (ready.includes("Já apliquei filter=")) ctx.lastRows = rowKeys(ready);
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
@@ -788,6 +829,15 @@ export const fileTools = [
     async run(args, ctx) {
       let file = documentPath(args, ctx);
       const format = extname(file).slice(1).toLowerCase();
+      // A list missing rows of the read it came from is not written the first time: written and
+      // flagged, the agent saved the full list under another name and left the 2-row sheet beside
+      // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
+      const gaps = missingRows(ctx.lastRows, args.content ?? args.text ?? args.markdown ?? "");
+      ctx.heldDocuments ??= new Set();
+      if (gaps.length && !ctx.heldDocuments.has(file.toLowerCase())) {
+        ctx.heldDocuments.add(file.toLowerCase());
+        throw new Error(`Não gravei ainda: o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - gaps.length}. Faltam: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? "…" : ""}. Chame write_document de novo com o mesmo caminho e todas as linhas; se o pedido é mesmo só uma parte, repita igual que eu gravo.`);
+      }
       // A file Aurora created is updated in place (a redo made "... (2).md" next to its own first try).
       for (let n = 2; existsSync(file) && !OWN_DOCUMENTS.has(file.toLowerCase()); n += 1) file = documentPath(args, ctx).replace(/(\.[^.\\/]+)$/, ` (${n})$1`);
       const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "");

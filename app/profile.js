@@ -43,5 +43,9 @@ export async function learnFromMessage(message) {
 export async function profileBlock() {
   const { text, learned } = await getProfile();
   if (!text.trim() && !learned.length) return [];
-  return [`Sobre a pessoa (perfil que vale em todas as conversas; use quando ajudar, como o nome):\n${[text.trim(), ...learned.map((l) => `- ${l.text}`)].filter(Boolean).join("\n").slice(0, 1200)}`];
+  // In a new conversation "qual é o meu nome?" got the Windows account in the folder paths
+  // ("Lucas") over "Nome: Rafaela" here (battery, 2 runs in 3, 06/10): the name is said plainly.
+  const name = learned.map((l) => /^Nome: (.+)$/.exec(l.text)?.[1]).find(Boolean);
+  const nameLine = name ? [`A pessoa se chama ${name}. Se ela perguntar o próprio nome, é ${name} (o nome nos caminhos das pastas é só a conta do Windows).`] : [];
+  return [`Sobre a pessoa (perfil que vale em todas as conversas; use quando ajudar, como o nome):\n${[...nameLine, text.trim(), ...learned.filter((l) => !/^Nome: /.test(l.text)).map((l) => `- ${l.text}`)].filter(Boolean).join("\n").slice(0, 1200)}`];
 }

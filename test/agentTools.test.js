@@ -276,8 +276,21 @@ test("a date filter is corrected by the request once; asked again as written, it
   const first = await executeTool("read_file", { path: "pedidos.csv", filter: "Entrega=15/10/2026" }, c);
   assert.match(first.result, /PC-1[\s\S]*Usei Entrega<=15\/10\/2026/);
   const again = await executeTool("read_file", { path: "pedidos.csv", filter: "Entrega=15/10/2026" }, c);
-  assert.doesNotMatch(again.result, /PC-1/, "the model insisted: exactly the 15th");
+  assert.doesNotMatch(again.result, /^\s*\d+ {2}PC-1 \|/m, "the model insisted: exactly the 15th");
   assert.match(again.result, /PC-2/);
+  // ...but the list the request means stays the reference: a document with only PC-2 is flagged.
+  assert.match(again.result, /a lista certa são as 2 linha\(s\) da leitura anterior \(PC-1, PC-2\)/);
+  const doc = await executeTool("write_document", { path: "cobranca.md", content: "| Pedido |\n|---|\n| PC-2 |" }, c);
+  assert.equal(doc.ok, false, "an incomplete list is held back the first time");
+  assert.match(doc.result, /Não gravei ainda[\s\S]*Faltam: PC-1/);
+  assert.equal(existsSync(join(dir, "cobranca.md")), false);
+  const full = await executeTool("write_document", { path: "cobranca.md", content: "| Pedido |\n|---|\n| PC-1 |\n| PC-2 |" }, c);
+  assert.equal(full.ok, true, full.result);
+  // A subset asked twice on the same path (a fair "top 3") is written.
+  const again2 = await executeTool("write_document", { path: "parte.md", content: "| PC-2 |" }, c);
+  const insisted = await executeTool("write_document", { path: "parte.md", content: "| PC-2 |" }, c);
+  assert.equal(again2.ok, false);
+  assert.equal(insisted.ok, true, insisted.result);
 });
 
 test("submit in a multi-line message box sends its form; with no form the tool says to click", { skip: hasBrowser ? false : "Nenhum navegador disponível." }, async () => {

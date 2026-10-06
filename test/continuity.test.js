@@ -21,7 +21,7 @@ test("what the person says about themselves is learned once, the name replaced, 
   assert.deepEqual(learned.map((l) => l.text), ["Trabalho com marketing de influência na agência Luz.", "Nome: Rafa"]);
   await profile.saveProfile({ text: "Prefiro respostas curtas." });
   const [block] = await profile.profileBlock();
-  assert.match(block, /Prefiro respostas curtas\.\n- Trabalho com marketing[\s\S]*- Nome: Rafa/);
+  assert.match(block, /A pessoa se chama Rafa\. Se ela perguntar o próprio nome, é Rafa[\s\S]*Prefiro respostas curtas\.\n- Trabalho com marketing/);
 });
 
 test("the diary lists what was created and organized today and yesterday, with full paths, not older", async () => {

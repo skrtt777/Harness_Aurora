@@ -69,7 +69,8 @@ for (let run = 1; run <= runs; run += 1) {
     const score = await scoreAgentTask(task, result, truth);
     const conversation = result.conversationId ? await store.getConversationWithMessages(result.conversationId) : null;
     const steps = conversation?.messages.at(-1)?.execution?.toolSteps || [];
-    results.push({ id: task.id, run, ms: Date.now() - started, status: result.status, answer: result.answer, files: readdirSync(workDir), delivered: score.delivered, missing: score.missing, extra: score.extra, steps: steps.map((s) => `${s.tool}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 100)})`}`), checks: score.checks });
+    results.push({ id: task.id, run, ms: Date.now() - started, status: result.status, answer: result.answer, files: readdirSync(workDir), delivered: score.delivered, missing: score.missing, extra: score.extra, steps: steps.map((s) => `${s.tool}:${s.ok ? "ok" : `falhou (${String(s.summary || "").slice(0, 100)})`}`), checks: score.checks,
+      detail: steps.map((s) => ({ tool: s.tool, args: JSON.stringify(s.args || {}).slice(0, 300), result: String(s.summary || "").slice(0, 300) })) });
     console.log(`\n## ${task.id} (rodada ${run}, ${((Date.now() - started) / 1000).toFixed(0)} s) ${score.checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
     if (score.missing.length) console.log(`  faltaram: ${score.missing.join(", ")}`);
     if (score.extra.length) console.log(`  sobraram: ${score.extra.join(", ")}`);

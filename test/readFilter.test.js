@@ -76,7 +76,8 @@ test("a combined date filter that contradicts the request is corrected; a whole-
   assert.doesNotMatch(out, /PC-3/);
   assert.match(out, /Usei Entrega prevista<=15\/10\/2026/);
   const contracts = ["## Contratos", "Contratado | Início | Término | Valor", "A | 01/01/2025 | 31/10/2026 | 10", "B | 01/01/2025 | 31/03/2027 | 20"];
-  assert.match(dateFilterHint(contracts, "contratos que terminam até 31/12/2026"), /filter="Início<=31\/12\/2026" ou "Término<=31\/12\/2026"/);
+  assert.match(dateFilterHint(contracts, "contratos até 31/12/2026"), /filter="Início<=31\/12\/2026" ou "Término<=31\/12\/2026"/, "no column named: both are offered");
+  assert.match(dateFilterHint(contracts, "contratos que terminam até 31/12/2026"), /Já apliquei filter="Término<=31\/12\/2026"/);
   assert.equal(dateFilterHint(contracts, "liste os contratos"), "", "no date in the request");
 });
 
@@ -162,4 +163,32 @@ test("'mais acima', 'maior' and 'menor' get ready sorts in the right direction",
   assert.match(extremeHint(sheet, "Qual área gastou menos?"), /sort="Orçado" ou sort="Desvio \(%\)"/);
   assert.doesNotMatch(extremeHint(sheet, "maior desvio"), /Matrícula/, "id columns are not sorted for an answer");
   assert.equal(extremeHint(sheet, "Como está o orçamento?"), "");
+});
+
+test("a whole-sheet read for a date the request ties to a column comes with the filtered rows", async () => {
+  const { dateFilterHint, requestColumn } = await import("../app/agentTools/files.js");
+  const sheet = ["## Contratos", "Contratado | Início | Término | Valor", "   1  Alfa | 01/01/2025 | 30/11/2026 | 100", "   2  Beta | 01/02/2025 | 31/03/2027 | 200", "   3  Gama | 01/03/2025 | 15/12/2026 | 300"];
+  assert.equal(requestColumn(["Início", "Término"], "contratos vigentes que terminam até 31/12/2026"), "Término");
+  assert.equal(requestColumn(["Início", "Término"], "contratos até 31/12/2026"), null, "no column named: only the hint");
+  assert.equal(requestColumn(["Entrega prevista", "Emissão"], "pedidos com entrega até 15/10/2026"), "Entrega prevista");
+  const out = dateFilterHint(sheet, "Faça um relatório com os contratos que terminam até 31/12/2026");
+  assert.match(out, /Já apliquei filter="Término<=31\/12\/2026"/);
+  assert.match(out, /Alfa[\s\S]*Gama/);
+  assert.doesNotMatch(out, /Beta/);
+});
+
+test("a date in a document's name doesn't turn into folders", async () => {
+  const { undatedSlashes } = await import("../app/agentTools/files.js");
+  assert.equal(undatedSlashes("C:\\x\\Contas a Pagar - Até 15/10/2026.xlsx"), "C:\\x\\Contas a Pagar - Até 15-10-2026.xlsx");
+  assert.equal(undatedSlashes("Relatorios/cobranca 05\\10\\2026.docx"), "Relatorios/cobranca 05-10-2026.docx");
+  assert.equal(undatedSlashes("2026/10/relatorio.docx"), "2026/10/relatorio.docx", "real year/month folders stay");
+});
+
+test("a number condition with one matching column comes with the filtered rows", async () => {
+  const { numberFilterHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Orçamento", "Área | Orçado | Realizado | Desvio (%)", "   1  TI | 100 | 114 | 14,35%", "   2  RH | 100 | 102 | 2,10%", "   3  Logística | 100 | 108 | 8,84%"];
+  const out = numberFilterHint(sheet, "áreas que gastaram mais de 5% acima do orçado");
+  assert.match(out, /Já apliquei filter="Desvio \(%\)>5"/);
+  assert.match(out, /TI[\s\S]*Logística/);
+  assert.doesNotMatch(out.split("Já apliquei")[1], /\bRH\b/);
 });
