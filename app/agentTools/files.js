@@ -918,6 +918,7 @@ export const fileTools = [
         ctx.lastRows = intended?.length ? intended : rowKeys(found);
         // When the request decided the condition (a corrected filter), the rows outside it are known too.
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
+        ctx.anchorRows = ctx.lastRows;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);
@@ -943,11 +944,14 @@ export const fileTools = [
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         ready = (nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request)) + groupHint(table, ctx.request);
         // Rows the tool already filtered for the request are what the document is checked against.
+        // The ready filter covers ONE condition of the request ("até 15/10" of "a pagar e até 15/10"):
+        // its rows are not all owed (demanding them pushed paid bills into the list, 06/10), but the
+        // rows it leaves out must not go in.
         if (ready.includes("Já apliquei filter=")) {
-          ctx.lastRows = rowKeys(ready);
-          // ...and the rows the condition leaves out are what it must not carry.
-          ctx.excludedRows = rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k));
-        } else ctx.excludedRows = [];
+          ctx.lastRows = [];
+          ctx.anchorRows = rowKeys(ready);
+          ctx.excludedRows = rowKeys(filterRows(table, "")).filter((k) => !ctx.anchorRows.includes(k));
+        } else { ctx.excludedRows = []; ctx.anchorRows = []; }
         tip = ready ? "" : text.includes("… (cortado") ? "" : `\n(Para listar só as linhas que atendem a uma condição, leia de novo com filter, ex.: "Coluna>30" ou "Coluna=texto": a ferramenta faz a comparação.)`;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
@@ -986,7 +990,7 @@ export const fileTools = [
       const body = String(args.content ?? args.text ?? args.markdown ?? "");
       const gaps = missingRows(ctx.lastRows, body);
       // Rows the condition left out, in a document built from that read (it has some of the right ones).
-      const extras = (ctx.lastRows || []).some((k) => body.includes(k)) ? extraRows(ctx.excludedRows, body) : [];
+      const extras = [...(ctx.lastRows || []), ...(ctx.anchorRows || [])].some((k) => body.includes(k)) ? extraRows(ctx.excludedRows, body) : [];
       ctx.heldDocuments ??= new Set();
       if ((gaps.length || extras.length) && !ctx.heldDocuments.has(file.toLowerCase())) {
         ctx.heldDocuments.add(file.toLowerCase());

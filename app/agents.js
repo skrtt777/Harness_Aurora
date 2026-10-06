@@ -201,7 +201,11 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
   try {
     // Folders this run may read on top of its own (the deliveries of the tasks it depends on).
     // The trigger goes along: automatic runs get the paid teacher on errors only (teachingLoop.js).
-    const runEnv = { ...env, AGENT_RUN_TRIGGER: trigger, ...(readRoots.length ? { AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : {}) };
+    // Its own recent deliveries (OpenClaw's per-agent memory): "atualize a planilha de cobrança"
+    // finds last week's file instead of starting over or searching the disk.
+    const previous = db.prepare("SELECT started_at, files FROM agent_runs WHERE agent_id = ? AND id != ? AND status = 'done' AND files IS NOT NULL AND files != '[]' ORDER BY started_at DESC LIMIT 3").all(id, runId)
+      .map((r) => `${new Date(r.started_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: ${parse(r.files, []).slice(0, 3).join("; ")}`);
+    const runEnv = { ...env, AGENT_RUN_TRIGGER: trigger, ...(readRoots.length ? { AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : {}), ...(previous.length ? { AGENT_PREVIOUS_WORK: JSON.stringify(previous) } : {}) };
     const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env: runEnv });
     const execution = turn.message?.execution || {};
     const steps = execution.toolSteps || [];

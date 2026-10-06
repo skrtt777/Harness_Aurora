@@ -235,6 +235,14 @@ export function withDeliveryPath(text, steps = []) {
   return `${answer.trimEnd()}\n\n${files.length === 1 ? "Arquivo salvo em" : "Arquivos salvos em"}:\n${files.map((f) => `- ${f}`).join("\n")}`;
 }
 
+/** An agent run's own last deliveries (agents.js AGENT_PREVIOUS_WORK), newest first. */
+export function previousWork(env = {}) {
+  let list = [];
+  try { list = JSON.parse(env.AGENT_PREVIOUS_WORK || "[]"); } catch { return []; }
+  if (!Array.isArray(list) || !list.length) return [];
+  return [`Suas últimas entregas como este agente (para continuar ou atualizar quando o pedido for sobre elas; um pedido novo é feito do zero):\n${list.slice(0, 3).map((l) => `- ${String(l).slice(0, 300)}`).join("\n")}`];
+}
+
 export function lastDelivery(text, history = []) {
   if (!WHERE_IS.test(String(text))) return [];
   const previous = history.filter((m) => m.role === "assistant").at(-1);
@@ -477,7 +485,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     // The diary only when the message looks back ("ontem", "aquele arquivo", "onde ficou"): in every
     // turn, other conversations' spreadsheets made a "crie um documento" come out as .xlsx (battery).
     const looksBack = /\b(ontem|anteontem|hoje cedo|mais cedo|aquel[ea]s?|onde (est[áa]|ficou|foi parar|salvou)|[uú]ltim[oa]s?|anterior|semana passada|(voc[êe]|vc) (fez|criou|salvou|gerou|organizou|mexeu|mudou))\b/i.test(trimmed);
-    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : [])];
+    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : []), ...previousWork(env)];
     const promptArgs = {
       input: trimmed,
       history,

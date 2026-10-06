@@ -116,6 +116,27 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
 // Agent turns on llama-server (OpenAI-compatible /v1/chat/completions with
 // tools; start it with --jinja). The agent speaks Ollama's message format,
 // so tool calls get ids here and tool results are matched back to them.
+/**
+ * Tool-call arguments as an object. The model's JSON sometimes carries raw line breaks or tabs inside
+ * a string (a markdown table in write_document "content"): escaped here and parsed again. Still broken:
+ * {__badjson} with the start of it; cut at the output limit: {__cut}. (A Financeiro run lost 8 calls
+ * to this, 06/10: they arrived as {} and the tool answered "Falta path".)
+ */
+export function parseToolArguments(raw,finishReason){
+  if(raw&&typeof raw==='object')return raw;
+  const text=String(raw||'{}');
+  try{return JSON.parse(text||'{}');}catch{/* repaired below */}
+  let fixed='',inString=false,escaped=false;
+  for(const ch of text){
+    if(inString&&!escaped&&(ch==='\n'||ch==='\r'||ch==='\t')){fixed+=ch==='\n'?'\\n':ch==='\t'?'\\t':'';continue;}
+    if(ch==='"'&&!escaped)inString=!inString;
+    escaped=ch==='\\'&&!escaped;
+    fixed+=ch;
+  }
+  try{return JSON.parse(fixed);}catch{/* not repairable */}
+  return finishReason==='length'?{__cut:true}:{__badjson:true,__raw:text.slice(0,160)};
+}
+
 export function toOpenAiMessages(messages){
   const pending=[];let n=0;
   return messages.map((m)=>{
@@ -173,7 +194,8 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
   try{
     const response=await fetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
       model,messages:toOpenAiMessages(messages),stream,...(stream?{stream_options:{include_usage:true}}:{}),cache_prompt:true,
-      max_tokens:Math.min(8192,Math.max(128,Number(env.LOCAL_MAX_OUTPUT_TOKENS)||2048)),
+      // With tools, 4096: a Word report in one write_document call passed 2048 and arrived cut, as {} (06/10).
+      max_tokens:Math.min(8192,Math.max(128,Number(env.LOCAL_MAX_OUTPUT_TOKENS)||(tools.length?4096:2048))),
       chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'},
       ...(env.LOCAL_THINK==='true'?{}:{reasoning_effort:'low'}),
       ...(tools.length?{tools,tool_choice:'auto'}:{}),...sampling(env)})});
@@ -183,7 +205,7 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
       return {ok:false,status:502,unsupported:/tools? (is )?not supported|jinja/i.test(error),error,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};
     }
     const choice=data.choices?.[0],message=choice?.message||{};
-    const toolCalls=(message.tool_calls||[]).map((c)=>{let args={};try{args=typeof c.function?.arguments==='string'?JSON.parse(c.function.arguments||'{}'):c.function?.arguments||{};}catch{args={};}return {name:c.function?.name,arguments:args};}).filter((c)=>c.name);
+    const toolCalls=(message.tool_calls||[]).map((c)=>{let args=parseToolArguments(c.function?.arguments,choice?.finish_reason);if(choice?.finish_reason==='length'&&!Object.keys(args).length)args={__cut:true};return {name:c.function?.name,arguments:args};}).filter((c)=>c.name);
     const text=typeof message.content==='string'?message.content:'';
     const usage=data.usage?{input_tokens:data.usage.prompt_tokens,output_tokens:data.usage.completion_tokens}:null;
     const timings=data.timings;
