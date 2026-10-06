@@ -46,6 +46,8 @@ export async function connectTelegram(token, { env = process.env, handleChatTurn
   await setSetting("telegram_chat_id", "");
   await setSetting("telegram_pair_code", String(randomInt(100000, 999999)));
   state.bot = me.username || me.first_name || null;
+  // The bot's Menu button: the two commands a person may not guess.
+  await call(clean, "setMyCommands", { commands: [{ command: "agentes", description: "Ver seus agentes e a última vez de cada um" }, { command: "ajuda", description: "Como usar a Aurora pelo celular" }] }, { env }).catch(() => {});
   await startTelegram({ env, handleChatTurn });
   return telegramStatus();
 }
@@ -128,7 +130,7 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   const chat = String(message?.chat?.id || "");
   const attachment = message?.document || (message?.photo?.length ? { ...message.photo.at(-1), file_name: `foto_${message.message_id || Date.now()}.jpg` } : null);
   let text = String(message?.text || message?.caption || "").trim();
-  if (!chat || (!text && !attachment)) return;
+  if (!chat || (!text && !attachment && !message?.voice && !message?.audio && !message?.video_note)) return;
   if (!linked) {
     // Pairing: the code shown in Configurações, from the person's own chat with the bot.
     const code = await getSetting("telegram_pair_code");
@@ -143,6 +145,18 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   }
   if (chat !== linked) return; // anyone else who finds the bot is ignored
   if (/^\/start\b/.test(text)) return;
+  if (message?.voice || message?.audio || message?.video_note) {
+    await sendToPhone("Ainda não consigo ouvir áudios por aqui. Mande por texto, por favor.", { env });
+    return;
+  }
+  if (/^\/(ajuda|help)\b/i.test(text)) {
+    await sendToPhone("Escreva como escreveria no computador: \"organize meus Downloads\", \"resuma esse PDF\" (mande o arquivo com a legenda), \"faça uma planilha com…\".\nOs arquivos que eu criar chegam aqui. Quando eu precisar de autorização, aparecem os botões Permitir e Negar.\n/agentes mostra os seus agentes.", { env });
+    return;
+  }
+  if (/^\/agentes\b/i.test(text)) {
+    await sendToPhone(await agentsSummary(), { env });
+    return;
+  }
   // A file or photo from the phone lands in Documentos\Aurora\Recebidos do celular; the caption is the request.
   if (attachment) {
     let saved;
@@ -156,6 +170,20 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   const answer = turn?.message?.content || turn?.error || "Não consegui responder agora.";
   await sendToPhone(answer, { env });
   for (const file of deliveredFiles(turn?.message?.execution).slice(0, 5)) await sendFile(token, chat, file, env).catch(() => {});
+}
+
+/** "/agentes": each agent, on or off, and its last run, in a few lines. */
+export async function agentsSummary() {
+  const { listAgents, listRuns } = await import("./agents.js");
+  const agents = await listAgents();
+  if (!agents.length) return "Você ainda não tem agentes. Crie um na Aurora, em Agentes.";
+  const lines = [];
+  for (const agent of agents.slice(0, 15)) {
+    const last = (await listRuns({ agentId: agent.id, limit: 1 }).catch(() => []))[0];
+    const when = last ? new Date(last.startedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+    lines.push(`• ${agent.name}${agent.enabled ? "" : " (desligado)"}${last ? ` — última vez ${when}: ${last.quiet ? "nada novo" : last.status === "done" ? "concluída" : last.status === "running" ? "trabalhando agora" : "não terminou"}` : " — ainda não trabalhou"}`);
+  }
+  return `Seus agentes:\n${lines.join("\n")}`;
 }
 
 /** An automatic agent's result on the phone: what it said and the files it delivered. */

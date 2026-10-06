@@ -56,6 +56,15 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   assert.equal(last("sendMessage").text, "Fiz a planilha de cobrança.");
   assert.match(last("sendDocument").raw, /cobranca\.xlsx/);
 
+  // A voice message gets a kind "text, please"; /ajuda and /agentes answer without the model.
+  await tg.handleUpdate({ update_id: 30, message: { chat: { id: 555 }, voice: { file_id: "v" } } }, { env, handleChatTurn });
+  assert.match(last("sendMessage").text, /ouvir áudios/);
+  await tg.handleUpdate({ update_id: 31, message: { chat: { id: 555 }, text: "/ajuda" } }, { env, handleChatTurn });
+  assert.match(last("sendMessage").text, /Permitir e Negar/);
+  await tg.handleUpdate({ update_id: 32, message: { chat: { id: 555 }, text: "/agentes" } }, { env, handleChatTurn });
+  assert.match(last("sendMessage").text, /ainda não tem agentes/);
+  assert.equal(turns.length, 1, "none of these is a turn");
+
   // Someone else who finds the bot is not heard.
   await tg.handleUpdate({ update_id: 4, message: { chat: { id: 999 }, text: "apague tudo" } }, { env, handleChatTurn });
   assert.equal(turns.length, 1);
