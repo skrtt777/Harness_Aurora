@@ -33,6 +33,7 @@ async function ready() {
   if (!columns.has("moves")) db.exec("ALTER TABLE agent_runs ADD COLUMN moves TEXT");
   if (!columns.has("undone_at")) db.exec("ALTER TABLE agent_runs ADD COLUMN undone_at TEXT");
   if (!columns.has("edits")) db.exec("ALTER TABLE agent_runs ADD COLUMN edits TEXT");
+  if (!columns.has("quiet")) db.exec("ALTER TABLE agent_runs ADD COLUMN quiet INTEGER");
   // A run still "running" from before this process started was cut by the app closing or the PC
   // shutting down: the card would say "Trabalhando…" forever.
   if (!recovered) {
@@ -52,7 +53,7 @@ const mapRun = (r) => r && ({
   id: r.id, agentId: r.agent_id, conversationId: r.conversation_id, request: r.request, trigger: r.trigger, status: r.status,
   startedAt: r.started_at, finishedAt: r.finished_at, answer: r.answer, files: parse(r.files, []), steps: r.steps,
   checks: parse(r.checks, []), review: parse(r.review, null), copies: parse(r.copies, null), error: r.error,
-  moves: parse(r.moves, []), edits: parse(r.edits, []), undoneAt: r.undone_at || null,
+  moves: parse(r.moves, []), edits: parse(r.edits, []), undoneAt: r.undone_at || null, quiet: Boolean(r.quiet),
 });
 
 /** The instructions every run starts from: the mission plus how this agent works. */
@@ -83,17 +84,19 @@ export async function agentForProject(projectId) {
 
 function cleanTrigger(trigger) {
   const t = trigger && typeof trigger === "object" ? trigger : { type: "manual" };
+  // "Avisar só quando houver novidade" (OpenClaw's heartbeat): a run with nothing to report stays silent.
+  const quiet = t.quiet === true ? { quiet: true } : {};
   if (t.type === "schedule") {
     // "every N minutes" or "at HH:MM on these weekdays (0 = Sunday)".
     const every = Number(t.everyMinutes);
-    if (every) return { type: "schedule", everyMinutes: Math.max(5, Math.min(7 * 24 * 60, Math.round(every))), request: String(t.request || "").slice(0, 2000) };
+    if (every) return { type: "schedule", everyMinutes: Math.max(5, Math.min(7 * 24 * 60, Math.round(every))), request: String(t.request || "").slice(0, 2000), ...quiet };
     if (!/^\d{2}:\d{2}$/.test(String(t.at || ""))) throw httpError(400, "Informe o horário como HH:MM.");
     const days = Array.isArray(t.weekdays) ? [...new Set(t.weekdays.map(Number).filter((d) => d >= 0 && d <= 6))] : [1, 2, 3, 4, 5];
-    return { type: "schedule", at: t.at, weekdays: days, request: String(t.request || "").slice(0, 2000) };
+    return { type: "schedule", at: t.at, weekdays: days, request: String(t.request || "").slice(0, 2000), ...quiet };
   }
   if (t.type === "file") {
     if (!t.folder || !isAbsolute(String(t.folder))) throw httpError(400, "Informe o caminho completo da pasta observada.");
-    return { type: "file", folder: String(t.folder), pattern: String(t.pattern || "*").slice(0, 100), request: String(t.request || "").slice(0, 2000) };
+    return { type: "file", folder: String(t.folder), pattern: String(t.pattern || "*").slice(0, 100), request: String(t.request || "").slice(0, 2000), ...quiet };
   }
   return { type: "manual" };
 }
@@ -215,6 +218,13 @@ export async function listRuns({ agentId, limit = 50 } = {}) {
 }
 
 export const isAgentRunning = (id) => running.has(id);
+
+/** A check that found nothing ("OK"): kept in the history, but no notification and greyed out. */
+export async function markRunQuiet(runId) {
+  const db = await ready();
+  db.prepare("UPDATE agent_runs SET quiet = 1 WHERE id = ?").run(runId);
+  return getRun(runId);
+}
 
 /**
  * Puts back the files a run moved, newest move first. Never overwrites: a file whose old place is

@@ -25,7 +25,7 @@ export function describeTrigger(trigger: AgentTrigger): string {
 
 const when = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-type TriggerDraft = { type: 'manual' | 'at' | 'every' | 'file'; at: string; weekdays: number[]; everyMinutes: number; folder: string; pattern: string; request: string };
+type TriggerDraft = { type: 'manual' | 'at' | 'every' | 'file'; at: string; weekdays: number[]; everyMinutes: number; folder: string; pattern: string; request: string; quiet: boolean };
 const draftOf = (t: AgentTrigger): TriggerDraft => ({
   type: t.type === 'schedule' ? (t.everyMinutes ? 'every' : 'at') : t.type,
   at: t.type === 'schedule' && t.at ? t.at : '08:00',
@@ -34,11 +34,12 @@ const draftOf = (t: AgentTrigger): TriggerDraft => ({
   folder: t.type === 'file' ? t.folder : '',
   pattern: t.type === 'file' ? t.pattern || '*' : '*',
   request: t.type !== 'manual' ? t.request || '' : '',
+  quiet: t.type !== 'manual' ? Boolean(t.quiet) : false,
 });
 const triggerOf = (d: TriggerDraft): AgentTrigger =>
-  d.type === 'at' ? { type: 'schedule', at: d.at, weekdays: d.weekdays, request: d.request }
-    : d.type === 'every' ? { type: 'schedule', everyMinutes: d.everyMinutes, request: d.request }
-      : d.type === 'file' ? { type: 'file', folder: d.folder, pattern: d.pattern, request: d.request }
+  d.type === 'at' ? { type: 'schedule', at: d.at, weekdays: d.weekdays, request: d.request, quiet: d.quiet }
+    : d.type === 'every' ? { type: 'schedule', everyMinutes: d.everyMinutes, request: d.request, quiet: d.quiet }
+      : d.type === 'file' ? { type: 'file', folder: d.folder, pattern: d.pattern, request: d.request, quiet: d.quiet }
         : { type: 'manual' };
 
 function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d: TriggerDraft) => void }) {
@@ -63,6 +64,7 @@ function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d:
     </div>}
     {value.type !== 'manual' && <label className="grow">O que fazer <textarea rows={2} value={value.request} onChange={(e) => set({ request: e.target.value })} placeholder="Ex.: gere a planilha de títulos com mais de 30 dias de atraso" /></label>}
     {value.type === 'file' && <small>Ele trabalha quando chegar um arquivo novo nessa pasta. Os que já estão lá não contam.</small>}
+    {value.type !== 'manual' && <label className="agent-quiet"><input type="checkbox" checked={value.quiet} onChange={(e) => set({ quiet: e.target.checked })} /> <span><strong>Avisar só quando houver novidade</strong><small>Ele confere sozinho e só manda notificação se encontrar algo. Bom para verificar com frequência sem incomodar.</small></span></label>}
   </fieldset>;
 }
 
@@ -136,7 +138,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
     {error && <p role="alert" className="memory-form-error">{error}</p>}
 
     {latest && <section className="agent-latest" aria-label="Última execução">
-      <p><b>{STATUS[latest.status]}</b> · {when(latest.startedAt)} · {TRIGGER_LABEL[latest.trigger]}: “{latest.request.slice(0, 120)}{latest.request.length > 120 ? '…' : ''}”</p>
+      <p><b>{latest.quiet ? 'Conferiu: nada novo' : STATUS[latest.status]}</b> · {when(latest.startedAt)} · {TRIGGER_LABEL[latest.trigger]}: “{latest.request.slice(0, 120)}{latest.request.length > 120 ? '…' : ''}”</p>
       {latest.status !== 'running' && latest.files.length > 0 && <DeliveredFiles files={latest.files} />}
       <UndoMoves run={latest} onChanged={onChanged} />
       {latest.status === 'failed' && latest.error && <p className="agent-error">{latest.error.slice(0, 300)}</p>}
@@ -157,8 +159,8 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
 
     {history && <ol className="agent-history" aria-label={`Histórico de ${agent.name}`}>
       {history.length === 0 && <li><small>Nenhuma execução ainda.</small></li>}
-      {history.map((run) => <li key={run.id} className={run.status}>
-        <p><b>{STATUS[run.status]}</b> · {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger]}</p>
+      {history.map((run) => <li key={run.id} className={`${run.status} ${run.quiet ? 'quiet' : ''}`}>
+        <p><b>{run.quiet ? 'Conferiu: nada novo' : STATUS[run.status]}</b> · {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger]}</p>
         <p className="agent-history-request">{run.request.slice(0, 200)}</p>
         {run.files.length > 0 && <DeliveredFiles files={run.files} />}
         <UndoMoves run={run} onChanged={onChanged} />
@@ -240,6 +242,12 @@ const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger:
     hint: 'Escolha a pasta do agente (onde fica a planilha) e a pasta que ele vigia (onde as notas chegam).',
     agent: { name: 'Leitor de notas', kind: 'pessoal', mission: 'Ler cada nota fiscal ou boleto que chegar e manter uma planilha com fornecedor, número, vencimento e valor.' },
     trigger: { type: 'file', pattern: '*.pdf', request: 'Leia o(s) arquivo(s) novo(s) e acrescente fornecedor, número, vencimento e valor à planilha notas.xlsx da sua pasta (crie se não existir).' },
+  },
+  {
+    label: 'Resumo da manhã',
+    hint: 'Ligue o mapa do computador (Configurações → Pastas) e escolha uma pasta para o agente.',
+    agent: { name: 'Resumo da manhã', kind: 'pessoal', mission: 'Toda manhã, conferir o que chegou ou mudou no computador e só avisar o que merece atenção: boletos, notas, contratos, documentos novos.' },
+    trigger: { type: 'at', at: '08:00', weekdays: [1, 2, 3, 4, 5], quiet: true, request: 'Veja com computer_map (recent_days=1) o que chegou ou mudou desde ontem e diga, em até 5 linhas, o que merece atenção (boletos e vencimentos, notas, contratos, documentos novos), com o caminho de cada um.' },
   },
   {
     label: 'Pesquisador',

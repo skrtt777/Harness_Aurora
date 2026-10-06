@@ -526,8 +526,8 @@ export const reviewEngineKnowledge=(id:string,accepted:boolean)=>request('/engin
 // ---------- Task agents (app/agents.js, app/agentScheduler.js) ----------
 export type AgentTrigger =
   | { type: "manual" }
-  | { type: "schedule"; everyMinutes?: number; at?: string; weekdays?: number[]; request?: string }
-  | { type: "file"; folder: string; pattern?: string; request?: string };
+  | { type: "schedule"; everyMinutes?: number; at?: string; weekdays?: number[]; request?: string; quiet?: boolean }
+  | { type: "file"; folder: string; pattern?: string; request?: string; quiet?: boolean };
 export type TaskAgent = {
   id: string; name: string; kind: "setor" | "pessoal"; mission: string; department: string | null; workDir: string;
   tools: string[] | null; trigger: AgentTrigger; enabled: boolean; projectId: string | null; createdAt: string; updatedAt: string;
@@ -535,7 +535,7 @@ export type TaskAgent = {
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
-  moves?: { from: string; to: string }[]; edits?: { file: string }[]; undoneAt?: string | null;
+  moves?: { from: string; to: string }[]; edits?: { file: string }[]; undoneAt?: string | null; quiet?: boolean;
 };
 export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
 
@@ -604,3 +604,16 @@ export function onOpenConversationRequest(callback: (id: string) => void): () =>
 /** The video card the local model uses (name, memory in GB), or null when it runs on the processor. */
 export type GpuInfo = { name: string; memoryGb: number | null; freeGb: number | null } | null;
 export const getLocalHardware = () => request<{ gpu: GpuInfo }>("/local/hardware");
+
+/** The computer map: what is where on the PC (names, types, sizes and dates only). */
+export type MapNode = { path: string; name: string; kind: string | null; label: string | null; files: number; bytes: number; size: string; subdirs: number; newest: string | null };
+export type MapStatus = { running: boolean; dirs: number; files: number; reread: number; startedAt: string | null; finishedAt: string | null; error: string | null };
+export const getComputerMap = () => request<{ enabled: boolean; status: MapStatus; roots: MapNode[] }>("/map");
+export const setComputerMap = (enabled: boolean) => request<{ enabled: boolean; status: MapStatus; roots: MapNode[] }>("/map", { method: "PUT", body: JSON.stringify({ enabled }) });
+export const getMapChildren = (path: string) => request<{ children: MapNode[] }>(`/map/children?path=${encodeURIComponent(path)}`).then((r) => r.children);
+export const searchComputerMap = (q: string) => request<{ files: { path: string; size: string; modified: string | null }[]; folders: MapNode[] }>(`/map/search?q=${encodeURIComponent(q)}`);
+
+/** "Sobre você": what the person wrote, and what the Aurora learned from what they said. */
+export type UserProfile = { text: string; learned: { text: string; at: string }[] };
+export const getUserProfile = () => request<UserProfile>("/profile");
+export const saveUserProfile = (patch: Partial<UserProfile>) => request<UserProfile>("/profile", { method: "PUT", body: JSON.stringify(patch) });

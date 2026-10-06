@@ -981,3 +981,40 @@
   .folder-card { grid-template-columns: auto minmax(0, 1fr); }
   .folder-card-mode, .folder-card-remove { grid-column: 1 / -1; justify-self: start; }
 }
+
+/* ---------- Mapa do computador ---------- */
+.folders-map { display: grid; gap: var(--gap-2); margin-top: var(--gap-3); }
+.computer-map { display: grid; gap: var(--gap-3); }
+.map-status { margin: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.map-tree { list-style: none; margin: 0; padding: 0 0 0 18px; display: grid; gap: 4px; border-left: 1px solid var(--stroke-1); }
+.map-roots { padding-left: 0; border-left: 0; }
+.map-branch { display: grid; gap: 2px; }
+.map-node {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-2);
+  width: 100%; box-sizing: border-box; padding: 6px 10px; border: 0; border-radius: var(--radius-sm);
+  background: var(--bg-surface); color: var(--text-1); text-align: left; font: inherit;
+}
+button.map-node { cursor: pointer; }
+button.map-node:hover { background: var(--fill-hover); }
+.map-caret { color: var(--text-3); }
+.map-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.map-kind { font-size: var(--fs-xs); padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.map-meta { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+.map-meta.is-big { color: var(--text-2); font-weight: 600; }
+.map-empty { color: var(--text-3); font-size: var(--fs-sm); margin: 4px 0 0 18px; }
+.map-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.map-results li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: var(--fs-sm); }
+.map-results .mono { overflow-wrap: anywhere; }
+.map-actions { display: inline-flex; gap: 2px; }
+@media (max-width: 760px) { .map-node { grid-template-columns: 14px minmax(0, 1fr) auto; } .map-meta { display: none; } }
+
+/* ---------- Sobre você ---------- */
+.profile-panel { display: grid; gap: var(--gap-2); }
+.profile-learned ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.profile-learned li { display: flex; justify-content: space-between; align-items: center; gap: var(--gap-2); padding: 6px 10px; border-radius: var(--radius-sm); background: var(--bg-surface); }
+
+/* ---------- Heartbeat: "avisar só quando houver novidade" ---------- */
+.app-shell .agents-view .agent-quiet { display: flex; gap: 8px; align-items: flex-start; }
+.app-shell .agents-view .agent-quiet span { display: grid; gap: 2px; }
+.app-shell .agents-view .agent-quiet small { color: var(--text-3); }
+.app-shell .agents-view .agent-history li.quiet { opacity: 0.6; }

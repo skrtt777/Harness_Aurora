@@ -488,6 +488,8 @@ function documentPath(args, ctx) {
   // words decide over a plain-text format. A deliberate .md/.txt request stays.
   const asked = requestedFormat(ctx.request);
   if (asked && ["md", "txt"].includes(wanted)) wanted = asked;
+  // "Crie um documento" saved as a spreadsheet lost the text around the table (kit de mídia, 05/10).
+  if (asked === "docx" && wanted === "xlsx") wanted = "docx";
   return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
 }
 

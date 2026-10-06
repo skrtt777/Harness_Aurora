@@ -75,3 +75,22 @@ test("a tick starts due agents only: enabled, not running, under the daily limit
   assert.deepEqual(started, ["a"]);
   assert.deepEqual(runs, [["a", "relatório", "schedule"]]);
 });
+
+test("a quiet check that finds nothing is recorded silently; one that finds something notifies", async () => {
+  const sched = await import("../app/agentScheduler.js");
+  const agent = { id: "vigia", enabled: true, mission: "Vigiar", trigger: { type: "schedule", everyMinutes: 30, quiet: true, request: "Veja se chegou boleto novo." } };
+  for (const [answer, notified] of [["OK", false], ["**OK.**", false], ["Chegou o boleto da luz: R$ 230, vence dia 10.", true]]) {
+    const seen = [], quiet = [];
+    const stop = sched.onAutomaticRun((a, run) => seen.push(run.id));
+    let request = "";
+    await sched.schedulerTick({ listAgents: async () => [agent], isAgentRunning: () => false, lastRunStart: async () => null, runsToday: async () => 0, markQuiet: async (id) => quiet.push(id),
+      runAgent: async (id, opts) => { request = opts.request; return { id: "r1", status: "done", answer }; } });
+    await new Promise((r) => setTimeout(r, 10));
+    stop();
+    assert.match(request, /responda apenas OK/, "the agent is told how to say 'nothing new'");
+    assert.equal(seen.length, notified ? 1 : 0, answer);
+    assert.equal(quiet.length, notified ? 0 : 1, answer);
+  }
+  assert.equal(sched.nothingNew("OK, nada novo"), true);
+  assert.equal(sched.nothingNew("Ok, encontrei 3 boletos novos que vencem esta semana e criei a planilha."), false, "a long answer that starts with ok is news");
+});

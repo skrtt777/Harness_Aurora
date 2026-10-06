@@ -28,6 +28,7 @@ import EvalPanel from './EvalPanel';
 import KnowledgePanel from './KnowledgePanel';
 import McpPanel from './McpPanel';
 import FoldersPanel from './FoldersPanel';
+import ProfilePanel from './ProfilePanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
@@ -253,6 +254,11 @@ export default function SettingsView({
               <h2 className="page-title">Geral</h2>
               <p className="page-desc">Preferências deste computador, salvas localmente.</p>
             </header>
+            <div className="section">
+              <h3 className="section-title">Sobre você</h3>
+              <p className="section-desc">A Aurora lê isto em todas as conversas. Escreva quem você é e como prefere as respostas.</p>
+              <ProfilePanel />
+            </div>
             <div className="section">
               <div className="row">
                 <div className="row-text"><div className="row-label">Modelo das novas conversas</div><div className="row-desc">Quem responde quando você abre uma conversa nova.</div></div>

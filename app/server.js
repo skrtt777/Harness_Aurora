@@ -9,6 +9,9 @@ import { getDb } from "./db.js";
 import { undoChanges } from "./undoMoves.js";
 import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
 import { detectGpu } from "./llamaServer.js";
+import { clearComputerMap, mapChildren, mapSearch, mapStatus, scanComputer, startMapSchedule } from "./computerMap.js";
+import { mapEnabled } from "./agentTools/computer.js";
+import { getProfile, saveProfile } from "./profile.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -18,10 +21,10 @@ import { buildProviderConfig, parseCodexOutput } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig } from "./claude.js";
 import { buildProviderConfig as buildLocalProviderConfig, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import { CURATED_MODELS, getLocalStatus, runOllamaSetup, setLocalModel } from "./ollamaSetup.js";
-import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting } from "./store.js";
+import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting, setSetting } from "./store.js";
 import { correctLocalAnswer } from "./correction.js";
 import { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl } from "./community.js";
-import { startTurn, setStage, getStage, getPartial, endTurn, cancelTurn, getTurnSteps, getApproval, resolveApproval, getTurnPlan } from "./pendingTurns.js";
+import { activeTurns, startTurn, setStage, getStage, getPartial, endTurn, cancelTurn, getTurnSteps, getApproval, resolveApproval, getTurnPlan } from "./pendingTurns.js";
 import { AGENT_MODES } from "./agentPolicy.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { createSource, deleteSource, knowledgeMap, listSources, startIndexing, updateSource } from "./knowledge.js";
@@ -452,6 +455,20 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         if (warmLocal) void warmLocalChat().catch(() => {});
         return sendJson(response, 202, { warming: warmLocal });
       }
+      // "Sobre você": the person's profile, in every conversation.
+      if (pathname === "/api/profile" && method === "GET") return sendJson(response, 200, await getProfile());
+      if (pathname === "/api/profile" && method === "PUT") return sendJson(response, 200, await saveProfile(await readJson(request)));
+      // The computer map: on/off, progress, the tree and the name search.
+      if (pathname === "/api/map" && method === "GET") return sendJson(response, 200, { enabled: await mapEnabled(), status: mapStatus(), roots: await mapChildren(null) });
+      if (pathname === "/api/map" && method === "PUT") {
+        const { enabled } = await readJson(request);
+        await setSetting("computer_map", enabled ? "true" : "false");
+        if (enabled) void scanComputer({ shouldPause: () => activeTurns().count > 0 });
+        else await clearComputerMap(); // off means forgotten, not just paused
+        return sendJson(response, 200, { enabled: Boolean(enabled), status: mapStatus(), roots: await mapChildren(null) });
+      }
+      if (pathname === "/api/map/children" && method === "GET") return sendJson(response, 200, { children: await mapChildren(url.searchParams.get("path") || null) });
+      if (pathname === "/api/map/search" && method === "GET") return sendJson(response, 200, await mapSearch(url.searchParams.get("q") || "", { limit: 30 }));
       // MCP extensions: the servers the person plugged in, with each one's tools or error.
       if (pathname === "/api/mcp" && method === "GET") return sendJson(response, 200, { servers: await listMcpServers(), status: await mcpStatus() });
       if (pathname === "/api/mcp" && method === "PUT") {
@@ -919,9 +936,13 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
   if (agentScheduler) {
     server.on("listening", async () => {
       const stats = await runStats();
-      startAgentScheduler({ listAgents: taskAgents.listAgents, runAgent: taskAgents.runAgent, isAgentRunning: taskAgents.isAgentRunning, ...stats, handleChatTurn });
+      startAgentScheduler({ listAgents: taskAgents.listAgents, runAgent: taskAgents.runAgent, isAgentRunning: taskAgents.isAgentRunning, markQuiet: taskAgents.markRunQuiet, ...stats, handleChatTurn });
     });
     server.on("close", () => stopAgentScheduler());
+    // The computer map (Configurações → Pastas): kept current in the background, desktop only.
+    let stopMap = null;
+    server.on("listening", () => { stopMap = startMapSchedule({ enabled: mapEnabled, busy: () => activeTurns().count > 0 }); });
+    server.on("close", () => stopMap?.());
   }
   if (centralSync) {
     let stop;

@@ -581,3 +581,33 @@ test('Pastas: one list where each folder is "Só consultar" or "Consultar e orga
     assert.ok(existsSync(join(dir,'aluguel.txt')),'no file is deleted');
   }finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('the computer map is turned on in Pastas, shows what each folder is, and finds a file by name', {skip,timeout:90000},async()=>{
+  const {mkdirSync,writeFileSync}=await import('node:fs');
+  const home=join(temp,'mapa-casa');
+  for(const [dir,names] of [['Fotos',Array.from({length:10},(_,i)=>`ferias-${i}.jpg`)],['Documentos',['contrato aluguel.pdf','orcamento.xlsx','carta.docx','ata.pdf']],['Projetos/site',['package.json','index.js']]]){
+    mkdirSync(join(home,dir),{recursive:true});for(const n of names)writeFileSync(join(home,dir,n),'x');
+  }
+  process.env.AURORA_MAP_ROOTS=JSON.stringify([home]);
+  const server=createServer({allowDev:false});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const browser=await chromium.launch({executablePath:executable,headless:true});
+  try{
+    const page=await browser.newPage({viewport:{width:1280,height:900}});
+    page.on('dialog',d=>void d.accept());
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.getByRole('button',{name:/Configurações/}).click();
+    await page.getByRole('button',{name:'Pastas',exact:true}).click();
+    const panel=page.getByLabel('Mapa do computador');
+    await panel.getByText('Conhecer a organização do meu computador').click();
+    await panel.getByText(/Mapa pronto: \d+ pastas/).waitFor({timeout:20000});
+    await panel.getByRole('button',{name:/mapa-casa/}).click();
+    await panel.getByText('Fotos e imagens',{exact:true}).waitFor();
+    await panel.getByRole('button',{name:/^Projetos/}).click();
+    await panel.getByText('Projeto de código (Node/JavaScript)',{exact:true}).waitFor();
+    if (process.env.UI_SHOTS) await page.screenshot({path:join(process.env.UI_SHOTS,'mapa.png'),fullPage:true});
+    await panel.getByRole('searchbox',{name:'Procurar no mapa'}).fill('aluguel');
+    await panel.getByText(/contrato aluguel\.pdf/).waitFor();
+    await panel.getByText('Conhecer a organização do meu computador').click();
+    await panel.getByRole('searchbox',{name:'Procurar no mapa'}).waitFor({state:'detached'});
+  }finally{delete process.env.AURORA_MAP_ROOTS;await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+});

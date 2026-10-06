@@ -75,6 +75,12 @@ export async function newFilesFor(agent) {
   return firstLook ? [] : fresh;
 }
 
+// The heartbeat's two halves (OpenClaw's HEARTBEAT_OK): what the agent is told, and how its
+// "nothing new" is recognized: the whole answer is it ("OK", "OK, nada novo"), not "Ok, encontrei 3 boletos".
+export const QUIET_NOTE = "\n\n(Verificação automática: se não houver nada para fazer ou avisar, responda apenas OK. Se houver, faça o que for preciso e diga em poucas linhas o que encontrou.)";
+const QUIET_ANSWER = /^(ok|heartbeat_ok|tudo certo|nada novo|nada (a|para) (fazer|avisar)|nenhuma novidade|sem novidades?)([.!,;:]?\s*(ok|heartbeat_ok|tudo certo|nada novo|nada (a|para) (fazer|avisar)|nenhuma novidade|sem novidades?))?[.!]?$/i;
+export const nothingNew = (answer) => QUIET_ANSWER.test(String(answer || "").replace(/[*_`]/g, "").trim());
+
 const listeners = new Set();
 /** Called with (agent, run) when a scheduled or file-triggered run finishes (desktop notification). */
 export function onAutomaticRun(listener) { listeners.add(listener); return () => listeners.delete(listener); }
@@ -83,7 +89,7 @@ export function onAutomaticRun(listener) { listeners.add(listener); return () =>
  * One pass: start every due agent. `deps` makes it testable: listAgents, runAgent(id, opts),
  * isAgentRunning(id), lastRunStart(id, trigger), runsToday(id), now().
  */
-export async function schedulerTick({ listAgents, runAgent, isAgentRunning, lastRunStart, runsToday, handleChatTurn, now = () => new Date() } = {}) {
+export async function schedulerTick({ listAgents, runAgent, isAgentRunning, lastRunStart, runsToday, handleChatTurn, markQuiet = null, now = () => new Date() } = {}) {
   const started = [];
   for (const agent of await listAgents()) {
     const trigger = agent.trigger || {};
@@ -98,8 +104,12 @@ export async function schedulerTick({ listAgents, runAgent, isAgentRunning, last
     }
     if (!request) continue;
     started.push(agent.id);
-    void runAgent(agent.id, { request, trigger: trigger.type, handleChatTurn })
-      .then((run) => { for (const listener of listeners) { try { listener(agent, run); } catch { /* a listener never breaks the scheduler */ } } })
+    void runAgent(agent.id, { request: trigger.quiet ? `${request}${QUIET_NOTE}` : request, trigger: trigger.type, handleChatTurn })
+      .then(async (run) => {
+        // Nothing new on a quiet check: recorded, not announced.
+        if (trigger.quiet && run?.status === "done" && nothingNew(run.answer)) { await markQuiet?.(run.id); return; }
+        for (const listener of listeners) { try { listener(agent, run); } catch { /* a listener never breaks the scheduler */ } }
+      })
       .catch(() => {});
   }
   return started;

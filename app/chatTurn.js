@@ -24,6 +24,10 @@ import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitat
 import { asksAboutCompany } from "./grounding.js";
 import { AGENT_TOOLS, knownFolders, toolSchemas } from "./agentTools/index.js";
 import { mcpAgentTools } from "./mcp.js";
+import { mapOverview } from "./computerMap.js";
+import { learnFromMessage, profileBlock } from "./profile.js";
+import { diaryBlock } from "./diary.js";
+import { mapEnabled } from "./agentTools/computer.js";
 import { resolveExisting } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
@@ -376,7 +380,7 @@ const MODE_TEXT = {
   plan: "Modo Plano: você só pode olhar (ler arquivos, pesquisar, navegar sem clicar). Não altere nada; termine com um plano do que faria.",
 };
 
-function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false, extensions = [] }) {
+function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace, mode, browserBackend, openPage, workspaceFile, readRoots = [], emptyWorkspace = false, extensions = [], computerMap = null }) {
   return [
     `Ambiente: ${process.platform === "win32" ? "Windows (PowerShell)" : process.platform}; agora é ${(process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date()).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`,
     // "Qual é meu nome?" was answered with the Windows account in these paths ("Lucas") instead of
@@ -390,6 +394,9 @@ function agentEnvironmentBlock({ knownFolders: folders, allowedRoots, workspace,
     MODE_TEXT[mode] || MODE_TEXT.auto,
     `Navegador controlado: ${browserBackend === "chrome" ? "Google Chrome do usuário" : "Chromium da Aurora"} (janela visível para o usuário).`,
     openPage ? `No navegador agora: "${openPage.title}" — ${openPage.url}. "Lá", "nele" ou "nessa página" se referem a ela.` : "",
+    // How this PC is organized (names and types only), so "meus projetos" or "minhas fotos" need no search.
+    computerMap ? `${computerMap.slice(0, 1200)}
+Para achar um arquivo pelo nome em qualquer lugar do PC, use computer_map com query (instantâneo).` : "",
     extensions.length ? `Extensões conectadas pela pessoa: ${extensions.join(", ")}. Para pedidos sobre esses serviços (e-mails, agenda…), use as ferramentas mcp_ delas.` : "",
     workspaceFile ? `Instruções da pasta do projeto (${workspaceFile.name}) — siga-as:\n${workspaceFile.text}` : "",
   ].filter(Boolean).join("\n");
@@ -464,13 +471,20 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
     const observation=clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||mathObservation(trimmed);
+    // Who the person is and what the Aurora did lately, in every conversation (OpenClaw's USER.md and
+    // daily notes). A name said here is learned for the next conversations too.
+    await learnFromMessage(trimmed).catch(() => null);
+    // The diary only when the message looks back ("ontem", "aquele arquivo", "onde ficou"): in every
+    // turn, other conversations' spreadsheets made a "crie um documento" come out as .xlsx (battery).
+    const looksBack = /\b(ontem|anteontem|hoje cedo|mais cedo|aquel[ea]s?|onde (est[áa]|ficou|foi parar|salvou)|[uú]ltim[oa]s?|anterior|semana passada|(voc[êe]|vc) (fez|criou|salvou|gerou|organizou|mexeu|mudou))\b/i.test(trimmed);
+    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : [])];
     const promptArgs = {
       input: trimmed,
       history,
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from
@@ -516,6 +530,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.request = trimmed;
           const extensionTools = await mcpAgentTools().catch(() => []);
           toolContext.extensions = [...new Set(extensionTools.map((t) => t.mcp.server))];
+          toolContext.computerMap = (await mapEnabled().catch(() => false)) ? await mapOverview().catch(() => null) : null;
           toolContext.onMove = (from, to) => agentMoves.push({ from, to });
           toolContext.onEdit = (edit) => agentEdits.push(edit);
           // Company documents not cleared for paid AI: tracked per turn so the

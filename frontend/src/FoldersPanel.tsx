@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createKnowledgeSource, deleteKnowledgeSource, getKnowledgeSources, getPersonalFolders, getSettings, pickFolder, updateSettings, type KnowledgeSource, type Settings } from './api';
 import CompanyFolders from './FolderSetup';
+import ComputerMapPanel from './ComputerMapPanel';
 import Icon from './Icon';
 
 type Mode = 'consult' | 'organize';
@@ -133,6 +134,8 @@ export default function FoldersPanel({ compact = false }: { compact?: boolean })
       <input type="checkbox" className="switch" checked={settings.fullComputerAccess} disabled={busy} onChange={(ev) => void act(() => updateSettings({ fullComputerAccess: ev.target.checked }))} />
       <span><strong>Procurar em todo o computador</strong><small>Quando você perguntar por um arquivo, a Aurora também procura fora das pastas da lista, só para ler. Senhas e pastas do Windows ficam de fora, e mudar qualquer coisa fora da lista sempre pede permissão.</small></span>
     </label>
+
+    {!compact && <section className="folders-map"><h3 className="section-title">Mapa do computador</h3><ComputerMapPanel /></section>}
 
     {!compact && <details className="folder-company" open={company} onToggle={(ev) => setCompany((ev.target as HTMLDetailsElement).open)}>
       <summary>Pasta da empresa com uma pasta por setor (RH, Financeiro…)</summary>
