@@ -135,7 +135,8 @@ export default function FoldersPanel({ compact = false }: { compact?: boolean })
       <span><strong>Procurar em todo o computador</strong><small>Quando você perguntar por um arquivo, a Aurora também procura fora das pastas da lista, só para ler. Senhas e pastas do Windows ficam de fora, e mudar qualquer coisa fora da lista sempre pede permissão.</small></span>
     </label>
 
-    {!compact && <section className="folders-map"><h3 className="section-title">Mapa do computador</h3><ComputerMapPanel /></section>}
+    {/* In the first-run guide too: off by default, it was only found in Configurações → Pastas. */}
+    <section className="folders-map"><h3 className="section-title">Mapa do computador</h3><ComputerMapPanel compact={compact} /></section>
 
     {!compact && <details className="folder-company" open={company} onToggle={(ev) => setCompany((ev.target as HTMLDetailsElement).open)}>
       <summary>Pasta da empresa com uma pasta por setor (RH, Financeiro…)</summary>

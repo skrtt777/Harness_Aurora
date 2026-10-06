@@ -42,7 +42,7 @@ function MapBranch({ node, largest }: { node: MapNode; largest: number }) {
  * dates only; no file is opened), to know where projects, photos and documents are and find files
  * by name at once. It lives on this computer; turning it off deletes it.
  */
-export default function ComputerMapPanel() {
+export default function ComputerMapPanel({ compact = false }: { compact?: boolean }) {
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState<MapStatus | null>(null);
   const [roots, setRoots] = useState<MapNode[]>([]);
@@ -93,14 +93,14 @@ export default function ComputerMapPanel() {
       {status.error && <span className="settings-error"> {status.error}</span>}
     </p>}
 
-    {enabled && roots.length > 0 && <>
+    {enabled && !compact && roots.length > 0 && <>
       <input className="field" type="search" placeholder="Procurar um arquivo pelo nome em todo o computador" aria-label="Procurar no mapa" value={query} onChange={(e) => search(e.target.value)} />
       {found
         ? <ul className="map-results" aria-label="Resultados">
           {found.folders.length + found.files.length === 0 && <li className="map-empty">Nada com esse nome.</li>}
           {found.folders.map((f) => <li key={f.path}><Icon name="folder" size={13} /> <span className="mono">{f.path}</span>{f.kind && <span className="map-kind">{KIND[f.kind]}</span>}</li>)}
           {found.files.map((f) => <li key={f.path}>
-            <span className="mono">{f.path}</span> <small>{f.size}{f.modified ? ` · ${new Date(f.modified).toLocaleDateString('pt-BR')}` : ''}</small>
+            <span className="mono">{f.path}</span> <small>{f.size}{f.modified ? ` · ${f.modified.slice(0, 10).split('-').reverse().join('/')}` : ''}</small>
             {openable && <span className="map-actions"><button type="button" className="btn btn-text btn-sm" onClick={() => void openDeliveredFile(f.path)}>Abrir</button><button type="button" className="btn btn-text btn-sm" onClick={() => void showDeliveredFile(f.path)}>Mostrar na pasta</button></span>}
           </li>)}
         </ul>
