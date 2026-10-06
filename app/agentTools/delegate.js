@@ -1,3 +1,4 @@
+import { join } from "node:path";
 // The Aurora hands a job to one of its agents ("peça ao agente financeiro a lista de cobrança"): the
 // agent runs as usual (its folder, its rules, its record) and its answer and files come back. From the
 // chat or the phone. An agent's own run can't delegate (no loops between agents).
@@ -15,7 +16,40 @@ export function findAgent(agents, name) {
     || null;
 }
 
+/** "Pedi à equipe…": what each agent did and where the summary is, in a few lines. */
+export function teamAnswer(tasks, results, summaryFile) {
+  const lines = results.map((r) => `- ${r.agentName}: ${r.status === "done" ? "entregou" : "não terminou"}${(r.files || []).length ? ` ${r.files.map((f) => f.split(/[\\/]/).pop()).join(", ")}` : ""}${r.status !== "done" && r.error ? ` (${String(r.error).slice(0, 120)})` : ""}`);
+  const files = results.flatMap((r) => r.files || []);
+  return `Pedi à equipe (${tasks.length} agente${tasks.length > 1 ? "s" : ""}):\n${lines.join("\n")}${files.length ? `\n\nArquivos:\n${files.map((f) => `- ${f}`).join("\n")}` : ""}${summaryFile ? `\n\nResumo da equipe em Word: ${summaryFile}` : ""}`;
+}
+
 export const delegateTools = [
+  {
+    name: "team_request",
+    description: "Divide um pedido grande entre os agentes da pessoa (a equipe), roda todos e devolve o que cada um entregou e um resumo em Word. Use quando a pessoa pedir algo PARA A EQUIPE ou que envolve vários setores ao mesmo tempo (\"feche o mês\", \"prepare a reunião de segunda com RH e Financeiro\").",
+    parameters: { type: "object", properties: { request: { type: "string", description: "o pedido, com as palavras da pessoa" } }, required: ["request"] },
+    stage: () => "Dividindo o pedido entre a equipe…",
+    describe: () => ({ kind: "meta" }),
+    async run({ request }, ctx) {
+      if (ctx.env?.AGENT_RUN_TRIGGER) throw new Error("Um agente não aciona a equipe: faça você mesmo esta parte.");
+      const text = String(request || "").trim();
+      if (!text) throw new Error("Diga o que a equipe deve fazer.");
+      const agents = await import("../agents.js");
+      const team = await import("../orchestrator.js");
+      const { knownFolders } = await import("./index.js");
+      const handleChatTurn = ctx.handleChatTurn || (await import("../chatTurn.js")).handleChatTurn;
+      const plan = await (ctx.planTeam || team.planRequest)({ request: text, agents: await agents.listAgents(), env: ctx.env });
+      if (!plan.tasks.length) return "Nenhum agente da equipe tem a ver com esse pedido. Os agentes são criados na tela Agentes.";
+      const dir = join((await knownFolders()).documents, "Aurora", "Equipe");
+      const { id, done } = await team.startOrchestration({ request: text, tasks: plan.tasks, dir, runAgent: agents.runAgent, handleChatTurn });
+      await done;
+      const finished = await team.getOrchestration(id);
+      const answer = teamAnswer(plan.tasks, finished?.results || [], finished?.summaryFile || null);
+      ctx.delegatedTo = "A equipe";
+      ctx.delegatedAnswer = answer;
+      return answer;
+    },
+  },
   {
     name: "agent_delegate",
     description: "Passa um trabalho para um dos agentes da pessoa (os \"funcionários\" da tela Agentes) e devolve o que ele respondeu e os arquivos que entregou. Use quando a pessoa pedir algo a um agente pelo nome (\"peça ao agente financeiro…\", \"manda o Resumo da manhã rodar\"). Sem agent, lista os agentes.",

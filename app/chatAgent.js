@@ -147,6 +147,27 @@ export function compactOldToolResults(messages, { atChars = 0, keep = KEEP_FULL_
   }
 }
 
+/**
+ * Keeps only the last `keep` tool exchanges (the assistant call and its result); the older ones
+ * become one line saying what was done, so the model doesn't repeat it.
+ */
+export function dropOldToolExchanges(messages, keep = 2) {
+  const toolIndexes = messages.flatMap((m, i) => (m.role === "tool" ? [i] : []));
+  const old = toolIndexes.slice(0, Math.max(0, toolIndexes.length - keep));
+  if (!old.length) return;
+  const dropped = new Set();
+  for (const i of old) {
+    dropped.add(i);
+    if (messages[i - 1]?.role === "assistant" && messages[i - 1].tool_calls) dropped.add(i - 1);
+  }
+  const done = old.map((i) => messages[i].tool_name).filter(Boolean);
+  const counts = Object.entries(done.reduce((acc, n) => ({ ...acc, [n]: (acc[n] || 0) + 1 }), {})).map(([n, c]) => `${n} ×${c}`).join(", ");
+  const firstDropped = Math.min(...dropped);
+  const kept = messages.filter((_, i) => !dropped.has(i));
+  kept.splice(firstDropped, 0, { role: "user", content: `(Para caber no contexto, ${old.length} ação(ões) antiga(s) foram omitidas: ${counts}. Não as repita; use os resultados recentes e conclua.)` });
+  messages.splice(0, messages.length, ...kept);
+}
+
 function defaultCallModel(provider) {
   if (provider === "local") return (messages, tools, env, signal, options) => runLocalChat(messages, toolSchemas(tools), env, signal, options);
   const run = provider === "claude" ? runClaude : runCodex;
@@ -221,8 +242,11 @@ export async function runChatAgent({
     let result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
     // "request (16450 tokens) exceeds the available context size (16384 tokens)" ended a company
     // question (empresa ti-1, 05/10/2026). Old results get summarized, then all of them, and it goes again.
-    for (let shrink = 1; !result.ok && shrink <= 2 && /exceeds the available context|context size|context length|too many tokens/i.test(String(result.error)); shrink += 1) {
-      compactOldToolResults(messages, { keep: shrink === 1 ? KEEP_FULL_TOOL_RESULTS : 0 });
+    for (let shrink = 1; !result.ok && shrink <= 3 && /exceeds the available context|context size|context length|too many tokens/i.test(String(result.error)); shrink += 1) {
+      // Third time: the old actions leave the history (a Controladoria started at 14k of 16k tokens,
+      // read 10 times and still didn't fit with every result summarized, 06/10).
+      if (shrink === 3) dropOldToolExchanges(messages, 2);
+      else compactOldToolResults(messages, { keep: shrink === 1 ? KEEP_FULL_TOOL_RESULTS : 0 });
       onStage("Resumindo resultados antigos para caber no contexto…");
       result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
     }
@@ -390,7 +414,7 @@ export async function runChatAgent({
       if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
       // A job an agent finished is answered with the agent's own words: one more round, the 4B model
       // searched for the agent's file, didn't find it and called it a "simulação" (06/10).
-      if (call.name === "agent_delegate" && outcome.ok && ctx.delegatedAnswer) {
+      if (["agent_delegate", "team_request"].includes(call.name) && outcome.ok && ctx.delegatedAnswer) {
         return { ok: true, status: 200, text: ctx.delegatedAnswer, steps, calls, forced: null, messages, threadId: null };
       }
     }

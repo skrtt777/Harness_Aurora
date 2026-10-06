@@ -232,3 +232,13 @@ test("the column the request's verb points to: 'começam' is Início, 'volta' is
   assert.equal(requestColumn(cols, "férias em outubro"), null);
   assert.equal(requestColumn(["Emissão", "Vencimento"], "títulos que vencem até 15/10"), "Vencimento");
 });
+
+test("'acima do orçamento' with no number compares spent with the budget of the same period", async () => {
+  const { limitHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Resumo", "Área | Orçado anual | Orçado Jan-Set | Realizado Jan-Set", "TI | 1000 | 800 | 900", "RH | 1000 | 800 | 700", "Logística | 2000 | 1500 | 1600"];
+  const out = limitHint(sheet, "relatório com as áreas acima do orçamento");
+  assert.match(out, /Já apliquei filter="Realizado Jan-Set>Orçado Jan-Set"/);
+  assert.match(out, /TI[\s\S]*Logística/);
+  assert.doesNotMatch(out.split("Já apliquei")[1], /\bRH\b/);
+  assert.equal(limitHint(sheet, "áreas mais de 5% acima do orçado"), "", "a number is the number filter's");
+});

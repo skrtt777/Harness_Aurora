@@ -30,3 +30,13 @@ test("a document call cut at the limit keeps its whole lines, without rows said 
   assert.doesNotMatch(args.content, /Gam/);
   assert.equal(salvageCut('{"path":"a.md","content":"sem quebra'), null);
 });
+
+test("on a context overflow the old tool exchanges leave the history, the last ones stay", async () => {
+  const { dropOldToolExchanges } = await import("../app/chatAgent.js");
+  const messages = [{ role: "system", content: "s" }, { role: "user", content: "pedido" }];
+  for (let i = 1; i <= 4; i += 1) messages.push({ role: "assistant", content: "", tool_calls: [{ function: { name: "read_file", arguments: { n: i } } }] }, { role: "tool", tool_name: "read_file", content: `leitura ${i}` });
+  dropOldToolExchanges(messages, 2);
+  assert.deepEqual(messages.map((m) => m.role), ["system", "user", "user", "assistant", "tool", "assistant", "tool"]);
+  assert.match(messages[2].content, /2 ação\(ões\) antiga\(s\) foram omitidas: read_file ×2/);
+  assert.deepEqual(messages.filter((m) => m.role === "tool").map((m) => m.content), ["leitura 3", "leitura 4"]);
+});

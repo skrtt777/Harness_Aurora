@@ -329,12 +329,25 @@ export function limitHint(lines, request) {
   const text = foldText(request);
   const below = /\b(abaixo d[oa]|menor (que|do) o?|inferior ao?)\s*(estoque\s+)?minim/.test(text);
   const above = /\b(acima d[oa]|maior (que|do) o?|superior ao?)\s*(estoque\s+)?maxim/.test(text);
-  if (!below && !above) return "";
+  // "Áreas acima do orçamento" (no number): spent more than budgeted for the same period. A
+  // Controladoria agent re-read the sheet with filters like "Set" ten times instead (06/10).
+  const overBudget = /\b(acima|al[eé]m|estour\w*|passou|passaram|ultrapass\w*)\s+(d[oa]s?\s+|o\s+)?or[cç]a(do|mento)/.test(text) && !/\d+\s*(%|por cento)/.test(text);
+  if (!below && !above && !overBudget) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
   if (at < 0) return "";
   const header = lines[at].split(" | ").map((c) => c.trim());
   const sample = lines[at + 1].split(" | ").map((c) => c.trim());
   const numeric = header.filter((name, j) => cellValue(sample[j] || "") !== null);
+  if (overBudget) {
+    const spent = numeric.find((c) => /realizad|gasto|executad/.test(foldText(c)));
+    const period = spent && foldText(spent).replace(/realizad\w*|gasto\w*|executad\w*/g, "").trim();
+    const budgets = numeric.filter((c) => /or[cç]ad/.test(foldText(c)));
+    const budget = budgets.find((c) => period && foldText(c).includes(period)) || budgets[0];
+    if (!spent || !budget) return "";
+    const filter = `${spent}>${budget}`;
+    const rows = appliedRows(lines, filter);
+    return rows ? `\n(O pedido é "acima do orçamento": realizado maior que o orçado do mesmo período. Já apliquei filter="${filter}"; a lista certa para essa condição é esta, não escolha de olho na tabela inteira abaixo:\n${rows}\n)` : "";
+  }
   const limit = numeric.find((c) => foldText(c).includes(below ? "minim" : "maxim"));
   const amount = numeric.find((c) => c !== limit && /saldo|estoque|quantidade|qtd|atual|disponivel/.test(foldText(c)));
   if (!limit || !amount) return "";
