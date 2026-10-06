@@ -47,3 +47,15 @@
 .guide-examples .guide-example p { font-size: 15px; }
 .welcome-guide .profile-panel textarea { width: 100%; min-height: 90px; }
 @media (max-width: 600px) { .guide-examples { grid-template-columns: 1fr; } }
+/* "O que há de novo" after an update */
+.whats-new { width: min(640px, calc(100vw - 32px)); }
+.whats-new .guide-header { align-items: center; }
+.whats-new .guide-eyebrow { margin: 0; }
+.whats-new-list { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
+.whats-new-list li { padding: 12px 14px; border-radius: 12px; border: 1px solid #2a3547; background: #141c2a; }
+.whats-new-list strong { color: #81e8fa; }
+.whats-new-list p { margin: 4px 0 0; }
+.whats-new h1 { font-size: 26px; margin-top: 0; }
+.whats-new .guide-content { padding-top: 8px; }
+.whats-new-list { gap: 10px; margin-top: 12px; }
+.whats-new-list li { padding: 10px 14px; }

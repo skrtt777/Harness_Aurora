@@ -6,6 +6,7 @@ import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import SettingsView from "./SettingsView";
 import WelcomeGuide from "./WelcomeGuide";
+import WhatsNew, { NEWS, markSeen, seenVersion } from "./WhatsNew";
 import ProjectSettings from "./ProjectSettings";
 import BrandMark from "./BrandMark";
 
@@ -22,6 +23,7 @@ import {
   duplicateConversation as apiDuplicateConversation,
   deleteProject as apiDeleteProject,
   getConversation,
+  getHealth,
   getMemoryStats,
   getPendingTurn,
   resolveApproval as apiResolveApproval,
@@ -50,6 +52,7 @@ export default function AppShell() {
   const [activeConversation, setActiveConversation] = useState<ConversationWithMessages | null>(null);
   const [view, setView] = useState<View>("chat");
   const [guideOpen, setGuideOpen] = useState(false);
+  const [newsVersion, setNewsVersion] = useState<string | null>(null);
   useEffect(() => onShowAgents(() => setView("agents")), []);
   useEffect(() => onOpenConversationRequest((id) => { setActiveConversation(null); setLoadingConversation(true); setActiveConversationId(id); setView("chat"); }), []);
   const [loadingConversation, setLoadingConversation] = useState(false);
@@ -120,6 +123,13 @@ export default function AppShell() {
           setNewConversationProvider(settings.defaultProvider);
           setNewConversationTeacher(settings.defaultTeacher);
           setGuideOpen(!settings.onboardingCompleted);
+          // After an update, once: what's new. A first install marks the version as seen (the guide covers it).
+          void getHealth().then((health) => {
+            const version = health.version;
+            if (!version || seenVersion() === version || navigator.webdriver) return;
+            if (!settings.onboardingCompleted || !NEWS[version]) markSeen(version);
+            else setNewsVersion(version);
+          }).catch(() => {});
         }
 
         const conversationList = await refreshLists();
@@ -459,6 +469,7 @@ export default function AppShell() {
           />
         )}
       </main>
+      {newsVersion && !guideOpen && <WhatsNew version={newsVersion} onClose={() => setNewsVersion(null)} />}
       {guideOpen && <WelcomeGuide onClose={(settings) => { setGuideOpen(false); if (settings) { setView('settings'); setSidebarOpen(false); } }} />}
       {configuringProject && <ProjectSettings project={configuringProject} onClose={() => setConfiguringProject(null)} onSave={(patch) => handleConfigureProject(configuringProject.id, patch)} />}
     </div>
