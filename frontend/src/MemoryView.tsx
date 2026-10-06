@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import ProfilePanel from './ProfilePanel';
 import CentralMemoryPanel from './CentralMemoryPanel';
 import Icon from './Icon';
 import {
@@ -365,7 +366,7 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
       <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">Memória</h1>
-          <p className="page-desc">O que a Aurora lembra: a central compartilhada, o contexto de cada chat e a sua coleção pessoal. Só o que é relevante entra nas respostas.</p>
+          <p className="page-desc">O que a Aurora lembra: quem você é, o contexto de cada conversa, as notas que você guardou e a central compartilhada. Só o que é relevante entra nas respostas.</p>
         </div>
         {onOpenAtlas && (
           <div className="memory-atlas-links">
@@ -374,6 +375,12 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
           </div>
         )}
       </div>
+
+      <section className="memory-about" aria-label="O que a Aurora sabe sobre você">
+        <h2 className="section-title">O que a Aurora sabe sobre você</h2>
+        <p className="section-desc">Vale em todas as conversas. Ela aprende quando você conta algo de si (“me chamo…”, “trabalho com…”); aqui você corrige ou faz esquecer.</p>
+        <ProfilePanel />
+      </section>
 
       <CentralMemoryPanel draft={shareDraft} onCloseDraft={()=>setShareDraft(null)} />
       <h2 className="section-title personal-memory-heading">Memória pessoal</h2>

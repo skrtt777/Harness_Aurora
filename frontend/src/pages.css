@@ -1038,3 +1038,6 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .settings-nav-group { margin: 14px 10px 4px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
 .app-shell .settings-nav-group:first-of-type { margin-top: 4px; }
 @media (max-width: 900px) { .app-shell .settings-nav-group { display: none; } }
+
+/* Memória: who you are, first */
+.app-shell .memory-page .memory-about { display: grid; gap: var(--gap-2); margin: var(--gap-4) 0 var(--gap-5); padding-bottom: var(--gap-5); border-bottom: 1px solid var(--stroke-2); }
