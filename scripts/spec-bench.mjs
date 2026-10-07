@@ -1,5 +1,6 @@
 // Speed of the local model with and without speculative decoding (no draft model: n-gram lookups).
 // node scripts/spec-bench.mjs ["--spec-type ngram-mod" ...]   (each argument is one configuration)
+import { readFileSync } from "node:fs";
 import { ensureLlamaServer, stopLlamaServer } from "../app/llamaServer.js";
 
 const model = process.env.LOCAL_MODEL || "qwen3.5:4b";
@@ -12,15 +13,18 @@ const allPrompts = {
   conversa: "Explique em três parágrafos curtos como organizar o fechamento do mês de uma pequena empresa.",
 };
 
+// AGENT_REQUEST=<file>: a real agent request (JSON, first line) — rules, tools and a question, as the app sends it.
+if (process.env.AGENT_REQUEST) allPrompts.agente = JSON.parse(readFileSync(process.env.AGENT_REQUEST, "utf8").split("\n")[0]);
 const prompts = only ? { [only]: allPrompts[only] } : allPrompts;
 
 async function time(baseUrl, prompt) {
   const started = Date.now();
-  const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 1800, chat_template_kwargs: { enable_thinking: false } }) });
+  const request = typeof prompt === "string" ? { model, messages: [{ role: "user", content: prompt }] } : { ...prompt, stream: false };
+  const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...request, temperature: 0, max_tokens: 1800, chat_template_kwargs: { enable_thinking: false } }) });
   const body = await response.json();
   const ms = Date.now() - started;
   const tokens = body.usage?.completion_tokens || 0;
-  return { ms, tokens, tps: tokens / ((body.timings?.predicted_ms || ms) / 1000), text: body.choices?.[0]?.message?.content || JSON.stringify(body).slice(0, 200) };
+  return { ms, tokens, tps: tokens / ((body.timings?.predicted_ms || ms) / 1000), text: body.choices?.[0]?.message?.content || JSON.stringify(body.choices?.[0]?.message?.tool_calls || body).slice(0, 400) };
 }
 
 const baseline = {};

@@ -1,8 +1,11 @@
 import { execFile, spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { protectPort } from "./agentTools/netGuard.js";
+import { cacheDir, learnPrefix, noteCacheUse, restoreSnapshot, snapshotKey } from "./llamaCache.js";
+
+const ensureDir = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
 
 /**
  * The local model served by llama-server for the agent, so several copies answer at once
@@ -139,6 +142,8 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
       // rows from tool results into documents, and those come out 2.5x faster on GPU and ~5x on CPU,
       // same text (scripts/spec-bench.mjs, 05/10/2026). LLAMA_SPEC=off turns it off.
       ...(env.LLAMA_SPEC === "off" ? [] : ["--spec-type", "ngram-mod"]),
+      // Partida instantânea (app/llamaCache.js): the fixed start of the prompt saved and restored here.
+      ...(env.LLAMA_CACHE === "off" ? [] : ["--slot-save-path", ensureDir(cacheDir(env))]),
       // Experiments (benchmarks of speculative decoding, sampling…) without touching the code.
       ...String(env.LLAMA_SERVER_EXTRA_ARGS || "").split(/\s+/).filter(Boolean)];
     const log = serverLog(env);
@@ -149,6 +154,9 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
     const ok = await waitHealthy(baseUrl, child);
     if (!ok) { child.kill(); if (server === entry) server = null; failedAt = Date.now(); return null; }
     entry.gpu = gpu;
+    entry.cacheKey = snapshotKey(model, blob, bin(libDir));
+    if (env.LLAMA_CACHE !== "off") entry.restored = await restoreSnapshot(baseUrl, { key: entry.cacheKey, slots: SLOTS, env });
+    entry.env = env;
     return baseUrl;
   })();
   return entry.ready;
@@ -169,7 +177,16 @@ export function stopLlamaServer() {
   current?.child?.kill();
 }
 
-export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), slots: SLOTS } : null);
+/** After an answer from this server: was the restored start used, and learn it if none is saved. */
+export function afterLlamaAnswer(baseUrl, body, cachedTokens) {
+  const current = server;
+  if (!current || current.baseUrl !== baseUrl || !current.cacheKey || current.env?.LLAMA_CACHE === "off") return;
+  // Only the agent's requests share the saved start (a plain chat has another one).
+  if (body?.tools?.length) noteCacheUse(baseUrl, cachedTokens);
+  void learnPrefix(baseUrl, body, { key: current.cacheKey, env: current.env });
+}
+
+export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), slots: SLOTS, restoredTokens: server.restored || 0 } : null);
 
 // The server belongs to this app: it closes with it.
 process.once("exit", stopLlamaServer);

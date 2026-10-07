@@ -1,3 +1,4 @@
+import {afterLlamaAnswer} from "./llamaServer.js";
 // Android execution adapter. Context, memory, correction and persistence stay in Harness.
 // A text prompt gets the same template, sampling and output limit the desktop Ollama
 // path uses (app/local.js), so identical weights behave the same on both platforms.
@@ -237,6 +238,8 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
     const metrics={model,wallMs:performance.now()-started,engine:'llama.cpp',promptMs:timings?.prompt_ms??null,generationMs:timings?.predicted_ms??null,
       promptTokensPerSecond:timings?.prompt_per_second??null,outputTokensPerSecond:timings?.predicted_per_second??null,cachedInputTokens:data.usage?.prompt_tokens_details?.cached_tokens??null};
     if(!toolCalls.length&&!text.trim())return {ok:false,status:502,error:'O modelo local retornou uma resposta vazia ou inválida.',usage,metrics};
+    // Partida instantânea: the saved start of the prompt checked and learned (app/llamaCache.js).
+    afterLlamaAnswer(endpoint(env),{messages:toOpenAiMessages(messages),tools,chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'}},timings?.cache_n??metrics.cachedInputTokens);
     return {ok:true,status:200,text,toolCalls,threadId:null,usage,metrics,truncated:choice?.finish_reason==='length'};
   }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':error.message,cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};}
 }

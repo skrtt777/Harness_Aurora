@@ -66,6 +66,8 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - busca da empresa: imposto a vencer, gerente de um setor e "mais acima do orçamento" (valor e %);
   - `npm run regressao`: todas as medições, comparadas com a rodada anterior.
 
+- **Acelerador do modelo local (07/10, `docs/ACELERADOR_2026-10-07.md`):** estudo do Strata aplicado ao qwen3.5:4b. Partida instantânea: o começo fixo do prompt (ferramentas + regras) salvo em disco e restaurado quando o servidor sobe: primeira resposta após reiniciar 68–74 s → 1,3 s na CPU; turno do agente na CPU 285 s → 109 s. Medido e descartado: MTP do próprio modelo (mais lento na GPU e na CPU), threads e tamanho do bloco (o padrão já é o melhor).
+
 ## Agora
 
 1. **Publicar a 0.1.38** (instalador em `release/`): `gh release create v0.1.38 …` com o .exe, o .blockmap e o latest.yml.
