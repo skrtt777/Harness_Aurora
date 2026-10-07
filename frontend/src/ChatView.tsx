@@ -7,6 +7,7 @@ import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
 import DeliveredFiles from './DeliveredFiles';
+import { adjustOptions } from './adjustOptions';
 
 // Marco 6 backlog (docs/historico/ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
 // só memórias — útil pra compartilhar um resultado sem abrir o app. Pura
@@ -149,9 +150,11 @@ function UndoChatMoves({ message }: { message: ChatMessage }) {
   return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>{text}</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
 }
 
-function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect }: {
+function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect, onPick }: {
   message: ChatMessage; artifacts: Artifact[]; onOpen: (id: string) => void;
   correctable: boolean; teacher: string; onCorrect: Props['onCorrect'];
+  /** Only on the last answer: picks one of its "Quer ajustar?" options. */
+  onPick?: (text: string) => void;
 }) {
   const [review, setReview] = useState(false);
   const [note, setNote] = useState('');
@@ -175,6 +178,14 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} />}
+      {!isUser && onPick && (() => {
+        const options = adjustOptions(message.content);
+        return options.length > 0 && <div className="adjust-options" role="group" aria-label="Ajustes sugeridos">
+          {options.map(option => <button key={option.label} className={`adjust-option${option.recommended ? ' recommended' : ''}`} onClick={() => onPick(option.label)} title={option.recommended ? 'Recomendado' : undefined}>
+            {option.recommended && <span className="adjust-star" aria-hidden="true">★</span>}{option.label}
+          </button>)}
+        </div>;
+      })()}
       {!isUser && ((message.execution?.moves?.length ?? 0) + (message.execution?.edits?.length ?? 0)) > 0 && <UndoChatMoves message={message} />}
       {!isUser && <div className="message-actions">
         <button className="btn btn-text btn-sm" onClick={async () => {
@@ -300,7 +311,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
       <div className="chat-messages" ref={scrollRef}>
         {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><HomeToday />
           <div className="starter-prompts">{STARTERS.map(([label, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
-        </div> : conversation.messages.map(message => <MessageBubble key={message.id} message={message} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
+        </div> : conversation.messages.map((message, index) => <MessageBubble key={message.id} message={message} onPick={!sending && index === conversation.messages.length - 1 && message.role !== 'user' ? text => { void onSend(text); } : undefined} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
           {pendingTurn?.plan && <PlanList plan={pendingTurn.plan} />}

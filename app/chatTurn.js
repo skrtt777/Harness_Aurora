@@ -1,6 +1,7 @@
 // One chat turn: memories and context, files the person names, company documents,
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
+import { briefBlock, withAdjustOptions } from "./briefs.js";
 import { clockObservation, discountObservation, distressObservation, mathObservation, weekdayObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
@@ -512,6 +513,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
     const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
+    // How a complete delivery of this kind looks (app/briefs/*.md): a poor request ("faz um convite
+    // pro niver") gets the defaults decided, the structure and the adjustment options at the end.
+    const brief = observation ? null : briefBlock(trimmed, env);
     // Who the person is and what the Aurora did lately, in every conversation (OpenClaw's USER.md and
     // daily notes). A name said here is learned for the next conversations too.
     await learnFromMessage(trimmed).catch(() => null);
@@ -528,7 +532,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from
@@ -618,6 +622,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             // Company questions must consult documents; names and numbers must come from them.
             companyQuestion: conversation.provider === "local" && !autoDocs.length && !attached.length && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             checkFacts: conversation.provider === "local" && hasKnowledge,
+            // A briefing matched (a convite, an e-mail…): the delivery comes before any question.
+            deliverFirst: Boolean(brief),
             companyTopic: conversation.provider === "local" && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,
@@ -719,7 +725,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     const usedContext = agentContext || localContext;
     if(conversation.provider === 'local') {
       result.telemetry ||= summarizeLocalCalls(result.reusedFrom ? [] : [localCallRecord(result)]);
-      result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
+      result.execution={...result.telemetry,reusedFrom:result.reusedFrom||null,diagnostics:agentSteps.length?null:(result.diagnostics||diagnoseLocalArtifact(result.text)),observations:observation?[{source:observation.source,observedAt:observation.observedAt,timeZone:observation.timeZone,local:observation.local}]:[],brief:brief?.name||null,context:usedContext?{memoryIds:usedContext.memoryIds,memoryChars:usedContext.memoryChars,skills:usedContext.skills,selectionVersion:usedContext.selectionVersion}:null};
     }
     if (agentSteps.length) result.execution = { ...(result.execution || {}), toolSteps: agentSteps, ...(agentPlan ? { plan: agentPlan } : {}) };
     if (agentMoves.length) result.execution = { ...(result.execution || {}), moves: agentMoves };
@@ -733,6 +739,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (result.ok && agentSteps.length) result.text = withDeliveryPath(result.text, agentSteps);
+    if (result.ok && brief) result.text = withAdjustOptions(result.text, brief);
     if (!result.ok) {
       const cancelled = Boolean(controller?.signal.aborted);
       const errorMessage = await addMessage({

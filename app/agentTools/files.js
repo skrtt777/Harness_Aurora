@@ -724,8 +724,8 @@ export function likelyCopies(files) {
 
 // "Me ajuda a escrever uma msg de aniversário…": a text to use, not a file. Saved anyway to the
 // Desktop in 2 of 3 runs despite the rule (usage tests, 06/10).
-const COMPOSE = /\b(escrev|redij|mensagem|msg|texto|carta|legenda|poema|recado|parab[eé]ns|felicita|convite|bilhete)/;
-const SAVE_ASKED = /\b(salv|arquivo|documento|imprim|pdf|word|docx|planilha|excel|guard|baix|anex|relat[oó]rio|proposta|curr[ií]culo|contrato|apresenta[cç][aã]o|of[ií]cio|ata)/;
+const COMPOSE = /\b(escrev|redij|mensagem|msg|texto|carta|legenda|poema|recado|parab[eé]ns|felicita|convite|bilhete|desculp|aviso|comunicado|e-?mail|respond|resposta|agradec|post\b)/;
+const SAVE_ASKED = /\b(salv|arquivo|documento|imprim|pdf|word|docx|planilha|excel|guard|baix|anex|relat[oó]rio|proposta|curr[ií]culo|contrato|apresenta[cç][aã]o|of[ií]cio|ata\b|slides?\b|roteiro)/;
 const CODE_ASKED = /\b(script|c[oó]digo|programa|fun[cç][aã]o|site|p[aá]gina|html|python|javascript|\.py|\.js|app)\b/;
 export function onlyTextAsked(request, env = {}) {
   if (env?.AGENT_RUN_TRIGGER) return false;

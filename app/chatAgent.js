@@ -195,6 +195,7 @@ const contextText = (messages) => messages.map((m) => (typeof m.content === "str
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
+  deliverFirst = false,
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null,
 }) {
@@ -223,6 +224,7 @@ export async function runChatAgent({
   let deliveryChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
+  let askedFirstChecked = false;
   let searches = 0;
   let confirmChecked = false;
   let sentChecked = false;
@@ -324,6 +326,16 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Nenhum comando de apagar deu certo nesta resposta: nada foi apagado. Diga a verdade à pessoa (os arquivos continuam lá) e, se ela confirmar, tente de novo." });
       continue;
     }
+    // "Para criar o convite, preciso de três informações…": a question instead of the delivery
+    // (battery 4, 3 scenarios in 14, 06/10). With a briefing, the draft comes first, the question after.
+    if (!toolCalls.length && deliverFirst && !askedFirstChecked && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool))
+      && ((text.match(/\?/g) || []).length >= 2 || /\b(preciso (de|saber|entender|que voc[êe])|me (diga|informe|conte|passe)|antes de (criar|montar|fazer|escrever))\b/i.test(text))
+      && text.replace(/^.*\?.*$/gm, "").replace(/^\s*(\d+[.)]|[-*•])\s.*$/gm, "").trim().split(/\s+/).length < 60) {
+      askedFirstChecked = true;
+      checks.push({ check: "asked_before_delivering", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Entregue primeiro: faça agora a versão completa com o que você já sabe, decidindo o resto com bons padrões; marque entre colchetes só o dado que só a pessoa sabe (ex.: [data]). Depois da entrega, peça esses dados numa frase e termine com **Quer ajustar?** e as opções numeradas." });
+      continue;
+    }
     // An e-mail with "[valor]", "[data do vencimento]", "[Duplicata nº XXX]" after reading the sheet
     // that has them (usage tests, 3 runs in 3, 06/10). The signature ("[Seu nome]") may stay.
     const blanks = steps.some((s) => s.ok && s.tool === "read_file") ? (text.match(/\[[^\]\n]{1,40}\]/g) || []).filter((b) => /valor|data|vencimento|n[uú]mero|duplicata|cliente|quantia|dias|XXX|\bX\b/i.test(b) && !/\b(seu|sua)\b/i.test(b)) : [];
@@ -406,7 +418,7 @@ export async function runChatAgent({
       if (call.arguments?.__cut && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: count === 1
           ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras).`
-          : `ERRO: cortada de novo. Grave SÓ a tabela com as linhas pedidas (sem introdução, sem análise, sem repetir linhas), no máximo 300 palavras.`, ms: 0 };
+          : `ERRO: cortada de novo. Grave a tabela com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: os argumentos de ${call.name} vieram com JSON inválido (começo: ${call.arguments.__raw}). Chame de novo com JSON válido: no texto, troque aspas duplas por aspas simples e não use barras invertidas soltas.`, ms: 0 };
       } else if (count >= REPEAT_LIMIT) {

@@ -881,3 +881,10 @@
   .app-shell .delivered-file-actions { width: 100%; }
 }
 .chat-undo-moves { margin: 4px 0 0; display: flex; gap: 6px; align-items: baseline; color: var(--text-2); }
+
+/* "Quer ajustar?" options of the last answer, as buttons. */
+.adjust-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.adjust-option { border: 1px solid var(--line, rgba(127,127,127,.35)); background: transparent; color: inherit; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
+.adjust-option:hover { background: rgba(127,127,127,.12); }
+.adjust-option.recommended { border-color: var(--accent-line, var(--accent)); background: var(--accent-soft, transparent); }
+.adjust-star { color: var(--accent); margin-right: 6px; }

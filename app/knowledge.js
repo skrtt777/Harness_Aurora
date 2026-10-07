@@ -378,8 +378,17 @@ const EVERYDAY_TERMS = [
   [/\b(vendeu|quem mais vende)\b/i, "vendas por vendedor"],
   [/\b(falar com|quem cuida d)\b/i, "lista de ramais contatos"],
 ];
-export function expandEverydayTerms(query) {
+// The kind of delivery is not the subject: "relatório vendas" found "Relatório Gerencial" of the
+// Controladoria first and the sales sheet came second (battery 4, 06/10). Dropped while other words remain.
+const DELIVERY_WORDS = /\b(relat[oó]rios?|planilhas?|documentos?|resumos?|apresenta[cç](?:[aã]o|[oõ]es)|slides?|arquivos?|word|excel|pdf|modelo)\b/gi;
+export function subjectOnly(query) {
   const text = String(query || "");
+  const left = text.replace(DELIVERY_WORDS, " ").replace(/\s+/g, " ").trim();
+  return left.split(" ").filter((w) => w.length > 2).length ? left : text;
+}
+
+export function expandEverydayTerms(query) {
+  const text = subjectOnly(query);
   const extra = EVERYDAY_TERMS.filter(([test]) => test.test(text)).map(([, add]) => add);
   return extra.length ? `${text}\n${extra.join(" ")}` : text;
 }

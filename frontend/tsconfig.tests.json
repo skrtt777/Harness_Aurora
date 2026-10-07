@@ -7,5 +7,5 @@
     "skipLibCheck": true,
     "outDir": ".test-build"
   },
-  "include": ["src/data.ts", "src/graph.ts", "src/morphology.ts"]
+  "include": ["src/data.ts", "src/graph.ts", "src/morphology.ts", "src/adjustOptions.ts"]
 }

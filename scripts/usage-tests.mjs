@@ -35,7 +35,7 @@ process.env.AGENT_APPROVAL_TIMEOUT_MS ||= "1000";
 setInterval(() => {}, 60_000);
 
 const { USAGE_TODAY, writePersonalFixtures } = await import("../app/usageScenarios.js");
-const { allUsageScenariosWithRobust: allUsageScenarios } = await import("../app/usageScenarios2.js");
+const { allUsageScenariosWithPoor: allUsageScenarios } = await import("../app/usageScenarios4.js");
 const battery = arg("bateria");
 const USAGE_SCENARIOS = (await allUsageScenarios()).filter((s) => !battery || String(s.battery) === battery);
 process.env.HARNESS_NOW ||= USAGE_TODAY;
