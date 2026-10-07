@@ -32,16 +32,24 @@ export const knowledgeTools = [
     stage: (a) => `Procurando nos documentos da empresa: "${clip(a.query, 40)}"…`,
     describe: (a, ctx) => shareAccess(ctx, `Buscar "${clip(a.query, 60)}" nos documentos da empresa`),
     async run({ query, category }, ctx) {
+      // "Política de home office" (there is none) took 10 searches with the words shuffled (usage
+      // tests, 06/10). From the 4th on, the answer reminds it that not finding is an answer.
+      // Someone at home has no company documents: "o condomínio de setembro" is their own paper
+      // (it answered "não encontrei nos documentos da empresa", usage tests 06/10).
+      if (!(await listSources()).some((s) => s.documents > 0)) return "Não há documentos de empresa cadastrados nesta Aurora. Se a pergunta é sobre um papel ou arquivo da pessoa (conta, boleto, contrato, extrato, planilha), procure nas pastas dela com search_files e leia com read_file.";
+      ctx.knowledgeSearches = (ctx.knowledgeSearches || 0) + 1;
+      if (ctx.knowledgeSearches > 6) return "Você já procurou 6 vezes nos documentos da empresa. Pare de procurar: diga à pessoa o que encontrou, ou que isso não consta nos documentos da empresa.";
+      const enough = ctx.knowledgeSearches >= 4 ? `\n\n(Esta é a ${ctx.knowledgeSearches}ª busca. Se o que a pessoa pediu não está nestes trechos, responda que não consta nos documentos da empresa em vez de procurar de novo.)` : "";
       const search = (cat) => searchKnowledge(String(query || ""), { category: cat, env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
       // A remembered or guessed category ("RH/Eventos" from another share) must not hide the answer.
       let hits = await search(category);
       if (!hits.length && category) hits = await search(undefined);
-      if (!hits.length) return "Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.";
+      if (!hits.length) return `Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.${enough}`;
       rememberRestricted(ctx, hits);
       // Sheets seen here only as excerpts: a table written from them without reading them whole is
       // flagged by write_document (a Controladoria agent wrote its report from this, 05/10/2026).
       ctx.excerptSheets = [...new Set([...(ctx.excerptSheets || []), ...hits.map((h) => h.path).filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p))])];
-      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem.";
+      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem." + enough;
     },
   },
   {

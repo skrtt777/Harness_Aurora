@@ -291,6 +291,30 @@ export function dateFilterHint(lines, request, now = new Date()) {
   return `\n(O pedido tem ${range ? `um período (${range.from} a ${range.to})` : "uma data"} na coluna ${column}. Já apliquei filter="${filter}"; a lista certa para essa data é esta (se o pedido tem outra condição, aplique-a também), não escolha de olho na tabela inteira abaixo:\n${rows}\n)`;
 }
 
+// A colleague's salary, CPF, address or phone: not handed out in a chat (the rule alone was ignored
+// in 2 of 3 runs: "Bruno ganha R$ 2.518,03", usage tests 06/10). Totals and averages still work,
+// and an agent's own run (the RH agent doing payroll) sees everything.
+const RESTRICTED_COLUMN = /sal[aá]rio|remunera|vencimento base|\bcpf\b|\brg\b|endere[cç]o|telefone pessoal|celular pessoal|e-?mail pessoal|data de nascimento/i;
+export function redactRestricted(lines, request, env = {}) {
+  if (env?.AGENT_RUN_TRIGGER || /\b(total|soma|somad|folha|m[eé]dia|custo)\b/i.test(String(request || ""))) return lines;
+  let restricted = null;
+  let changed = false;
+  const out = lines.map((line) => {
+    if (line.startsWith("## ")) { restricted = null; return line; }
+    if (!line.includes(" | ")) return line;
+    if (restricted === null) {
+      const cells = line.split(" | ");
+      restricted = cells.map((c) => RESTRICTED_COLUMN.test(c));
+      return line;
+    }
+    if (!restricted.some(Boolean)) return line;
+    const cells = line.split(" | ");
+    changed = true;
+    return cells.map((c, j) => (restricted[j] && c.trim() ? "(restrito)" : c)).join(" | ");
+  });
+  return changed ? [...out, "(Colunas de dados pessoais saem como \"(restrito)\": salário, CPF ou endereço de um colega não são passados na conversa; o RH pode informar.)"] : lines;
+}
+
 /** The sheet's TOTAL row with its column names, as a note ("" when there is none). */
 export function totalRowsNote(lines) {
   const totals = parseSheets(lines).filter((s) => s.header).flatMap((s) => s.rows
@@ -311,7 +335,9 @@ export function totalRowsNote(lines) {
  */
 export function groupHint(lines, request) {
   const text = foldText(request);
-  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g)].map((m) => m[1].slice(0, 5));
+  // "Por cliente", and also "o cliente que mais deve" / "qual fornecedor mais…": the top one needs the
+  // sums per client (an e-mail went to the client of the single biggest bill, not the biggest debtor).
+  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g)].map((m) => m[1].slice(0, 5));
   if (!asked.length) return "";
   const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 1);
   if (!sheet) return "";
@@ -332,7 +358,10 @@ export function groupHint(lines, request) {
   const money = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const table = [`${names[key]} | Linhas | ${sums.map((j) => `Total ${names[j]}`).join(" | ")}`,
     ...[...groups].sort((a, b) => b[1].totals[0] - a[1].totals[0]).map(([name, g]) => `${name} | ${g.count} | ${g.totals.map(money).join(" | ")}`)];
-  return `\n(Totais por ${names[key]}, já somados das ${rows.length} linhas (${groups.size} grupos); use estes números:\n${table.join("\n")}\n)`;
+  // "O cliente que mais deve": said plainly, by total (the model took the biggest single bill, 3 of 3).
+  const ranked = [...groups].sort((a, b) => b[1].totals[0] - a[1].totals[0]);
+  const top = /\b(mais|maior)\b/.test(text) ? `\nQuem tem o MAIOR total (${names[sums[0]]}): ${ranked[0][0]}, ${money(ranked[0][1].totals[0])} em ${ranked[0][1].count} linha(s). É esse que o pedido quer, não a maior linha sozinha.` : /\b(menos|menor)\b/.test(text) ? `\nQuem tem o MENOR total: ${ranked.at(-1)[0]}, ${money(ranked.at(-1)[1].totals[0])}.` : "";
+  return `\n(Totais por ${names[key]}, já somados das ${rows.length} linhas (${groups.size} grupos); use estes números:${top}\n${table.join("\n")}\n)`;
 }
 
 /**
@@ -1022,7 +1051,8 @@ export const fileTools = [
       const file = await resolveExisting(path, ctx);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
-      const lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
+      let lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
+      if (/\.(xlsx|xlsm)$/i.test(file)) lines = redactRestricted(lines, ctx.request, ctx.env);
       ctx.onFileRead?.(file);
       (ctx.readFiles ??= new Set()).add(file.toLowerCase());
       if (String(filter || "").trim() || String(sort || "").trim()) {
@@ -1071,7 +1101,10 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        ready = (nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request)) + groupHint(table, ctx.request);
+        const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
+        // Totals per client over the rows the request's condition keeps ("acima de 30 dias"), when one was applied.
+        const appliedFilter = /Já apliquei filter="([^"]+)"/.exec(filtered)?.[1];
+        ready = filtered + groupHint(appliedFilter ? filterRows(table, appliedFilter).split(/\r?\n/) : table, ctx.request);
         // Rows the tool already filtered for the request are what the document is checked against.
         // The ready filter covers ONE condition of the request ("até 15/10" of "a pagar e até 15/10"):
         // its rows are not all owed (demanding them pushed paid bills into the list, 06/10), but the
@@ -1184,7 +1217,7 @@ export const fileTools = [
     // Organizing a folder needs moving and renaming; through run_command a small model wrote
     // shell one-liners that were hard to check. Never overwrites, never deletes.
     name: "move_file",
-    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Para levar vários arquivos à mesma pasta numa chamada, use files (lista) e to com a pasta. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
+    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Para RENOMEAR: from com o arquivo e to com o novo nome na MESMA pasta (ex.: from \"Downloads/IMG_1.jpg\", to \"Downloads/foto.jpg\"). Para levar vários arquivos à mesma pasta numa chamada, use files (lista) e to com a pasta. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
     parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual (um arquivo)" }, files: { type: "array", items: { type: "string" }, description: "Vários arquivos que vão para a mesma pasta (to)" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\ ou /" } }, required: ["to"] },
     stage: (a) => `Movendo ${moveSources(a).length > 1 ? `${moveSources(a).length} arquivos` : moveSources(a)[0] || ""}…`,
     describe: (a, ctx) => {

@@ -34,7 +34,10 @@ process.env.HARNESS_DB_FILE = join(base, "harness.db");
 process.env.AGENT_APPROVAL_TIMEOUT_MS ||= "1000";
 setInterval(() => {}, 60_000);
 
-const { USAGE_SCENARIOS, USAGE_TODAY, writePersonalFixtures } = await import("../app/usageScenarios.js");
+const { USAGE_TODAY, writePersonalFixtures } = await import("../app/usageScenarios.js");
+const { allUsageScenariosWithRobust: allUsageScenarios } = await import("../app/usageScenarios2.js");
+const battery = arg("bateria");
+const USAGE_SCENARIOS = (await allUsageScenarios()).filter((s) => !battery || String(s.battery) === battery);
 process.env.HARNESS_NOW ||= USAGE_TODAY;
 const store = await import("../app/store.js");
 const agents = await import("../app/agents.js");
@@ -59,6 +62,7 @@ for (let run = 1; run <= runs; run += 1) {
     const folders = { desktop: join(home, "Desktop"), documents: join(home, "Documents"), downloads: join(home, "Downloads"), home };
     for (const d of [folders.desktop, folders.documents, folders.downloads]) mkdirSync(d, { recursive: true });
     await writePersonalFixtures(home);
+    if (scenario.setup) await scenario.setup({ folders });
     process.env.HARNESS_KNOWN_FOLDERS = JSON.stringify(folders);
     const conversation = await store.createConversation({ provider: "local", title: `uso ${scenario.id}` });
     const turns = [];

@@ -28,11 +28,11 @@ import { mapOverview } from "./computerMap.js";
 import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
-import { resolveExisting, totalRowsNote } from "./agentTools/files.js";
+import { redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
-import { computerRoots } from "./fileAccess.js";
+import { computerRoots, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
@@ -135,7 +135,8 @@ async function agentAllowedRoots(folders) {
 // thanks or orders to act ("crie", "abra"), which in a big mixed folder
 // still find look-alike passages. The model can always search by itself.
 const DATA_DELIVERY = /\b(planilha|relat[oó]rio|lista|tabela|word|excel|documento)\b[^.?!\n]{0,40}\b(com|de|dos|das|do|da)\b/i;
-const INFO_REQUEST = /\?|\b(qual|quais|quanto|quanta|quantos|quantas|quando|onde|quem|como|por ?que|o que|me (traz|traga|fala|fale|diz|diga|explica|mostra|mostre|passa|manda)|resum[aeo]|resumir|explique|procur[ae]|busque|existe|informa[çc][õo]es|preciso saber)\b/i;
+// (With the abbreviations people type: "qnto ta a farinha" didn't look up the price table.)
+const INFO_REQUEST = /\?|\b(qual|quais|quanto|quanta|quantos|quantas|qnto|qnta|qntos|qto|qta|qtos|quando|qndo|qnd|onde|cade|quem|como|oq|pq|por ?que|o que|me (traz|traga|fala|fale|diz|diga|explica|mostra|mostre|passa|manda)|resum[aeo]|resumir|explique|procur[ae]|busque|existe|informa[çc][õo]es|preciso saber)\b/i;
 const SMALL_TALK = new Set("oi ola opa tudo bem bom boa dia tarde noite obrigado obrigada valeu certo beleza blz ok legal show perfeito entendi sim nao e ai como vai voce esta td".split(" "));
 export function asksForInformation(text) {
   const words = String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || [];
@@ -267,6 +268,33 @@ export function topicFile(text, mentions) {
 
 // Files named in this message; if none, the ones named earlier in the
 // conversation stay attached ("quanto custa o pacote X?" after a summary).
+const DESCRIBED = /\b(?:minha|meu|o|a|da|do|na|no)\s+(planilha|arquivo|documento|pdf|relat[oó]rio|contrato|curr?[ií]culo|extrato|boleto|nota|fatura|lista|receita|apresenta[cç][aã]o)(?:\s+(?:de|do|da|dos|das|com|final|sobre))?\s*([a-zÀ-ÿ]{4,})?/gi;
+const DESCRIBED_SKIP = new Set(["que", "pra", "para", "esse", "essa", "este", "esta", "aqui", "minha", "meus", "mais"]);
+/** Files in the person's folders whose names have the words of a description ("planilha de gastos" -> gastos_2026.xlsx). */
+export async function describedFiles(text, ctx = {}) {
+  const fold = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const wanted = [];
+  for (const m of String(text).matchAll(DESCRIBED)) {
+    const kind = fold(m[1]).replace(/^cur+iculo$/, "curriculo");
+    const word = m[2] && !DESCRIBED_SKIP.has(fold(m[2])) ? fold(m[2]) : null;
+    wanted.push(word ? [word] : [kind]);
+  }
+  if (!wanted.length) return [];
+  const found = [];
+  const walk = async (dir, depth) => {
+    if (depth > 3 || found.length > 6) return;
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (e.name.startsWith(".")) continue;
+      const full = join(dir, e.name);
+      if (e.isDirectory()) await walk(full, depth + 1);
+      else if (/\.(pdf|docx?|xlsx?|csv|txt|md|pptx?)$/i.test(e.name) && wanted.some((w) => w.every((x) => fold(e.name).includes(x.slice(0, 6))))) found.push(full);
+    }
+  };
+  for (const folder of personalFolders(ctx.env || process.env)) await walk(folder.path, 0);
+  // Only a clear pick: one or two files.
+  return found.length && found.length <= 2 ? found : [];
+}
+
 async function mentionedFiles(text, ctx, history = []) {
   const recent = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
   // "voltando ao kit de mídia…" after talking about a spreadsheet: a file named earlier in the
@@ -275,6 +303,9 @@ async function mentionedFiles(text, ctx, history = []) {
   const byTopic = topicFile(text, all);
   const earlier = byTopic ? [byTopic, ...recent.filter((m) => m !== byTopic)] : recent;
   const current = fileMentions(text);
+  // "Minha planilha de gastos", "meu currículo", "o relatório final": a file described, not named.
+  // The model searched for "mercado" (a word inside the sheet) and gave up (usage tests, 06/10).
+  if (!current.length) current.push(...(await describedFiles(text, ctx)));
   const files = [];
   for (const mention of current.length ? current : earlier) {
     if (files.length >= 2) break;
@@ -572,7 +603,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // small spreadsheet found goes in whole (a sector's sheets usually fit).
           const fullSheets = new Map();
           const sheet = autoDocs.find((d) => /\.(xlsx|csv|tsv)$/i.test(d.path));
-          if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, text); }
+          if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, redactRestricted(text.split(/\r?\n/), trimmed, env).join("\n")); }
           const docsBlockOf = (whole) => (autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${whole && fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):${totalRowsNote(fullSheets.get(d.path).split(/\r?\n/))}\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "");
           const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)

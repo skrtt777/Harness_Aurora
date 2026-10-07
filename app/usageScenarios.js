@@ -22,13 +22,13 @@ export const LEVELS = {
 };
 
 export const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const has = (text, ...words) => words.every((w) => fold(text).includes(fold(w)));
-const any = (text, ...words) => words.some((w) => fold(text).includes(fold(w)));
+export const has = (text, ...words) => words.every((w) => fold(text).includes(fold(w)));
+export const any = (text, ...words) => words.some((w) => fold(text).includes(fold(w)));
 /** Files the turn wrote ("Criei/Salvei <caminho>"), that exist. */
 export const written = (turn, ext = null) => [...new Set((turn.steps || []).filter((s) => s.ok && ["write_document", "write_file", "edit_file"].includes(s.tool))
   .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)/.exec(s.summary || "")?.[1]).filter((f) => f && existsSync(f) && (!ext || f.toLowerCase().endsWith(ext))))];
-const used = (turn, tool) => (turn.steps || []).some((s) => s.tool === tool && s.ok);
-const claims = (text, re) => String(text).split(/(?<=[.!?\n])\s*/).some((s) => re.test(s) && !/\bn[ãa]o\b/i.test(s));
+export const used = (turn, tool) => (turn.steps || []).some((s) => s.tool === tool && s.ok);
+export const claims = (text, re) => String(text).split(/(?<=[.!?\n])\s*/).some((s) => re.test(s) && !/\bn[ãa]o\b/i.test(s));
 /** Every file under a folder (relative), to see what changed. */
 export function tree(dir, sub = "") {
   if (!existsSync(join(dir, sub))) return [];
@@ -56,9 +56,9 @@ export async function writePersonalFixtures(home) {
 }
 
 /** A company sheet task's truth (from the sheets), by its id in AGENT_TASKS. */
-const truthOf = async (id) => AGENT_TASKS.find((t) => t.id === id).truth(COMPANY_ROOT);
+export const truthOf = async (id) => AGENT_TASKS.find((t) => t.id === id).truth(COMPANY_ROOT);
 /** Delivery check against a truth: the file (by extension), every expected item, none excluded. */
-async function delivery(turn, exts, truth) {
+export async function delivery(turn, exts, truth) {
   const file = written(turn).find((f) => exts.some((e) => f.toLowerCase().endsWith(e)));
   if (!file) return { file: null, missing: truth.expected, extra: [] };
   const text = fold(await extractText(file).catch(() => ""));

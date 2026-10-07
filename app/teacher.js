@@ -24,7 +24,7 @@ const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa
 
 // Tools that leave a file behind; a claim of a created file needs one of them.
 export const WRITE_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command"]);
-const DELIVERABLE = "(?:documento|arquivo|planilha|relat[óo]rio|pdf|docx|xlsx|csv|tabela|apresenta[çc][ãa]o|vers[ãa]o atualizada)";
+const DELIVERABLE = "(?:documento|arquivo|planilha|relat[óo]rio|pdf|docx|xlsx|csv|tabela|apresenta[çc][ãa]o|vers[ãa]o atualizada|word|excel)";
 const CLAIM = new RegExp([
   `\\b(?:criei|salvei|gerei|escrevi|elaborei|montei|produzi|atualizei)\\b[^.\\n]{0,60}\\b${DELIVERABLE}`,
   `\\bconsegui (?:criar|gerar|salvar|montar|elaborar)\\b`,
@@ -34,7 +34,8 @@ const CLAIM = new RegExp([
 
 /** "Crie um novo documento…", "gere uma planilha…": the person asked for a file. */
 export function requestsFile(text) {
-  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|monte|elabore|escreva|salve|produza|prepare|entregue|entregar|forne[çc]a)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+  // With how people say it: "faz uma planilha", "monta um relatório", "me manda num word".
+  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
 }
 
 /**
