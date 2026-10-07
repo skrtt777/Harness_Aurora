@@ -19,7 +19,8 @@
     "dist": "npm run frontend:build && electron-builder --publish never",
     "prepare": "node scripts/install-git-hooks.mjs",
     "battery": "node scripts/conversation-battery.mjs",
-    "agents:eval": "node scripts/agent-tasks.mjs"
+    "agents:eval": "node scripts/agent-tasks.mjs",
+    "uso": "node scripts/usage-tests.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
