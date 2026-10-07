@@ -30,12 +30,14 @@ import McpPanel from './McpPanel';
 import FoldersPanel from './FoldersPanel';
 import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
+import BriefsPanel from './BriefsPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
   { id: "general", label: "Geral" },
   { id: "folders", label: "Pastas" },
   { id: "agent", label: "Agente" },
+  { id: "briefs", label: "Briefings" },
   { id: "phone", label: "Celular" },
   { id: "teacher", label: "Professor" },
   { id: "local", label: "IA local" },
@@ -418,6 +420,13 @@ export default function SettingsView({
             <div className="section"><FoldersPanel /></div>
           </>}
 
+          {section === "briefs" && <>
+            <header className="page-header">
+              <h2 className="page-title">Briefings</h2>
+              <p className="page-desc">Como a Aurora transforma um pedido curto ("faz um convite pro niver") numa entrega completa: o que ela decide sozinha, quando pergunta, o que a entrega precisa ter e as opções de ajuste no fim. Ligue, desligue, edite ou crie os seus.</p>
+            </header>
+            <div className="section"><BriefsPanel /></div>
+          </>}
           {section === "phone" && <>
             <header className="page-header">
               <h2 className="page-title">Celular</h2>

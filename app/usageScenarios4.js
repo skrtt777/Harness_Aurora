@@ -67,7 +67,19 @@ export const POOR_SCENARIOS = [
     { name: "sem link inventado", ok: (t) => !/https?:\/\//.test(t.text) || used(t, "web_search") || used(t, "web_fetch") },
     adjust,
   ] }] },
+  { id: "orcamento-bolo", level: "N2", group: "pessoal", persona: "Jorge", turns: [{ message: "faz um orçamento pro cliente de 3 bolos de aniversario de 120 reais cada e uma torta de 80", checks: [
+    { name: "cria o orçamento em arquivo", ok: (t) => written(t).length > 0 },
+    { name: "contas certas (TOTAL 440)", ok: async (t) => { const x = (await fileText(t, ".pdf", ".docx", ".xlsx")) || fold(t.text); return /\b360\b|360,00/.test(x) && /\b440\b|440,00/.test(x); } },
+    { name: "validade ou pagamento", ok: async (t) => { const x = (await fileText(t, ".pdf", ".docx", ".xlsx")) || fold(t.text); return any(x, "validade", "valido", "pagamento", "pix"); } },
+    adjust,
+  ] }] },
   // ---------- funcionário ----------
+  { id: "proposta-emporio", level: "N5", group: "empresa", persona: "Patrícia", turns: [{ message: "monta uma proposta pro Empório Central de 50 caixas de farinha de 1kg e 20 de café 500g", checks: [
+    { name: "cria a proposta", ok: (t) => written(t).length > 0 },
+    { name: "preços da tabela (7,90 e 29,90)", ok: async (t) => { const x = await fileText(t, ".docx", ".pdf", ".xlsx"); return x.includes("emporio") && /7[,.]90/.test(x) && /29[,.]90/.test(x); } },
+    { name: "condições (pedido mínimo, pagamento ou validade)", ok: async (t) => { const x = await fileText(t, ".docx", ".pdf", ".xlsx"); return any(x, "pedido minimo", "validade", "pagamento", "antecipado"); } },
+    adjust,
+  ] }] },
   { id: "relatorio-vendas", level: "N5", group: "empresa", persona: "Patrícia", turns: [{ message: "monta um relatorio das vendas", checks: [
     { name: "cria um relatório .docx", ok: (t) => written(t, ".docx").length > 0 },
     { name: "com os números reais (Camila Nunes no topo)", ok: async (t) => { const x = await fileText(t, ".docx"); return x.includes("camila") && /5[.]?839/.test(x); } },

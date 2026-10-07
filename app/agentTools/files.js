@@ -262,6 +262,25 @@ export function extremeHint(lines, request) {
   const numeric = header.filter((c, j) => !ID_COLUMN.test(c) && !DATE.test(sample[j] || "") && cellValue(sample[j] || "") !== null);
   if (!numeric.length) return "";
   const options = numeric.slice(0, 6).map((c) => `sort="${most ? "-" : ""}${c}"`).join(" ou ");
+  // The answer itself, per column: "a área mais acima do orçamento" took the biggest R$ deviation
+  // (Produção) where the % one (TI) was meant, in 3 runs of 5 (empresa eval controladoria-2).
+  const rows = [];
+  for (let i = at + 1; i < lines.length && lines[i].includes(" | ") && !lines[i].startsWith("## "); i += 1) {
+    const cells = lines[i].split(" | ").map((c) => c.trim());
+    if (!cells.some((c) => /^total\b/i.test(c))) rows.push(cells);
+  }
+  const words = text.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  const asked = numeric.filter((c) => words.some((w) => foldText(c).includes(w.slice(0, 5))) || (/\b(orcamento|orcado|estour)/.test(text) && /desvio/i.test(c)));
+  const label = (cells) => cells.find((c, j) => j > 0 && c && cellValue(c) === null && !DATE.test(c)) || cells[0];
+  const tops = (asked.length ? asked : numeric.slice(0, 3)).map((c) => {
+    const j = header.indexOf(c);
+    const ranked = rows.filter((r) => cellValue(r[j] || "") !== null).sort((a, b) => (most ? cellValue(b[j]) - cellValue(a[j]) : cellValue(a[j]) - cellValue(b[j])));
+    return ranked.length ? `${most ? "maior" : "menor"} ${c}: ${label(ranked[0])} (${ranked[0][j]})` : null;
+  }).filter(Boolean);
+  if (tops.length && rows.length >= 2) {
+    const both = tops.length > 1 && asked.some((c) => /%/.test(c)) && asked.some((c) => !/%/.test(c));
+    return `\n(Já ordenei, sem a linha de total: ${tops.join("; ")}.${both ? " O pedido não diz se é em valor ou em percentual: responda com os dois, o percentual primeiro." : ""} Use isto como resposta.)`;
+  }
   return `\n(O pedido quer o ${most ? "maior" : "menor"}: leia de novo com a coluna certa, ${options} (${most ? "o sinal - põe o maior primeiro" : "sem sinal, o menor vem primeiro"}). A primeira linha é a resposta.)`;
 }
 
@@ -734,6 +753,31 @@ export function onlyTextAsked(request, env = {}) {
 }
 const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
 
+/**
+ * A control sheet ("planilha pra controlar meus gastos") without its TOTAL row gets one: the
+ * briefing asks for it and the model left it out in 2 runs of 6 (battery 4, 06/10).
+ * Only the first markdown table with a value column, and only when no row is a total already.
+ */
+const CONTROL_SHEET = /\b(controlar|controle|orcamento|gastos|despesas|lista de compras)\b/;
+export function withTotalRow(markdown) {
+  const lines = String(markdown).split("\n");
+  const start = lines.findIndex((l, i) => /^\s*\|.*\|\s*$/.test(l) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] || ""));
+  if (start < 0) return markdown;
+  const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const header = cells(lines[start]);
+  const col = header.findIndex((h) => /\b(valor|total|pre[cç]o|custo|gasto)\b/i.test(h));
+  if (col < 0) return markdown;
+  let end = start + 2;
+  while (end < lines.length && /^\s*\|.*\|\s*$/.test(lines[end])) end += 1;
+  const rows = lines.slice(start + 2, end).map(cells);
+  if (!rows.length || rows.some((r) => r.some((c) => /^\**total\b/i.test(c)))) return markdown;
+  const sum = rows.reduce((n, r) => n + (cellValue(String(r[col] || "").replace(/^R\$\s*/, "")) ?? 0), 0);
+  const total = header.map((_, j) => (j === 0 ? "TOTAL" : j === col ? sum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""));
+  if (col === 0) total[1] = "TOTAL";
+  lines.splice(end, 0, `| ${total.join(" | ")} |`);
+  return lines.join("\n");
+}
+
 /** "(Na tabela: 5 linha(s); soma de Valor = 3.540)": the numbers of a table just written, for the answer. */
 export function tableSums(markdown) {
   const rows = String(markdown || "").split(/\r?\n/).filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s|:-]+\|\s*$/.test(l)).map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
@@ -1177,7 +1221,7 @@ export const fileTools = [
   {
     name: "write_document",
     description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
-    parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" } }, required: ["path", "content"] },
+    parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" }, append: { type: "boolean", description: "true para ACRESCENTAR este conteúdo ao fim do documento que você gravou antes nesta resposta (documento longo em partes)" } }, required: ["path", "content"] },
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
     async run(args, ctx) {
@@ -1185,6 +1229,14 @@ export const fileTools = [
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
       let file = documentPath(args, ctx);
       const format = extname(file).slice(1).toLowerCase();
+      // A long report in parts: the whole one passed the output limit and the retry kept only the
+      // table (battery 4, 06/10). append=true adds to the document written earlier in this answer.
+      ctx.docBodies ??= new Map();
+      const earlierBody = args.append ? ctx.docBodies.get(file.toLowerCase()) : null;
+      if (args.append && earlierBody == null) throw new Error("append só continua um documento que você gravou nesta resposta: grave a primeira parte sem append, com o mesmo caminho.");
+      if (earlierBody != null) args = { ...args, content: `${earlierBody}
+
+${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false };
       // A list missing rows of the read it came from is not written the first time: written and
       // flagged, the agent saved the full list under another name and left the 2-row sheet beside
       // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
@@ -1219,10 +1271,12 @@ export const fileTools = [
       }
       // A file Aurora created is updated in place (a redo made "... (2).md" next to its own first try).
       for (let n = 2; existsSync(file) && !OWN_DOCUMENTS.has(file.toLowerCase()); n += 1) file = documentPath(args, ctx).replace(/(\.[^.\\/]+)$/, ` (${n})$1`);
+      if (format === "xlsx" && CONTROL_SHEET.test(foldText(ctx.request))) args = { ...args, content: withTotalRow(String(args.content ?? args.text ?? args.markdown ?? "")) };
       const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "");
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, bytes);
       OWN_DOCUMENTS.add(file.toLowerCase());
+      ctx.docBodies.set(file.toLowerCase(), String(args.content ?? args.text ?? args.markdown ?? ""));
       const missing = missingRows(ctx.lastRows, args.content ?? args.text ?? args.markdown ?? "");
       const content = String(args.content ?? args.text ?? args.markdown ?? "");
       let note = missing.length ? `\nATENÇÃO: o último filtro trouxe ${ctx.lastRows.length} linha(s) e o documento tem só ${ctx.lastRows.length - missing.length}. Faltam: ${missing.slice(0, 20).join(", ")}${missing.length > 20 ? "…" : ""}. Se o pedido é a lista inteira, grave de novo no mesmo caminho com todas as linhas.` : "";

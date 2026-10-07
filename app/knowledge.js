@@ -377,6 +377,10 @@ const EVERYDAY_TERMS = [
   [/\b(problema(s)? (no|na|de|com) (computador|sistema|impressora|internet)|deu pau)\b/i, "chamados TI"],
   [/\b(vendeu|quem mais vende)\b/i, "vendas por vendedor"],
   [/\b(falar com|quem cuida d)\b/i, "lista de ramais contatos"],
+  // "Próximo imposto a vencer" went to the September tax calculation, not the calendar; "quem é o
+  // gerente de logística" missed the extensions list (empresa eval fiscal-1, administrativo-2).
+  [/\b(impostos?|tributos?|guias?)\b[^.?!]{0,30}\b(venc|pagar|prazo)|\b(venc|pagar|prazo)[^.?!]{0,30}\b(impostos?|tributos?|guias?)\b/i, "calendário de obrigações vencimento"],
+  [/\bquem [eé] (o|a) (gerente|respons[aá]vel|coordenador[a]?|supervisor[a]?|diretor[a]?|chefe)\b/i, "lista de ramais e responsáveis"],
 ];
 // The kind of delivery is not the subject: "relatório vendas" found "Relatório Gerencial" of the
 // Controladoria first and the sales sheet came second (battery 4, 06/10). Dropped while other words remain.

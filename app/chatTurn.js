@@ -296,13 +296,23 @@ export async function describedFiles(text, ctx = {}) {
   return found.length && found.length <= 2 ? found : [];
 }
 
-async function mentionedFiles(text, ctx, history = []) {
+const foldText = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const REFERS_BACK = /\b(com eles|com elas|deles|delas|desses|dessas|destes|destas|esses|essas|estes|estas|essa lista|esse resultado|com isso|disso|desse jeito|os mesmos|as mesmas|cada um)\b/;
+
+export async function mentionedFiles(text, ctx, history = []) {
   const recent = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
   // "voltando ao kit de mídia…" after talking about a spreadsheet: a file named earlier in the
   // conversation whose name shares words with the message wins over the most recent one.
   const all = [...new Set(history.filter((m) => m.role === "user").slice(-30).reverse().flatMap((m) => fileMentions(m.content)))];
   const byTopic = topicFile(text, all);
-  const earlier = byTopic ? [byTopic, ...recent.filter((m) => m !== byTopic)] : recent;
+  let earlier = byTopic ? [byTopic, ...recent.filter((m) => m !== byTopic)] : recent;
+  // "Faz uma planilha com eles": the sheet the Aurora itself read in the last answer (no one named
+  // it). Written from memory, it left rows out (pedidos em aberto, Produção: 1 run in 3, 06/10).
+  if (REFERS_BACK.test(foldText(text))) {
+    const last = history.filter((m) => m.role === "assistant").at(-1);
+    const read = (last?.execution?.toolSteps || []).filter((s) => s.ok && s.tool === "read_file" && /\.(xlsx|xlsm|csv|tsv)$/i.test(String(s.args?.path || ""))).map((s) => String(s.args.path));
+    if (read.length) earlier = [...new Set([read.at(-1), ...earlier])];
+  }
   const current = fileMentions(text);
   // "Minha planilha de gastos", "meu currículo", "o relatório final": a file described, not named.
   // The model searched for "mercado" (a word inside the sheet) and gave up (usage tests, 06/10).

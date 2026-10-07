@@ -1066,3 +1066,14 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .agents-view button.agent-template-card.agent-template-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; height: auto; min-height: 96px; white-space: normal; padding: 14px 16px; font-weight: 400; }
 .app-shell .agents-view button.agent-template-card strong,
 .app-shell .agents-view button.agent-template-card span { text-align: left; width: 100%; }
+
+/* Briefings (Configurações → Briefings). */
+.briefs-actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 10px; }
+.briefs-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.briefs-item { border: 1px solid var(--accent-line, rgba(127,127,127,.3)); border-radius: 10px; padding: 10px 12px; }
+.briefs-item.off { opacity: .6; }
+.briefs-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.briefs-source { font-size: 12px; opacity: .75; }
+.briefs-triggers { margin: 4px 0 6px; font-size: 13px; opacity: .8; overflow-wrap: anywhere; }
+.briefs-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
+.briefs-text { width: 100%; min-height: 320px; font-size: 13px; line-height: 1.5; resize: vertical; }

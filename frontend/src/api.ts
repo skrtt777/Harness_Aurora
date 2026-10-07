@@ -634,3 +634,13 @@ export const testTelegram = () => request<{ sent: boolean }>("/telegram/test", {
 /** What the Aurora made today and yesterday (its diary). */
 export type DiaryEntry = { day: "hoje" | "ontem"; time: string; title: string; files: string[]; moved: number; undone: boolean };
 export const getDiary = () => request<{ entries: DiaryEntry[] }>("/diary").then((r) => r.entries);
+
+// Briefings (app/briefs.js): how a complete delivery of each kind looks.
+export interface Brief {
+  name: string; title: string; triggers: string[]; avoid: string[]; options: string[];
+  disabled: boolean; body: string; text: string; source: "bundled" | "user" | "edited";
+}
+export const listBriefs = () => request<{ briefs: Brief[] }>("/briefs").then((r) => r.briefs);
+export const saveBrief = (content: string) => request<Brief>("/briefs", { method: "POST", body: JSON.stringify({ content }) });
+export const setBriefEnabled = (name: string, enabled: boolean) => request<Brief>(`/briefs/${name}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+export const deleteBrief = (name: string) => request<{ brief: Brief | null }>(`/briefs/${name}`, { method: "DELETE" });

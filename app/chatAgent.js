@@ -417,7 +417,7 @@ export async function runChatAgent({
       // (After the repetition guard: 8 cut calls in a row went by it, each one 4096 tokens, 06/10.)
       if (call.arguments?.__cut && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: count === 1
-          ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras).`
+          ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras)${call.name === "write_document" ? "; num documento longo, grave a primeira metade agora e depois chame write_document com o mesmo path, append=true e o restante" : ""}.`
           : `ERRO: cortada de novo. Grave a tabela com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: os argumentos de ${call.name} vieram com JSON inválido (começo: ${call.arguments.__raw}). Chame de novo com JSON válido: no texto, troque aspas duplas por aspas simples e não use barras invertidas soltas.`, ms: 0 };

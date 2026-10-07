@@ -3,7 +3,7 @@
 // careful assistant would make: the defaults decided, the structure complete, one question only when
 // the work would be wasted without it, and adjustment options at the end.
 // One briefing per turn, the one whose triggers match best: the 4B model loses quality with more.
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
@@ -19,23 +19,72 @@ export function parseBrief(text, file = "") {
   const list = (v) => (Array.isArray(v) ? v : String(v || "").split(",")).map((t) => fold(t).trim()).filter(Boolean);
   if (!meta.name || !meta.title) throw new Error(`${file}: briefing precisa de name e title`);
   const options = (Array.isArray(meta.options) ? meta.options : []).map((o) => String(o).trim()).filter(Boolean).slice(0, 3);
-  return { name: String(meta.name), title: String(meta.title), triggers: list(meta.triggers), avoid: list(meta.avoid), options, body: match[2].trim() };
+  return { name: String(meta.name), title: String(meta.title), triggers: list(meta.triggers), avoid: list(meta.avoid), options, disabled: meta.disabled === true, body: match[2].trim() };
 }
 
 let cache = null;
-/** The bundled briefings plus the person's own (HARNESS_BRIEFS_DIR), the person's winning by name. */
-export function loadBriefs(env = process.env) {
-  const dirs = [BUNDLED, env.HARNESS_BRIEFS_DIR].filter((d) => d && existsSync(d));
-  const key = dirs.join("|");
+/** The person's own briefings: HARNESS_BRIEFS_DIR, or "briefs" next to the database (the app's data folder). */
+export function userBriefsDir(env = process.env) {
+  if (env.HARNESS_BRIEFS_DIR) return env.HARNESS_BRIEFS_DIR;
+  return env.HARNESS_DB_FILE ? join(dirname(env.HARNESS_DB_FILE), "briefs") : null;
+}
+
+/** Every briefing with where it came from; the person's file wins over the bundled one by name. */
+export function allBriefs(env = process.env) {
+  const own = userBriefsDir(env);
+  const dirs = [[BUNDLED, "bundled"], [own, "user"]].filter(([d]) => d && existsSync(d));
+  const key = dirs.map(([d]) => d).join("|");
   if (cache?.key === key) return cache.briefs;
   const byName = new Map();
-  for (const dir of dirs) {
+  for (const [dir, source] of dirs) {
     for (const name of readdirSync(dir).filter((n) => n.endsWith(".md")).sort()) {
-      try { const brief = parseBrief(readFileSync(join(dir, name), "utf8"), name); byName.set(brief.name, brief); } catch { /* a broken file is skipped */ }
+      try {
+        const text = readFileSync(join(dir, name), "utf8");
+        const brief = parseBrief(text, name);
+        const bundled = byName.get(brief.name)?.source === "bundled";
+        byName.set(brief.name, { ...brief, text, source: source === "user" && bundled ? "edited" : source });
+      } catch { /* a broken file is skipped */ }
     }
   }
   cache = { key, briefs: [...byName.values()] };
   return cache.briefs;
+}
+
+/** The briefings in use (a turned-off one is listed but never picked). */
+export function loadBriefs(env = process.env) {
+  return allBriefs(env).filter((b) => !b.disabled);
+}
+
+/** Saves the person's version of a briefing (a new one, or an edit of a bundled one). */
+export function saveBrief(text, env = process.env) {
+  const brief = parseBrief(text, "briefing");
+  if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(brief.name)) throw new Error("O nome do briefing usa só letras minúsculas, números e hífen (ex.: proposta-loja).");
+  if (!brief.triggers.length) throw new Error("Diga em triggers as palavras que ativam o briefing.");
+  if (!/Decida sozinho:/.test(brief.body)) throw new Error("O briefing precisa da parte \"Decida sozinho:\".");
+  const dir = userBriefsDir(env);
+  if (!dir) throw new Error("Pasta de briefings indisponível.");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${brief.name}.md`), String(text).replace(/\r\n/g, "\n"));
+  cache = null;
+  return allBriefs(env).find((b) => b.name === brief.name);
+}
+
+/** Turns a briefing on or off (a bundled one gets the person's copy with "disabled: true"). */
+export function setBriefEnabled(name, enabled, env = process.env) {
+  const brief = allBriefs(env).find((b) => b.name === name);
+  if (!brief) throw new Error("Briefing não encontrado.");
+  const text = brief.text.replace(/^(---\r?\n[\s\S]*?)\r?\ndisabled:.*$/m, "$1").replace(/\r?\n---\r?\n/, enabled ? "\n---\n" : "\ndisabled: true\n---\n");
+  return saveBrief(text, env);
+}
+
+/** Removes the person's file: a new briefing goes away, an edited one goes back to the bundled text. */
+export function deleteBrief(name, env = process.env) {
+  const dir = userBriefsDir(env);
+  const file = dir && join(dir, `${name}.md`);
+  if (!file || !/^[a-z0-9-]+$/.test(name) || !existsSync(file)) throw new Error("Só dá para apagar um briefing seu (os que vêm com a Aurora podem ser desligados).");
+  rmSync(file);
+  cache = null;
+  return allBriefs(env).find((b) => b.name === name) || null;
 }
 
 const hits = (text, words) => words.filter((w) => new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?(?=[^a-z0-9]|$)`).test(text));

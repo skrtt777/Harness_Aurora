@@ -20,7 +20,8 @@
     "prepare": "node scripts/install-git-hooks.mjs",
     "battery": "node scripts/conversation-battery.mjs",
     "agents:eval": "node scripts/agent-tasks.mjs",
-    "uso": "node scripts/usage-tests.mjs"
+    "uso": "node scripts/usage-tests.mjs",
+    "regressao": "node scripts/regression.mjs"
   },
   "engines": {
     "node": ">=22.5.0"

@@ -5,6 +5,7 @@ import { engineSummary, reviewEngineKnowledge } from "./evidenceEngine.js";
 import { localExperiment } from "./localModelRelease.js";
 import { centralStatus, updateCentralConfig, listCentralMemories, previewContribution, approveContribution, cancelContribution, syncCentral, startCentralScheduler, githubIdentity } from "./centralMemory.js";
 import { authorize, readJson, httpError } from "./httpSecurity.js";
+import { allBriefs, deleteBrief, saveBrief, setBriefEnabled } from "./briefs.js";
 import { getDb } from "./db.js";
 import { undoChanges } from "./undoMoves.js";
 import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
@@ -153,6 +154,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
       const engineReview=pathname.match(/^\/api\/engine\/knowledge\/([a-f0-9]{64})\/review$/);
       if(method==='POST'&&engineReview)return sendJson(response,200,await reviewEngineKnowledge(engineReview[1],(await readJson(request)).accepted));
+      // Briefings (app/briefs.js): how a complete delivery of each kind looks; the person's own in the data folder.
+      if (method === 'GET' && pathname === '/api/briefs') return sendJson(response, 200, { briefs: allBriefs().map(({ text, ...b }) => ({ ...b, text })) });
+      if (method === 'POST' && pathname === '/api/briefs') { const body = await readJson(request); try { return sendJson(response, 201, saveBrief(String(body.content || ''))); } catch (error) { throw httpError(400, error.message); } }
+      const briefMatch = pathname.match(/^\/api\/briefs\/([a-z0-9-]+)$/);
+      if (briefMatch && method === 'PATCH') { const body = await readJson(request); try { return sendJson(response, 200, setBriefEnabled(briefMatch[1], body.enabled !== false)); } catch (error) { throw httpError(400, error.message); } }
+      if (briefMatch && method === 'DELETE') { try { return sendJson(response, 200, { brief: deleteBrief(briefMatch[1]) }); } catch (error) { throw httpError(400, error.message); } }
       if (method === 'GET' && pathname === '/api/skills') return sendJson(response, 200, { skills: await listSkills() });
       if (method === 'GET' && pathname === '/api/skills/catalog') return sendJson(response,200,await searchSkillCatalog({query:url.searchParams.get('q')||'',source:url.searchParams.get('source')||'',page:Number(url.searchParams.get('page')||0),includeAll:url.searchParams.get('all')==='1'}));
       if (method === 'POST' && pathname === '/api/skills/catalog/sync') return sendJson(response,200,await syncSkillCatalog());

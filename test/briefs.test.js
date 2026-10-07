@@ -23,6 +23,9 @@ test("a poor request picks the briefing of what it asks for", () => {
     "monta um roteiro de viagem pra salvador": "plano",
     "qual o melhor celular ate 1500": "comparar",
     "faz um comunicado pra equipe sobre o horario novo": "comunicado",
+    "monta uma proposta comercial pro Empório Central com farinha e café": "proposta",
+    "faz um orcamento pro cliente de 3 bolos de aniversario": "orcamento",
+    "quero montar meu orçamento doméstico": "planilha-controle",
   };
   for (const [request, name] of Object.entries(cases)) assert.equal(pickBrief(request)?.name, name, request);
 });
@@ -42,4 +45,26 @@ test("the briefing's options are added when the answer forgets them, kept when i
   const own = `${invite}\n\n**Quer ajustar?**\n1. Tema de princesa (recomendado)\n2. Mais curto`;
   assert.equal(withAdjustOptions(own, brief), own);
   assert.equal(withAdjustOptions("Qual o nome dela?", brief), "Qual o nome dela?");
+});
+
+test("the person creates, edits, turns off and deletes briefings in the app's data folder", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { allBriefs, deleteBrief, saveBrief, setBriefEnabled } = await import("../app/briefs.js");
+  const env = { HARNESS_BRIEFS_DIR: mkdtempSync(join(tmpdir(), "aurora-briefs-")) };
+  const mine = "---\nname: cardapio-loja\ntitle: Cardápio da minha lanchonete\ntriggers: [cardapio da loja, cardapio da lanchonete]\noptions: [Versão para imprimir]\n---\nDecida sozinho: preços que a pessoa deu.\nPergunte só se: não sabe os itens.\nEstrutura: seções.\nConfira antes de entregar: preços certos.";
+  assert.equal(saveBrief(mine, env).source, "user");
+  assert.equal(pickBrief("faz o cardapio da lanchonete", loadBriefs(env))?.name, "cardapio-loja");
+  assert.throws(() => saveBrief(mine.replace("name: cardapio-loja", "name: Cardápio Loja"), env), /letras minúsculas/);
+  // Edit a bundled one, then turn it off: listed, never picked.
+  const convite = allBriefs(env).find((b) => b.name === "convite");
+  assert.equal(saveBrief(convite.text.replace("tom alegre", "tom muito alegre"), env).source, "edited");
+  assert.equal(setBriefEnabled("convite", false, env).disabled, true);
+  assert.equal(pickBrief("faz um convite pro niver", loadBriefs(env)), null);
+  assert.equal(setBriefEnabled("convite", true, env).disabled, false);
+  // Deleting the edit brings the bundled text back; a bundled one can't be deleted.
+  assert.equal(deleteBrief("convite", env).source, "bundled");
+  assert.throws(() => deleteBrief("convite", env), /Só dá para apagar/);
+  assert.equal(deleteBrief("cardapio-loja", env), null);
 });
