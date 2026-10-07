@@ -8,14 +8,16 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 | Medição | Comando | Última |
 |---|---|---|
-| Testes automáticos | `npm test` | 542 passaram, 0 falhas (06/10) |
-| Conversas reais (8 cenários: documento, planilha, 10 turnos, navegador, honestidade, mapa, continuidade, arquivos) | `npm run battery -- --runs 3` | 99,2% com qwen3.5:4b (06/10, `reports/battery/`) |
+| **Tudo de uma vez** | `npm run regressao -- --db <cópia> [--runs 2] [--rapido]` | compara com a rodada anterior e diz se pode publicar (`reports/regressao/`) |
+| Testes automáticos | `npm test` | 560 passaram, 0 falhas (07/10) |
+| Conversas reais (8 cenários: documento, planilha, 10 turnos, navegador, honestidade, mapa, continuidade, arquivos) | `npm run battery -- --runs 3` | 97,7% a 100% com qwen3.5:4b (07/10, `reports/battery/`) |
+| Testes de uso (81 cenários em 4 baterias, linguagem de usuário leigo: digitação, pedido pobre, conversa longa, injeção) | `npm run uso -- --db <cópia> [--bateria N]` | bateria 1 96,2%, 2 94,7%, 3 100%, 4 97,5% (07/10, `reports/uso/`) |
 | Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 99–100% (24 de 24 perfeitas em duas rodadas seguidas, 06/10; `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
 | Orquestrador | `node scripts/orchestrator-eval.mjs --scenario fechamento|dependencia --runs 3` | fechamento 97–100%; dependência 100% (06/10) |
 | Vigia ("avisar só quando houver novidade") | `node scripts/heartbeat-eval.mjs --runs 3` | 8/9 a 11/12 (06/10) |
 | Celular (Telegram falso, boleto + planilha) | `node scripts/phone-eval.mjs --runs 2` | 4/4 (06/10) |
 | Agentes pessoais (organizar, código, pesquisa) | `node scripts/personal-tasks.mjs --runs 5 [--online]` | 100% (6 de 6, com `organize_folder`); pesquisa 91,7% (05/10) |
-| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 96% a 100% em 3 rodadas (05/10, noite), 2-3 s por pergunta; era 83% com 1 resposta |
+| Empresa fictícia (49 perguntas) | `node scripts/empresa-eval.mjs --db <cópia>` | 94% a 100% (07/10), 2-3 s por pergunta; as 3 perguntas difíceis (imposto, gerente, orçamento) 3/3 |
 | Velocidade do modelo local | `node scripts/spec-bench.mjs` | cópia de 40 linhas: 12,4 s → 3,4 s (GPU); 8,5 → 40 tokens/s (CPU) com `ngram-mod` (05/10) |
 | Tarefas do agente | Configurações → Avaliação | `docs/chat-agente.md` |
 
@@ -57,12 +59,19 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - filtros prontos pela intenção do pedido e entrega conferida antes de gravar;
   - guia de boas-vindas para leigos, novidades após atualizar, tela inicial com saudação e o dia.
 
+- **Testes de uso e briefings (06–07/10, 0.1.38):**
+  - 4 baterias de testes de uso (81 cenários) com linguagem de usuário leigo, do simples à gerente; dezenas de defeitos achados e corrigidos (abreviações, renomear/mover, "apaguei" sem apagar, sofrimento → CVV, salário de colega restrito, cliente que mais deve por total, contagem por categoria);
+  - **briefings** (`app/briefs/*.md`, 12 tipos): pedido pobre vira entrega completa, com opções de ajuste no fim (botões no app); bateria de pedidos pobres 52% → 97,5%; tela Configurações → Briefings para ligar, editar e criar;
+  - pedido em dois passos ("faz uma planilha com eles") reusa a planilha lida antes; documento longo por partes (`append`); TOTAL na planilha de controle;
+  - busca da empresa: imposto a vencer, gerente de um setor e "mais acima do orçamento" (valor e %);
+  - `npm run regressao`: todas as medições, comparadas com a rodada anterior.
+
 ## Agora
 
-1. **Publicar a 0.1.37** (instalador em `release-0.1.37-final/`): `gh release create v0.1.37 …` com o .exe, o .blockmap e o latest.yml.
+1. **Publicar a 0.1.38** (instalador em `release/`): `gh release create v0.1.38 …` com o .exe, o .blockmap e o latest.yml.
 1. **Áudio pelo celular:** hoje a mensagem de voz recebe "mande por texto"; falta uma transcrição local leve (a do Quest depende de um serviço à parte).
-2. **Busca da empresa ainda erra o documento** em perguntas curtas: "próximo imposto a vencer" (vai à web em vez do calendário de obrigações), "quem é o gerente de logística" (não traz a lista de ramais), "área mais acima do orçamento" (lê o orçamento do ano anterior). Medir com `empresa-eval --only fiscal-1,administrativo-2,controladoria-2 --samples 5`.
-3. **Perguntas de "maior/menor/mais acima"** numa planilha: o mesmo tipo de dica pronta que já existe para datas ("vence primeiro" → sort), escolhendo a coluna pelas palavras do pedido.
+2. **Briefings por setor** além de proposta e orçamento (RH, compras, jurídico), e medir quanto cada novo briefing ajuda com a bateria 4 antes de manter.
+3. **Respostas longas e o limite de saída do modelo:** o relatório completo ainda passa do limite às vezes; ver se o `append` é usado sozinho ou se precisa de trava.
 4. **Extensões MCP com servidores reais** (Google Agenda, Gmail): só foram testadas com um servidor de teste; falta um teste de ponta a ponta com um servidor público.
 5. **"fetch failed" esporádico na avaliação da empresa** (2 perguntas numa rodada de 05/10, noite; uma rodada inteira não gerou relatório): o log do llama-server não mostra queda. Suspeita: um reinício do servidor com requisições em andamento (as cópias do consenso rodam em paralelo). No turno do app há nova tentativa automática; falta achar a causa.
 6. **qwen3.5:9b** para placas fortes: melhor nos agentes, pior nas conversas; antes de oferecer, resolver o nome da conta do Windows tomado como nome da pessoa.

@@ -192,6 +192,8 @@ function defaultCallModel(provider) {
 // The text the model was given (system, history, tool results): where a file named in an answer may come from.
 const contextText = (messages) => messages.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
 
+const DELETE_ASKED = /\b(apag|exclu|delet|limp|remov|jog(a|ue) fora|lixeira|livr(a|e) espa[cç]o)/i;
+
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
@@ -318,7 +320,9 @@ export async function runChatAgent({
     }
     // "Removi completamente todos os arquivos" after two failed commands (usage tests, 06/10): the
     // person believes the files are gone. Said only after a command that ran.
-    if (!toolCalls.length && !deleteChecked && /\b(apaguei|removi|exclu[ií]|deletei|limpei|foram (apagad|removid|exclu[ií]d|deletad)|(est[áa]|ficou) vazi[ao])/i.test(text)
+    // Only when the person asked to delete: a ticket answer saying "o campo ficou vazio" got "nada foi
+    // apagado" pushed into it (empresa eval ti-1, 07/10).
+    if (!toolCalls.length && !deleteChecked && DELETE_ASKED.test(String(question || "")) && /\b(apaguei|removi|exclu[ií]|deletei|limpei|foram (apagad|removid|exclu[ií]d|deletad)|(est[áa]|ficou) vazi[ao])/i.test(text)
       && !/\bn[ãa]o (apaguei|removi|exclu[ií]|deletei|consegui|foi poss[ií]vel)/i.test(text)
       && !steps.some((s) => s.ok && (s.tool === "run_command" || s.tool === "move_file"))) {
       deleteChecked = true;

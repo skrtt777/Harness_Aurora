@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.38': {
+    title: 'Peça do seu jeito: a Aurora completa o resto',
+    items: [
+      ['Pedidos curtos, entregas completas', '"Faz um convite pro niver da minha filha", "monta um relatório das vendas", "faz um orçamento pro cliente": a Aurora decide o formato, o tom e a estrutura, não inventa data nem preço e já entrega pronto.'],
+      ['Opções para ajustar', 'No fim da resposta aparecem botões como "Versão para imprimir em PDF" ou "Versão mais formal". A recomendada tem uma ★. É só tocar.'],
+      ['Briefings', 'Em Configurações → Briefings você vê como a Aurora entrega cada tipo de pedido, desliga, edita ou cria os seus (ex.: o orçamento da sua loja).'],
+      ['Continuação certa', 'Depois de "quantos pedidos estão em aberto?", um "faz uma planilha com eles" usa a mesma planilha, sem deixar linha de fora.'],
+      ['Mais cuidado', 'Se você disser que não está bem, a Aurora conversa com calma e indica o CVV (188). Salário e CPF de colegas não aparecem no chat. E ela não diz que apagou ou moveu algo sem ter feito.'],
+    ],
+  },
   '0.1.37': {
     title: 'A Aurora agora conhece você e o seu computador',
     items: [
