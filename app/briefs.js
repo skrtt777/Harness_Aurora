@@ -48,6 +48,9 @@ export function pickBrief(request, briefs = loadBriefs()) {
   // A form on a site ("abra http://… e envie uma mensagem com o nome Rafaela"): the text is given,
   // the e-mail briefing rewrote it (conversation battery, 06/10).
   if (/https?:\/\/|www\.|\.com\b|formulario|no site|na pagina|campo/.test(text)) return null;
+  // A question about data ("quantos seguidores ela tem no TikTok?") is not a request to make a post.
+  const makes = /\b(faz|faca|fazer|cria|crie|criar|escrev|redij|monta|monte|montar|prepar|elabor|gera|gere|gerar|manda|mande|preciso|quero|queria|gostaria|me ajuda|ajuda a|ajude|responde|responda|sugere|sugira|indica|indique|recomenda|ideia|melhor|vale a pena|comprar)/;
+  if (!makes.test(text) && (/\?\s*$/.test(text) || /^\s*(quant|qual|quais|onde|quando|quem|cade)\b/.test(text))) return null;
   let best = null, bestScore = 0;
   for (const brief of briefs) {
     if (hits(text, brief.avoid).length) continue;
