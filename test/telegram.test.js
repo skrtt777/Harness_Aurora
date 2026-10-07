@@ -27,7 +27,10 @@ const env = { ...process.env, TELEGRAM_API_BASE: `http://127.0.0.1:${server.addr
 const TOKEN = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyz0123456789";
 const last = (method) => sent.filter((s) => s.method === method).at(-1)?.body;
 
-test("pairing, a message answered with its file, strangers ignored, approvals by button, agent news", async () => {
+test("pairing, a message answered with its file, strangers ignored, approvals by button, agent news", async (t) => {
+  // A failed assertion must not leave the fake Telegram server holding the process (it hung a
+  // regression run for 11 hours, 07/10).
+  t.after(() => server.close());
   const tg = await import("../app/telegram.js");
   const { startTurn, requestApproval, endTurn } = await import("../app/pendingTurns.js");
   const delivered = join(temp, "cobranca.xlsx");
@@ -99,7 +102,8 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   // A file from the phone lands in Documentos\Aurora\Recebidos do celular; its caption is the request.
   const home = mkdtempSync(join(tmpdir(), "aurora-tg-home-"));
   mkdirSync(join(home, "Documents"));
-  const phoneEnv = { ...env, USERPROFILE: home, OneDrive: "" };
+  // (The evaluations' fake folders, when set, would win over USERPROFILE.)
+  const phoneEnv = { ...env, USERPROFILE: home, OneDrive: "", HARNESS_KNOWN_FOLDERS: "" };
   await tg.handleUpdate({ update_id: 6, message: { message_id: 7, chat: { id: 555 }, caption: "resuma isso", document: { file_id: "abc", file_name: "boleto luz.pdf", file_size: 18 } } }, { env: phoneEnv, handleChatTurn });
   const saved = join(home, "Documents", "Aurora", "Recebidos do celular", "boleto luz.pdf");
   assert.equal(readFileSync(saved, "utf8"), "conteudo do boleto");
@@ -108,5 +112,4 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   const off = await tg.disconnectTelegram();
   assert.equal(off.configured, false);
   assert.equal(await tg.sendToPhone("x", { env }), false, "nothing goes out once disconnected");
-  server.close();
 });

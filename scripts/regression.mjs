@@ -27,7 +27,11 @@ const results = [];
 for (const step of steps) {
   const started = Date.now();
   console.log(`\n▶ ${step.name}…`);
-  const run = spawnSync(step.cmd[0], step.cmd.slice(1), { encoding: "utf8", shell: step.shell || false, maxBuffer: 256 * 1024 * 1024 });
+  // The unit tests run outside the evaluations' fake folders (with them, a test waited forever on
+  // its fake server, 11 hours, 07/10); every step has a time limit.
+  const env = step.id === "testes" ? Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "HARNESS_KNOWN_FOLDERS")) : process.env;
+  const run = spawnSync(step.cmd[0], step.cmd.slice(1), { encoding: "utf8", shell: step.shell || false, env, timeout: (step.id === "testes" ? 15 : 120) * 60 * 1000, maxBuffer: 256 * 1024 * 1024 });
+  if (run.error?.code === "ETIMEDOUT") console.log("  passou do tempo-limite e foi encerrado");
   const out = `${run.stdout || ""}\n${run.stderr || ""}`;
   const score = step.score ? step.score(out) : nota(out);
   const before = previous?.results?.find((r) => r.id === step.id)?.score ?? null;
