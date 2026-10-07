@@ -1,7 +1,7 @@
 // One chat turn: memories and context, files the person names, company documents,
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
-import { clockObservation, discountObservation, mathObservation, weekdayObservation } from "./runtimeFacts.js";
+import { clockObservation, discountObservation, distressObservation, mathObservation, weekdayObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { readFile, readdir, stat } from "node:fs/promises";
@@ -511,7 +511,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
-    const observation=weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
+    const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
     // Who the person is and what the Aurora did lately, in every conversation (OpenClaw's USER.md and
     // daily notes). A name said here is learned for the next conversations too.
     await learnFromMessage(trimmed).catch(() => null);

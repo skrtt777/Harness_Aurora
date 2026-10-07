@@ -35,7 +35,7 @@ const CLAIM = new RegExp([
 /** "Crie um novo documento…", "gere uma planilha…": the person asked for a file. */
 export function requestsFile(text) {
   // With how people say it: "faz uma planilha", "monta um relatório", "me manda num word".
-  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca)\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca|preciso d[ea]|quero(?!\\s+saber)|queria(?!\\s+saber)|gostaria d[ea])\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
 }
 
 /**

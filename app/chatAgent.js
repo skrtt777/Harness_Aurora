@@ -221,6 +221,8 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
+  let deleteChecked = false;
+  let blanksChecked = false;
   let searches = 0;
   let confirmChecked = false;
   let sentChecked = false;
@@ -310,6 +312,25 @@ export async function runChatAgent({
       sentChecked = true;
       checks.push({ check: "claimed_submit", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você preencheu os campos mas não clicou no botão de enviar: nada foi enviado. Clique agora no botão (browser_click com o ref dele) e confira a página de confirmação antes de responder." });
+      continue;
+    }
+    // "Removi completamente todos os arquivos" after two failed commands (usage tests, 06/10): the
+    // person believes the files are gone. Said only after a command that ran.
+    if (!toolCalls.length && !deleteChecked && /\b(apaguei|removi|exclu[ií]|deletei|limpei|foram (apagad|removid|exclu[ií]d|deletad)|(est[áa]|ficou) vazi[ao])/i.test(text)
+      && !/\bn[ãa]o (apaguei|removi|exclu[ií]|deletei|consegui|foi poss[ií]vel)/i.test(text)
+      && !steps.some((s) => s.ok && (s.tool === "run_command" || s.tool === "move_file"))) {
+      deleteChecked = true;
+      checks.push({ check: "claimed_delete", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Nenhum comando de apagar deu certo nesta resposta: nada foi apagado. Diga a verdade à pessoa (os arquivos continuam lá) e, se ela confirmar, tente de novo." });
+      continue;
+    }
+    // An e-mail with "[valor]", "[data do vencimento]", "[Duplicata nº XXX]" after reading the sheet
+    // that has them (usage tests, 3 runs in 3, 06/10). The signature ("[Seu nome]") may stay.
+    const blanks = steps.some((s) => s.ok && s.tool === "read_file") ? (text.match(/\[[^\]\n]{1,40}\]/g) || []).filter((b) => /valor|data|vencimento|n[uú]mero|duplicata|cliente|quantia|dias|XXX|\bX\b/i.test(b) && !/\b(seu|sua)\b/i.test(b)) : [];
+    if (!toolCalls.length && !blanksChecked && blanks.length) {
+      blanksChecked = true;
+      checks.push({ check: "data_blanks", answer: blanks.join(" ") });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Você deixou para preencher ${blanks.join(", ")}, mas esses dados estão no que você leu. Reescreva o texto com os nomes, números, datas e valores reais (só a assinatura pode ficar em branco).` });
       continue;
     }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.

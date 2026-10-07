@@ -88,7 +88,8 @@ export const MORE_SCENARIOS = [
     { name: "para o Empório Central", ok: (t) => has(t.text, "emporio") },
     { name: "com o valor devido", ok: (t) => /157[.]?935|93[.]?185|64[.]?749/.test(t.text) },
     { name: "escrito na resposta (sem arquivo)", ok: (t) => !written(t).length },
-    { name: "sem campos [para preencher]", ok: (t) => !/\[[^\]\n]{3,40}\]/.test(t.text) },
+    // The signature may stay blank ("[Seu nome]"): the data the sheet has may not.
+    { name: "sem campos [para preencher]", ok: (t) => !(t.text.match(/\[[^\]\n]{1,40}\]/g) || []).some((b) => !/\b(seu|sua)\b|empresa|telefone|contato|cargo|respons[aá]vel|prazo/i.test(b)) },
   ] }] },
   { id: "planilha-estoque", level: "N5", group: "empresa", persona: "Patrícia", turns: [{ message: "faz uma planilha com os produtos q tao abaixo do estoque minimo pra eu pedir reposição", checks: [
     { name: "cria a planilha", ok: (t) => written(t, ".xlsx").length > 0 },

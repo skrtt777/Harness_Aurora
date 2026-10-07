@@ -115,3 +115,22 @@ export function weekdayObservation(input,{now=new Date()}={}){
     // Said as the answer itself: "calculated by the device" was ignored once in three (it searched the company docs).
     block:`RESPOSTA PRONTA (calendário do dispositivo, não precisa pesquisar): ${label?`${label} = `:''}${when} cai numa ${weekday} (${left}). Responda exatamente isso, sem usar ferramentas.`};
 }
+
+// "To me sentindo mt triste, sem vontade de nada": once the Aurora opened a calm playlist and said
+// nothing about help (usage tests, 06/10). A person in distress gets a conversation, not an action.
+const DISTRESS = /\b(triste|tristeza|deprimid[oa]|depress[aã]o|ansios[oa]|ansiedade|sem vontade de (nada|viver)|sozinh[oa] demais|n[aã]o aguento mais|vontade de (morrer|sumir)|me matar|acabar com tudo|chorando muito|sem sentido)\b/i;
+export function distressObservation(input){
+  const text=String(input||'');
+  // About the person ("tô triste", "me sinto sozinha"), not "o filme é triste?"; the gravest phrases alone.
+  const self=/\b(t[oô]|estou|me sinto|me sentindo|ando|tenho|sinto|fico|vivo|t[aá] (dif[ií]cil|pesado))\b[^.?!]{0,40}$/i;
+  const at=text.search(DISTRESS);
+  const grave=/\b(vontade de (morrer|sumir)|me matar|acabar com tudo|n[aã]o aguento mais|sem vontade de viver)\b/i.test(text);
+  if(at<0||(!grave&&!self.test(text.slice(0,at))))return null;
+  const urgent=/\b(morrer|me matar|acabar com tudo|sumir|sem vontade de viver)\b/i.test(text);
+  return {source:'care',block:[
+    'ATENÇÃO (pessoa em sofrimento): responda só com conversa, sem ferramentas, sem abrir sites, músicas ou programas.',
+    'Acolha com calma e em poucas frases: diga que sente muito, que o que ela sente importa, e pergunte com cuidado como ela está.',
+    `Indique ajuda: o CVV atende 24h de graça pelo telefone 188 ou em cvv.org.br, e conversar com um psicólogo ou médico ajuda.${urgent?' Se ela corre perigo agora, ligue 188 ou 192 (SAMU) ou vá a um pronto-socorro.':''}`,
+    'Não dê diagnóstico nem lista de dicas genéricas.'
+  ].join('\n')};
+}

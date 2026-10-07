@@ -333,6 +333,24 @@ export function totalRowsNote(lines) {
  * The Controladoria agent, with the Financeiro's 16 rows in hand, went looking for a TOTAL row and
  * then for the company sheet, and gave up without the report (orchestrator eval, 06/10).
  */
+/** "Quantos…": rows counted per short category column (Situação: 9 aguardando, 5 parcial). */
+export function categoryCounts(lines, request) {
+  if (!/\b(quant[oa]s|qntos|qtos|quantidade|conta[rg]?)\b/i.test(String(request || ""))) return "";
+  const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 2);
+  if (!sheet) return "";
+  const names = sheet.header.line.split(" | ").map((c) => c.trim());
+  const notes = [];
+  names.forEach((name, j) => {
+    const values = sheet.rows.map((r) => String(r.line.split(" | ")[j] ?? "").trim()).filter(Boolean);
+    if (values.some((v) => /\d/.test(v))) return;
+    const counts = new Map();
+    for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+    if (counts.size < 2 || counts.size > 6 || counts.size === values.length) return;
+    notes.push(`${name}: ${[...counts].map(([v, n]) => `${v} ${n}`).join(", ")} (total ${values.length})`);
+  });
+  return notes.length ? `\n(Contagem já feita por categoria: ${notes.join("; ")}.)` : "";
+}
+
 export function groupHint(lines, request) {
   const text = foldText(request);
   // "Por cliente", and also "o cliente que mais deve" / "qual fornecedor mais…": the top one needs the
@@ -1066,7 +1084,9 @@ export const fileTools = [
         const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
         const corrected = request && rows.includes("\n(Usei ");
         if (corrected) ctx.correctedFilters.add(key);
-        let found = `${file}\n${rows}`;
+        // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows
+        // (Atacadão's biggest bill beat Empório's bigger total, 2 of 2 runs, 06/10).
+        let found = `${file}\n${rows}${filter ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}`;
         // Asked again as written after the correction ("=15/10/2026" for "até 15/10"), the rows the
         // request means stay the ones the document is checked against: an agent copied the 2 rows of
         // the literal re-read instead of the 7 (agent battery, 2 runs in 5, 06/10).
@@ -1122,6 +1142,8 @@ export const fileTools = [
           return `${s.name.replace(/^##\s*/, "") || "Tabela"}: ${data.length} linha(s) de dados`;
         });
         if (counts.length) tip = `\n(${counts.join("; ")}, sem contar o cabeçalho nem a linha de total.)${tip}`;
+        // "Quantos pedidos em aberto": 9 aguardando + 4 parciais = 13 of 14 (usage tests, 06/10).
+        tip = categoryCounts(table, ctx.request) + tip;
         // "Como está o budget esse ano?" got every area and no total (empresa eval controladoria-1):
         // the sheet's TOTAL row, with its column names, goes first.
         ready = totalRowsNote(table) + ready;
@@ -1226,6 +1248,25 @@ export const fileTools = [
     },
     async run(args, ctx) {
       const sources = moveSources(args);
+      // Only "to" given (renaming IMG_20260912.jpg, moving "Fotos Praia 2025": 3 calls, all refused,
+      // usage tests 06/10): the source is the file named in the request or the destination's own name.
+      if (!sources.length && args.to) {
+        const names = [...String(ctx.request || "").matchAll(/[\w\-()]+(?:\.[\w\-()]+)*\.[a-z0-9]{2,5}\b/gi)].map((m) => m[0].trim());
+        names.push(basename(String(args.to).replace(/[\\/]+$/, "")));
+        const want = new Set(names.map((n) => n.toLowerCase()));
+        const look = async (dir, depth) => {
+          for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+            const path = join(dir, e.name);
+            if (want.has(e.name.toLowerCase()) && resolve(path) !== resolve(String(args.to))) return path;
+            if (e.isDirectory() && depth < 2 && !e.name.startsWith(".")) { const hit = await look(path, depth + 1); if (hit) return hit; }
+          }
+          return null;
+        };
+        for (const folder of personalFolders(ctx)) {
+          const hit = await look(folder, 0);
+          if (hit) { sources.push(hit); break; }
+        }
+      }
       if (!sources.length) throw new Error("Diga o arquivo (from) ou a lista de arquivos (files).");
       if (sources.length === 1) return moveOne(sources[0], moveFolder(args), ctx);
       // Several files, one folder: a small model organizing Downloads listed the folder five times
