@@ -363,9 +363,29 @@ const ftsQuery = (stems) => stems.slice(0, 12).map((w) => `"${w}"*`).join(" OR "
  * map built by the local model is what finds "programação de fim de ano"
  * in a file called "Confraternização 2026".
  */
+// How people say it vs. how the documents say it: "o pessoal que tá devendo" never matched "Contas a
+// Receber e Inadimplência", and the Aurora delivered an empty template (usage tests, 06/10).
+const EVERYDAY_TERMS = [
+  [/\b(devendo|deve(m)?|devedor(es)?|calote|n[aã]o pag(ou|aram)|em aberto|cobrar|cobran[cç]a)\b/i, "inadimplência títulos em atraso contas a receber"],
+  [/\b(gast(o|os|ou|aram)|despesa(s)?|estour(ou|aram)|or[cç]amento)\b/i, "orçamento orçado realizado desvio"],
+  [/\b(sal[aá]rio(s)?|pagamento do pessoal|holerite|contracheque)\b/i, "folha de pagamento salário"],
+  [/\b(f[eé]rias|folga(s)?)\b/i, "controle de férias"],
+  [/\b(fornecedor(es)?|pedido(s)? de compra|compras?)\b/i, "pedidos de compra fornecedores"],
+  [/\b(estoque|acabando|faltando produto|repor)\b/i, "posição de estoque estoque mínimo"],
+  [/\b(chamado(s)?|problema(s)? (no|na|de) (computador|sistema|ti)|suporte)\b/i, "chamados TI"],
+  [/\b(contrato(s)?|renova[cç][aã]o|vencem|vencendo)\b/i, "contratos vigentes término"],
+  [/\b(vendeu|venda(s)?|vendedor(es)?|faturamento)\b/i, "vendas por vendedor"],
+  [/\b(ramal|telefone|contato|falar com)\b/i, "lista de ramais contatos"],
+];
+export function expandEverydayTerms(query) {
+  const text = String(query || "");
+  const extra = EVERYDAY_TERMS.filter(([test]) => test.test(text)).map(([, add]) => add);
+  return extra.length ? `${text}\n${extra.join(" ")}` : text;
+}
+
 export async function searchKnowledge(query, { category, sourceIds, limit = 6, env = process.env, signal } = {}) {
   const db = await ready();
-  const text = String(query || "").trim();
+  const text = expandEverydayTerms(String(query || "").trim());
   if (!text) return [];
   const where = ["d.error IS NULL"];
   const args = [];

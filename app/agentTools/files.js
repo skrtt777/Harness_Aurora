@@ -267,7 +267,8 @@ export function extremeHint(lines, request) {
 
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
-  const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op);
+  const end = periodEnd(request, now);
+  const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op) || (end ? [end, "<="] : undefined);
   const range = !wanted && monthRange(request, now);
   if (!wanted && !range) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
@@ -411,6 +412,18 @@ function pickColumn(columns, text) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+/**
+ * "Até o fim do ano", "até o final do mês": the last day the words mean, as dd/mm/yyyy (null when the
+ * request doesn't say). "Contratos que terminam até o fim do ano" was filtered to 31/10 (06/10).
+ */
+export function periodEnd(request, now = new Date()) {
+  const text = foldText(request);
+  const pad = (n) => String(n).padStart(2, "0");
+  if (/\b(ate|antes d)[oa]?\s*(o\s+)?(fim|final|encerramento) do ano\b|\bate dezembro\b/.test(text)) return `31/12/${now.getFullYear()}`;
+  if (/\b(ate|antes d)[oa]?\s*(o\s+)?(fim|final) do mes\b/.test(text)) { const last = new Date(now.getFullYear(), now.getMonth() + 1, 0); return `${pad(last.getDate())}/${pad(last.getMonth() + 1)}/${last.getFullYear()}`; }
+  return null;
+}
+
 export function filterRows(lines, filter, { sort, request } = {}) {
   sort = typeof sort === "string" ? parseSort(sort) : sort;
   // "Coluna=15/10/2026", or "Coluna>=15/10/2026; Coluna<=15/10/2026", for a request that says
@@ -424,6 +437,9 @@ export function filterRows(lines, filter, { sort, request } = {}) {
     const dayNumber = (d) => { const [dd, mm, yy] = d.split("/").map(Number); return yy * 10000 + mm * 100 + dd; };
     const parts = [...new Set(String(filter).replace(/["“”']/g, "").split(/\s*;\s*/).filter(Boolean).map((part) => {
       const m = part.match(/^([^=<>!]{1,60}?)\s*(>=|<=|>|<|=)\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*$/);
+      // "Até o fim do ano": an upper bound before 31/12 becomes 31/12.
+      const end = m && (m[2] === "<=" || m[2] === "<") && periodEnd(request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date());
+      if (end && dayNumber(m[3]) < dayNumber(end)) { changed.push(`${m[1].trim()}<=${end} (o pedido diz até o fim do período)`); return `${m[1].trim()}<=${end}`; }
       if (m && month && !dateIntent(request, m[3])) {
         const inside = dayNumber(m[3]) > dayNumber(month.from) && dayNumber(m[3]) < dayNumber(month.to);
         if (inside && (m[2] === ">=" || m[2] === ">")) { changed.push(`${m[1].trim()}>=${month.from} (o pedido fala do mês inteiro)`); return `${m[1].trim()}>=${month.from}`; }
@@ -657,6 +673,55 @@ export function likelyCopies(files) {
     else byKey.set(key, f.name);
   }
   return pairs;
+}
+
+// "Me ajuda a escrever uma msg de aniversário…": a text to use, not a file. Saved anyway to the
+// Desktop in 2 of 3 runs despite the rule (usage tests, 06/10).
+const COMPOSE = /\b(escrev|redij|mensagem|msg|texto|carta|legenda|poema|recado|parab[eé]ns|felicita|convite|bilhete)/;
+const SAVE_ASKED = /\b(salv|arquivo|documento|imprim|pdf|word|docx|planilha|excel|guard|baix|anex|relat[oó]rio|proposta|curr[ií]culo|contrato|apresenta[cç][aã]o|of[ií]cio|ata)/;
+const CODE_ASKED = /\b(script|c[oó]digo|programa|fun[cç][aã]o|site|p[aá]gina|html|python|javascript|\.py|\.js|app)\b/;
+export function onlyTextAsked(request, env = {}) {
+  if (env?.AGENT_RUN_TRIGGER) return false;
+  const text = foldText(request);
+  return COMPOSE.test(text) && !SAVE_ASKED.test(text) && !CODE_ASKED.test(text);
+}
+const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
+
+/** "(Na tabela: 5 linha(s); soma de Valor = 3.540)": the numbers of a table just written, for the answer. */
+export function tableSums(markdown) {
+  const rows = String(markdown || "").split(/\r?\n/).filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s|:-]+\|\s*$/.test(l)).map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+  if (rows.length < 3) return "";
+  const [header, ...body] = rows;
+  const data = body.filter((r) => !/^\**total/i.test(r[0] || "") && !/^\**total/i.test(r[1] || ""));
+  const sums = header.map((name, j) => {
+    const values = data.map((r) => cellValue(String(r[j] || "").replace(/\*/g, "")));
+    if (!/valor|total|r\$|pre[cç]o|gasto|custo|saldo|quantia|montante/i.test(name) || values.filter((v) => v !== null).length < 2) return null;
+    const sum = values.reduce((a, v) => a + (v || 0), 0);
+    return `soma de ${name} = ${sum.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`;
+  }).filter(Boolean);
+  return sums.length ? `\n(Na tabela: ${data.length} linha(s); ${sums.join("; ")}. Diga o total na resposta.)` : "";
+}
+
+/**
+ * A "Total" row that doesn't match the rows above it: "R$ 3.940" for gastos that add up to 3.540
+ * (usage tests, 06/10). [{ column, written, sum }] for each mismatching money column.
+ */
+export function wrongTotals(markdown) {
+  const rows = String(markdown || "").split(/\r?\n/).filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s|:-]+\|\s*$/.test(l)).map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim().replace(/\*/g, "")));
+  if (rows.length < 4) return [];
+  const [header, ...body] = rows;
+  const totalIndex = body.findIndex((r) => /^total/i.test(r[0] || "") || /^total/i.test(r[1] || ""));
+  if (totalIndex < 1) return [];
+  const data = body.slice(0, totalIndex);
+  return header.map((name, j) => {
+    // Percentages, averages, rates and days don't add up.
+    if (/%|m[eé]dia|taxa|percent|dias?\b|prazo|data|vencimento/i.test(name) || [body[totalIndex][j], ...data.map((r) => r[j])].some((c) => /%/.test(String(c || "")))) return null;
+    const written = cellValue(body[totalIndex][j] || "");
+    const values = data.map((r) => cellValue(r[j] || ""));
+    if (written === null || values.some((v) => v === null)) return null;
+    const sum = Math.round(values.reduce((a, v) => a + v, 0) * 100) / 100;
+    return Math.abs(sum - written) > 0.01 ? { column: name, written, sum } : null;
+  }).filter(Boolean);
 }
 
 /**
@@ -897,6 +962,22 @@ export const fileTools = [
           if (found.length >= 200) break;
         }
       }
+      // "contrato apartamento" as one string found nothing; the file was contrato_aluguel_apto.pdf
+      // (usage tests, 06/10). Then each word on its own, the names with more of them first.
+      const words = /[*?{]/.test(pattern) ? [] : [...new Set(fold(pattern).split(/[^a-z0-9]+/).filter((w) => w.length >= 4))];
+      if (!found.length && words.length > 1) {
+        const scored = [];
+        for (const root of roots) {
+          for await (const file of walk(root, ctx.signal)) {
+            const name = fold(rel(root, file));
+            const hits = words.filter((w) => name.includes(w) || name.includes(w.slice(0, 4))).length;
+            if (hits) scored.push([hits, roots.length > 1 ? file : rel(root, file)]);
+            if (scored.length >= 400) break;
+          }
+        }
+        const best = scored.sort((a, b) => b[0] - a[0]).slice(0, 20).map(([, f]) => f);
+        if (best.length) return `Nada com "${pattern}" junto; com alguma das palavras (os mais parecidos primeiro):\n${roots.length > 1 ? "" : `${roots[0]}\n`}${best.join("\n")}`;
+      }
       return found.length ? `${roots.length > 1 ? "" : `${roots[0]}\n`}${found.join("\n")}${found.length >= 200 ? "\n… (limite de 200)" : ""}` : `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}.`;
     },
   },
@@ -1025,6 +1106,7 @@ export const fileTools = [
     describe: (a, ctx) => ({ kind: "write", paths: [landing(full(a.path, ctx), ctx)], summary: `Salvar ${landing(full(a.path, ctx), ctx)}` }),
     async run({ path, content }, ctx) {
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
+      if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
       const file = landing(full(path, ctx), ctx);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
@@ -1045,6 +1127,7 @@ export const fileTools = [
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
     async run(args, ctx) {
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
+      if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
       let file = documentPath(args, ctx);
       const format = extname(file).slice(1).toLowerCase();
       // A list missing rows of the read it came from is not written the first time: written and
@@ -1065,6 +1148,11 @@ export const fileTools = [
       if (args.__salvaged) {
         const short = [...new Set([...missingRows(ctx.lastRows, body), ...missingRows(ctx.anchorRows, body)])];
         if (short.length || existsSync(file)) throw new Error(`Sua chamada foi cortada no limite de saída e o que chegou ${short.length ? `não tem todas as linhas (faltam ${short.slice(0, 12).join(", ")})` : "substituiria um arquivo que já existe"}: nada foi gravado. Grave de novo só a tabela, sem introdução nem análise.`);
+      }
+      const totals = wrongTotals(body);
+      if (totals.length && !ctx.heldDocuments.has(`${file.toLowerCase()}|total`)) {
+        ctx.heldDocuments.add(`${file.toLowerCase()}|total`);
+        throw new Error(`Não gravei ainda: a linha Total não bate com a soma das linhas — ${totals.map((t) => `${t.column}: está ${t.written.toLocaleString("pt-BR")}, a soma é ${t.sum.toLocaleString("pt-BR")}`).join("; ")}. Grave de novo no mesmo caminho com o total certo (e use esse total na resposta).`);
       }
       if ((gaps.length || extras.length) && !ctx.heldDocuments.has(file.toLowerCase())) {
         ctx.heldDocuments.add(file.toLowerCase());
@@ -1089,7 +1177,7 @@ export const fileTools = [
       if (!note && unread.length && unread.length === (ctx.excerptSheets || []).length && /\|[^\n]*\|/.test(content)) {
         note = `\nATENÇÃO: você montou a tabela só com um TRECHO de ${unread.map((p) => basename(p)).join(", ")} (o contexto mostra só parte das linhas). Leia a planilha com read_file e filter (ex.: a condição do pedido) e grave de novo no mesmo caminho com todas as linhas.`;
       }
-      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}`;
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}`;
     },
   },
   {
@@ -1128,7 +1216,7 @@ export const fileTools = [
       // (battery, 06/10). Moving many files is the person's call.
       // (An agent's run is exempt: its mission, set by the person, is the request.)
       if (ctx.request && !ctx.env?.AGENT_RUN_TRIGGER && !ORGANIZE_ASKED.test(fold(ctx.request))) throw new Error("A pessoa não pediu para organizar a pasta: não mova nada. Responda o que ela perguntou (para ver a pasta, use list_dir) e, se achar útil, ofereça organizar.");
-      const dir = await resolveExisting(path, ctx, { directory: true });
+      const dir = await resolveExisting(namedFolder(path, ctx), ctx, { directory: true });
       const entries = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && !e.name.startsWith(".") && !/^desktop\.ini$|^thumbs\.db$/i.test(e.name) && !/\.(crdownload|part|tmp)$/i.test(e.name));
       if (!entries.length) return `Não há arquivos soltos em ${dir}: nada a organizar.`;
       // The person's own folders ("Documentos (pdf, docx, txt), Imagens (jpg, png)…"): with them the
@@ -1172,7 +1260,23 @@ const KINDS = [
  * "Documentos: pdf, docx; Imagens (jpg, png)" or { Documentos: ["pdf"] } → [["Documentos", Set{pdf, docx}], …].
  * Extensions without the dot, lower case.
  */
-const ORGANIZE_ASKED = /\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|orden|em ordem|ponha em pastas|coloque em pastas|por tipo|em subpastas|(mova|mover|move|distribua|distribuir) (os|todos os|cada) arquivos)/;
+/**
+ * "Arruma minha pasta de downloads" organized the Desktop path the model passed, and the answer said
+ * Downloads was done (usage tests, 06/10). When the request names one of the person's known folders
+ * and the path is another of them, the named one wins.
+ */
+export function namedFolder(path, ctx) {
+  const known = ctx.knownFolders || {};
+  const text = foldText(ctx.request || "");
+  const named = [["downloads", /\bdownloads?\b/], ["desktop", /\b(area de trabalho|desktop)\b/], ["documents", /\b(meus )?documentos\b/]].filter(([key, re]) => known[key] && re.test(text));
+  if (named.length !== 1) return path;
+  const target = known[named[0][0]];
+  const given = full(path || ".", ctx);
+  const others = Object.entries(known).filter(([key, p]) => key !== named[0][0] && key !== "home" && p).map(([, p]) => p.toLowerCase());
+  return others.includes(given.toLowerCase()) ? target : path;
+}
+
+const ORGANIZE_ASKED =/\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|orden|em ordem|ponha em pastas|coloque em pastas|por tipo|em subpastas|(mova|mover|move|distribua|distribuir) (os|todos os|cada) arquivos)/;
 
 export function parseGroups(groups) {
   if (!groups) return [];

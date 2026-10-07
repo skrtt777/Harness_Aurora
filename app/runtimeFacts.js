@@ -39,6 +39,27 @@ function evaluate(tokens){
   }
   return stack.length===1&&Number.isFinite(stack[0])?stack[0]:null;
 }
+/**
+ * "Uma blusa de 230 reais com 15% de desconto, quanto vou pagar?": the price after (or with) a
+ * percentage off or on. The model tried to run Python for it (and asked permission) (06/10).
+ */
+export function discountObservation(input){
+  const text=String(input||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const pct=text.match(/(\d+(?:[.,]\d+)?)\s*(?:%|por cento)\s*(?:de\s+)?(desconto|off|de acrescimo|acrescimo|de juros|juros|de aumento|aumento)/);
+  if(!pct)return null;
+  const priceMatch=text.match(/r\$\s*(\d[\d.]*(?:,\d+)?)|(\d[\d.]*(?:,\d+)?)\s*(?:reais|conto|pila)/);
+  if(!priceMatch)return null;
+  const price=parseNumber(priceMatch[1]||priceMatch[2]);
+  const rate=parseNumber(pct[1]);
+  if(!Number.isFinite(price)||!Number.isFinite(rate))return null;
+  const off=/desconto|off/.test(pct[2]);
+  const delta=Math.round(price*rate)/100;
+  const final=off?price-delta:price+delta;
+  const money=(n)=>n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  return {source:'calculator',observedAt:new Date().toISOString(),timeZone:null,local:`${money(price)} ${off?'-':'+'} ${rate}% = ${money(final)}`,
+    block:`RESPOSTA PRONTA (calculadora do dispositivo): ${money(price)} com ${rate}% de ${off?'desconto':'acréscimo'} = ${money(final)} (${off?'desconto':'acréscimo'} de ${money(delta)}). Responda com esse valor, sem usar ferramentas.`};
+}
+
 export function mathObservation(input){
   let text=String(input||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
   // "15% de 200" → (15/100*200)
@@ -58,4 +79,39 @@ export function mathObservation(input){
   const expression=raw.join(' ');
   return {source:'calculator',observedAt:new Date().toISOString(),timeZone:null,local:`${expression} = ${shown}`,
     block:`Cálculo exato feito pelo dispositivo: ${expression} = ${shown}. Para essa conta, responda com este valor.`};
+}
+
+// Fixed-date holidays, as day/month.
+const HOLIDAYS={'natal':[25,12],'vespera de natal':[24,12],'ano novo':[1,1],'reveillon':[31,12],'tiradentes':[21,4],'dia do trabalho':[1,5],'dia do trabalhador':[1,5],'independencia':[7,9],'sete de setembro':[7,9],'7 de setembro':[7,9],'nossa senhora aparecida':[12,10],'dia das criancas':[12,10],'finados':[2,11],'proclamacao da republica':[15,11],'consciencia negra':[20,11],'dia dos namorados':[12,6]};
+const MONTHS=['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+/**
+ * "O natal esse ano cai em que dia da semana?", "25/12 é que dia?", "quantos dias faltam pro natal?":
+ * a weekday is arithmetic. The 4B model searched the web 4 times and answered "domingo" (Friday).
+ */
+export function weekdayObservation(input,{now=new Date()}={}){
+  const text=String(input||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  if(!/\b(dia da semana|que dia|qual dia|cai (em|n[ao]|num)|faltam?|falta quanto)\b/.test(text))return null;
+  let day=null,month=null,year=null,label='';
+  for(const [name,[d,m]] of Object.entries(HOLIDAYS))if(text.includes(name)){day=d;month=m;label=name;break;}
+  if(day===null){
+    const numeric=text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    const named=text.match(new RegExp(`\\b(\\d{1,2}) de (${MONTHS.join('|')})(?: de (\\d{4}))?\\b`));
+    if(numeric){day=+numeric[1];month=+numeric[2];if(numeric[3])year=+numeric[3]<100?2000+ +numeric[3]:+numeric[3];}
+    else if(named){day=+named[1];month=MONTHS.indexOf(named[2])+1;if(named[3])year=+named[3];}
+    else return null;
+  }
+  if(month<1||month>12||day<1||day>31)return null;
+  const explicit=text.match(/\b(20\d{2})\b/);
+  if(!year)year=explicit?+explicit[1]:now.getFullYear()+(/\b(ano que vem|proximo ano)\b/.test(text)?1:0);
+  // "Quantos dias faltam pro natal" after it passed this year: the next one.
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  let date=new Date(year,month-1,day);
+  if(!explicit&&!/\b(esse|este|deste|desse) ano\b/.test(text)&&date<today&&/falta/.test(text))date=new Date(year+1,month-1,day);
+  const weekday=new Intl.DateTimeFormat('pt-BR',{weekday:'long'}).format(date);
+  const days=Math.round((date-today)/86400000);
+  const when=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).format(date);
+  const left=days>0?`faltam ${days} dia(s)`:days===0?'é hoje':`foi há ${-days} dia(s)`;
+  return {source:'calendar',observedAt:now.toISOString(),timeZone:null,local:`${when} = ${weekday}`,
+    // Said as the answer itself: "calculated by the device" was ignored once in three (it searched the company docs).
+    block:`RESPOSTA PRONTA (calendário do dispositivo, não precisa pesquisar): ${label?`${label} = `:''}${when} cai numa ${weekday} (${left}). Responda exatamente isso, sem usar ferramentas.`};
 }

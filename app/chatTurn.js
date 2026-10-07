@@ -1,7 +1,7 @@
 // One chat turn: memories and context, files the person names, company documents,
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
-import { clockObservation, mathObservation } from "./runtimeFacts.js";
+import { clockObservation, discountObservation, mathObservation, weekdayObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { readFile, readdir, stat } from "node:fs/promises";
@@ -134,12 +134,14 @@ async function agentAllowedRoots(folders) {
 // Documents are pulled in only for information requests — not greetings,
 // thanks or orders to act ("crie", "abra"), which in a big mixed folder
 // still find look-alike passages. The model can always search by itself.
+const DATA_DELIVERY = /\b(planilha|relat[oó]rio|lista|tabela|word|excel|documento)\b[^.?!\n]{0,40}\b(com|de|dos|das|do|da)\b/i;
 const INFO_REQUEST = /\?|\b(qual|quais|quanto|quanta|quantos|quantas|quando|onde|quem|como|por ?que|o que|me (traz|traga|fala|fale|diz|diga|explica|mostra|mostre|passa|manda)|resum[aeo]|resumir|explique|procur[ae]|busque|existe|informa[çc][õo]es|preciso saber)\b/i;
 const SMALL_TALK = new Set("oi ola opa tudo bem bom boa dia tarde noite obrigado obrigada valeu certo beleza blz ok legal show perfeito entendi sim nao e ai como vai voce esta td".split(" "));
 export function asksForInformation(text) {
   const words = String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || [];
   if (!words.length || words.every((w) => SMALL_TALK.has(w))) return false;
-  return INFO_REQUEST.test(String(text));
+  // A delivery built from data ("preciso de uma planilha com o pessoal que tá devendo") looks things up too.
+  return INFO_REQUEST.test(String(text)) || DATA_DELIVERY.test(String(text));
 }
 
 // A follow-up ("e o auxílio home office?", "quem eu procuro sobre isso?")
@@ -478,7 +480,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
-    const observation=clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
+    const observation=weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
     // Who the person is and what the Aurora did lately, in every conversation (OpenClaw's USER.md and
     // daily notes). A name said here is learned for the next conversations too.
     await learnFromMessage(trimmed).catch(() => null);

@@ -87,6 +87,38 @@ async function companyFirst(query, ctx) {
   return `Nos documentos da EMPRESA (antes da internet; a internet não tem os dados internos):\nFonte: ${hit.path}\n${String(hit.text).slice(0, 700)}\n(Se a pergunta é sobre a empresa, responda com isto.${sheet})\n\nNa internet:\n`;
 }
 
+// The person's own papers: "meu extrato", "a conta de luz", "o boleto", "o contrato do apartamento".
+const PERSONAL_DOCS = ["extrato", "boleto", "conta de luz", "conta de agua", "luz", "agua", "aluguel", "iptu", "cartao", "fatura", "contrato", "recibo", "comprovante", "holerite", "contracheque", "curriculo", "condominio", "nota fiscal", "receita", "declaracao"];
+/**
+ * "Qual o saldo do meu extrato de agosto?" went to the internet and answered R$ 0,93 from someone
+ * else's PDF (usage tests, 06/10). When the request is about the person's own paper and a file with
+ * that name is in their folders, the files come first.
+ */
+async function personalFirst(ctx) {
+  const text = String(ctx.request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (!/\b(meu|minha|meus|minhas|o|a)\b/.test(text)) return "";
+  const nouns = PERSONAL_DOCS.filter((n) => text.includes(n));
+  if (!nouns.length) return "";
+  const { personalFolders } = await import("../fileAccess.js");
+  const { readdir } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const stems = nouns.map((n) => n.split(" ").pop().replace(/[^a-z]/g, ""));
+  const found = [];
+  const walk = async (dir, depth) => {
+    if (depth > 3 || found.length >= 6) return;
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (e.name.startsWith(".")) continue;
+      const full = join(dir, e.name);
+      const name = e.name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      if (e.isDirectory()) await walk(full, depth + 1);
+      else if (stems.some((s) => name.includes(s))) found.push(full);
+    }
+  };
+  for (const folder of personalFolders(ctx.env || process.env)) await walk(folder.path, 0);
+  if (!found.length) return "";
+  return `Arquivos da PESSOA com esse nome (é um documento dela, não da internet: leia com read_file):\n${found.map((f) => `- ${f}`).join("\n")}\n\nNa internet (provavelmente não serve):\n`;
+}
+
 export const webTools = [
   {
     name: "web_search",
@@ -96,6 +128,9 @@ export const webTools = [
     stage: (a) => `Pesquisando "${a.query}"…`,
     async run({ query }, ctx) {
       if (!String(query || "").trim()) throw new Error("Informe o que pesquisar.");
+      // The person's own paper: only their files (the web results led to an "average" light bill).
+      const personal = await personalFirst(ctx).catch(() => "");
+      if (personal) return personal.replace(/\n\nNa internet \(provavelmente não serve\):\n$/, "\n(A internet não tem os documentos da pessoa: leia estes arquivos com read_file.)");
       const response = await get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=br-pt`, ctx.signal, ctx.fetch);
       const results = parseDuckDuckGo(await response.text());
       const internal = await companyFirst(query, ctx).catch(() => "");

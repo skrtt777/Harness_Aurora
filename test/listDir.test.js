@@ -39,3 +39,12 @@ test("likely copies need the same size, not just a similar name", () => {
   assert.deepEqual(likelyCopies([{ name: "foto.jpg", size: 10 }, { name: "foto (1).jpg", size: 10 }, { name: "foto - Cópia.jpg", size: 10 }, { name: "relatorio (1).docx", size: 5 }, { name: "relatorio.docx", size: 6 }]),
     [["foto.jpg", "foto (1).jpg"], ["foto.jpg", "foto - Cópia.jpg"]]);
 });
+
+test("search_files with several words finds names with any of them, the closest first", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aurora-search-words-"));
+  writeFileSync(join(dir, "contrato_aluguel_apto.pdf"), "x");
+  writeFileSync(join(dir, "receita_bolo.docx"), "x");
+  const out = (await executeTool("search_files", { pattern: "contrato apartamento", path: dir }, { mode: "auto", workspace: dir, workspaceRoots: [dir], approve: async () => true, env: process.env })).result;
+  assert.match(out, /com alguma das palavras[\s\S]*contrato_aluguel_apto\.pdf/);
+  assert.doesNotMatch(out, /receita_bolo/);
+});
