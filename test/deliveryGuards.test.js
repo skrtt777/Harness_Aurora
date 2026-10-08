@@ -215,3 +215,13 @@ test("asked why, an answer that leaves the why out altogether also searches for 
   const noWhy = await runChatAgent({ system: "s", input: "Qual linha teve o pior OEE em setembro?", tools: [search], callModel: async () => plain.shift() });
   assert.deepEqual(noWhy.checks || [], [], "no why asked, no nudge");
 });
+
+test("a text the model tried to save in a file (refused: text only) is the answer, not written again", async () => {
+  const write = { name: "write_file", description: "grava", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => { throw new Error("A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar."); } };
+  const message = "Oi, Ana! Me desculpa de coração por ter esquecido o seu aniversário. Você é muito especial pra mim.";
+  const replies = [{ ok: true, text: "", toolCalls: [{ name: "write_file", arguments: { path: "desculpa.md", content: message } }] }];
+  let calls = 0;
+  const result = await runChatAgent({ system: "s", input: "me ajuda a pedir desculpa pra minha amiga", tools: [write], callModel: async () => { calls += 1; return replies.shift(); } });
+  assert.equal(result.text, message);
+  assert.equal(calls, 1, "one model call: nothing generated again");
+});

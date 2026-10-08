@@ -46,6 +46,32 @@ também a hora e a pergunta, e o estado salvo não servia na sessão seguinte. D
 No Strata o MTP rende 1,6–1,8x porque o modelo é enorme e cada passo custa caro; num modelo de 4B a conferência extra
 custa quase tanto quanto o ganho.
 
+## Escrever menos (o gargalo de verdade)
+
+No log das avaliações o modelo passou 678 s escrevendo e 211 s lendo; na CPU ele escreve ~10 tokens/s. Medição de
+cada chamada (pedido e resposta, 14 cenários de uso): 58% dos tokens são o conteúdo dos documentos, 31% as respostas
+finais. A hipótese inicial (a resposta repete o arquivo) não se confirmou: ~1% de repetição. O desperdício era outro:
+
+- a resposta depois de gravar recontava o arquivo (100–320 tokens): o resultado do `write_document` agora pede 2 frases;
+- pedido de arquivo escrito primeiro no chat, corrigido no chat e só então gravado (uma apresentação saiu 3 vezes, ~1.700
+  tokens): a correção de fatos agora manda gravar direto, e o prompt diz para escrever o conteúdo na chamada;
+- pedido de texto (convite, desculpa, legenda) começava gravando arquivo ou pesquisando pastas e internet (até 7
+  chamadas; uma legenda "pro insta" abriu o Instagram para postar): o prompt diz que é só texto, sem arquivo nem site, e o
+  texto de uma gravação recusada vira a resposta, sem ser escrito de novo;
+- briefings de plano e aviso com tamanho e sem inventar (o roteiro tinha 1.445 tokens e lugares do Rio em Salvador).
+
+Comparação no mesmo conjunto (código anterior numa cópia à parte, 14 cenários × 2 rodadas, RTX 4090):
+
+| | Antes | Depois |
+|---|---|---|
+| Tokens escritos | 22.574 | 16.442 (−27%) |
+| Chamadas ao modelo | 92 | 75 (−18%) |
+| Tempo escrevendo | 156 s | 106 s (−32%) |
+| Nota dos cenários | 85/88 | 85/88 |
+
+Convite e e-mail ao chefe passaram a sair numa chamada só, sem ferramentas. Não funcionou: o marcador `{{linhas}}`
+(a ferramenta copiaria as linhas da planilha lida) — o modelo de 4B nunca o usou; ficou disponível, sem custo.
+
 ## Ferramentas
 
 - `scripts/gguf-info.mjs <modelo>`: o que o arquivo do modelo diz de si (camadas, MTP).

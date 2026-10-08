@@ -307,7 +307,12 @@ export async function runChatAgent({
       const missing = unsupportedFacts(text, [question, spokenNumbers(question), ...evidence].join("\n"));
       if (missing.length) {
         checks.push({ check: "unsupported_facts", items: missing, answer: text.slice(0, 300) });
-        messages.push({ role: "assistant", content: text }, { role: "user", content: `Estes dados da sua resposta não aparecem em nenhum documento consultado nem na conversa: ${missing.map((m) => `"${m}"`).join(", ")}. Confira nos trechos e copie nomes, ramais, datas e valores exatamente como estão (grafia incluída); o que não estiver neles, não diga.` });
+        // A file asked for and written into the chat: one correction, straight into the file. Fixed in
+        // the chat first and only then sent to the file, a presentation was written three times
+        // (~1,700 tokens, ~3 min on a processor; token measurement, 07/10).
+        const fileDue = !fileChecked && offered.some((t) => t.name === "write_document") && requestsFile(question) && !steps.some((s) => s.ok && WRITE_TOOLS.has(s.tool));
+        // (fileChecked stays free: if the model still answers in the chat, the file is asked for again.)
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `Estes dados da sua resposta não aparecem em nenhum documento consultado nem na conversa: ${missing.map((m) => `"${m}"`).join(", ")}. Confira nos trechos e copie nomes, ramais, datas e valores exatamente como estão (grafia incluída); o que não estiver neles, não diga.${fileDue ? " E o pedido é um arquivo: não reescreva aqui; grave agora o conteúdo corrigido com write_document (planilha .xlsx, relatório ou apresentação .docx) e responda com o caminho." : ""}` });
         continue;
       }
     }
@@ -337,7 +342,7 @@ export async function runChatAgent({
       && text.replace(/^.*\?.*$/gm, "").replace(/^\s*(\d+[.)]|[-*•])\s.*$/gm, "").trim().split(/\s+/).length < 60) {
       askedFirstChecked = true;
       checks.push({ check: "asked_before_delivering", answer: text.slice(0, 300) });
-      messages.push({ role: "assistant", content: text }, { role: "user", content: "Entregue primeiro: faça agora a versão completa com o que você já sabe, decidindo o resto com bons padrões; marque entre colchetes só o dado que só a pessoa sabe (ex.: [data]). Depois da entrega, peça esses dados numa frase e termine com **Quer ajustar?** e as opções numeradas." });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: (requestsFile(question) ? "Entregue primeiro: grave agora com write_document a versão completa" : "Entregue primeiro: escreva agora, aqui na resposta (sem criar arquivo), a versão completa") + " com o que você já sabe, decidindo o resto com bons padrões; marque entre colchetes só o dado que só a pessoa sabe (ex.: [data]). Depois da entrega, peça esses dados numa frase e termine com **Quer ajustar?** e as opções numeradas." });
       continue;
     }
     // An e-mail with "[valor]", "[data do vencimento]", "[Duplicata nº XXX]" after reading the sheet
@@ -449,6 +454,10 @@ export async function runChatAgent({
       if (fromWeb) ctx.untrustedSeen = true;
       messages.push({ role: "tool", tool_name: call.name, content: (fromWeb ? `${WEB_NOTE}\n` : "") + outcome.result + searchNote });
       if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
+      // A text for the person (a desculpa, a convite) it tried to save in a file, refused: what it wrote
+      // is the delivery. Answered with it instead of having it written again (~200 tokens, 2 runs in 4).
+      const textOnly = !outcome.ok && ["write_file", "write_document"].includes(call.name) && /A pessoa pediu só o texto/.test(outcome.result) ? String(call.arguments?.content ?? call.arguments?.text ?? "").trim() : "";
+      if (textOnly.length > 40) return { ok: true, status: 200, text: textOnly, steps, calls, forced: null, messages, threadId: null };
       // A job an agent finished is answered with the agent's own words: one more round, the 4B model
       // searched for the agent's file, didn't find it and called it a "simulação" (06/10).
       if (["agent_delegate", "team_request"].includes(call.name) && outcome.ok && ctx.delegatedAnswer) {

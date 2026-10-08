@@ -29,7 +29,7 @@ import { mapOverview } from "./computerMap.js";
 import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
-import { redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
+import { onlyTextAsked, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
@@ -299,6 +299,16 @@ export async function describedFiles(text, ctx = {}) {
 const foldText = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const REFERS_BACK = /\b(com eles|com elas|deles|delas|desses|dessas|destes|destas|esses|essas|estes|estas|essa lista|esse resultado|com isso|disso|desse jeito|os mesmos|as mesmas|cada um)\b/;
 
+// A file asked for: the content goes straight into the write call (not in an agent's run: it wrote
+// from the excerpt in its context without reading the sheet, and left 7 rows out; agent battery, 07/10). Written into the chat first, it was
+// checked, rewritten and only then saved (a presentation came out three times; token measurement, 07/10).
+const FILE_DIRECT = "O pedido é um ARQUIVO: consulte os dados e escreva o conteúdo direto na chamada write_document (não escreva o conteúdo na resposta antes). Para as linhas de uma planilha que você leu, escreva {{linhas}} no content em vez de digitá-las. Depois, responda em até 2 frases.";
+
+// A text for the person to use (convite, mensagem, desculpa): its first move was a file or a search
+// of the folders and the web, 4 calls before writing (token measurement, 07/10). Said here, in the part
+// of the prompt that changes per turn: hiding the write tools would change the saved start.
+const TEXT_DIRECT = "O pedido é um TEXTO para a pessoa usar: escreva-o direto na resposta, sem criar arquivo e sem abrir sites ou apps (uma legenda 'pro insta' é só o texto; quem posta é a pessoa). Só use ferramentas para buscar um dado que o texto precisa (ex.: o valor que um cliente deve); um convite, recado ou pedido de desculpa não precisa de nenhuma.";
+
 export async function mentionedFiles(text, ctx, history = []) {
   const recent = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
   // "voltando ao kit de mídia…" after talking about a spreadsheet: a file named earlier in the
@@ -542,7 +552,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from

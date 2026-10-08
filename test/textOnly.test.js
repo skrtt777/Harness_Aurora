@@ -61,3 +61,16 @@ test("a control sheet without a TOTAL row gets one; one with it is left alone", 
   assert.equal(withTotalRow(done), done);
   assert.equal(withTotalRow("| Nome | Cargo |\n|---|---|\n| Ana | RH |"), "| Nome | Cargo |\n|---|---|\n| Ana | RH |");
 });
+
+test("{{linhas}} in a document becomes the rows of the last sheet read, exact, with money formatted", async () => {
+  const { tableFromRead, expandRows } = await import("../app/agentTools/files.js");
+  const read = "F:\Compras\Pedidos.xlsx\n## Em aberto\nPedido | Fornecedor | Valor | Situação\n    3  PC-900 | Agro Sertão | 43236.36 | Entrega parcial\n    9  PC-906 | Sal Marinho | 44576.02 | Entrega parcial\n | TOTAL | 87812.38 | \n3 linha(s) com \"Situação=Entrega parcial\".";
+  const table = tableFromRead(read);
+  assert.deepEqual(table.header, ["Pedido", "Fornecedor", "Valor", "Situação"]);
+  assert.equal(table.rows.length, 2, "the total row is not a row");
+  const doc = expandRows("# Pedidos\n\n{{linhas: Pedido, Fornecedor, Valor}}\n\nFonte: Pedidos.xlsx", table);
+  assert.match(doc, /\| Pedido \| Fornecedor \| Valor \|\n\|---\|---\|---\|\n\| PC-900 \| Agro Sertão \| 43\.236,36 \|\n\| PC-906 \| Sal Marinho \| 44\.576,02 \|/);
+  assert.match(expandRows("{{linhas}}", table), /Situação/);
+  assert.throws(() => expandRows("{{linhas}}", null), /read_file/);
+  assert.equal(expandRows("sem marcador", table), "sem marcador");
+});

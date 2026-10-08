@@ -66,7 +66,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - busca da empresa: imposto a vencer, gerente de um setor e "mais acima do orçamento" (valor e %);
   - `npm run regressao`: todas as medições, comparadas com a rodada anterior.
 
-- **Acelerador do modelo local (07/10, `docs/ACELERADOR_2026-10-07.md`):** estudo do Strata aplicado ao qwen3.5:4b. Partida instantânea: o começo fixo do prompt (ferramentas + regras) salvo em disco e restaurado quando o servidor sobe: primeira resposta após reiniciar 68–74 s → 1,3 s na CPU; turno do agente na CPU 285 s → 109 s. Medido e descartado: MTP do próprio modelo (mais lento na GPU e na CPU), threads e tamanho do bloco (o padrão já é o melhor).
+- **Acelerador do modelo local (07/10, `docs/ACELERADOR_2026-10-07.md`):** estudo do Strata aplicado ao qwen3.5:4b. Partida instantânea: o começo fixo do prompt (ferramentas + regras) salvo em disco e restaurado quando o servidor sobe: primeira resposta após reiniciar 68–74 s → 1,3 s na CPU; turno do agente na CPU 285 s → 109 s. Medido e descartado: MTP do próprio modelo (mais lento na GPU e na CPU), threads e tamanho do bloco (o padrão já é o melhor). Escrever menos: resposta de 2 frases depois de gravar, correção direto no arquivo, pedido de texto sem arquivo nem site: −27% de tokens escritos e −18% de chamadas, com a mesma nota.
 
 ## Agora
 

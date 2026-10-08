@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
 import { DOCUMENT_FORMATS, renderDocument } from "../documentWriter.js";
+import { requestsFile } from "../teacher.js";
 
 // Binary office formats are read as their text; everything else as UTF-8.
 const EXTRACTED = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".rtf", ...IMAGE_EXTENSIONS]);
@@ -754,6 +755,45 @@ export function onlyTextAsked(request, env = {}) {
 const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
 
 /**
+ * The table of a read_file result (header + rows), kept so a document can say {{linhas}} instead of
+ * the model writing every row again: copying 14 orders cost ~900 generated tokens (1-2 min on a
+ * processor) and is where rows went missing (token measurement, 07/10). The first table of the read.
+ */
+const ROWS_TIP = "\n(Para pôr estas linhas num documento, escreva {{linhas}} no content do write_document, ou {{linhas: Coluna, Coluna}} para escolher colunas: a ferramenta copia todas, exatas. Não digite as linhas.)";
+export function tableFromRead(text) {
+  const lines = String(text).split(/\r?\n/).map((l) => l.replace(/^\s*\d+ {2}/, ""));
+  const at = lines.findIndex((l) => l.includes(" | ") && !l.startsWith("## "));
+  if (at < 0) return null;
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const rows = [];
+  for (const line of lines.slice(at + 1)) {
+    if (line.startsWith("## ") || !line.includes(" | ")) { if (rows.length) break; continue; }
+    const cells = line.split(" | ").map((c) => c.trim());
+    if (cells.some((c) => /^total\b/i.test(c))) continue;
+    rows.push(cells);
+  }
+  return rows.length ? { header, rows } : null;
+}
+
+const MONEY_COLUMN = /valor|pre[cç]o|total|saldo|custo|sal[aá]rio|r\$/i;
+/** {{linhas}} or {{linhas: Coluna, Coluna}} in a document becomes the last table read, exactly. */
+export function expandRows(content, table) {
+  const marker = /\{\{\s*(?:linhas|tabela)\s*(?::\s*([^}]*))?\}\}/gi;
+  if (!marker.test(String(content))) return content;
+  if (!table) throw new Error("Use {{linhas}} só depois de ler a planilha com read_file (a ferramenta põe as linhas da última leitura).");
+  return String(content).replace(marker, (_, wanted) => {
+    const names = String(wanted || "").split(",").map((w) => w.trim()).filter(Boolean);
+    const columns = names.length ? names.map((n) => table.header.findIndex((h) => foldText(h).startsWith(foldText(n)) || foldText(n).startsWith(foldText(h)))).filter((j) => j >= 0) : table.header.map((_, j) => j);
+    const pick = columns.length ? columns : table.header.map((_, j) => j);
+    const cell = (value, j) => {
+      const number = /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : null;
+      return number !== null && MONEY_COLUMN.test(table.header[j]) ? number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value;
+    };
+    return [`| ${pick.map((j) => table.header[j]).join(" | ")} |`, `|${pick.map(() => "---").join("|")}|`, ...table.rows.map((r) => `| ${pick.map((j) => cell(r[j] ?? "", j)).join(" | ")} |`)].join("\n");
+  });
+}
+
+/**
  * A control sheet ("planilha pra controlar meus gastos") without its TOTAL row gets one: the
  * briefing asks for it and the model left it out in 2 runs of 6 (battery 4, 06/10).
  * Only the first markdown table with a value column, and only when no row is a total already.
@@ -1142,6 +1182,8 @@ export const fileTools = [
         // When the request decided the condition (a corrected filter), the rows outside it are known too.
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
         ctx.anchorRows = ctx.lastRows;
+        ctx.lastTable = tableFromRead(rows);
+        if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
       const start = Math.max(1, Number(offset) || 1);
@@ -1194,6 +1236,7 @@ export const fileTools = [
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
+      if (sheet && text) { ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
       return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}`;
     },
   },
@@ -1220,7 +1263,7 @@ export const fileTools = [
   },
   {
     name: "write_document",
-    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
+    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. As linhas da última planilha lida com read_file: escreva {{linhas}} (ou {{linhas: Coluna, Coluna}}) e a ferramenta copia todas, exatas. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
     parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" }, append: { type: "boolean", description: "true para ACRESCENTAR este conteúdo ao fim do documento que você gravou antes nesta resposta (documento longo em partes)" } }, required: ["path", "content"] },
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
@@ -1237,6 +1280,7 @@ export const fileTools = [
       if (earlierBody != null) args = { ...args, content: `${earlierBody}
 
 ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false };
+      if (/\{\{\s*(linhas|tabela)/i.test(String(args.content ?? args.text ?? args.markdown ?? ""))) args = { ...args, content: expandRows(String(args.content ?? args.text ?? args.markdown ?? ""), ctx.lastTable) };
       // A list missing rows of the read it came from is not written the first time: written and
       // flagged, the agent saved the full list under another name and left the 2-row sheet beside
       // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
@@ -1286,7 +1330,10 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       if (!note && unread.length && unread.length === (ctx.excerptSheets || []).length && /\|[^\n]*\|/.test(content)) {
         note = `\nATENÇÃO: você montou a tabela só com um TRECHO de ${unread.map((p) => basename(p)).join(", ")} (o contexto mostra só parte das linhas). Leia a planilha com read_file e filter (ex.: a condição do pedido) e grave de novo no mesmo caminho com todas as linhas.`;
       }
-      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}`;
+      // The answer after a document is short: it recounted the table in 100-320 tokens (10-30 s on a
+      // processor) when the file already has it (token measurement, 07/10). Not when something is to fix.
+      const next = note ? "" : "\nPronto. Agora responda à pessoa em até 2 frases: onde está o arquivo e o resultado principal (um número ou nome). Não repita a tabela nem o conteúdo do arquivo.";
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}${next}`;
     },
   },
   {
