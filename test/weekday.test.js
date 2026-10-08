@@ -10,3 +10,11 @@ test("a weekday of a holiday or a date is calculated, not guessed", () => {
   assert.equal(weekdayObservation("qual dia vence o boleto?", { now }), null);
   assert.equal(weekdayObservation("me fala do natal", { now }), null);
 });
+
+test("a sum on an earlier sum: 'volta naquela multiplicação e divide por 2' uses 12 x 37, not the bill said in between", async () => {
+  const { followUpMath, mathObservation } = await import("../app/runtimeFacts.js");
+  const history = [{ role: "user", content: "qnto da 12 vezes 37" }, { role: "assistant", content: "444" }, { role: "user", content: "e a conta de luz deu quanto?" }, { role: "assistant", content: "R$ 230,45" }];
+  assert.match(followUpMath("volta naquela multiplicação de antes e divide por 2", history).block, /12 \* 37 = 444[\s\S]*444 \/ 2 = 222/);
+  assert.equal(followUpMath("divide por 2", history), null, "no reference back: not this");
+  assert.equal(mathObservation("qnto da 12 vezes 37").local, "12 * 37 = 444", "typed short");
+});

@@ -9,7 +9,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 | Medição | Comando | Última |
 |---|---|---|
 | **Tudo de uma vez** | `npm run regressao -- --db <cópia> [--runs 2] [--rapido]` | compara com a rodada anterior e diz se pode publicar (`reports/regressao/`) |
-| Testes automáticos | `npm test` | 560 passaram, 0 falhas (07/10) |
+| Testes automáticos | `npm test` | 568 passaram, 0 falhas (08/10); `deliveryGuards.test.js` falhou ao carregar 1 vez em 4 suítes, sem mensagem (não reproduz isolado) |
 | Conversas reais (8 cenários: documento, planilha, 10 turnos, navegador, honestidade, mapa, continuidade, arquivos) | `npm run battery -- --runs 3` | 97,7% a 100% com qwen3.5:4b (07/10, `reports/battery/`) |
 | Testes de uso (81 cenários em 4 baterias, linguagem de usuário leigo: digitação, pedido pobre, conversa longa, injeção) | `npm run uso -- --db <cópia> [--bateria N]` | bateria 1 96,2%, 2 94,7%, 3 100%, 4 97,5% (07/10, `reports/uso/`) |
 | Agentes de setor (arquivo entregue) | `npm run agents:eval -- --db <banco.db> --runs 3` | 99–100% (24 de 24 perfeitas em duas rodadas seguidas, 06/10; `reports/agentes/`); variação de ±5 pontos com 3 rodadas |
@@ -68,9 +68,11 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Acelerador do modelo local (07/10, `docs/ACELERADOR_2026-10-07.md`):** estudo do Strata aplicado ao qwen3.5:4b. Partida instantânea: o começo fixo do prompt (ferramentas + regras) salvo em disco e restaurado quando o servidor sobe: primeira resposta após reiniciar 68–74 s → 1,3 s na CPU; turno do agente na CPU 285 s → 109 s. Medido e descartado: MTP do próprio modelo (mais lento na GPU e na CPU), threads e tamanho do bloco (o padrão já é o melhor). Escrever menos: resposta de 2 frases depois de gravar, correção direto no arquivo, pedido de texto sem arquivo nem site: −27% de tokens escritos e −18% de chamadas, com a mesma nota.
 
+- **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
+
 ## Agora
 
-1. **Publicar a 0.1.38** (instalador em `release/`): `gh release create v0.1.38 …` com o .exe, o .blockmap e o latest.yml.
+1. **Publicar a 0.1.39** (instalador em `release/`): `gh release create v0.1.39 …` com o .exe, o .blockmap e o latest.yml.
 1. **Áudio pelo celular:** hoje a mensagem de voz recebe "mande por texto"; falta uma transcrição local leve (a do Quest depende de um serviço à parte).
 2. **Briefings por setor** além de proposta e orçamento (RH, compras, jurídico), e medir quanto cada novo briefing ajuda com a bateria 4 antes de manter.
 3. **Respostas longas e o limite de saída do modelo:** o relatório completo ainda passa do limite às vezes; ver se o `append` é usado sozinho ou se precisa de trava.

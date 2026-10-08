@@ -2,7 +2,7 @@
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
 import { briefBlock, withAdjustOptions } from "./briefs.js";
-import { clockObservation, discountObservation, distressObservation, mathObservation, weekdayObservation } from "./runtimeFacts.js";
+import { clockObservation, discountObservation, distressObservation, followUpMath, mathObservation, weekdayObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { readFile, readdir, stat } from "node:fs/promises";
@@ -532,7 +532,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
-    const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
+    const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||followUpMath(trimmed,history)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
     // How a complete delivery of this kind looks (app/briefs/*.md): a poor request ("faz um convite
     // pro niver") gets the defaults decided, the structure and the adjustment options at the end.
     const brief = observation ? null : briefBlock(trimmed, env);

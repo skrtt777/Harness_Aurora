@@ -273,7 +273,10 @@ export async function runChatAgent({
       continue;
     }
     // A document that exists nowhere (a "sim" backed by an invented file).
-    if (!toolCalls.length && offered.length && !inventionChecked && checkCitations) {
+    // Not when the answer says it CREATED the file without writing it: that is a delivery claim, and
+    // the delivery guard asks for the file. Called "invented", the RH agent apologized and wrote
+    // nothing (agent battery, 07/10 and 08/10).
+    if (!toolCalls.length && offered.length && !inventionChecked && checkCitations && !claimsDelivery(text, steps, { context: contextText(messages) })) {
       inventionChecked = true;
       const invented = await checkCitations(text, steps).catch(() => []);
       if (invented.length) {
@@ -347,11 +350,15 @@ export async function runChatAgent({
     }
     // An e-mail with "[valor]", "[data do vencimento]", "[Duplicata nº XXX]" after reading the sheet
     // that has them (usage tests, 3 runs in 3, 06/10). The signature ("[Seu nome]") may stay.
-    const blanks = steps.some((s) => s.ok && s.tool === "read_file") ? (text.match(/\[[^\]\n]{1,40}\]/g) || []).filter((b) => /valor|data|vencimento|n[uú]mero|duplicata|cliente|quantia|dias|XXX|\bX\b/i.test(b) && !/\b(seu|sua)\b/i.test(b)) : [];
+    // (Also after only a search of the documents: the e-mail came out as a template with [Nome do Cliente]
+    // and [Valor total em atraso] when the sheet was never read; 1 run in 3, 08/10.)
+    const consultedData = steps.some((s) => s.ok && (s.tool === "read_file" || s.tool === "knowledge_search"));
+    const readSheet = steps.some((s) => s.ok && s.tool === "read_file");
+    const blanks = consultedData ? (text.match(/\[[^\]\n]{1,40}\]/g) || []).filter((b) => /valor|data|vencimento|n[uú]mero|duplicata|cliente|quantia|dias|XXX|\bX\b/i.test(b) && !/\b(seu|sua)\b/i.test(b)) : [];
     if (!toolCalls.length && !blanksChecked && blanks.length) {
       blanksChecked = true;
       checks.push({ check: "data_blanks", answer: blanks.join(" ") });
-      messages.push({ role: "assistant", content: text }, { role: "user", content: `Você deixou para preencher ${blanks.join(", ")}, mas esses dados estão no que você leu. Reescreva o texto com os nomes, números, datas e valores reais (só a assinatura pode ficar em branco).` });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Você deixou para preencher ${blanks.join(", ")}, mas esses dados estão ${readSheet ? "no que você leu" : "nos documentos que a busca achou: leia o documento com read_file (filter/sort para achar o cliente ou o valor)"}. Reescreva o texto com os nomes, números, datas e valores reais (só a assinatura pode ficar em branco).` });
       continue;
     }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.

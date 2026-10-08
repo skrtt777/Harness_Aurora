@@ -72,7 +72,8 @@ export function mathObservation(input){
   if(tokens.filter((t)=>typeof t==='number').length<2||tokens.some((t)=>Number.isNaN(t)))return null;
   // A date (26/12/2026) or a phone (4000-1234) is not a calculation.
   if(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/.test(span)&&!/\b(dividido|quanto|calcul)/.test(String(input).toLowerCase()))return null;
-  if(!/\bquanto (e|da|fica)|calcul|resultado|conta\b|^\s*[\d(]/.test(String(input).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')))return null;
+  // (Also typed short: "qnto da 12 vezes 37" never reached the calculator; usage tests, 08/10.)
+  if(!/\b(quanto|qnto|qto|qnt) (e|eh|da|fica)|calcul|resultado|conta\b|^\s*[\d(]/.test(String(input).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')))return null;
   const value=evaluate(tokens);
   if(value===null)return null;
   const shown=new Intl.NumberFormat('pt-BR',{maximumFractionDigits:6}).format(Math.round(value*1e6)/1e6);
@@ -133,4 +134,29 @@ export function distressObservation(input){
     `Indique ajuda: o CVV atende 24h de graça pelo telefone 188 ou em cvv.org.br, e conversar com um psicólogo ou médico ajuda.${urgent?' Se ela corre perigo agora, ligue 188 ou 192 (SAMU) ou vá a um pronto-socorro.':''}`,
     'Não dê diagnóstico nem lista de dicas genéricas.'
   ].join('\n')};
+}
+
+// "Volta naquela multiplicação de antes e divide por 2": the earlier sum is found in the conversation
+// and the new step computed here. The model took the electricity bill said in between (R$ 230,45)
+// instead of 12 x 37 = 444, 1 run in 3 (usage tests, 07-08/10).
+const KINDS=[[/multiplica/,/vezes|\*|multiplic|\bx\b/],[/soma|adi[cç]/,/\bmais\b|\+|soma/],[/subtra/,/\bmenos\b|subtra/],[/divis/,/dividid|divid|\//]];
+export function followUpMath(input,history=[]){
+  const text=String(input||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  if(!/\b(aquel[ae]|anterior|de antes|da conta|esse resultado|aquele resultado|o resultado)\b/.test(text))return null;
+  const step=/\b(divid\w*|multiplic\w*|vezes|mais|menos|soma\w*)\s*(?:por|com|a|o)?\s*(\d+(?:[.,]\d+)?)/.exec(text);
+  if(!step)return null;
+  const kind=KINDS.find(([named])=>named.test(text));
+  for(const message of [...history].reverse()){
+    if(message.role!=='user')continue;
+    const said=String(message.content||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    if(kind&&!kind[1].test(said))continue;
+    const before=mathObservation(said);
+    const value=before&&/=\s*(-?[\d.,]+)\s*$/.exec(before.local)?.[1];
+    if(!value)continue;
+    const symbol=/^divid/.test(step[1])?'/':/^(multiplic|vezes)/.test(step[1])?'*':/^(mais|soma)/.test(step[1])?'+':'-';
+    const now=mathObservation(`quanto da ${value} ${symbol} ${step[2]}`);
+    if(!now)return null;
+    return {...now,block:`A conta anterior a que a pessoa se refere: ${before.local}. ${now.block}`};
+  }
+  return null;
 }

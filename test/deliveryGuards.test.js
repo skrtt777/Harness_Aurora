@@ -225,3 +225,31 @@ test("a text the model tried to save in a file (refused: text only) is the answe
   assert.equal(result.text, message);
   assert.equal(calls, 1, "one model call: nothing generated again");
 });
+
+test("a text left with [Nome do Cliente] after only a search goes back to read the document", async () => {
+  const search = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "1. Fonte: Contas a Receber.xlsx" };
+  const replies = [
+    { ok: true, text: "", toolCalls: [{ name: "knowledge_search", arguments: { query: "inadimplência" } }] },
+    { ok: true, text: "Assunto: Cobrança - [Nome do Cliente]\n\nPrezado, o valor de [Valor total em atraso] segue pendente.\n\n[Seu nome]" },
+    { ok: true, text: "Assunto: Cobrança - Empório Central\n\nPrezado, o valor de R$ 157.935,04 segue pendente.\n\n[Seu nome]" },
+  ];
+  const sent = [];
+  const result = await runChatAgent({ system: "s", input: "escreve um email de cobrança pro cliente q mais deve", tools: [search], callModel: async (messages) => { sent.push(messages.at(-1)?.content); return replies.shift(); } });
+  assert.deepEqual(result.checks.map((c) => c.check), ["data_blanks"]);
+  assert.match(String(sent.at(-1)), /leia o documento com read_file/);
+  assert.match(result.text, /Empório Central/);
+});
+
+test("an answer that says it created a file it never wrote is asked for the file, not told it invented a document", async () => {
+  const read = { name: "read_file", description: "lê", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "Controle de Férias 2026.xlsx\nNome | Início\nMarcos | 05/10/2026" };
+  const write = { name: "write_document", description: "grava", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "Criei C:\RH\ferias_outubro_2026.xlsx (XLSX, 900 bytes)." };
+  const replies = [
+    { ok: true, text: "", toolCalls: [{ name: "read_file", arguments: { path: "Controle de Férias 2026.xlsx" } }] },
+    { ok: true, text: "Criei a planilha ferias_outubro_2026.xlsx com os funcionários que saem de férias em outubro." },
+    { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "ferias_outubro_2026.xlsx", content: "| Nome | Início |\n|---|---|\n| Marcos | 05/10/2026 |" } }] },
+    { ok: true, text: "Criei C:\RH\ferias_outubro_2026.xlsx com 1 funcionário." },
+  ];
+  const result = await runChatAgent({ system: "s", input: "faça uma planilha com quem sai de férias em outubro", tools: [read, write], callModel: async () => replies.shift(), checkCitations: async (text, steps) => (steps.some((s) => s.tool === "write_document" && s.ok) ? [] : ["ferias_outubro_2026.xlsx"]) });
+  assert.deepEqual(result.checks.map((c) => c.check), ["claimed_delivery"]);
+  assert.ok(result.steps.some((s) => s.tool === "write_document" && s.ok));
+});

@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.39': {
+    title: 'A Aurora ficou mais rápida',
+    items: [
+      ['Volta na hora', 'Quando a Aurora fica um tempo parada e você volta a falar com ela, a primeira resposta não demora mais. Em computadores sem placa de vídeo, passou de mais de um minuto para cerca de um segundo.'],
+      ['Respostas mais diretas', 'Depois de criar um arquivo, a Aurora diz em duas frases onde ele está e o principal resultado, sem repetir tudo. Convites, recados e e-mails saem direto na conversa, sem abrir arquivo nem site.'],
+      ['Tarefas mais rápidas', 'Nos testes, as tarefas de empresa ficaram 45% mais rápidas com placa de vídeo e 24% mais rápidas só com o processador, com a mesma qualidade.'],
+      ['E-mails e relatórios mais completos', 'O e-mail de cobrança já vem com o cliente e o valor certos, e com um prazo como "nos próximos 5 dias úteis" em vez de um campo em branco. Os relatórios trazem os valores exatos da planilha.'],
+    ],
+  },
   '0.1.38': {
     title: 'Peça do seu jeito: a Aurora completa o resto',
     items: [
