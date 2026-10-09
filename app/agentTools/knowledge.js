@@ -115,13 +115,15 @@ export const knowledgeTools = [
     stage: () => "Guardando na memória…",
     describe: () => ({ kind: "meta" }),
     async run({ title, content, scope }, ctx) {
-      const target = scope === "project" && ctx.projectId ? "project" : scope === "conversation" ? "conversation" : "global";
+      // Inside a project (a company), what is learned stays in it unless asked for everywhere; and
+      // createMemory keeps anything sensitive out of global whatever was asked (LGPD).
+      const target = scope === "conversation" ? "conversation" : ctx.projectId && scope !== "global" ? "project" : scope === "global" || !ctx.projectId ? "global" : "project";
       const memory = await createMemory({
         scope: target, projectId: ctx.projectId, conversationId: ctx.conversationId,
         title: clip(title || content, 80), content: clip(content, 600), kind: "extracted",
         source: "Salvo pela Aurora durante a conversa", env: ctx.env,
       });
-      return memory.deduplicated ? `Já existia uma memória igual: "${memory.title}".` : `Guardei: "${memory.title}" (${target}).`;
+      return memory.deduplicated ? `Já existia uma memória igual: "${memory.title}".` : `Guardei: "${memory.title}" (${memory.scope}${memory.scope !== target ? ", não global: tem dado pessoal ou de cliente" : ""}).`;
     },
   },
   {

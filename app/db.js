@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSensitive } from "./sensitive.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(root, "data");
@@ -122,6 +123,14 @@ function migrateSchema(db) {
   }
   if (!memoryColumns.some(c => c.name === "embedding_model")) db.exec("ALTER TABLE memories ADD COLUMN embedding_model TEXT");
   if (!memoryColumns.some(c => c.name === "revision")) db.exec("ALTER TABLE memories ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
+  // LGPD: personal or business data (a client's debt, a CPF, a colleague's salary) marked, so it never
+  // travels to another project, the shared central memory or the paid teacher. Existing memories are
+  // classified once, here.
+  if (!memoryColumns.some(c => c.name === "sensitive")) {
+    db.exec("ALTER TABLE memories ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0");
+    const mark = db.prepare("UPDATE memories SET sensitive = 1 WHERE id = ?");
+    for (const row of db.prepare("SELECT id, title, content FROM memories").all()) if (isSensitive(`${row.title}\n${row.content}`)) mark.run(row.id);
+  }
   // Fase 2: ciclo de vida — quantas vezes a memória entrou no contexto e se o
   // turno deu certo ou errado com ela; lições que só falham são arquivadas.
   if (!memoryColumns.some(c => c.name === "uses")) db.exec("ALTER TABLE memories ADD COLUMN uses INTEGER NOT NULL DEFAULT 0");

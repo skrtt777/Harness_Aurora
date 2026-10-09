@@ -1,3 +1,4 @@
+import { sensitiveFindings } from "../sensitive.js";
 import { assertAllowedUrl } from "./netGuard.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
@@ -128,6 +129,9 @@ export const webTools = [
     stage: (a) => `Pesquisando "${a.query}"…`,
     async run({ query }, ctx) {
       if (!String(query || "").trim()) throw new Error("Informe o que pesquisar.");
+      // LGPD: a CPF, CNPJ, e-mail, phone or account in a search goes to the search engine. Refused.
+      const identifiers = sensitiveFindings(query).filter((f) => ["CPF", "CNPJ", "e-mail", "telefone", "conta bancária", "cartão", "senha ou chave", "data de nascimento"].includes(f));
+      if (identifiers.length) throw new Error(`Não pesquiso na internet com dado pessoal (${identifiers.join(", ")}): ele iria para o buscador. Pesquise sem esse dado ou use os documentos (knowledge_search).`);
       // The person's own paper: only their files (the web results led to an "average" light bill).
       const personal = await personalFirst(ctx).catch(() => "");
       if (personal) return personal.replace(/\n\nNa internet \(provavelmente não serve\):\n$/, "\n(A internet não tem os documentos da pessoa: leia estes arquivos com read_file.)");

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
+import { isSensitive } from "./sensitive.js";
 import { centralConfig, relevantCentralMemories } from './centralMemory.js';
 import { cosineSimilarity, decodeEmbedding, embedText, encodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 import { taskProfile, queryTerms, referenceCompatibility, selectiveContext } from './contextSelection.js';
@@ -55,6 +56,7 @@ function mapMemory(row) {
   return {
     id: row.id,
     scope: row.scope,
+    sensitive: Boolean(row.sensitive),
     projectId: row.project_id || null,
     conversationId: row.conversation_id || null,
     title: row.title,
@@ -377,6 +379,14 @@ export async function createMemory({
   const cleanContent = String(content || "").trim();
   if (!cleanContent) throw new Error("O conteúdo da memória é obrigatório.");
   const cleanTitle = String(title || "Memória").trim() || "Memória";
+  // LGPD: a client's debt, a CPF or a colleague's salary learned by the Aurora never becomes global
+  // (a memory of company X would show up in company Y's project): it stays in its project or, outside
+  // one, in its conversation. A person who saves one as global by hand still can, marked sensitive.
+  const sensitive = isSensitive(`${cleanTitle}\n${cleanContent}`);
+  if (sensitive && kind !== "manual" && scope === "global") {
+    if (projectId) scope = "project";
+    else if (conversationId) scope = "conversation";
+  }
   const embeddingText = embeddingInputFor({ title: cleanTitle, content: cleanContent, tags });
   const vector = dedupe ? await embedText(embeddingText, env).catch(() => null) : null;
   if (dedupe) {
@@ -403,6 +413,7 @@ export async function createMemory({
     ts,
     ts,
   );
+  if (sensitive) db.prepare("UPDATE memories SET sensitive = 1 WHERE id = ?").run(id);
   if (vector) db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?").run(encodeEmbedding(vector), resolveEmbeddingModel(env), id);
   else await attachEmbedding(db, id, embeddingText, env);
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
@@ -546,8 +557,12 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
   const pools = [
     { scope: "conversation", weight: 1.6, rows: conversationId ? db.prepare("SELECT * FROM memories WHERE scope = 'conversation' AND conversation_id = ?").all(conversationId) : [] },
     { scope: "project", weight: 1.3, rows: projectId ? db.prepare("SELECT * FROM memories WHERE scope = 'project' AND project_id = ?").all(projectId) : [] },
-    { scope: "global", weight: 1, rows: db.prepare("SELECT * FROM memories WHERE scope = 'global'").all() },
-    { scope: 'personal', weight: 0.8, rows: central.crossChatEnabled ? db.prepare("SELECT * FROM memories WHERE scope='conversation' AND conversation_id != ?").all(conversationId || '') : [] },
+    // A sensitive global memory the Aurora made (before the rule above, or imported) does not go into
+    // every project; one the person saved as global by hand does.
+    { scope: "global", weight: 1, rows: db.prepare("SELECT * FROM memories WHERE scope = 'global' AND (sensitive = 0 OR kind = 'manual')").all() },
+    // "My other chats" means the other chats of the same project (or of no project): never another
+    // company's project. Their sensitive memories stay in their chat.
+    { scope: 'personal', weight: 0.8, rows: central.crossChatEnabled ? db.prepare("SELECT m.* FROM memories m JOIN conversations c ON c.id = m.conversation_id WHERE m.scope='conversation' AND m.conversation_id != ? AND m.sensitive = 0 AND IFNULL(c.project_id, '') = ?").all(conversationId || '', projectId || '') : [] },
     { scope: 'central', weight: 0.65, rows: shared.map(m => ({ id:m.id, scope:'central', title:m.title, content:m.content, tags:JSON.stringify(m.tags), kind:'imported', source:m.source, created_at:m.createdAt, updated_at:m.updatedAt })) },
   ];
   const scored = [];

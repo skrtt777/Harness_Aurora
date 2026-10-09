@@ -755,6 +755,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
                 await createMemory({
                   scope,
                   projectId: conversation.projectId || undefined,
+                  conversationId: conversation.id,
                   title: candidate.title,
                   content: candidate.content,
                   tags: candidate.tags,
@@ -772,6 +773,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
                 await createMemory({
                   scope,
                   projectId: conversation.projectId || undefined,
+                  conversationId: conversation.id,
                   title: `Template: ${correction.template.title}`,
                   content: correction.template.content,
                   tags: [...correction.template.tags, "template"],

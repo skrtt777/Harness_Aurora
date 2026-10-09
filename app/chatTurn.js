@@ -545,7 +545,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     // An agent's earlier deliveries only for a request about them: shown always, an RH agent took
     // last week's file for today's work and wrote nothing (team eval, 06/10).
     const aboutEarlierWork = looksBack || /\b(atualiz|complement|acrescent|corrij|revis|a mesma|o mesmo|de novo|outra vez|da [uú]ltima vez|que (voc[êe] )?(fez|criou|entregou|gerou))/i.test(trimmed);
-    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock().catch(() => []) : []), ...(aboutEarlierWork ? previousWork(env) : [])];
+    const continuity = [...(await profileBlock().catch(() => [])), ...(looksBack ? await diaryBlock(new Date(), { projectId: conversation.projectId || "" }).catch(() => []) : []), ...(aboutEarlierWork ? previousWork(env) : [])];
     const promptArgs = {
       input: trimmed,
       history,

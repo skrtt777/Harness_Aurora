@@ -1,3 +1,4 @@
+import { maskSensitive } from "./sensitive.js";
 import { createMemory, getSetting, recordMemoryOutcome, setSetting } from "./store.js";
 import { enableSkill, importSkill } from "./skills.js";
 import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, narratesCorrection, parseReview, redoMessage, shouldReview } from "./teacher.js";
@@ -49,7 +50,9 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   onStage(`Revisando com ${label}…`);
   const started = Date.now();
   await spendTeacherCall();
-  const response = await call({ provider: teacherProvider, workspace, env, signal, prompt: buildReviewPrompt({ userMessage, history, steps: first.steps, answer: first.text, signals, workspace, memories }) });
+  // LGPD: the automatic review sends the turn to a service outside the computer. Identifiers (CPF,
+  // CNPJ, e-mail, phone, accounts) go masked and the sensitive memories stay here.
+  const response = await call({ provider: teacherProvider, workspace, env, signal, prompt: maskSensitive(buildReviewPrompt({ userMessage, history, steps: first.steps, answer: first.text, signals, workspace, memories: memories.filter((m) => !m.sensitive) })) });
   review.ms = Date.now() - started;
   if (signal?.aborted) return { result: first, review: { ...review, error: "cancelado" } };
   const verdict = response.ok ? parseReview(response.text) : null;
@@ -66,7 +69,7 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   const lessons = [];
   for (const lesson of verdict.lessons) {
     try {
-      lessons.push(await createMemory({ scope, projectId: conversation.projectId || undefined, title: lesson.title, content: lesson.content, tags: lesson.tags, kind: "extracted", source: `Lição de ${label} (revisão automática)`, env }));
+      lessons.push(await createMemory({ scope, projectId: conversation.projectId || undefined, conversationId: conversation.id, title: lesson.title, content: lesson.content, tags: lesson.tags, kind: "extracted", source: `Lição de ${label} (revisão automática)`, env }));
     } catch { /* a malformed lesson is skipped */ }
   }
   review.lessonIds = lessons.map((m) => m.id);

@@ -1,3 +1,4 @@
+import { maskSensitive } from "./sensitive.js";
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
 import { applyEdits } from "./localDiagnostics.js";
@@ -91,7 +92,8 @@ export function parseCorrectionResponse(text, wrongAnswer) {
 export async function correctLocalAnswer({ question, wrongAnswer, note, context = "", teacherProvider = "codex", env = process.env, signal }) {
   const runProvider = teacherProvider === "claude" ? runClaude : runCodex;
   const timeoutKey = teacherProvider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
-  const prompt = buildCorrectionPrompt(question, wrongAnswer, note, context);
+  // LGPD: identifiers masked before the text leaves the computer (the review still works without them).
+  const prompt = maskSensitive(buildCorrectionPrompt(question, wrongAnswer, note, context));
   const result = await runProvider(prompt, {
     ...env,
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,

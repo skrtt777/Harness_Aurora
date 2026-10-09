@@ -128,6 +128,12 @@ async function pushCentral(api, stillAllowed) {
   for (const row of pending) {
     if (!await stillAllowed()) break;
     if (!['queued','uncertain'].includes(db.prepare('SELECT status FROM central_outbox WHERE id=?').get(row.id)?.status)) continue;
+    // Checked again right before it goes public: queued under older rules, it may carry what the
+    // current ones block.
+    try { contribution(JSON.parse(row.payload).memory); } catch (error) {
+      db.prepare("UPDATE central_outbox SET status='cancelled',error=? WHERE id=?").run(String(error.message).slice(0, 300), row.id);
+      continue;
+    }
     const marker = `<!-- aurora-central-v1:${row.id} -->`;
     const previous = existing.find(issue => !issue.pull_request && issue.body?.startsWith(marker));
     if (previous) {

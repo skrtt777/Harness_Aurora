@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { sensitiveFindings } from './sensitive.js';
 
 export const CENTRAL_REPO = 'skrtt777/Harness_Aurora';
 export const CENTRAL_ROOT = `https://raw.githubusercontent.com/${CENTRAL_REPO}/main/central-memories/`;
@@ -20,7 +21,10 @@ export function privacyFindings(memory) {
     ['caminho pessoal', /(?:[a-z]:[\\/]Users[\\/]|\/home\/|\/Users\/)/i],
     ['documento pessoal', /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/],
     ['telefone', /(?:\+55\s*)?\(\d{2}\)\s*\d{4,5}[- ]?\d{4}\b/],
-  ].filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+  ].filter(([, pattern]) => pattern.test(text)).map(([name]) => name)
+    // Business data too: a client's name, a debt, a value in R$, a CNPJ (LGPD; a public memory reaches
+    // every company that downloads the central).
+    .concat(sensitiveFindings(text)).filter((v, i, all) => all.indexOf(v) === i);
 }
 export function contribution(value) {
   const memory = publicMemory(value);
