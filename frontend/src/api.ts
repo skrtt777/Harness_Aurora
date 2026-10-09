@@ -644,3 +644,13 @@ export const listBriefs = () => request<{ briefs: Brief[] }>("/briefs").then((r)
 export const saveBrief = (content: string) => request<Brief>("/briefs", { method: "POST", body: JSON.stringify({ content }) });
 export const setBriefEnabled = (name: string, enabled: boolean) => request<Brief>(`/briefs/${name}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
 export const deleteBrief = (name: string) => request<{ brief: Brief | null }>(`/briefs/${name}`, { method: "DELETE" });
+
+// Privacidade (LGPD, art. 18): what the Aurora keeps about a person or a client.
+export interface SubjectSearch {
+  term: string; total: number; profile: number;
+  memories: { id: string; scope: string; title: string; excerpt: string }[];
+  conversations: { id: string; title: string; messages: number }[];
+}
+export const searchSubject = (q: string) => request<SubjectSearch>(`/privacy/search?q=${encodeURIComponent(q)}`);
+export const exportSubject = (term: string) => request<Record<string, unknown>>("/privacy/export", { method: "POST", body: JSON.stringify({ term }) });
+export const eraseSubject = (term: string) => request<{ memoriesDeleted: number; messagesRedacted: number; conversationsRenamed: number; profileRedacted: boolean }>("/privacy/erase", { method: "POST", body: JSON.stringify({ term, confirm: true }) });

@@ -1077,3 +1077,17 @@ button.map-node:hover { background: var(--fill-hover); }
 .briefs-triggers { margin: 4px 0 6px; font-size: 13px; opacity: .8; overflow-wrap: anywhere; }
 .briefs-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
 .briefs-text { width: 100%; min-height: 320px; font-size: 13px; line-height: 1.5; resize: vertical; }
+
+/* Privacidade (Configurações → Privacidade). */
+.privacy-panel { display: grid; gap: 18px; }
+.privacy-guarantees h4 { margin: 0 0 6px; }
+.privacy-guarantees ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.privacy-search { display: grid; gap: 6px; }
+.privacy-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.privacy-row .field { flex: 1 1 240px; min-width: 0; }
+.privacy-result { display: grid; gap: 10px; }
+.privacy-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.privacy-scope { font-size: 12px; opacity: .75; margin-left: 6px; }
+.privacy-excerpt { font-size: 13px; opacity: .8; overflow-wrap: anywhere; }
+.privacy-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.privacy-confirm { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }

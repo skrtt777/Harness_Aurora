@@ -6,6 +6,7 @@ import { localExperiment } from "./localModelRelease.js";
 import { centralStatus, updateCentralConfig, listCentralMemories, previewContribution, approveContribution, cancelContribution, syncCentral, startCentralScheduler, githubIdentity } from "./centralMemory.js";
 import { authorize, readJson, httpError } from "./httpSecurity.js";
 import { allBriefs, deleteBrief, saveBrief, setBriefEnabled } from "./briefs.js";
+import { eraseSubject, exportSubject, searchSubject } from "./privacy.js";
 import { getDb } from "./db.js";
 import { undoChanges } from "./undoMoves.js";
 import { listMcpServers, mcpStatus, saveMcpServers } from "./mcp.js";
@@ -120,6 +121,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "GET" && pathname === "/api/session") return sendJson(response, 200, { token: apiToken });
 
       if (pathname === '/api/central/status' && method === 'GET') return sendJson(response, 200, await centralStatus());
+      // LGPD, art. 18: what is kept about a person or client, a copy of it, and its erasure.
+      if (pathname === '/api/privacy/search' && method === 'GET') return sendJson(response, 200, await searchSubject(url.searchParams.get('q') || ''));
+      if (pathname === '/api/privacy/export' && method === 'POST') return sendJson(response, 200, await exportSubject(String((await readJson(request)).term || '')));
+      if (pathname === '/api/privacy/erase' && method === 'POST') { const body = await readJson(request); return sendJson(response, 200, await eraseSubject(String(body.term || ''), { confirm: body.confirm === true })); }
       if (pathname === '/api/central/config' && method === 'PATCH') return sendJson(response, 200, await updateCentralConfig(await readJson(request)));
       if (pathname === '/api/central/memories' && method === 'GET') {
         const limit = Number(url.searchParams.get('limit') || 100);

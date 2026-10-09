@@ -31,6 +31,7 @@ import FoldersPanel from './FoldersPanel';
 import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
 import BriefsPanel from './BriefsPanel';
+import PrivacyPanel from './PrivacyPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
 const SECTIONS = [
@@ -38,6 +39,7 @@ const SECTIONS = [
   { id: "folders", label: "Pastas" },
   { id: "agent", label: "Agente" },
   { id: "briefs", label: "Briefings" },
+  { id: "privacy", label: "Privacidade" },
   { id: "phone", label: "Celular" },
   { id: "teacher", label: "Professor" },
   { id: "local", label: "IA local" },
@@ -420,6 +422,13 @@ export default function SettingsView({
             <div className="section"><FoldersPanel /></div>
           </>}
 
+          {section === "privacy" && <>
+            <header className="page-header">
+              <h2 className="page-title">Privacidade</h2>
+              <p className="page-desc">Como a Aurora protege os dados pessoais e de clientes (LGPD), e onde você consulta, exporta ou apaga tudo o que ela guarda sobre alguém.</p>
+            </header>
+            <div className="section"><PrivacyPanel /></div>
+          </>}
           {section === "briefs" && <>
             <header className="page-header">
               <h2 className="page-title">Briefings</h2>
