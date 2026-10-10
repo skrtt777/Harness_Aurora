@@ -40,6 +40,11 @@ try {
   const saved = await tool("desktop_click", { ref: saveNow });
   check("salva e lê o resultado na tela", /Salvo: Empório Central \(teste\) \| Recife \| VIP=True/.test(saved.result), (/Salvo:[^"\n]*/.exec(saved.result) || ["?"])[0]);
   check("não pediu de novo depois de autorizado", asked.length === 1, `${asked.length} pedido(s)`);
+  // A grid read by copying (Ctrl+A, Ctrl+C), the person's clipboard put back.
+  const gridRef = refOf((await tool("desktop_snapshot", { window: title })).result, 'Table "Pedidos"') || refOf((await tool("desktop_snapshot", { window: title })).result, '[A-Za-z]+ "Pedidos"');
+  if (gridRef) await tool("desktop_click", { ref: gridRef });
+  const copied = await tool("desktop_copy", { window: title });
+  check("lê uma grade copiando", /PC-102 \| Hotel Litoral Norte \| 820\.50/.test(copied.result), copied.result.split("\n").slice(0, 2).join(" ¶ "));
   const blocked = await tool("desktop_snapshot", { window: "Aurora" }).catch((e) => ({ ok: false, result: e.message }));
   check("recusa controlar a própria Aurora", !blocked.ok || /protegido|Nenhuma janela/.test(blocked.result), blocked.result.split("\n")[0]);
   const plan = await executeTool("desktop_click", { ref: saveNow }, { ...ctx, mode: "plan", desktopApproved: new Set() });

@@ -1151,6 +1151,8 @@ export const fileTools = [
     },
     async run({ path, offset = 1, limit = 400, filter, sort }, ctx) {
       const file = await resolveExisting(path, ctx);
+      // An Access database is not text: read as one, the model looped through it (10/10/2026).
+      if (/\.(accdb|mdb)$/i.test(file)) throw new Error(`${basename(file)} é um banco do Access: use access_db (action=tables para ver as tabelas, action=query com um SELECT).`);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
       let lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
