@@ -80,6 +80,15 @@ export async function decide(access, ctx) {
     case "browse":
     case "meta":
       return { action: "allow" };
+    // A program on the computer (Access, Excel, an ERP): the person authorizes each program once per
+    // turn ("Sempre permitir" for good); never in Plan mode.
+    case "desktop": {
+      if (mode === "plan") return { action: "deny", reason: "No modo Plano a Aurora só olha os programas; não clica nem digita." };
+      const program = String(access.program || "").toLowerCase();
+      if (program && ctx.desktopApproved?.has(program)) return { action: "allow" };
+      if (program && ["desktop_click", "desktop_type", "desktop_key"].some((tool) => matchesAlwaysAllow(ctx.alwaysAllow, tool, program))) return { action: "allow" };
+      return { action: "ask", reason: `Controlar o programa ${access.program || ""}`.trim(), rule: program || undefined };
+    }
     case "interact":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano a Aurora só observa páginas; não clica nem digita." } : { action: "allow" };
     case "share":

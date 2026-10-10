@@ -8,13 +8,14 @@ import { webTools } from "./web.js";
 import { knowledgeTools } from "./knowledge.js";
 import { computerTools } from "./computer.js";
 import { delegateTools } from "./delegate.js";
+import { desktopTools } from "./desktop.js";
 import { decide } from "../agentPolicy.js";
 
 // Browser and web tools only look, except the ones that act on a page.
 const INTERACT = new Set(["browser_click", "browser_type", "browser_key"]);
 for (const tool of [...browserTools, ...webTools]) tool.describe ||= () => ({ kind: INTERACT.has(tool.name) ? "interact" : "browse" });
 
-export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools];
+export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...desktopTools];
 const byName = new Map(AGENT_TOOLS.map((tool) => [tool.name, tool]));
 export const MAX_TOOL_RESULT = 4500;
 
@@ -63,6 +64,8 @@ export async function executeTool(name, args, ctx, tools = AGENT_TOOLS) {
       const answer = await ctx.approve({ tool: name, summary: access.summary || `${name} ${JSON.stringify(input).slice(0, 200)}`, detail: decision.reason, rule: decision.rule });
       if (!answer) return { ok: false, denied: true, result: `ERRO: o usuário não autorizou (${decision.reason}). Não tente contornar; pergunte o que ele prefere.${whereFree()}`, ms: Date.now() - started };
       if (answer === "always" && decision.rule) await ctx.onAlwaysAllow?.({ tool: name, prefix: decision.rule });
+      // A program authorized once is driven for the rest of the turn without asking at every click.
+      if (access.kind === "desktop" && access.program) (ctx.desktopApproved ||= new Set()).add(String(access.program).toLowerCase());
     }
     const output = String(await tool.run(input, ctx));
     return { ok: true, result: output.length > MAX_TOOL_RESULT ? `${output.slice(0, MAX_TOOL_RESULT)}\n… (cortado)` : output, ms: Date.now() - started };
