@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.40': {
+    title: 'Peça no chat, a Aurora faz nos programas',
+    items: [
+      ['Excel junto com você', '"Abre o Excel", "cria uma planilha de estoque com as colunas Produto, Quantidade e Preço": a Aurora monta na sua frente, com fórmulas que calculam de verdade, pergunta se está certo, formata em reais e salva onde você pedir.'],
+      ['Word junto com você', '"Abre o Word e escreve um orçamento para o cliente Marcos": título, texto e tabela aparecem no documento. "Acrescenta o prazo no final", "salva em PDF": ela faz.'],
+      ['Qualquer programa', 'Calculadora, Access, o sistema da empresa: a Aurora abre, olha a tela, faz os passos e confere o resultado na tela antes de responder. Você só confirma.'],
+      ['Seus dados protegidos', 'O que é de uma empresa não aparece para outra. CPF, salário e dados de clientes não vão para a memória geral. Em Configurações → Privacidade você encontra, exporta ou apaga os dados de uma pessoa (LGPD).'],
+      ['Sempre com sua autorização', 'Antes de mexer num programa, a Aurora pergunta uma vez. Ela nunca mexe nas configurações e na segurança do Windows, nem no terminal ou no gerenciador de tarefas, e no modo Plano só observa.'],
+    ],
+  },
   '0.1.39': {
     title: 'A Aurora ficou mais rápida',
     items: [

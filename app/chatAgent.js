@@ -197,7 +197,7 @@ const DELETE_ASKED = /\b(apag|exclu|delet|limp|remov|jog(a|ue) fora|lixeira|livr
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
-  deliverFirst = false,
+  deliverFirst = false, coworking = false,
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null,
 }) {
@@ -227,6 +227,8 @@ export async function runChatAgent({
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
+  let describedChecked = false;
+  let screenChecked = false;
   let searches = 0;
   let confirmChecked = false;
   let sentChecked = false;
@@ -336,6 +338,33 @@ export async function runChatAgent({
       deleteChecked = true;
       checks.push({ check: "claimed_delete", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Nenhum comando de apagar deu certo nesta resposta: nada foi apagado. Diga a verdade à pessoa (os arquivos continuam lá) e, se ela confirmar, tente de novo." });
+      continue;
+    }
+    // Working in a program with the person: "clique em [d39], [d29]…" handed the clicks back to the
+    // person (calculator, 10/10). The Aurora does the steps; the person only confirms.
+    // "O resultado é 8.638" with the calculator showing 69.104 (10/10): a result told from a program
+    // must be on its screen, as the last look at it shows.
+    const lastLook = [...steps].reverse().find((s) => s.ok && /^desktop_(click|type|key|snapshot)$/.test(s.tool));
+    if (!toolCalls.length && coworking && !screenChecked && lastLook) {
+      // Numbers as digits only ("69.104" and "69104" match; "8,5" is "85" on both sides).
+      const digits = (t) => ` ${String(t).replace(/(\d)[.,](?=\d)/g, "$1").replace(/\D+/g, " ")} `;
+      const screen = digits(lastLook.result || "");
+      const told = [...text.matchAll(/(?:resultado[^0-9\n]{0,25}|=\s*|\*\*)(\d[\d.,]*\d|\d)/gi)].map((m) => m[1].replace(/\D/g, ""));
+      const missing = told.find((n) => !screen.includes(` ${n} `) && !digits(question).includes(` ${n} `));
+      if (missing) {
+        screenChecked = true;
+        checks.push({ check: "result_not_on_screen", answer: text.slice(0, 300) });
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `A tela do programa não mostra ${missing}. Veja o que ela mostra agora (desktop_snapshot) e, se falta um passo (como o "="), faça; depois responda só com o que a tela mostra.` });
+        continue;
+      }
+    }
+    // (Also "falta apertar o =" after typing: the last step left to the person, 10/10.)
+    if (!toolCalls.length && coworking && !describedChecked
+      && ((!steps.some((s) => s.ok && /^(desktop_(click|type|key|copy)|excel|word)$/.test(s.tool)) && (/\[d\d+\]/.test(text) || /\b(clique|aperte|pressione|digite|selecione)\b/i.test(text)))
+        || /\b(falta|precisa|basta) (apertar|clicar|digitar|pressionar)\b/i.test(text))) {
+      describedChecked = true;
+      checks.push({ check: "described_instead_of_doing", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Você descreveu os passos em vez de fazer. Faça você mesmo agora, no programa: desktop_type (com window e sem ref digita onde o cursor está; ex.: na calculadora, text \"1234*56=\") ou desktop_click pelos refs. Depois diga o resultado em 1-2 frases, sem mostrar refs, e pergunte se está certo." });
       continue;
     }
     // "Para criar o convite, preciso de três informações…": a question instead of the delivery

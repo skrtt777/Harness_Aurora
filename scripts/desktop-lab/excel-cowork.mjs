@@ -21,7 +21,7 @@ const steps = [
     { name: "pergunta o que fazer", ok: (t) => asksBack(t.text) },
   ] },
   { message: "cria uma planilha de estoque da padaria com as colunas Produto, Quantidade, Preço unitário e Total, com 5 produtos de exemplo. o total é a quantidade vezes o preço", checks: [
-    { name: "as 4 colunas na planilha", ok: async () => { const s = await look(); return /Produto[^|]*| Quantidade[^|]*| Pre[çc]o unit[áa]rio[^|]*| Total/i.test(s);\| Quantidade \| Pre[çc]o unit[áa]rio \| Total/i.test(s); } },
+    { name: "as 4 colunas na planilha", ok: async () => { const s = await look(); return /Produto[^|\n]*\| Quantidade[^|\n]*\| Pre[çc]o unit[áa]rio[^|\n]*\| Total/i.test(s); } },
     { name: "5 produtos", ok: async () => /\(6 linha\(s\)/.test(await look()) },
     { name: "total = quantidade x preço", ok: async () => {
       const rows = (await look()).split("\n").filter((l) => /^[^|]+\| \d/.test(l)).map((l) => l.split(" | "));

@@ -24,7 +24,7 @@ const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa
 
 // Tools that leave a file behind; a claim of a created file needs one of them.
 // (excel: a sheet filled live in the Excel the Aurora opened is a delivery too.)
-export const WRITE_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command", "excel"]);
+export const WRITE_TOOLS = new Set(["write_file", "edit_file", "write_document", "run_command", "excel", "word"]);
 const DELIVERABLE = "(?:documento|arquivo|planilha|relat[óo]rio|pdf|docx|xlsx|csv|tabela|apresenta[çc][ãa]o|vers[ãa]o atualizada|word|excel)";
 const CLAIM = new RegExp([
   `\\b(?:criei|salvei|gerei|escrevi|elaborei|montei|produzi|atualizei)\\b[^.\\n]{0,60}\\b${DELIVERABLE}`,

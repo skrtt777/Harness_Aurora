@@ -33,3 +33,25 @@ test("live Excel only when the person asks for the Excel; 'crie uma planilha' al
   await assert.rejects(excel.run({ action: "open" }, { request: "crie uma planilha com os formatos e preços", conversationId: "c1" }), /write_document/);
   await assert.rejects(excel.run({ action: "write", data: "| a |" }, { request: "faz uma planilha de gastos", conversationId: "c1" }), /write_document/);
 });
+
+test("markdown becomes Word blocks: headings, paragraphs, lists, a table", async () => {
+  const { wordBlocks } = await import("../app/agentTools/desktop.js");
+  const blocks = wordBlocks("# Orçamento\n\nPrezado **Marcos**,\n\n- Sala\n1. Prazo\n\n| Item | Valor |\n|---|---|\n| Sala | R$ 1.200 |");
+  assert.deepEqual(blocks, [
+    { t: "h1", x: "Orçamento" }, { t: "p", x: "Prezado **Marcos**," }, { t: "li", x: "Sala" }, { t: "ol", x: "Prazo" },
+    { t: "table", rows: [["Item", "Valor"], ["Sala", "R$ 1.200"]] },
+  ]);
+});
+
+test("live Word only when the person asks for the Word", async () => {
+  const { wordTools } = await import("../app/agentTools/desktop.js");
+  await assert.rejects(wordTools[0].run({ action: "open" }, { request: "crie um documento com a proposta", conversationId: "c1" }), /write_document/);
+});
+
+test("Windows settings and security windows are never driven; modern apps authorize by window", async () => {
+  const { BLOCKED_WINDOWS, approvalKey } = await import("../app/desktop.js");
+  for (const title of ["Configurações", "Segurança do Windows", "Controle de Conta de Usuário", "Settings"]) assert.ok(BLOCKED_WINDOWS.test(title), title);
+  assert.ok(!BLOCKED_WINDOWS.test("Calculadora"));
+  assert.equal(approvalKey("ApplicationFrameHost", "Calculadora"), "calculadora");
+  assert.equal(approvalKey("EXCEL", "Pasta1 - Excel"), "excel");
+});

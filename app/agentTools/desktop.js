@@ -1,7 +1,7 @@
 // Ferramentas para programas do Windows (Access, Excel, sistemas da empresa): ver a janela como texto
 // e agir pelos refs, como no navegador. Ver é livre; clicar, digitar e apertar teclas pede
 // autorização por programa (app/agentPolicy.js, kind "desktop").
-import { BLOCKED_PROGRAMS, desktopRequest, programOf, programOfRef, rememberRefs } from "../desktop.js";
+import { BLOCKED_PROGRAMS, BLOCKED_WINDOWS, approvalKey, coworkApp, desktopRequest, programOf, programOfRef, rememberRefs, setCoworkApp } from "../desktop.js";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const answer = (reply, sql = "") => {
@@ -31,26 +31,42 @@ async function snapshot(window, max = 250) {
   const program = programOf(reply.text);
   if (program && BLOCKED_PROGRAMS.test(program) && !labWindow(reply.window)) throw new Error(`A Aurora não controla ${program} (programa protegido).`);
   rememberRefs(reply.text, program, reply.window);
+  lastSeen.set(String(reply.window || window), reply.text);
   return reply.text;
 }
 
-// After an action, the window again: the refs that are there now (a menu opened, a dialog appeared).
+// The last look at each window, to tell what an action changed.
+const lastSeen = new Map();
+const visibleLines = (text) => String(text).split("\n").map((l) => l.replace(/\[d\d+\]\s*/g, "").trim()).filter(Boolean);
+
+// After an action, the window again: what changed first (the result on the calculator's display, a
+// dialog that opened), then the refs that are there now. The model read "56" as done and answered a
+// result the screen never showed (calculator, 10/10): the change is spelled out.
 async function after(message, window) {
   await wait(450);
+  const before = [...lastSeen.entries()].find(([title]) => title.toLowerCase().includes(String(window).toLowerCase()))?.[1];
   const next = await snapshot(window, 160).catch((error) => `(não consegui ver a janela de novo: ${error.message})`);
-  return `${message}\n\n${next}`;
+  if (!before) return `${message}\n\n${next}`;
+  const old = new Set(visibleLines(before));
+  const changed = visibleLines(next).filter((l) => !old.has(l) && !/^Janela: /.test(l)).slice(0, 8);
+  const summary = changed.length ? `Mudou na tela:\n${changed.map((l) => `- ${l}`).join("\n")}` : "Nada mudou na tela.";
+  return `${message}\n\n${summary}\nConfira o resultado na tela antes de responder: diga só o que a tela mostra (se ainda falta um passo, como o "=", faça).\n\n${next}`;
 }
 
 function guard(ref) {
   const owner = programOfRef(ref);
   if (!owner) throw new Error(`Não conheço o ref "${ref}". Veja a janela com desktop_snapshot e use um ref da lista.`);
+  if (BLOCKED_WINDOWS.test(String(owner.window || ""))) throw new Error(`A Aurora não mexe em "${owner.window}" (configurações e segurança do Windows): diga à pessoa o que mudar.`);
   if (owner.program && BLOCKED_PROGRAMS.test(owner.program) && !labWindow(owner.window)) throw new Error(`A Aurora não controla ${owner.program} (programa protegido).`);
   return owner;
 }
 
-const describeAction = (verb) => (args) => {
-  const owner = programOfRef(args.ref) || (args.window ? { program: args.window, window: args.window } : null);
-  return { kind: "desktop", program: owner?.program || "programa", summary: `${verb} em ${owner?.window || owner?.program || "um programa"}${args.text ? `: "${String(args.text).slice(0, 60)}"` : args.keys ? `: ${args.keys}` : ""}` };
+const describeAction = (verb) => (args, ctx = {}) => {
+  // A window by title: its program when it is the one being worked in (the calculator's is ApplicationFrameHost).
+  const app = coworkApp(ctx.conversationId);
+  const byWindow = args.window ? (app && app.window.toLowerCase().includes(String(args.window).toLowerCase()) ? app : { program: args.window, window: args.window }) : null;
+  const owner = programOfRef(args.ref) || byWindow || (!args.ref ? app : null);
+  return { kind: "desktop", program: approvalKey(owner?.program, owner?.window) || "programa", summary: `${verb} em ${owner?.window || owner?.program || "um programa"}${args.text ? `: "${String(args.text).slice(0, 60)}"` : args.keys ? `: ${args.keys}` : ""}` };
 };
 
 // ---- Excel ----
@@ -133,6 +149,83 @@ export const excelTools = [
   },
 ];
 
+// ---- Word ao vivo: the same as Excel, for documents. The text goes in markdown and becomes
+// headings, paragraphs, lists and tables in the document the person is watching.
+/** Markdown -> Word blocks: # títulos, - listas, 1. numeradas, | tabelas |, parágrafos. */
+export function wordBlocks(text) {
+  const blocks = [];
+  let table = null;
+  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    if (/^\|.*\|$/.test(line)) {
+      if (/^\|[\s:|-]+\|$/.test(line)) continue;
+      (table ||= { t: "table", rows: [] }).rows.push(line.slice(1, -1).split("|").map((c) => c.trim()));
+      continue;
+    }
+    if (table) { blocks.push(table); table = null; }
+    if (!line) continue;
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (heading) { blocks.push({ t: `h${heading[1].length}`, x: heading[2] }); continue; }
+    const bullet = /^[-*•]\s+(.*)$/.exec(line);
+    if (bullet) { blocks.push({ t: "li", x: bullet[1] }); continue; }
+    const numbered = /^\d+[.)]\s+(.*)$/.exec(line);
+    if (numbered) { blocks.push({ t: "ol", x: numbered[1] }); continue; }
+    blocks.push({ t: "p", x: line });
+  }
+  if (table) blocks.push(table);
+  return blocks;
+}
+
+let wordOwn = true;
+let wordOpen = false;
+let wordConversation = null;
+export const wordIsOpen = (conversationId) => wordOpen && (!conversationId || conversationId === wordConversation);
+const ASKS_WORD = /\bword\b|documento (que )?(est[áa]|t[áa]) aberto|no documento aberto/i;
+const wordAnswer = (reply) => {
+  if (!reply.ok) { if (/fechado|Nenhum documento/.test(reply.error || "")) wordOpen = false; throw new Error(reply.error); }
+  if (typeof reply.own === "boolean") { wordOwn = reply.own; wordOpen = true; }
+  return reply.text;
+};
+const WORD_NEXT = "\nAgora mostre à pessoa, em 1-2 frases, o que ficou no documento e pergunte se está certo, com **Quer ajustar?** e opções numeradas (ex.: 1. Está certo, pode seguir (recomendado) 2. Ajustar o texto 3. Salvar o arquivo).";
+
+export const wordTools = [
+  {
+    name: "word",
+    description: "Só quando a pessoa pedir o Word (\"abre o Word\", \"no Word\"): escreve no Word ao vivo, na frente dela. Para só criar um documento, use write_document. action=open abre o Word com um documento novo (ou file= um .docx). action=write escreve no fim do documento (text: em markdown; # título, ## subtítulo, - lista, 1. numerada, | tabela |, **negrito**). action=look mostra o que está no documento. action=save salva (path: Documentos/nome.docx, ou .pdf). action=use_open usa o documento que a pessoa já tinha aberto (só se ela pedir).",
+    parameters: { type: "object", properties: {
+      action: { type: "string", enum: ["open", "write", "look", "save", "use_open"] },
+      text: { type: "string", description: "o texto em markdown (action=write)" },
+      path: { type: "string", description: "onde salvar (action=save)" },
+      file: { type: "string", description: "arquivo .docx para abrir (action=open)" },
+    }, required: ["action"] },
+    stage: (a) => ({ open: "Abrindo o Word…", write: "Escrevendo no documento…", look: "Lendo o documento…", save: "Salvando o documento…", use_open: "Pegando o documento aberto…" }[a.action] || "Usando o Word…"),
+    describe: (a, ctx) => {
+      if (a.action === "open") return a.file ? { kind: "read", paths: [accessPath(a.file, ctx)] } : { kind: "open", launch: "app", target: "Word" };
+      if (a.action === "save") return { kind: "write", paths: [accessPath(a.path || "Documentos/documento.docx", ctx)], summary: `Salvar o documento em ${accessPath(a.path || "Documentos/documento.docx", ctx)}` };
+      if (a.action === "look") return { kind: "meta" };
+      if (a.action === "use_open" || !wordOwn) return { kind: "desktop", program: "WINWORD", summary: a.action === "use_open" ? "Usar o documento que você tem aberto no Word" : `Alterar o seu documento no Word (${a.action})` };
+      return { kind: "meta" };
+    },
+    async run(args, ctx) {
+      const action = args.action;
+      if (!args.__fromOpen && !wordIsOpen(ctx.conversationId) && !ASKS_WORD.test(String(ctx.request || ""))) throw new Error("A pessoa não pediu o Word: para criar um documento, use write_document (arquivo .docx). A ferramenta word é só quando ela pede o Word (\"abre o Word\", \"no Word\").");
+      if (action === "open") {
+        wordConversation = ctx.conversationId || null;
+        return `${wordAnswer(await desktopRequest("word_open", { file: args.file ? accessPath(args.file, ctx) : "" }))}\nAgora pergunte à pessoa o que escrever, com 2 ou 3 sugestões curtas numeradas em **Quer ajustar?** (ex.: 1. Uma carta ou ofício (recomendado) 2. Um relatório 3. Uma proposta).`;
+      }
+      if (action === "use_open") return wordAnswer(await desktopRequest("word_attach"));
+      if (action === "look") return wordAnswer(await desktopRequest("word_look", { max: 3000 }));
+      if (action === "write") {
+        const blocks = wordBlocks(args.text);
+        if (!blocks.length) throw new Error("Mande o texto em text, em markdown (# título, parágrafos, - listas, | tabelas |).");
+        return `${wordAnswer(await desktopRequest("word_write", { blocks }))}${WORD_NEXT}`;
+      }
+      if (action === "save") return wordAnswer(await desktopRequest("word_save", { path: accessPath(args.path || "Documentos/documento.docx", ctx) }));
+      throw new Error("action: open, write, look, save ou use_open.");
+    },
+  },
+];
+
 export const desktopTools = [
   {
     name: "desktop_windows",
@@ -152,8 +245,12 @@ export const desktopTools = [
     parameters: { type: "object", properties: { window: { type: "string", description: "parte do título da janela ou nome do programa" } } },
     stage: (a) => `Olhando a janela ${a.window || ""}…`,
     describe: () => ({ kind: "meta" }),
-    async run({ window }) {
-      return snapshot(window);
+    async run({ window }, ctx = {}) {
+      const text = await snapshot(window);
+      // Looking at a program makes it the one this conversation is working in.
+      const title = /^Janela: (.*?)  \[programa: ([^\]]+)\]/.exec(text);
+      if (title) setCoworkApp(ctx.conversationId, { window: title[1], program: title[2] });
+      return text;
     },
   },
   {
@@ -171,11 +268,22 @@ export const desktopTools = [
   },
   {
     name: "desktop_type",
-    description: "Escreve num campo de um programa pelo ref do desktop_snapshot. Num campo de formulário, substitui o que havia; num editor de texto, insere no cursor. submit=true aperta Enter depois.",
-    parameters: { type: "object", properties: { ref: { type: "string" }, text: { type: "string" }, submit: { type: "boolean" } }, required: ["ref", "text"] },
+    description: "Escreve num programa. Com ref (do desktop_snapshot): num campo de formulário, substitui o que havia; num editor de texto, insere no cursor. Sem ref, com window (parte do título): digita na janela onde o cursor está, como o teclado (ex.: na calculadora, text \"1234*56=\"; para seguir do resultado que está na tela, só \"/8=\"). submit=true aperta Enter depois.",
+    parameters: { type: "object", properties: { ref: { type: "string" }, window: { type: "string" }, text: { type: "string" }, submit: { type: "boolean" } }, required: ["text"] },
     stage: (a) => `Digitando "${String(a.text).slice(0, 40)}"…`,
     describe: describeAction("Digitar"),
-    async run({ ref, text, submit }) {
+    async run({ ref, window, text, submit }, ctx = {}) {
+      if (!ref) {
+        const target = window || coworkApp(ctx.conversationId)?.window;
+        if (!target) throw new Error("Diga o ref do campo (desktop_snapshot) ou a janela (window).");
+        const peek = /^Janela: (.*?)  \[/.exec(await snapshot(target, 1))?.[1] || "";
+        if (BLOCKED_WINDOWS.test(peek)) throw new Error(`A Aurora não mexe em "${peek}" (configurações e segurança do Windows): diga à pessoa o que mudar.`);
+        // Typed as text: SendKeys' own symbols (+ ^ % ~ ( ) { } [ ]) escaped; a line break is Enter.
+        const keys = String(text).replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`).replace(/\r?\n/g, "{ENTER}") + (submit ? "{ENTER}" : "");
+        const reply = await desktopRequest("key", { keys, window: target, slow: true });
+        if (!reply.ok) throw new Error(reply.error);
+        return after(`Digitei "${String(text).slice(0, 80)}" em "${peek || target}".`, target);
+      }
       const owner = guard(ref);
       const reply = await desktopRequest("type", { ref, text: String(text), submit: Boolean(submit) });
       if (!reply.ok) throw new Error(reply.error);
@@ -229,8 +337,9 @@ export const desktopTools = [
     stage: (a) => `Apertando ${a.keys}…`,
     describe: describeAction("Apertar teclas"),
     async run({ keys, window }) {
-      // The window first: its program is checked against the protected list before any key goes out.
-      await snapshot(window, 1);
+      // The window first: its program and title are checked against the protected lists before any key goes out.
+      const peek = /^Janela: (.*?)  \[/.exec(await snapshot(window, 1))?.[1] || "";
+      if (BLOCKED_WINDOWS.test(peek)) throw new Error(`A Aurora não mexe em "${peek}" (configurações e segurança do Windows): diga à pessoa o que mudar.`);
       // Closing a window or the computer is not a shortcut the Aurora sends.
       if (/%\{?F4\}?|\^%\{?(DEL|DELETE)\}?/i.test(String(keys))) throw new Error("A Aurora não fecha janelas nem aciona o Ctrl+Alt+Del por atalho; peça à pessoa.");
       const reply = await desktopRequest("key", { keys: String(keys), window });

@@ -19,6 +19,12 @@ let building = null;
 // password and consent prompts. Matched on the program name the host reports.
 export const BLOCKED_PROGRAMS = /^(harness aurora|electron|windowsterminal|cmd|powershell|pwsh|conhost|taskmgr|regedit|mmc|consent|credentialuibroker|lockapp|logonui|securityhealthsystray|windowsdefender|msedgewebview2|aurorauiahost(-[0-9a-f]+)?)$/i;
 
+// Windows' own settings and security screens: looked at, never clicked or typed into.
+export const BLOCKED_WINDOWS = /^(configura[çc][õo]es|settings|seguran[çc]a do windows|windows security|central de seguran[çc]a|controle de conta de usu[áa]rio|user account control)\b/i;
+// Modern apps (Calculator, Settings, Photos…) all show as ApplicationFrameHost: their authorization
+// goes by window, or authorizing the calculator would authorize Settings too.
+export const approvalKey = (program, window) => (/^applicationframehost$/i.test(String(program || "")) ? String(window || program || "").toLowerCase() : String(program || "").toLowerCase());
+
 /**
  * The host program, compiled once from UiaHost.cs with the .NET Framework compiler every Windows 10/11
  * has (no install), into a folder next to the database; compiled again only when the source changes.
@@ -69,6 +75,37 @@ export async function desktopRequest(cmd, args = {}) {
 
 export function stopDesktop() { host?.child.kill(); host = null; }
 process.once("exit", stopDesktop);
+
+// The program the Aurora and the person are working in, per conversation ("abre a calculadora",
+// then "calcula 12 x 30"): the next request goes to it, step by step, each step confirmed.
+const cowork = new Map();
+export function setCoworkApp(conversationId, app) { if (conversationId && app?.window) cowork.set(conversationId, { ...app, at: Date.now() }); }
+export const coworkApp = (conversationId) => (conversationId ? cowork.get(conversationId) || null : null);
+
+/** The open windows as { title, program }, from the host's list. */
+export async function openWindows() {
+  const reply = await desktopRequest("windows");
+  if (!reply.ok) return [];
+  return [...String(reply.text).matchAll(/^- "(.*)" \[programa: ([^\]]+)\]$/gm)].map((m) => ({ title: m[1], program: m[2] }));
+}
+
+/**
+ * After a program was launched: its window, once it shows (a new window, or one of the program
+ * asked for), within `timeoutMs`. null if none appeared.
+ */
+export async function waitForNewWindow(before, { hint = "", timeoutMs = 10_000 } = {}) {
+  const known = new Set(before.map((w) => `${w.title}|${w.program}`));
+  const wanted = String(hint).toLowerCase().replace(/\.exe$/, "");
+  for (const started = Date.now(); Date.now() - started < timeoutMs;) {
+    await new Promise((r) => setTimeout(r, 700));
+    const now = await openWindows();
+    const fresh = now.find((w) => !known.has(`${w.title}|${w.program}`));
+    if (fresh) return fresh;
+    const named = wanted && now.find((w) => w.program.toLowerCase().includes(wanted) || w.title.toLowerCase().includes(wanted));
+    if (named && Date.now() - started > 2500) return named;
+  }
+  return null;
+}
 
 // Which program each ref belongs to (from the snapshot that gave it): the approval is per program.
 const refPrograms = new Map();

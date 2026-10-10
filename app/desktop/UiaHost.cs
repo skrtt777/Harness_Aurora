@@ -444,6 +444,135 @@ static class UiaHost {
     return "Salvei " + book.FullName + ".";
   }
 
+  // ---- Word, through its own automation: the person watches the document being written. Same rules
+  // as Excel: the document the Aurora opened; the person's open one only on request.
+  static dynamic wd;
+  static dynamic doc;
+  static bool docIsOwn;
+  static int wdPid;
+
+  static void NeedDoc() {
+    if (doc == null) throw new Exception("Nenhum documento aberto pela Aurora. Use word com action=open primeiro.");
+    try { var n = (string)doc.Name; } catch { doc = null; throw new Exception("O documento foi fechado. Abra de novo com action=open."); }
+  }
+  static string WordOpen(string file) {
+    if (wd == null) { wd = Activator.CreateInstance(Type.GetTypeFromProgID("Word.Application")); }
+    try { wd.Visible = true; } catch { wd = Activator.CreateInstance(Type.GetTypeFromProgID("Word.Application")); wd.Visible = true; }
+    try { uint pid; GetWindowThreadProcessId(new IntPtr((int)wd.ActiveWindow.Hwnd), out pid); } catch { }
+    doc = string.IsNullOrEmpty(file) ? wd.Documents.Add() : wd.Documents.Open(file);
+    docIsOwn = true;
+    try { wd.WindowState = 1; wd.Activate(); } catch { } // maximized, in front
+    try { foreach (var p in Process.GetProcessesByName("WINWORD")) { if (p.MainWindowTitle.Contains((string)doc.Name)) wdPid = p.Id; } } catch { }
+    return "Abri o Word" + (string.IsNullOrEmpty(file) ? " com um documento novo (\"" + doc.Name + "\")" : " com \"" + doc.Name + "\"") + ". A pessoa está vendo o documento.";
+  }
+  static string WordAttach() {
+    dynamic app;
+    try { app = Marshal.GetActiveObject("Word.Application"); } catch { throw new Exception("Não há um Word aberto. Use action=open."); }
+    doc = app.ActiveDocument;
+    docIsOwn = false;
+    return "Usando o documento aberto pela pessoa: \"" + doc.Name + "\".";
+  }
+  // blocks: [{t:"h1"|"h2"|"h3"|"p"|"li"|"ol", x:"texto"}, {t:"table", rows:[[...]]}], written at the end.
+  static string WordWrite(object blocksObj) {
+    NeedDoc();
+    var blocks = blocksObj as System.Collections.IList;
+    if (blocks == null || blocks.Count == 0) throw new Exception("Nada para escrever.");
+    dynamic sel = wd.Selection;
+    sel.EndKey(6); // to the end of the document
+    // A document that is only an empty paragraph starts at it, not after it.
+    bool empty = ((string)doc.Content.Text).Trim().Length == 0;
+    int paragraphs = 0, tables = 0;
+    foreach (var item in blocks) {
+      var b = item as Dictionary<string, object>;
+      if (b == null) continue;
+      string t = Convert.ToString(b.ContainsKey("t") ? b["t"] : "p");
+      if (!empty) sel.TypeParagraph();
+      empty = false;
+      if (t == "table") {
+        var rows = b["rows"] as System.Collections.IList;
+        int cols = 0; foreach (System.Collections.IList r in rows) cols = Math.Max(cols, r.Count);
+        sel.Range.Style = (object)(-1);
+        dynamic table = doc.Tables.Add(sel.Range, rows.Count, cols);
+        table.Borders.Enable = 1;
+        for (int i = 0; i < rows.Count; i++) {
+          var r = (System.Collections.IList)rows[i];
+          for (int j = 0; j < r.Count; j++) table.Cell(i + 1, j + 1).Range.Text = Convert.ToString(r[j]);
+        }
+        table.Rows[1].Range.Font.Bold = 1;
+        try { table.Rows[1].HeadingFormat = -1; } catch { }
+        table.AutoFitBehavior(1);
+        sel.EndKey(6);
+        tables++;
+        continue;
+      }
+      // Built-in styles by number (they work in any Word language): Normal -1, Heading 1-3 -2..-4,
+      // List Bullet -49, List Number -50.
+      int style = t == "h1" ? -2 : t == "h2" ? -3 : t == "h3" ? -4 : t == "li" ? -49 : t == "ol" ? -50 : -1;
+      sel.Range.Style = (object)style;
+      string text = Convert.ToString(b.ContainsKey("x") ? b["x"] : "");
+      // **bold** spans become bold text.
+      var parts = Regex.Split(text, @"(\*\*[^*]+\*\*)");
+      foreach (var part in parts) {
+        if (part.StartsWith("**") && part.EndsWith("**") && part.Length > 4) { sel.Font.Bold = 1; sel.TypeText(part.Substring(2, part.Length - 4)); sel.Font.Bold = 0; }
+        else if (part.Length > 0) sel.TypeText(part);
+      }
+      paragraphs++;
+    }
+    return "Escrevi " + paragraphs + " parágrafo(s)" + (tables > 0 ? " e " + tables + " tabela(s)" : "") + " no fim de \"" + doc.Name + "\".";
+  }
+  static string WordLook(int maxChars) {
+    NeedDoc();
+    var sb = new StringBuilder("Documento \"" + doc.Name + "\"" + (docIsOwn ? " (aberto pela Aurora)" : " (da pessoa)") + ", " + doc.Paragraphs.Count + " parágrafo(s), " + doc.Tables.Count + " tabela(s):\n");
+    int used = 0;
+    int tableIndex = 0;
+    foreach (dynamic p in doc.Paragraphs) {
+      // A table shows once, a row per line ("a | b"), where its first cell is.
+      bool inTable = false;
+      try { inTable = (bool)p.Range.Information(12); } catch { }
+      if (inTable) {
+        if (tableIndex < (int)doc.Tables.Count && (int)p.Range.Start == (int)doc.Tables[tableIndex + 1].Range.Start) {
+          dynamic t = doc.Tables[++tableIndex];
+          for (int r = 1; r <= (int)t.Rows.Count; r++) {
+            var cells = new List<string>();
+            for (int c = 1; c <= (int)t.Columns.Count; c++) { try { cells.Add(((string)t.Cell(r, c).Range.Text).TrimEnd('\r', '\a', ' ')); } catch { } }
+            string row = "| " + string.Join(" | ", cells) + " |";
+            sb.Append(row).Append('\n'); used += row.Length;
+          }
+        }
+        continue;
+      }
+      string text = ((string)p.Range.Text).TrimEnd('\r', '\a', ' ');
+      if (text.Length == 0) continue;
+      string style = "";
+      try { int level = (int)p.OutlineLevel; if (level >= 1 && level <= 3) style = new string('#', level) + " "; } catch { }
+      string line = style + text.Replace("\a", " | ");
+      if (used + line.Length > maxChars) { sb.Append("… (continua)\n"); break; }
+      sb.Append(line).Append('\n');
+      used += line.Length;
+    }
+    return sb.ToString();
+  }
+  static string WordSave(string path) {
+    NeedDoc();
+    if (string.IsNullOrEmpty(path)) { doc.Save(); return "Salvei \"" + doc.Name + "\"."; }
+    int format = path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? 17 : 16;
+    doc.SaveAs2(path, format);
+    return "Salvei " + path + ".";
+  }
+  static string WordClose() {
+    object d = doc, w = wd;
+    doc = null; wd = null;
+    if (d != null && docIsOwn) { try { ((dynamic)d).Close(0); } catch { } }
+    if (d != null) { try { Marshal.FinalReleaseComObject(d); } catch { } }
+    if (w != null) { try { if ((int)((dynamic)w).Documents.Count == 0) ((dynamic)w).Quit(0); } catch { } try { Marshal.FinalReleaseComObject(w); } catch { } }
+    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); GC.WaitForPendingFinalizers();
+    if (wdPid != 0) {
+      try { var p = Process.GetProcessById(wdPid); if (!p.WaitForExit(3000) && p.ProcessName.Equals("WINWORD", StringComparison.OrdinalIgnoreCase) && p.MainWindowTitle.Length == 0) p.Kill(); } catch { }
+      wdPid = 0;
+    }
+    return "Fechei o documento da Aurora.";
+  }
+
   [STAThread]
   static void Main() {
     Console.InputEncoding = Encoding.UTF8;
@@ -471,7 +600,10 @@ static class UiaHost {
         else if (cmd == "key") {
           if (string.IsNullOrEmpty(str("window"))) throw new Exception("Diga a janela (window) que deve receber as teclas.");
           EnsureFront(FindWindow(str("window")));
-          SendKeys.SendWait(str("keys") ?? "");
+          if (str("slow") == "True") {
+            // Text typed key by key: the calculator dropped keys sent at once ("1234*56=" became "1").
+            foreach (Match k in Regex.Matches(str("keys") ?? "", @"\{[^}]+\}|[\^%+]*.")) { SendKeys.SendWait(k.Value); Thread.Sleep(35); }
+          } else SendKeys.SendWait(str("keys") ?? "");
           reply["text"] = "Apertei " + str("keys") + ".";
         } else if (cmd == "copy") { var w = FindWindow(str("window")); reply["text"] = CopyFrom(w, str("all") != "False"); reply["window"] = w.Current.Name; }
         else if (cmd == "excel_open") { reply["text"] = ExcelOpen(str("file")); reply["own"] = bookIsOwn; }
@@ -502,6 +634,12 @@ static class UiaHost {
           }
           reply["text"] = "Fechei a planilha da Aurora.";
         }
+        else if (cmd == "word_open") { reply["text"] = WordOpen(str("file")); reply["own"] = docIsOwn; }
+        else if (cmd == "word_attach") { reply["text"] = WordAttach(); reply["own"] = docIsOwn; }
+        else if (cmd == "word_write") { object blocks; req.TryGetValue("blocks", out blocks); reply["text"] = WordWrite(blocks); reply["own"] = docIsOwn; }
+        else if (cmd == "word_look") { int m = 3000; int.TryParse(str("max") ?? "3000", out m); reply["text"] = WordLook(m); reply["own"] = docIsOwn; }
+        else if (cmd == "word_save") { reply["text"] = WordSave(str("path")); reply["own"] = docIsOwn; }
+        else if (cmd == "word_close") reply["text"] = WordClose();
         else if (cmd == "excel_state") { reply["text"] = book == null ? "none" : "open"; reply["own"] = bookIsOwn; }
         else if (cmd == "db_tables") reply["text"] = DbTables(str("path"));
         else if (cmd == "db_query") reply["text"] = DbQuery(str("path"), str("sql"));

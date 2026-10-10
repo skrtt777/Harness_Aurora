@@ -7,7 +7,7 @@ const { executeTool } = await import("../../app/agentTools/index.js");
 const { desktopRequest, stopDesktop } = await import("../../app/desktop.js");
 const { excelRows } = await import("../../app/agentTools/desktop.js");
 const dir = mkdtempSync(join(tmpdir(), "aurora-excel-"));
-const ctx = { mode: "auto", workspace: dir, workspaceRoots: [dir], knownFolders: { documents: dir }, approve: async () => true, alwaysAllow: [] };
+const ctx = { mode: "auto", request: "abre o excel", conversationId: "lab", workspace: dir, workspaceRoots: [dir], knownFolders: { documents: dir }, approve: async () => true, alwaysAllow: [] };
 const results = [];
 const check = (name, ok, detail = "") => { results.push(ok); console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); };
 const rows = excelRows("| Produto | Quantidade | Preço | Total | Validade |\n|---|---|---|---|---|\n| Pão francês | 120 | R$ 0,75 | =B2*C2 | 12/10/2026 |\n| Bolo de cenoura | 8 | 32,50 | =B3*C3 | 15/10/2026 |\n| Total | | | =SOMA(D2:D3) | |");

@@ -30,7 +30,8 @@ import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { onlyTextAsked, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
-import { excelIsOpen } from "./agentTools/desktop.js";
+import { excelIsOpen, wordIsOpen } from "./agentTools/desktop.js";
+import { coworkApp } from "./desktop.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
@@ -312,6 +313,11 @@ const TEXT_DIRECT = "O pedido é um TEXTO para a pessoa usar: escreva-o direto n
 
 // Working together in the Excel the Aurora opened (the person watches): the sheet is made there, step
 // by step, each step shown and confirmed; a file only when they ask to save.
+// Working together in a program the Aurora opened or looked at in this conversation (the calculator,
+// the company system): the next requests go to it, one step at a time, each step confirmed.
+const coworkDirect = (app) => `Vocês estão trabalhando juntos no programa "${app.window}" (${app.program}), aberto na frente da pessoa. Se o pedido é sobre ele, faça NELE: veja a janela com desktop_snapshot (window: "${app.window.slice(0, 40)}") e faça VOCÊ: desktop_type com window e text digita onde o cursor está (ex.: na calculadora, "1234*56="); desktop_click pelos refs; desktop_key para atalhos. Nunca diga à pessoa quais botões apertar nem mostre refs. Depois de cada passo, diga em 1-2 frases o que fez e o resultado e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Se o pedido for outro assunto, responda normalmente.`;
+
+const WORD_DIRECT = "O Word aberto por você está na frente da pessoa (trabalho em conjunto): escreva o que ela pede NELE, com a ferramenta word (write para o texto em markdown, look para conferir), não com write_document. Ao terminar cada parte, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (word action=save) quando ela pedir.";
 const EXCEL_DIRECT = "O Excel aberto por você está na frente da pessoa (trabalho em conjunto): faça o que ela pede NELE, com a ferramenta excel (write para os dados, format para deixar bonito, look para conferir), não com write_document. Ao terminar cada passo, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (excel action=save) quando ela pedir.";
 
 export async function mentionedFiles(text, ctx, history = []) {
@@ -537,7 +543,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       projectId: conversation.projectId,
     }, 12, env, controller.signal);
     // HARNESS_NOW pins "today" for the benchmarks (the company sample is dated 04/10/2026).
-    const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||followUpMath(trimmed,history)||mathObservation(trimmed)||await nameObservation(trimmed).catch(()=>null);
+    const observation=distressObservation(trimmed)||weekdayObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||clockObservation(trimmed,env.HARNESS_NOW?{now:new Date(env.HARNESS_NOW)}:{})||discountObservation(trimmed)||(/calcul/i.test(coworkApp(conversationId)?.window||"")?null:followUpMath(trimmed,history)||mathObservation(trimmed))||await nameObservation(trimmed).catch(()=>null);
     // How a complete delivery of this kind looks (app/briefs/*.md): a poor request ("faz um convite
     // pro niver") gets the defaults decided, the structure and the adjustment options at the end.
     const brief = observation ? null : briefBlock(trimmed, env);
@@ -557,7 +563,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:wordIsOpen(conversationId)?[WORD_DIRECT]:coworkApp(conversationId)?[coworkDirect(coworkApp(conversationId))]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from
@@ -648,7 +654,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             companyQuestion: conversation.provider === "local" && !autoDocs.length && !attached.length && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             checkFacts: conversation.provider === "local" && hasKnowledge,
             // A briefing matched (a convite, an e-mail…): the delivery comes before any question.
-            deliverFirst: Boolean(brief),
+            deliverFirst: Boolean(brief), coworking: Boolean(coworkApp(conversationId)),
             companyTopic: conversation.provider === "local" && hasKnowledge && asksForInformation(question) && asksAboutCompany(question),
             documentsText: [...autoDocs.map((d) => `${d.path}\n${d.text}`), ...attached.map((f) => `${f.path}\n${f.text}`)].join("\n\n"),
             checkCitations: conversation.provider === "local" ? async (text, steps) => (steps.some((s) => /^(web_|browser_)/.test(s.tool)) ? [] : unknownCitations(text, [...attached.map((f) => f.path), ...steps.filter((s) => s.ok && s.args?.path).map((s) => s.args.path)])) : null,

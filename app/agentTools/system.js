@@ -148,9 +148,24 @@ export const systemTools = [
         const excel = excelTools.find((t) => t.name === "excel");
         return excel.run(/\.(xlsx|xlsm|xls)\s*$/i.test(String(target)) ? { action: "open", file: target, __fromOpen: true } : { action: "open", __fromOpen: true }, ctx);
       }
+      if (process.platform === "win32" && (/^\s*(o\s+)?(microsoft\s+)?word(\.exe)?\s*$/i.test(String(target)) || /\.(docx|doc)\s*$/i.test(String(target)))) {
+        const { wordTools } = await import("./desktop.js");
+        return wordTools[0].run(/\.(docx|doc)\s*$/i.test(String(target)) ? { action: "open", file: target, __fromOpen: true } : { action: "open", __fromOpen: true }, ctx);
+      }
       const resolved = await resolveOpenTarget(target, ctx);
+      // A program on Windows: its window is waited for and looked at, so the Aurora can work in it
+      // with the person ("abre a calculadora" -> "o que vamos fazer?"). A link opens in the browser.
+      const desktop = IS_WINDOWS && resolved.kind !== "link" ? await import("../desktop.js") : null;
+      const before = desktop ? await desktop.openWindows().catch(() => []) : [];
       await launch(resolved.target);
-      return `Abri ${resolved.target}.`;
+      if (!desktop) return `Abri ${resolved.target}.`;
+      const window = await desktop.waitForNewWindow(before, { hint: basename(String(resolved.target)).replace(/\.[^.]+$/, "") || String(target) }).catch(() => null);
+      // A folder (Explorer) or a browser has better tools than clicking (move_file, browser_*).
+      if (!window || desktop.BLOCKED_PROGRAMS.test(window.program) || /^(explorer|chrome|msedge|firefox|brave|opera)$/i.test(window.program)) return `Abri ${resolved.target}.`;
+      desktop.setCoworkApp(ctx.conversationId, window);
+      const { desktopTools } = await import("./desktop.js");
+      const snap = await desktopTools.find((t) => t.name === "desktop_snapshot").run({ window: window.title }, ctx).catch(() => "");
+      return `Abri ${resolved.target}: a janela "${window.title}" está na frente da pessoa.${snap ? `\n\n${String(snap).split("\n").slice(0, 60).join("\n")}` : ""}\n\nAgora pergunte à pessoa o que fazer nesse programa, com 2 ou 3 sugestões curtas numeradas em **Quer ajustar?** (o que fazer, nunca os refs nem quais botões apertar: quem aperta é você). Quando ela pedir, faça você: desktop_type (window e text, digita onde o cursor está) ou desktop_click pelos refs.`;
     },
   },
   {
