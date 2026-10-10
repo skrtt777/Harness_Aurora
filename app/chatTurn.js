@@ -30,6 +30,7 @@ import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { onlyTextAsked, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
+import { excelIsOpen } from "./agentTools/desktop.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
@@ -309,6 +310,10 @@ const FILE_DIRECT = "O pedido é um ARQUIVO: consulte os dados e escreva o conte
 // of the prompt that changes per turn: hiding the write tools would change the saved start.
 const TEXT_DIRECT = "O pedido é um TEXTO para a pessoa usar: escreva-o direto na resposta, sem criar arquivo e sem abrir sites ou apps (uma legenda 'pro insta' é só o texto; quem posta é a pessoa). Só use ferramentas para buscar um dado que o texto precisa (ex.: o valor que um cliente deve); um convite, recado ou pedido de desculpa não precisa de nenhuma.";
 
+// Working together in the Excel the Aurora opened (the person watches): the sheet is made there, step
+// by step, each step shown and confirmed; a file only when they ask to save.
+const EXCEL_DIRECT = "O Excel aberto por você está na frente da pessoa (trabalho em conjunto): faça o que ela pede NELE, com a ferramenta excel (write para os dados, format para deixar bonito, look para conferir), não com write_document. Ao terminar cada passo, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (excel action=save) quando ela pedir.";
+
 export async function mentionedFiles(text, ctx, history = []) {
   const recent = history.filter((m) => m.role === "user").slice(-4).reverse().flatMap((m) => fileMentions(m.content));
   // "voltando ao kit de mídia…" after talking about a spreadsheet: a file named earlier in the
@@ -552,7 +557,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen()?[EXCEL_DIRECT]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from

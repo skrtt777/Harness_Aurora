@@ -324,6 +324,126 @@ static class UiaHost {
     }
   }
 
+  // ---- Excel, through its own automation (COM): fast, exact, and the person watches the sheet fill
+  // in. The Aurora works in the workbook it opened; the person's own open workbook is used only when
+  // the request says so (excel_attach), never by accident.
+  static dynamic xl;          // the Excel the Aurora started
+  static dynamic book;        // the workbook being worked on
+  static bool bookIsOwn;      // opened by the Aurora (vs. the person's, attached on request)
+  static int xlPid;          // the process of the Excel the Aurora started (0: none)
+
+  static void NeedBook() {
+    if (book == null) throw new Exception("Nenhuma planilha aberta pela Aurora. Use excel com action=open primeiro.");
+    try { var n = (string)book.Name; } catch { book = null; throw new Exception("A planilha foi fechada. Abra de novo com action=open."); }
+  }
+  static dynamic Sheet(string name) {
+    NeedBook();
+    if (string.IsNullOrEmpty(name)) return book.ActiveSheet;
+    foreach (dynamic s in book.Worksheets) if (((string)s.Name).Equals(name, StringComparison.OrdinalIgnoreCase)) return s;
+    dynamic added = book.Worksheets.Add(After: book.Worksheets[book.Worksheets.Count]);
+    added.Name = name;
+    return added;
+  }
+  static string ExcelOpen(string file) {
+    if (xl == null) { xl = Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application")); uint pid; GetWindowThreadProcessId(new IntPtr((int)xl.Hwnd), out pid); xlPid = (int)pid; }
+    try { xl.Visible = true; } catch { xl = Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application")); xl.Visible = true; }
+    book = string.IsNullOrEmpty(file) ? xl.Workbooks.Add() : xl.Workbooks.Open(file);
+    bookIsOwn = true;
+    try { xl.WindowState = -4137; } catch { } // maximized, in front of the person
+    try { SetForegroundWindow(new IntPtr((int)xl.Hwnd)); } catch { }
+    return "Abri o Excel" + (string.IsNullOrEmpty(file) ? " com uma pasta nova (\"" + book.Name + "\")" : " com \"" + book.Name + "\"") + ". A pessoa está vendo a planilha.";
+  }
+  static string ExcelAttach() {
+    dynamic app;
+    try { app = Marshal.GetActiveObject("Excel.Application"); } catch { throw new Exception("Não há um Excel aberto. Use action=open."); }
+    book = app.ActiveWorkbook;
+    if (book == null) throw new Exception("O Excel está aberto, mas sem planilha.");
+    bookIsOwn = false;
+    return "Usando a planilha aberta pela pessoa: \"" + book.Name + "\" (aba \"" + book.ActiveSheet.Name + "\").";
+  }
+  static string CellText(object v) {
+    if (v == null) return "";
+    if (v is double) { double d = (double)v; return d == Math.Floor(d) && Math.Abs(d) < 1e15 ? ((long)d).ToString() : d.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+    return Convert.ToString(v).Replace("\r", " ").Replace("\n", " ").Replace("|", "/");
+  }
+  static string ExcelLook(string sheetName, int maxRows) {
+    NeedBook();
+    dynamic sh = string.IsNullOrEmpty(sheetName) ? book.ActiveSheet : Sheet(sheetName);
+    var names = new List<string>();
+    foreach (dynamic s in book.Worksheets) names.Add((string)s.Name);
+    var sb = new StringBuilder("Planilha \"" + book.Name + "\"" + (bookIsOwn ? " (aberta pela Aurora)" : " (da pessoa)") + "; abas: " + string.Join(", ", names) + "; aba atual: \"" + sh.Name + "\".\n");
+    dynamic used = sh.UsedRange;
+    int rows = (int)used.Rows.Count, cols = (int)used.Columns.Count, top = (int)used.Row, left = (int)used.Column;
+    object raw = used.Value2;
+    if (raw == null) { sb.Append("(a aba está vazia)"); return sb.ToString(); }
+    if (!(raw is object[,])) { sb.Append(CellText(raw)); return sb.ToString(); }
+    var values = (object[,])raw;
+    sb.Append("Intervalo " + sh.Cells[top, left].Address(false, false) + ":" + sh.Cells[top + rows - 1, left + cols - 1].Address(false, false) + " (" + rows + " linha(s), " + cols + " coluna(s)):\n");
+    for (int r = 1; r <= rows && r <= maxRows; r++) {
+      var line = new List<string>();
+      for (int c = 1; c <= cols && c <= 20; c++) line.Add(CellText(values[r, c]));
+      sb.Append(string.Join(" | ", line)).Append('\n');
+    }
+    if (rows > maxRows) sb.Append("… (mais " + (rows - maxRows) + " linha(s))\n");
+    return sb.ToString();
+  }
+  // rows: a list of lists; a cell is a number, a text, "=FORMULA", or {"date":"2026-10-10"}.
+  static string ExcelWrite(string sheetName, string start, object rowsObj) {
+    dynamic sh = Sheet(sheetName);
+    var rows = rowsObj as System.Collections.IList;
+    if (rows == null || rows.Count == 0) throw new Exception("Nada para escrever (rows vazio).");
+    int width = 0;
+    foreach (System.Collections.IList r in rows) width = Math.Max(width, r.Count);
+    dynamic first = sh.Range(string.IsNullOrEmpty(start) ? "A1" : start);
+    int top = (int)first.Row, left = (int)first.Column;
+    for (int i = 0; i < rows.Count; i++) {
+      var r = (System.Collections.IList)rows[i];
+      for (int j = 0; j < r.Count; j++) {
+        object v = r[j];
+        dynamic cell = sh.Cells[top + i, left + j];
+        var dict = v as Dictionary<string, object>;
+        if (dict != null && dict.ContainsKey("date")) { cell.Value2 = DateTime.Parse(Convert.ToString(dict["date"])).ToOADate(); cell.NumberFormatLocal = "dd/mm/aaaa"; }
+        else if (dict != null && dict.ContainsKey("formula")) { if (dict.ContainsKey("local") && Convert.ToBoolean(dict["local"])) cell.FormulaLocal = Convert.ToString(dict["formula"]); else cell.Formula = Convert.ToString(dict["formula"]); }
+        else if (v is string && ((string)v).StartsWith("=")) cell.Formula = (string)v;
+        else cell.Value2 = v;
+      }
+    }
+    string from = sh.Cells[top, left].Address(false, false), to = sh.Cells[top + rows.Count - 1, left + width - 1].Address(false, false);
+    return "Escrevi " + rows.Count + " linha(s) em " + from + ":" + to + " da aba \"" + sh.Name + "\".";
+  }
+  // The range becomes a formatted table (header, filters, stripes), columns sized to fit, and per-column
+  // number formats: moeda, numero, inteiro, data, porcentagem.
+  static string ExcelFormat(string sheetName, string range, Dictionary<string, object> formats) {
+    dynamic sh = Sheet(sheetName);
+    dynamic r = string.IsNullOrEmpty(range) ? sh.UsedRange : sh.Range(range);
+    var done = new List<string>();
+    try {
+      bool hasTable = false;
+      foreach (dynamic lo in sh.ListObjects) hasTable = true;
+      if (!hasTable) { dynamic table = sh.ListObjects.Add(1, r, Type.Missing, 1); table.TableStyle = "TableStyleMedium2"; done.Add("tabela com cabeçalho e filtros"); }
+    } catch { r.Rows[1].Font.Bold = true; done.Add("cabeçalho em negrito"); }
+    if (formats != null) {
+      foreach (var kv in formats) {
+        string code = Convert.ToString(kv.Value).ToLowerInvariant();
+        string local = code == "moeda" ? "R$ #.##0,00" : code == "numero" ? "#.##0,00" : code == "inteiro" ? "0" : code == "data" ? "dd/mm/aaaa" : code == "porcentagem" ? "0,0%" : null;
+        if (local == null) continue;
+        dynamic col = sh.Range(kv.Key + ":" + kv.Key);
+        col.NumberFormatLocal = local;
+        done.Add("coluna " + kv.Key + " como " + code);
+      }
+    }
+    r.Columns.AutoFit();
+    done.Add("colunas ajustadas");
+    return "Formatei: " + string.Join(", ", done) + ".";
+  }
+  static string ExcelSave(string path) {
+    NeedBook();
+    if (string.IsNullOrEmpty(path)) { book.Save(); return "Salvei \"" + book.Name + "\"."; }
+    xl.DisplayAlerts = false;
+    try { book.SaveAs(path, 51); } finally { try { xl.DisplayAlerts = true; } catch { } }
+    return "Salvei " + book.FullName + ".";
+  }
+
   [STAThread]
   static void Main() {
     Console.InputEncoding = Encoding.UTF8;
@@ -354,6 +474,35 @@ static class UiaHost {
           SendKeys.SendWait(str("keys") ?? "");
           reply["text"] = "Apertei " + str("keys") + ".";
         } else if (cmd == "copy") { var w = FindWindow(str("window")); reply["text"] = CopyFrom(w, str("all") != "False"); reply["window"] = w.Current.Name; }
+        else if (cmd == "excel_open") { reply["text"] = ExcelOpen(str("file")); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_attach") { reply["text"] = ExcelAttach(); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_look") { int m = 60; int.TryParse(str("max") ?? "60", out m); reply["text"] = ExcelLook(str("sheet"), m); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_write") { object rows; req.TryGetValue("rows", out rows); reply["text"] = ExcelWrite(str("sheet"), str("cell"), rows); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_format") { object f; req.TryGetValue("formats", out f); reply["text"] = ExcelFormat(str("sheet"), str("range"), f as Dictionary<string, object>); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_save") { reply["text"] = ExcelSave(str("path")); reply["own"] = bookIsOwn; }
+        else if (cmd == "excel_close") {
+          // Only the Excel the Aurora started, without saving; never the person's.
+          // (object) casts: comparing a dynamic COM object with null calls into Excel, and a
+          // disconnected one threw before the process was ended (10/10/2026).
+          object b = book, x = xl;
+          book = null; xl = null;
+          if (b != null && bookIsOwn) { try { ((dynamic)b).Close(false); } catch { } }
+          if (b != null) { try { Marshal.FinalReleaseComObject(b); } catch { } }
+          if (x != null) { try { if ((int)((dynamic)x).Workbooks.Count == 0) ((dynamic)x).Quit(); } catch { } try { Marshal.FinalReleaseComObject(x); } catch { } }
+          // Excel only exits when every reference the host holds is gone, the hidden ones included
+          // (a test left an empty EXCEL.EXE running, 10/10/2026).
+          GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); GC.WaitForPendingFinalizers();
+          // Still there after Quit: the Excel the Aurora started (its own process number, no workbook
+          // left) is ended. Never another Excel.
+          if (xlPid != 0) {
+            string how = "fechou sozinho";
+            try { var p = Process.GetProcessById(xlPid); if (!p.WaitForExit(3000) && p.ProcessName.Equals("EXCEL", StringComparison.OrdinalIgnoreCase)) { p.Kill(); how = "encerrado"; } } catch (Exception e) { how = "não encontrado (" + e.Message + ")"; }
+            reply["closed"] = "processo " + xlPid + ": " + how;
+            xlPid = 0;
+          }
+          reply["text"] = "Fechei a planilha da Aurora.";
+        }
+        else if (cmd == "excel_state") { reply["text"] = book == null ? "none" : "open"; reply["own"] = bookIsOwn; }
         else if (cmd == "db_tables") reply["text"] = DbTables(str("path"));
         else if (cmd == "db_query") reply["text"] = DbQuery(str("path"), str("sql"));
         else if (cmd == "db_exec") reply["text"] = DbExec(str("path"), str("sql"));

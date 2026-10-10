@@ -141,6 +141,13 @@ export const systemTools = [
       return { kind: "open", launch, summary: `Abrir ${resolved.target}` };
     },
     async run({ target }, ctx) {
+      // The Excel (or a spreadsheet): opened by the excel tool, so the Aurora can work in it with the
+      // person. Opened as a plain program, it was out of reach and the next step failed (10/10/2026).
+      if (process.platform === "win32" && (/^\s*(o\s+)?(microsoft\s+)?excel(\.exe)?\s*$/i.test(String(target)) || /\.(xlsx|xlsm|xls)\s*$/i.test(String(target)))) {
+        const { excelTools } = await import("./desktop.js");
+        const excel = excelTools.find((t) => t.name === "excel");
+        return excel.run(/\.(xlsx|xlsm|xls)\s*$/i.test(String(target)) ? { action: "open", file: target } : { action: "open" }, ctx);
+      }
       const resolved = await resolveOpenTarget(target, ctx);
       await launch(resolved.target);
       return `Abri ${resolved.target}.`;

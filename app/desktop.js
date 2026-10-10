@@ -33,7 +33,7 @@ async function hostExe(env = process.env) {
     mkdirSync(dir, { recursive: true });
     const cs = join(dir, "UiaHost.cs");
     writeFileSync(cs, source);
-    const refs = ["WPF/UIAutomationClient.dll", "WPF/UIAutomationTypes.dll", "WPF/WindowsBase.dll", "System.Web.Extensions.dll", "System.Windows.Forms.dll", "System.Data.dll"].map((r) => `-r:${join(FRAMEWORK, r)}`);
+    const refs = ["WPF/UIAutomationClient.dll", "WPF/UIAutomationTypes.dll", "WPF/WindowsBase.dll", "System.Web.Extensions.dll", "System.Windows.Forms.dll", "System.Data.dll", "Microsoft.CSharp.dll", "System.Core.dll"].map((r) => `-r:${join(FRAMEWORK, r)}`);
     await new Promise((resolve, reject) => execFile(join(FRAMEWORK, "csc.exe"), ["-nologo", "-optimize", "-target:exe", `-out:${exe}`, ...refs, cs], { windowsHide: true, timeout: 60_000 }, (error, stdout) => (error ? reject(new Error(`Não consegui preparar o controle de programas: ${String(stdout || error.message).split(/\r?\n/)[0]}`)) : resolve())));
   })().finally(() => { building = null; });
   await building;

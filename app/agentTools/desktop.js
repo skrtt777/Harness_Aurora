@@ -53,6 +53,79 @@ const describeAction = (verb) => (args) => {
   return { kind: "desktop", program: owner?.program || "programa", summary: `${verb} em ${owner?.window || owner?.program || "um programa"}${args.text ? `: "${String(args.text).slice(0, 60)}"` : args.keys ? `: ${args.keys}` : ""}` };
 };
 
+// ---- Excel ----
+// "| Produto | Preço |" rows into typed cells: pt-BR numbers become numbers, dd/mm/aaaa a date, "=..."
+// a formula (Portuguese names or ";" go in as the local formula: "=SOMA(B2:B5)").
+const PT_FORMULA = /;|\b(SOMA|MÉDIA|MEDIA|SE|PROCV|PROCH|CONT\.SE|CONT\.VALORES|SOMASE|MÁXIMO|MAXIMO|MÍNIMO|MINIMO|ARRED|HOJE|AGORA|CONCATENAR|ÍNDICE|CORRESP)\s*\(/i;
+export function excelCell(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return "";
+  if (value.startsWith("=")) return { formula: value, local: PT_FORMULA.test(value) };
+  const date = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+  if (date) return { date: `${date[3]}-${date[2].padStart(2, "0")}-${date[1].padStart(2, "0")}` };
+  const money = /^-?\s*(R\$\s*)?-?\d{1,3}(\.\d{3})*(,\d+)?$|^-?\s*(R\$\s*)?-?\d+(,\d+)?$/.test(value);
+  if (money) return Number(value.replace(/R\$\s*/, "").replace(/\s/g, "").replace(/\./g, "").replace(",", "."));
+  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+  const percent = /^(-?\d+(?:,\d+)?)\s*%$/.exec(value);
+  if (percent) return Number(percent[1].replace(",", ".")) / 100;
+  return value;
+}
+export function excelRows(data) {
+  if (Array.isArray(data)) return data.map((row) => (Array.isArray(row) ? row : [row]).map((c) => (typeof c === "string" ? excelCell(c) : c)));
+  const lines = String(data || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("|") || (l.includes("|") && !/^[-:| ]+$/.test(l)));
+  return lines.filter((l) => !/^\|?\s*:?-{2,}/.test(l)).map((l) => l.replace(/^\||\|$/g, "").split("|").map((c) => excelCell(c)));
+}
+let excelOwn = true;
+let excelOpen = false;
+/** An Excel the Aurora opened is in front of the person: a sheet asked for goes there, not to a file. */
+export const excelIsOpen = () => excelOpen;
+const excelAnswer = (reply) => {
+  if (!reply.ok) { if (/fechada|Nenhuma planilha/.test(reply.error || "")) excelOpen = false; throw new Error(reply.error); }
+  if (typeof reply.own === "boolean") { excelOwn = reply.own; excelOpen = true; }
+  return reply.text;
+};
+const COWORK_NEXT = "\nAgora mostre à pessoa, em 1-2 frases, o que ficou na planilha e pergunte se está certo, com **Quer ajustar?** e opções numeradas (ex.: 1. Está certo, pode seguir (recomendado) 2. Ajustar as colunas 3. Salvar o arquivo).";
+
+export const excelTools = [
+  {
+    name: "excel",
+    description: "Trabalha no Excel ao vivo, na frente da pessoa. action=open abre o Excel com uma pasta nova (ou file= um .xlsx). action=write escreve uma tabela (data: em markdown, a primeira linha com os títulos; números, datas dd/mm/aaaa e fórmulas como =B2*C2 viram de verdade), a partir de cell (A1 se não disser). action=format deixa como tabela formatada e ajusta as colunas (formats: {\"C\":\"moeda\",\"D\":\"data\"}; moeda, numero, inteiro, data, porcentagem). action=look mostra o que está na planilha. action=save salva (path: Documentos/nome.xlsx). action=use_open usa a planilha que a pessoa já tinha aberta (só se ela pedir).",
+    parameters: { type: "object", properties: {
+      action: { type: "string", enum: ["open", "write", "format", "look", "save", "use_open"] },
+      data: { type: "string", description: "a tabela em markdown (action=write)" },
+      cell: { type: "string", description: "célula inicial, ex.: A1" },
+      sheet: { type: "string", description: "nome da aba (cria se não existir)" },
+      formats: { type: "object", description: "formato por coluna, ex.: {\"C\":\"moeda\"}" },
+      path: { type: "string", description: "onde salvar (action=save)" },
+      file: { type: "string", description: "arquivo .xlsx para abrir (action=open)" },
+    }, required: ["action"] },
+    stage: (a) => ({ open: "Abrindo o Excel…", write: "Escrevendo na planilha…", format: "Formatando a planilha…", look: "Olhando a planilha…", save: "Salvando a planilha…", use_open: "Pegando a planilha aberta…" }[a.action] || "Usando o Excel…"),
+    describe: (a, ctx) => {
+      if (a.action === "open") return a.file ? { kind: "read", paths: [accessPath(a.file, ctx)] } : { kind: "open", launch: "app", target: "Excel" };
+      if (a.action === "save") return { kind: "write", paths: [accessPath(a.path || "Documentos/planilha.xlsx", ctx)], summary: `Salvar a planilha em ${accessPath(a.path || "Documentos/planilha.xlsx", ctx)}` };
+      if (a.action === "look") return { kind: "meta" };
+      // The person's own workbook is touched only with their authorization, once per turn.
+      if (a.action === "use_open" || !excelOwn) return { kind: "desktop", program: "EXCEL", summary: a.action === "use_open" ? "Usar a planilha que você tem aberta no Excel" : `Alterar a sua planilha no Excel (${a.action})` };
+      return { kind: "meta" };
+    },
+    async run(args, ctx) {
+      const action = args.action;
+      if (action === "open") return `${excelAnswer(await desktopRequest("excel_open", { file: args.file ? accessPath(args.file, ctx) : "" }))}\nAgora pergunte à pessoa o que fazer na planilha, com 2 ou 3 sugestões curtas numeradas em **Quer ajustar?** (ex.: 1. Criar uma planilha de controle (recomendado) 2. Abrir um arquivo 3. Importar dados).`;
+      if (action === "use_open") return excelAnswer(await desktopRequest("excel_attach"));
+      if (action === "look") return excelAnswer(await desktopRequest("excel_look", { sheet: args.sheet || "", max: 60 }));
+      if (action === "write") {
+        const rows = excelRows(args.data);
+        if (!rows.length) throw new Error("Mande a tabela em data, em markdown: | Título | Título |, uma linha por linha da planilha.");
+        const wrote = excelAnswer(await desktopRequest("excel_write", { sheet: args.sheet || "", cell: args.cell || "A1", rows }));
+        return `${wrote}\n\n${excelAnswer(await desktopRequest("excel_look", { sheet: args.sheet || "", max: 30 }))}\nSe faltar formatar, use action=format.${COWORK_NEXT}`;
+      }
+      if (action === "format") return `${excelAnswer(await desktopRequest("excel_format", { sheet: args.sheet || "", range: args.range || "", formats: args.formats || {} }))}${COWORK_NEXT}`;
+      if (action === "save") return excelAnswer(await desktopRequest("excel_save", { path: accessPath(args.path || "Documentos/planilha.xlsx", ctx) }));
+      throw new Error("action: open, write, format, look, save ou use_open.");
+    },
+  },
+];
+
 export const desktopTools = [
   {
     name: "desktop_windows",
