@@ -77,8 +77,12 @@ export function excelRows(data) {
 }
 let excelOwn = true;
 let excelOpen = false;
-/** An Excel the Aurora opened is in front of the person: a sheet asked for goes there, not to a file. */
-export const excelIsOpen = () => excelOpen;
+let excelConversation = null;
+/** An Excel the Aurora opened in THIS conversation is in front of the person: a sheet goes there. */
+export const excelIsOpen = (conversationId) => excelOpen && (!conversationId || conversationId === excelConversation);
+// Live Excel only when the person asks for the Excel: "crie uma planilha" alone is a file
+// (write_document). Offered always, the model opened Excel windows for file requests (regression, 10/10).
+const ASKS_EXCEL = /\bexcel\b|planilha (que )?(est[áa]|t[áa]) aberta|na planilha aberta/i;
 const excelAnswer = (reply) => {
   if (!reply.ok) { if (/fechada|Nenhuma planilha/.test(reply.error || "")) excelOpen = false; throw new Error(reply.error); }
   if (typeof reply.own === "boolean") { excelOwn = reply.own; excelOpen = true; }
@@ -89,7 +93,7 @@ const COWORK_NEXT = "\nAgora mostre à pessoa, em 1-2 frases, o que ficou na pla
 export const excelTools = [
   {
     name: "excel",
-    description: "Trabalha no Excel ao vivo, na frente da pessoa. action=open abre o Excel com uma pasta nova (ou file= um .xlsx). action=write escreve uma tabela (data: em markdown, a primeira linha com os títulos; números, datas dd/mm/aaaa e fórmulas como =B2*C2 viram de verdade), a partir de cell (A1 se não disser). action=format deixa como tabela formatada e ajusta as colunas (formats: {\"C\":\"moeda\",\"D\":\"data\"}; moeda, numero, inteiro, data, porcentagem). action=look mostra o que está na planilha. action=save salva (path: Documentos/nome.xlsx). action=use_open usa a planilha que a pessoa já tinha aberta (só se ela pedir).",
+    description: "Só quando a pessoa pedir o Excel (\"abre o Excel\", \"no Excel\"): trabalha no Excel ao vivo, na frente dela. Para só criar uma planilha, use write_document. action=open abre o Excel com uma pasta nova (ou file= um .xlsx). action=write escreve uma tabela (data: em markdown, a primeira linha com os títulos; números, datas dd/mm/aaaa e fórmulas como =B2*C2 viram de verdade), a partir de cell (A1 se não disser). action=format deixa como tabela formatada e ajusta as colunas (formats: {\"C\":\"moeda\",\"D\":\"data\"}; moeda, numero, inteiro, data, porcentagem). action=look mostra o que está na planilha. action=save salva (path: Documentos/nome.xlsx). action=use_open usa a planilha que a pessoa já tinha aberta (só se ela pedir).",
     parameters: { type: "object", properties: {
       action: { type: "string", enum: ["open", "write", "format", "look", "save", "use_open"] },
       data: { type: "string", description: "a tabela em markdown (action=write)" },
@@ -110,6 +114,9 @@ export const excelTools = [
     },
     async run(args, ctx) {
       const action = args.action;
+      // (__fromOpen: the person asked to open the Excel or a spreadsheet file with open.)
+      if (!args.__fromOpen && !excelIsOpen(ctx.conversationId) && !ASKS_EXCEL.test(String(ctx.request || ""))) throw new Error("A pessoa não pediu o Excel: para criar uma planilha, use write_document (arquivo .xlsx). A ferramenta excel é só quando ela pede o Excel (\"abre o Excel\", \"no Excel\").");
+      if (action === "open") excelConversation = ctx.conversationId || null;
       if (action === "open") return `${excelAnswer(await desktopRequest("excel_open", { file: args.file ? accessPath(args.file, ctx) : "" }))}\nAgora pergunte à pessoa o que fazer na planilha, com 2 ou 3 sugestões curtas numeradas em **Quer ajustar?** (ex.: 1. Criar uma planilha de controle (recomendado) 2. Abrir um arquivo 3. Importar dados).`;
       if (action === "use_open") return excelAnswer(await desktopRequest("excel_attach"));
       if (action === "look") return excelAnswer(await desktopRequest("excel_look", { sheet: args.sheet || "", max: 60 }));

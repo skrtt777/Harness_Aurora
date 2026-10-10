@@ -26,3 +26,10 @@ test("a table in markdown becomes typed Excel cells: pt-BR numbers, dates, formu
   assert.deepEqual(rows[1], ["Pão", 120, 1234.5, { formula: "=B2*C2", local: false }, { date: "2026-10-12" }, 0.15]);
   assert.deepEqual(rows[2][3], { formula: "=SOMA(D2:D2)", local: true });
 });
+
+test("live Excel only when the person asks for the Excel; 'crie uma planilha' alone stays a file", async () => {
+  const { excelTools } = await import("../app/agentTools/desktop.js");
+  const excel = excelTools.find((t) => t.name === "excel");
+  await assert.rejects(excel.run({ action: "open" }, { request: "crie uma planilha com os formatos e preços", conversationId: "c1" }), /write_document/);
+  await assert.rejects(excel.run({ action: "write", data: "| a |" }, { request: "faz uma planilha de gastos", conversationId: "c1" }), /write_document/);
+});

@@ -146,7 +146,7 @@ export const systemTools = [
       if (process.platform === "win32" && (/^\s*(o\s+)?(microsoft\s+)?excel(\.exe)?\s*$/i.test(String(target)) || /\.(xlsx|xlsm|xls)\s*$/i.test(String(target)))) {
         const { excelTools } = await import("./desktop.js");
         const excel = excelTools.find((t) => t.name === "excel");
-        return excel.run(/\.(xlsx|xlsm|xls)\s*$/i.test(String(target)) ? { action: "open", file: target } : { action: "open" }, ctx);
+        return excel.run(/\.(xlsx|xlsm|xls)\s*$/i.test(String(target)) ? { action: "open", file: target, __fromOpen: true } : { action: "open", __fromOpen: true }, ctx);
       }
       const resolved = await resolveOpenTarget(target, ctx);
       await launch(resolved.target);
