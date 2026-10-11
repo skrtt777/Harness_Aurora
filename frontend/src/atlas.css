@@ -1032,3 +1032,17 @@
 .memory-tile strong {
   padding-right: 18px;
 }
+
+/* Neighbourhood flowchart: topics, outcome, legend, back button */
+.memory-flow .flow-node.flow-topic { background: #161b2b; border-width: 1.5px; }
+.memory-flow .flow-node.flow-topic strong { text-transform: none; letter-spacing: 0.01em; }
+.memory-flow .flow-node.flow-outcome { width: 190px; background: #151a26; }
+.memory-flow .flow-node.flow-topic { width: 210px; }
+.memory-flow .flow-node { width: 230px; }
+.memory-flow .flow-back { position: absolute; top: 12px; left: 12px; z-index: 6; }
+.memory-flow .flow-legend { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; gap: 14px; padding: 6px 10px; border-radius: 8px; background: #0f1220d9; font-size: 11px; color: #b9c3d6; }
+.memory-flow .flow-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.memory-flow .flow-legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid #b18cff; }
+.memory-flow .flow-legend i.dashed { border-top: 2px dashed #5fd4c0; }
+.memory-flow .flow-legend i.ok { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--green, #5fd48a); }
+.memory-flow .flow-legend i.bad { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--red, #ff6b8a); }

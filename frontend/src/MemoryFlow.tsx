@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from "react";
-import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
+import { Background, Controls, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { groupColor, groupKey, memoryHealth, type Memory, type MemoryCluster } from "./data";
+import dagre from "dagre";
+import { groupKey, memoryColor, memoryHealth, type Memory, type MemoryCluster } from "./data";
 import { buildGraph } from "./graph";
 
 const RELATION_LABEL: Record<string, string> = {
@@ -10,18 +11,27 @@ const RELATION_LABEL: Record<string, string> = {
   derivation: "decorre de",
   correction: "corrige",
 };
+const RELATION_COLOR: Record<string, string> = {
+  belonging: "#6aa6ff",
+  thematic: "#b18cff",
+  derivation: "#ffb86b",
+  correction: "#ff6b8a",
+};
+// Two memories close in meaning across topics: the bridges between subjects.
+const SIMILAR_MIN = 0.72;
+const MAX_OVERVIEW = 160;
 
-type CardData = { title: string; subtitle: string; color: string; selected: boolean; tone?: "ok" | "bad" | "dim" };
+type CardData = { title: string; subtitle: string; color: string; selected?: boolean; tone?: "ok" | "bad" | "dim"; kind: "memory" | "topic" | "outcome" };
 
 function Card({ data }: NodeProps) {
   const d = data as unknown as CardData;
   return (
-    <div className={`flow-node ${d.selected ? "selected" : ""} ${d.tone || ""}`}>
+    <div className={`flow-node flow-${d.kind} ${d.selected ? "selected" : ""} ${d.tone || ""}`} style={d.kind === "topic" ? { borderColor: d.color } : undefined}>
       <Handle type="target" position={Position.Left} />
       <span className="flow-node-dot" style={{ background: d.color }} />
       <div className="flow-node-body">
         <strong title={d.title}>{d.title}</strong>
-        <small>{d.subtitle}</small>
+        <small title={d.subtitle}>{d.subtitle}</small>
       </div>
       <Handle type="source" position={Position.Right} />
     </div>
@@ -35,93 +45,176 @@ type Props = {
   clusters: MemoryCluster[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onClear?: () => void;
 };
 
+const SIZE = { memory: [230, 58], topic: [210, 58], outcome: [190, 52] } as const;
 const usage = (m: Memory) => (m.stats ? `${m.stats.uses}× usada · ajudou ${m.stats.helped} · falhou ${m.stats.failed}` : m.project || m.conversation || "Contexto geral");
 const tone = (m: Memory): CardData["tone"] => (memoryHealth(m).failing ? "bad" : memoryHealth(m).helpful ? "ok" : memoryHealth(m).unused ? "dim" : undefined);
-const ring = (count: number, radius: number, offset = 0) => Array.from({ length: count }, (_, i) => {
-  const angle = (i / Math.max(count, 1)) * Math.PI * 2 + offset - Math.PI / 2;
-  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.7 };
-});
+
+/** Left-to-right layout (dagre): where each memory comes from on the left, where it leads on the right. */
+function layout(nodes: Node[], edges: Edge[]) {
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: "LR", nodesep: 16, ranksep: 110, marginx: 20, marginy: 20 });
+  g.setDefaultEdgeLabel(() => ({}));
+  for (const n of nodes) {
+    const [w, h] = SIZE[(n.data as unknown as CardData).kind];
+    g.setNode(n.id, { width: w, height: h });
+  }
+  for (const e of edges) if (g.hasNode(e.source) && g.hasNode(e.target)) g.setEdge(e.source, e.target);
+  dagre.layout(g);
+  return nodes.map((n) => {
+    const p = g.node(n.id);
+    const [w, h] = SIZE[(n.data as unknown as CardData).kind];
+    return p ? { ...n, position: { x: p.x - w / 2, y: p.y - h / 2 } } : n;
+  });
+}
 
 /**
- * The selected memory's neighbourhood, readable: the memory in the middle,
- * its most similar memories and explicit relations around it, their own
- * nearest ones in an outer ring. With nothing selected, an overview of the
- * topics (or project groups) — each card opens its most used memory.
+ * The neighbourhood as a flowchart, left to right.
+ * - Nothing selected: every topic, its memories, and the links between memories — explicit relations
+ *   (solid, named) and close meanings across topics (dashed, "% parecida"): which memories connect.
+ * - A memory selected: what leads to it on the left (its topic, memories pointing to it), the memory,
+ *   then where it goes — the memories it connects to and what it did in answers (helped, failed,
+ *   never used).
+ * (Until 0.1.18 the whole flowchart was here; the radial view that replaced it showed only three
+ * loose topic cards with nothing selected, 11/10/2026.)
  */
-export default function MemoryFlow({ memories, allMemories, clusters, selectedId, onSelect }: Props) {
+export default function MemoryFlow({ memories, allMemories, clusters, selectedId, onSelect, onClear }: Props) {
   const graph = useMemo(() => buildGraph(allMemories), [allMemories]);
-  const visible = useMemo(() => new Set(memories.map((m) => m.id)), [memories]);
+  const topicOf = useCallback((m: Memory) => (clusters.length && m.cluster !== undefined && m.cluster >= 0 ? `topic:${m.cluster}` : `topic:${groupKey(m)}`), [clusters]);
+  const topicLabel = useCallback((key: string) => {
+    const raw = key.slice(6);
+    return clusters.find((c) => String(c.id) === raw)?.label || raw;
+  }, [clusters]);
 
-  const { nodes, edges } = useMemo(() => {
+  const { nodes, edges, note } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
-    const card = (m: Memory, x: number, y: number, selected = false): Node => ({
-      id: m.id, type: "card", position: { x: x - 110, y: y - 28 }, draggable: false,
-      data: { title: m.title, subtitle: usage(m), color: groupColor(groupKey(m)), selected, tone: tone(m) } satisfies CardData,
+    const seen = new Set<string>();
+    const memoryNode = (m: Memory, selected = false) => {
+      if (seen.has(m.id)) return;
+      seen.add(m.id);
+      nodes.push({ id: m.id, type: "card", position: { x: 0, y: 0 }, draggable: false, data: { kind: "memory", title: m.title, subtitle: usage(m), color: memoryColor(m), selected, tone: tone(m) } satisfies CardData });
+    };
+    const topicNode = (key: string, count: number, color: string) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      nodes.push({ id: key, type: "card", position: { x: 0, y: 0 }, draggable: false, data: { kind: "topic", title: topicLabel(key), subtitle: `assunto · ${count} memória${count === 1 ? "" : "s"}`, color } satisfies CardData });
+    };
+    const relationEdge = (from: string, to: string, type: string, animated = false) => edges.push({
+      id: `r-${from}-${to}`, source: from, target: to, label: RELATION_LABEL[type] || type, animated,
+      style: { stroke: RELATION_COLOR[type] || "#8a93a6", strokeWidth: 1.6 }, markerEnd: { type: MarkerType.ArrowClosed, color: RELATION_COLOR[type] || "#8a93a6" },
+      labelStyle: { fill: "#c9d3e6", fontSize: 11 }, labelBgStyle: { fill: "#0f1220" },
     });
+    const similarEdge = (from: string, to: string, similarity: number, animated = false) => edges.push({
+      id: `s-${from}-${to}`, source: from, target: to, label: `${Math.round(similarity * 100)}% parecida`, animated, type: "smoothstep",
+      style: { stroke: "#5fd4c0", strokeDasharray: "5 4", strokeWidth: 1.3 }, markerEnd: { type: MarkerType.ArrowClosed, color: "#5fd4c0" },
+      labelStyle: { fill: "#9fe3d6", fontSize: 10 }, labelBgStyle: { fill: "#0f1220" },
+    });
+    const topicEdge = (topic: string, to: string) => edges.push({ id: `t-${topic}-${to}`, source: topic, target: to, style: { stroke: "#3a4258", strokeWidth: 1 } });
+
     const selected = graph.byId.get(selectedId || "");
     if (selected) {
-      // First ring: similar memories (by meaning) and explicit relations, both directions.
-      const first = new Map<string, string>();
-      for (const n of selected.neighbors ?? []) first.set(n.id, `${Math.round(n.similarity * 100)}% parecida`);
-      for (const id of selected.relations) if (!first.has(id)) first.set(id, RELATION_LABEL[selected.relationTypes?.[id] || "thematic"]);
-      for (const e of graph.incoming.get(selected.id) ?? []) if (!first.has(e.from.id)) first.set(e.from.id, RELATION_LABEL[e.type]);
-      for (const m of allMemories) if (!first.has(m.id) && m.id !== selected.id && m.neighbors?.some((n) => n.id === selected.id)) first.set(m.id, "parecida");
-      const firstIds = [...first.keys()].filter((id) => graph.byId.has(id)).slice(0, 8);
-      nodes.push(card(selected, 0, 0, true));
-      ring(firstIds.length, 430).forEach((p, i) => {
-        const m = graph.byId.get(firstIds[i])!;
-        nodes.push(card(m, p.x, p.y));
-        edges.push({ id: `s-${m.id}`, source: selected.id, target: m.id, label: first.get(m.id), style: { stroke: "#5fd4c0" }, labelStyle: { fill: "#aab3bd", fontSize: 11 }, labelBgStyle: { fill: "#0f1012" } });
-      });
-      // Second ring: each first-ring memory's closest one not yet shown.
-      const shown = new Set([selected.id, ...firstIds]);
-      const second: { id: string; from: string }[] = [];
-      for (const id of firstIds) {
-        if (second.length >= 6) break;
-        const next = graph.byId.get(id)?.neighbors?.find((n) => !shown.has(n.id) && graph.byId.has(n.id));
-        if (next) { shown.add(next.id); second.push({ id: next.id, from: id }); }
+      // Where it comes from: its topic and the memories that point to it.
+      const topic = topicOf(selected);
+      const siblings = allMemories.filter((m) => topicOf(m) === topic).length;
+      topicNode(topic, siblings, memoryColor(selected));
+      memoryNode(selected, true);
+      topicEdge(topic, selected.id);
+      for (const e of graph.incoming.get(selected.id) ?? []) { memoryNode(e.from); relationEdge(e.from.id, selected.id, e.type, true); }
+      // Where it goes: its relations, then the closest memories by meaning.
+      for (const id of selected.relations) {
+        const to = graph.byId.get(id);
+        if (!to || to.id === selected.id) continue;
+        memoryNode(to);
+        relationEdge(selected.id, to.id, selected.relationTypes?.[id] || "thematic", true);
       }
-      ring(second.length, 820, 0.3).forEach((p, i) => {
-        const m = graph.byId.get(second[i].id)!;
-        nodes.push(card(m, p.x, p.y));
-        edges.push({ id: `t-${m.id}`, source: second[i].from, target: m.id, style: { stroke: "#3a4048" } });
-      });
-      return { nodes, edges };
+      for (const n of (selected.neighbors ?? []).slice(0, 6)) {
+        const to = graph.byId.get(n.id);
+        if (!to || seen.has(to.id)) continue;
+        memoryNode(to);
+        similarEdge(selected.id, to.id, n.similarity, true);
+        // One step further: what that memory leads to.
+        const next = to.neighbors?.find((x) => !seen.has(x.id) && graph.byId.has(x.id) && x.similarity >= SIMILAR_MIN);
+        if (next) { memoryNode(graph.byId.get(next.id)!); similarEdge(to.id, next.id, next.similarity); }
+      }
+      // What it did in the answers.
+      const s = selected.stats;
+      const outcome = !s || (s.uses === 0 && s.helped === 0 && s.failed === 0)
+        ? { title: "Ainda não usada", subtitle: "não entrou em nenhuma resposta", color: "#6b7385" }
+        : s.failed > s.helped
+          ? { title: `Atrapalhou ${s.failed}×`, subtitle: `usada ${s.uses}× · ajudou ${s.helped}×`, color: "#ff6b8a" }
+          : { title: `Ajudou ${s.helped}×`, subtitle: `usada ${s.uses}× · falhou ${s.failed}×`, color: "#5fd48a" };
+      nodes.push({ id: "outcome", type: "card", position: { x: 0, y: 0 }, draggable: false, data: { kind: "outcome", ...outcome } satisfies CardData });
+      edges.push({ id: "o", source: selected.id, target: "outcome", style: { stroke: outcome.color, strokeWidth: 1.6 }, markerEnd: { type: MarkerType.ArrowClosed, color: outcome.color }, label: "nas respostas", labelStyle: { fill: "#c9d3e6", fontSize: 11 }, labelBgStyle: { fill: "#0f1220" } });
+      return { nodes: layout(nodes, edges), edges, note: "" };
     }
-    // Overview: one card per topic (or project group), with its most used memory as the entry point.
-    const topicOf = (m: Memory) => (clusters.length && m.cluster !== undefined ? String(m.cluster) : groupKey(m));
-    const groups = new Map<string, Memory[]>();
-    for (const m of memories) groups.set(topicOf(m), [...(groups.get(topicOf(m)) || []), m]);
-    const entries = [...groups].sort((a, b) => b[1].length - a[1].length);
-    ring(entries.length, Math.max(260, entries.length * 60)).forEach((p, i) => {
-      const [key, members] = entries[i];
-      const lead = [...members].sort((a, b) => (b.stats?.uses ?? 0) - (a.stats?.uses ?? 0))[0];
-      const label = clusters.find((c) => String(c.id) === key)?.label || key;
-      nodes.push({
-        id: lead.id, type: "card", position: { x: p.x - 110, y: p.y - 28 }, draggable: false,
-        data: { title: label, subtitle: `${members.length} memórias · abrir "${lead.title.slice(0, 32)}"`, color: groupColor(groupKey(lead)), selected: false } satisfies CardData,
-      });
-    });
-    return { nodes, edges };
-  }, [graph, selectedId, allMemories, memories, clusters]);
 
-  const handleNodeClick = useCallback((_: unknown, node: Node) => onSelect(node.id), [onSelect]);
-  const empty = !nodes.length || (selectedId && !visible.has(selectedId) && !graph.byId.has(selectedId));
+    // Overview: the whole flowchart of what is in view (the filters still apply).
+    const shown = [...memories].sort((a, b) => (b.stats?.uses ?? 0) - (a.stats?.uses ?? 0)).slice(0, MAX_OVERVIEW);
+    const ids = new Set(shown.map((m) => m.id));
+    const counts = new Map<string, number>();
+    for (const m of shown) counts.set(topicOf(m), (counts.get(topicOf(m)) || 0) + 1);
+    for (const m of shown) {
+      topicNode(topicOf(m), counts.get(topicOf(m)) || 0, memoryColor(m));
+      memoryNode(m);
+      topicEdge(topicOf(m), m.id);
+    }
+    for (const e of graph.edges) if (ids.has(e.from.id) && ids.has(e.to.id)) relationEdge(e.from.id, e.to.id, e.type);
+    const bridged = new Set<string>();
+    for (const m of shown) {
+      // Each memory's closest one by meaning, inside or across topics: how they interconnect.
+      const n = m.neighbors?.find((x) => ids.has(x.id) && x.similarity >= SIMILAR_MIN);
+      if (!n) continue;
+      const key = [m.id, n.id].sort().join("|");
+      if (bridged.has(key)) continue;
+      bridged.add(key);
+      similarEdge(m.id, n.id, n.similarity);
+    }
+    const note = memories.length > MAX_OVERVIEW ? `Mostrando as ${MAX_OVERVIEW} memórias mais usadas de ${memories.length}: use os filtros para ver as outras.` : "";
+    // One column per topic (its memories below it), the links crossing between columns: a single
+    // left-to-right chain stacked every memory in one unreadable column.
+    const COL = 290, ROW = 68, PER_COLUMN = 8;
+    const topics = [...counts].sort((a, b) => b[1] - a[1]).map(([key]) => key);
+    let column = 0;
+    const placed = new Map<string, { x: number; y: number }>();
+    for (const key of topics) {
+      const members = shown.filter((m) => topicOf(m) === key);
+      placed.set(key, { x: column * COL, y: 0 });
+      members.forEach((m, i) => placed.set(m.id, { x: (column + Math.floor(i / PER_COLUMN)) * COL, y: 90 + (i % PER_COLUMN) * ROW }));
+      column += Math.max(1, Math.ceil(members.length / PER_COLUMN));
+    }
+    const overviewEdges = edges.filter((e) => !e.id.startsWith("t-"));
+    return { nodes: nodes.map((n) => ({ ...n, position: placed.get(n.id) || n.position })), edges: overviewEdges, note };
+  }, [graph, selectedId, allMemories, memories, topicOf, topicLabel]);
 
+  const handleNodeClick = useCallback((_: unknown, node: Node) => {
+    if (node.id === "outcome") return;
+    if (node.id.startsWith("topic:")) {
+      // A topic opens its most used memory.
+      const lead = memories.filter((m) => topicOf(m) === node.id).sort((a, b) => (b.stats?.uses ?? 0) - (a.stats?.uses ?? 0))[0];
+      if (lead) onSelect(lead.id);
+      return;
+    }
+    onSelect(node.id);
+  }, [memories, onSelect, topicOf]);
+
+  if (!nodes.length) return <div className="memory-flow"><div className="list-empty">Nenhuma memória para mostrar.</div></div>;
   return (
     <div className="memory-flow">
-      {empty ? (
-        <div className="list-empty">Nenhuma memória para mostrar.</div>
-      ) : (
-        <ReactFlow key={selectedId || "overview"} nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodeClick={handleNodeClick} fitView fitViewOptions={{ padding: 0.2 }} proOptions={{ hideAttribution: true }}>
-          <Background gap={24} color="#1c1f24" />
-          <Controls showInteractive={false} />
-        </ReactFlow>
-      )}
-      <p className="flow-hint">{selectedId ? "Clique numa memória para ver a vizinhança dela." : "Selecione uma memória (no mapa ou na lista) para ver as parecidas e relacionadas."}</p>
+      <ReactFlow key={selectedId || "overview"} nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodeClick={handleNodeClick} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.1} proOptions={{ hideAttribution: true }}>
+        <Background gap={24} color="#1c1f2c" />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+      {selectedId && onClear && <button className="flow-back btn btn-sm" onClick={onClear}>← Todas as memórias</button>}
+      <div className="flow-legend">
+        <span><i className="solid" /> relação</span>
+        <span><i className="dashed" /> sentido parecido</span>
+        <span><i className="ok" /> ajudou</span>
+        <span><i className="bad" /> atrapalhou</span>
+      </div>
+      <p className="flow-hint">{note || (selectedId ? "À esquerda, o que leva a esta memória; à direita, para onde ela vai. Clique em outra para seguir." : "Clique numa memória para ver de onde ela vem e para onde vai.")}</p>
     </div>
   );
 }

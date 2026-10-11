@@ -475,7 +475,7 @@ export default function NeuralAtlas({ variant }: Props) {
               aria-label="Pesquisar memórias"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) inspect(filtered[0].id); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) { if (view === "flow" || view === "list") select(filtered[0].id); else inspect(filtered[0].id); } }}
               placeholder="Pesquisar memórias, projetos, decisões… (Enter vai até a primeira)"
             />
             <kbd>Ctrl K</kbd>
@@ -686,7 +686,7 @@ export default function NeuralAtlas({ variant }: Props) {
           </div>
         ) : view === "flow" ? (
           <Suspense fallback={<div className="scene-fallback">Preparando o fluxograma…</div>}>
-            <MemoryFlow memories={filtered} allMemories={memories} clusters={clusters} selectedId={selectedId} onSelect={select} />
+            <MemoryFlow memories={filtered} allMemories={memories} clusters={clusters} selectedId={selectedId} onSelect={select} onClear={() => setSelectedId(null)} />
           </Suspense>
         ) : (
           <div className="list-view">
