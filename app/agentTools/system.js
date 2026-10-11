@@ -169,7 +169,9 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
       const resolved = await resolveOpenTarget(target, ctx);
       // A program on Windows: its window is waited for and looked at, so the Aurora can work in it
       // with the person ("abre a calculadora" -> "o que vamos fazer?"). A link opens in the browser.
-      const desktop = IS_WINDOWS && resolved.kind !== "link" ? await import("../desktop.js") : null;
+      // Only a program: a document or folder opened to be read (a PDF bill) became "the program in use"
+      // and the next request ("volta naquela multiplicação") was answered about it (usage battery 3, 11/10).
+      const desktop = IS_WINDOWS && (resolved.kind === "app" || resolved.kind === "executable") ? await import("../desktop.js") : null;
       const before = desktop ? await desktop.openWindows().catch(() => []) : [];
       await launch(resolved.target);
       if (!desktop) return `Abri ${resolved.target}.`;

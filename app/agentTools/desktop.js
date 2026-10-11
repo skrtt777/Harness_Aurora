@@ -309,11 +309,17 @@ export const pptTools = [
 export const desktopTools = [
   {
     name: "desktop_windows",
-    description: "Lista as janelas de programas abertas no computador (Access, Excel, Word, sistemas…). Use antes de desktop_snapshot quando não souber o nome da janela.",
+    description: "Lista as JANELAS de programas abertas agora (Access, Excel, sistemas…), para controlar um deles. Não é a pasta Área de Trabalho nem arquivos: para ver o que tem numa pasta, use list_dir. Use antes de desktop_snapshot quando não souber o nome da janela.",
     parameters: { type: "object", properties: {} },
     stage: () => "Vendo os programas abertos…",
     describe: () => ({ kind: "meta" }),
-    async run() {
+    async run(_args, ctx = {}) {
+      // "oq tem na minha área de trabalho?" is the Desktop folder, not the open windows (usage battery
+      // 2, 11/10: the windows of the computer were listed instead of the files).
+      const request = String(ctx.request || "");
+      if (/(área|area) de trabalho|\bdesktop\b|na pasta|meus arquivos/i.test(request) && !/janela|programa|aberto|aberta|abertos/i.test(request)) {
+        throw new Error("A pessoa perguntou de uma pasta (a Área de Trabalho é a pasta Desktop): use list_dir com path \"Desktop\", não as janelas abertas.");
+      }
       const reply = await desktopRequest("windows");
       if (!reply.ok) throw new Error(reply.error);
       return reply.text;

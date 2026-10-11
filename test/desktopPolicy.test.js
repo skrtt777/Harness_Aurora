@@ -55,3 +55,9 @@ test("Windows settings and security windows are never driven; modern apps author
   assert.equal(approvalKey("ApplicationFrameHost", "Calculadora"), "calculadora");
   assert.equal(approvalKey("EXCEL", "Pasta1 - Excel"), "excel");
 });
+
+test("the Desktop folder is not the open windows", async () => {
+  const { desktopTools } = await import("../app/agentTools/desktop.js");
+  const windows = desktopTools.find((t) => t.name === "desktop_windows");
+  await assert.rejects(windows.run({}, { request: "oq tem na minha area de trabalho?" }), /list_dir/);
+});
