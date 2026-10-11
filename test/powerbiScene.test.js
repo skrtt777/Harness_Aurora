@@ -124,7 +124,14 @@ test("the scene's DAX: one slot per dock, quotes and parentheses balanced, data 
   const noStrings = dax.replace(/"(?:[^"]|"")*"/g, "\"\"");
   assert.equal((noStrings.match(/\(/g) || []).length, (noStrings.match(/\)/g) || []).length);
   assert.match(dax, /CD 100%25 NORTE %231/);
-  assert.match(dax, /ISCROSSFILTERED\('Embarques'\[Pedido\]\)/);
+  // Faithful: one vehicle one object (its latest active record), every one drawn, a selection only when
+  // it hides an active vehicle, more than fits written as "+N fora do desenho".
+  assert.match(dax, /SUMMARIZE\(Ativos, 'Embarques'\[Placa\]\)/);
+  assert.match(dax, /VAR Filtrado = COUNTROWS\(FILTER\(Veiculos, NOT \[@id\] IN Visiveis\)\) > 0/);
+  for (const where of ["doca", "fila", "estrada"]) assert.match(dax, new RegExp(`class='v ${where}`));
+  assert.equal((dax.match(/class='v fila/g) || []).length, 10);
+  assert.equal((dax.match(/class='v estrada/g) || []).length, 8);
+  assert.match(dax, /fora do desenho/);
   assert.equal(daxText("a#b%c\"d"), "\"a%23b%25c\"\"d\"");
   assert.match(safe("[@placa]"), /"&", "&amp;"\), "<", "&lt;"\), "%", "%25"\), "#", "%23"/);
 });

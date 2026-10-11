@@ -248,7 +248,7 @@ export function materialize(page, cat, look = "noite") {
   // The filters of the page: the year, and what its charts group by.
   const used = page.blocos.map((b) => b.por).filter((p) => p && !timeRef[p]);
   const slicerRefs = [cat.time.length ? "'Calendário'[Ano]" : null, ...used.map(refOf), ...cat.slicerRefs].filter(Boolean);
-  const slicers = [...new Set(slicerRefs)].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true }));
+  const slicers = [...new Set(slicerRefs)].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true, ...(cat.slicerDefaults?.[values] ? { select: [cat.slicerDefaults[values]], single: true } : {}) }));
   const cards = page.numeros.map((name) => ({ type: "card", values: m(name), title: name, ...(cat.money.has(name) ? { precision: 0 } : {}) }));
   return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks, slicers };
 }

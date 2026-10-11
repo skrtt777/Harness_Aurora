@@ -50,7 +50,16 @@ busy.forEach(([d, status], i) => add(1 + (i % 3), status, trucks[i], docks[d], "
 add(1, "Carregando", trucks[13], docks[1], "CD Betim");
 add(2, "Em separação", ["HJK-2Q45", "Otávio Reis"], docks[4], "CD Betim");
 for (let i = 0; i < 3; i += 1) add(0, "Pedido recebido", trucks[6 + i], "", i < 2 ? "CD Contagem" : "CD Betim");
-for (let i = 0; i < 4; i += 1) add(i === 0 ? 9 : 1 + i, "Em trânsito", trucks[9 + i], pick(docks.slice(0, 6)), i % 2 ? "CD Betim" : "CD Contagem");
+// The hard cases for a faithful picture:
+// two trucks at the same dock (Contagem, Doca 03);
+add(1, "Carregando", ["LMN-7R21", "Wesley Prado"], docks[2], "CD Contagem");
+// a queue longer than one row of parking (Contagem: 6 waiting);
+for (const [plate, driver] of [["OPQ-1S11", "Ivo Lopes"], ["RST-2T22", "Joana Faria"], ["UVW-3U33", "Kátia Moura"], ["XYZ-4V44", "Luís Prado"]]) add(0, "Pedido recebido", [plate, driver], "", "CD Contagem");
+// one truck with two active orders: it is where its latest one is (RTA-4B21 loads at Doca 01, not in the queue);
+add(3, "Pedido recebido", trucks[0], "", "CD Contagem");
+// four trucks on the road from Contagem, one from Betim.
+for (let i = 0; i < 4; i += 1) add(i === 0 ? 9 : 1 + i, "Em trânsito", trucks[9 + i], pick(docks.slice(0, 6)), "CD Contagem");
+add(2, "Em trânsito", ["BCD-5W55", "Mara Teles"], docks[3], "CD Betim");
 writeFileSync(join(folder, "operacao_cd.xlsx"), makeXlsx({
   Embarques: rows,
   Estoque: [["SKU", "Produto", "Categoria", "Estoque atual", "Estoque mínimo"],
@@ -66,7 +75,21 @@ const expected = {
   shipments: rows.length - 1, active: active.length, delivered: delivered.length, onTime,
   onTimePct: onTime / delivered.length, atDocks: active.filter((r) => /separa|carreg/i.test(r[S])).length,
   waiting: active.filter((r) => /recebido/i.test(r[S])).length, transit: active.filter((r) => /trânsito/i.test(r[S])).length,
-  units: Object.fromEntries(Object.keys(units).map((u) => [u, { atDocks: active.filter((r) => r[1] === u && /separa|carreg/i.test(r[S])).length }])),
+  units: {},
 };
+// Where each truck is now, by the same rule the BI uses: its latest active record (date, then order).
+const key = (r) => [parse(r[2]), r[0]];
+for (const u of Object.keys(units)) {
+  const latest = new Map();
+  for (const r of active.filter((x) => x[1] === u)) {
+    const plate = r[7]; const have = latest.get(plate);
+    if (!have || key(r)[0] > key(have)[0] || (key(r)[0] === key(have)[0] && key(r)[1] > key(have)[1])) latest.set(plate, r);
+  }
+  const now = [...latest.values()];
+  const where = (r) => (/trânsito/i.test(r[S]) ? "estrada" : /separa|carreg/i.test(r[S]) && r[9] ? "doca" : "fila");
+  const perDock = {};
+  for (const r of now.filter((x) => where(x) === "doca")) perDock[r[9]] = (perDock[r[9]] || 0) + 1;
+  expected.units[u] = { doca: now.filter((x) => where(x) === "doca").length, fila: now.filter((x) => where(x) === "fila").length, estrada: now.filter((x) => where(x) === "estrada").length, perDock };
+}
 writeFileSync(join(folder, "esperado-logistica.json"), JSON.stringify(expected, null, 2));
 console.log(expected);

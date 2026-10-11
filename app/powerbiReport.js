@@ -88,6 +88,12 @@ export function visual(spec, measures, z = 0) {
   if (spec.labels) objects.labels = [{ properties: { show: literal(true) } }];
   if (spec.dropdown) objects.data = [{ properties: { mode: literal("Dropdown") } }];
   if (spec.type === "slicer") objects.header = [{ properties: { show: literal(true) } }];
+  // A slicer that opens with a value chosen (and one at a time): the page starts on it.
+  if (spec.type === "slicer" && spec.single) objects.selection = [{ properties: { singleSelect: literal(true) } }];
+  if (spec.type === "slicer" && spec.select?.length) {
+    const f = field(spec.values, measures);
+    objects.general = [{ properties: { filter: { filter: { Version: 2, From: [{ Name: "s", Entity: f.entity, Type: 0 }], Where: [{ Condition: { In: { Expressions: [{ Column: { Expression: { SourceRef: { Source: "s" } }, Property: f.property } }], Values: spec.select.map((v) => [literal(v).expr]) } } }] } } } }];
+  }
   // A scatter laid over a scene: no axes, no background, the scale of the picture (0..w, 0..h), so a
   // click on an object of the scene selects it and filters the page.
   if (spec.overlay) {

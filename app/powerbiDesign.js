@@ -376,6 +376,8 @@ export function prepare(tables, { title, goal = "" } = {}) {
     scenes, specials: { ...(story?.specials || {}), ...(fin?.specials || {}) },
     // The unit switcher (CD, filial) comes first, like the switcher of a control room.
     slicerRefs: [story?.site, ...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
+    // The unit switcher opens on one unit (single choice): the cards and the yard look at the same one.
+    slicerDefaults: story?.site && story.siteFirst ? { [story.site]: story.siteFirst } : {},
     stories: [
       flow ? `Há um fluxo de etapas em ${flow.status}: ${flow.stages.map((x) => x.values[0]).join(" → ")}${flow.place ? `, com ${lower(flow.place)}s` : ""}${flow.asset ? ` e ${flow.vehicles} (${flow.asset})` : ""}.` : "",
       fin ? `É dinheiro entrando e saindo${ledger.category ? ` por ${lower(ledger.category.column)}` : ""}${ledger.budget ? ", com orçamento" : ""}.` : "",

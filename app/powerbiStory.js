@@ -3,7 +3,7 @@
 // and deadlines around it. With a flow the BI gets an operations page — the scene of the place drawn from
 // the data, the stage tracker, the vehicles with their progress and the selected one's detail — instead of
 // starting from the generic overview. app/powerbiDesign.js calls this; the pictures are app/powerbiScene.js.
-import { detailCard, progressBar, stageTowers, trackerScene, yardScene } from "./powerbiScene.js";
+import { detailCard, progressBar, stageTowers, trackerScene, vehicleMeasures, yardScene } from "./powerbiScene.js";
 
 const STAGE_RULES = [
   ["cancelado", 0, /cancel|devolv|perdid|recusad|estornad/i],
@@ -51,6 +51,7 @@ export function readFlow(fact, tables = []) {
   const place = find(PLACE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 40);
   // A unit (CD, filial): the yard shows one at a time, chosen in a switcher.
   const site = find(SITE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 12 && c !== place);
+  const siteValues = site ? [...new Set(valuesOf(fact, site))].sort((a, b) => a.localeCompare(b, "pt-BR")) : [];
   const asset = find(ASSET, (c) => c.type === "texto");
   const driver = find(DRIVER, (c) => c.type === "texto");
   const id = fact.columns.find((c) => c.role === "id");
@@ -75,7 +76,7 @@ export function readFlow(fact, tables = []) {
   const stock = tables.filter((t) => t !== fact).map((t) => ({ table: t, column: t.columns.find((c) => STOCK.test(c.name) && /quantity|value|money/.test(c.role) && !/m[íi]nimo/i.test(c.name)), minimum: t.columns.find((c) => /m[íi]nimo/i.test(c.name) && c.type !== "texto") })).find((s) => s.column) || null;
   return {
     fact: fact.name, status: best.column.name, stages, done,
-    place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, asset: asset?.name || null, driver: driver?.name || null,
+    place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, siteValues, asset: asset?.name || null, driver: driver?.name || null,
     id: id?.name || null, date: date?.name || null, due: due?.name || null, doneAt: doneAt?.name || null,
     details, vehicles, stock,
     logistics: Boolean(place || asset || stages.some((s) => s.key === "transito")),
@@ -103,9 +104,15 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   let onTime = null; let lateDone = null;
   const inProgress = add("Em andamento", `COUNTROWS(${active}) + 0`, INT, "Operação", "Quantos ainda não terminaram (nem foram cancelados)");
   kpis.push(inProgress);
-  if (flow.asset) {
-    const yardValues = flow.stages.filter((s) => ["fila", "separacao", "carregando"].includes(s.key)).flatMap((s) => s.values);
-    if (yardValues.length) kpis.push(add(`${flow.vehicles === "caminhões" ? "Caminhões" : "Veículos"} no pátio`, `CALCULATE(DISTINCTCOUNT(${col(F, flow.asset)}), KEEPFILTERS(${status} IN ${list(yardValues)})) + 0`, INT, "Operação", "Na fila ou nas docas agora"));
+  if (flow.asset || flow.place) {
+    // Counted vehicle by vehicle, where each one is now (its latest active record) — the same DAX the
+    // yard draws with, so a card and the scene never disagree.
+    const V = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
+    const vm = vehicleMeasures(flow);
+    kpis.push(add(`${V} no pátio`, vm.patio, INT, "Operação", "Nas docas ou na fila agora (cada um conta uma vez, onde está)"));
+    if (flow.place) add(`${V} nas ${flow.place.toLowerCase()}s`, vm.docas, INT, "Operação", `Em uma ${flow.place.toLowerCase()} agora`);
+    add(`${V} na fila`, vm.fila, INT, "Operação", "Esperando agora");
+    add(`${V} em trânsito`, vm.estrada, INT, "Operação", "Na estrada agora");
   }
   if (flow.due && flow.doneAt) {
     kpis.push(onTime = add(flow.logistics ? "Entregas no prazo %" : "No prazo %", `VAR Feitos = FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && NOT ISBLANK(${col(F, flow.due)}))\nRETURN DIVIDE(COUNTROWS(FILTER(Feitos, ${col(F, flow.doneAt)} <= ${col(F, flow.due)})), COUNTROWS(Feitos))`, PCT, "Operação", `${flow.doneAt} até ${flow.due}`));
@@ -159,5 +166,5 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
     tabela_andamento: { desc: `${things.toLowerCase()} em andamento com a etapa e a barra de progresso (clicar acende na cena)`, make: () => ({ type: "tableEx", title: `${things} em andamento`, values: [rowsBy, ...[place, driver && !place ? driver : null, stage].filter(Boolean).map(m), m(progress)], image: { height: 22, width: 128 }, totals: false, sort: { by: rowsBy, desc: false } }) },
   };
   if (detail) specials.detalhe_selecionado = { desc: "o item escolhido: seus dados e a etapa", make: () => ({ type: "image", float: true, url: m(detail), title: flow.asset ? `${things.slice(0, -1).replace(/õe$/, "ão")} selecionado` : "Selecionado" }) };
-  return { kpis, onTime, lateDone, scenes, specials, site: flow.site ? col(F, flow.site) : null, picture: { tracker, progress, detail, towers } };
+  return { kpis, onTime, lateDone, scenes, specials, site: flow.site ? col(F, flow.site) : null, siteFirst: flow.siteValues?.[0] || null, picture: { tracker, progress, detail, towers } };
 }

@@ -27,7 +27,8 @@ try {
   const num = (s) => Number(String(s).replace(/\./g, "").replace(",", "."));
   const checks = [
     ["em andamento", "[Em andamento]", expected.active],
-    ["caminhões no pátio", "[Caminhões no pátio]", expected.atDocks + expected.waiting],
+    // Vehicle by vehicle (one place each): the sum of the units' docks and queues.
+    ["caminhões no pátio", "[Caminhões no pátio]", Object.values(expected.units || {}).reduce((n, u) => n + u.doca + u.fila, 0)],
     ["entregas no prazo (x10000)", "ROUND([Entregas no prazo %] * 10000, 0)", Math.round(expected.onTimePct * 10000)],
   ];
   for (const [name, dax, want] of checks) { const v = await value(dax); check(name, !v.error && Math.abs(num(v.text) - want) < 0.0001, v.error || `${v.text} x ${want}`); }
