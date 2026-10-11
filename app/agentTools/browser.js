@@ -2,6 +2,7 @@ import { getBrowserPage, setActivePage } from "../browserBackend.js";
 import { normalizeGotoUrl } from "../browserAgent.js";
 import { centerOf, findTextBox, recognizeImage } from "../ocr.js";
 import { assertAllowedUrl } from "./netGuard.js";
+import { CHALLENGE_STOP, challengeFrom, clearWall, countAction, hostOf, isWebSearchUrl, markWall, noteAction, paceDelay, pageSignals, siteSearchUrl, wallAt } from "../browserPace.js";
 
 const MAX_ELEMENTS = 60;
 
@@ -139,26 +140,73 @@ async function locate(page, { ref, text }) {
   return null;
 }
 
+/** An "are you human?" check on the page: the site is marked and the Aurora stops (app/browserPace.js). */
+async function checkWall(page) {
+  const signals = await page.evaluate(pageSignals).catch(() => null);
+  const what = signals && challengeFrom(signals);
+  if (what) { markWall(page.url(), what); throw new Error(CHALLENGE_STOP(what, hostOf(page.url()))); }
+  clearWall(page.url());
+}
+
+/**
+ * Before an action that changes the page: a site that asked for a check stays untouched until the check
+ * is gone; a ceiling per site per request; a human pace between actions on the same site.
+ */
+async function gate(ctx, page, url = page.url()) {
+  const wall = wallAt(url);
+  if (wall) {
+    // The person may have solved it since: the page on that site no longer shows it.
+    if (hostOf(page.url()) === hostOf(url)) await checkWall(page);
+    else throw new Error(CHALLENGE_STOP(wall.what, hostOf(url)));
+  }
+  countAction(ctx, url);
+  const delay = paceDelay(url);
+  if (delay) await page.waitForTimeout(delay);
+  noteAction(url);
+}
+
 // Snapshot of whichever tab is active afterwards: a click may open a new tab.
 async function after(ctx, page, message) {
   await settle(page);
   const active = (await current(ctx)).page;
   if (active !== page) await settle(active);
+  await checkWall(active);
+  noteAction(active.url());
   return `${message}\n\n${await snapshotText(active)}`;
+}
+
+/** Types into the first search box of the page and presses Enter (a site with no known results address). */
+async function searchInPage(page, query) {
+  const data = await page.evaluate(collectElements, MAX_ELEMENTS).catch(() => ({ elements: [] }));
+  const box = data.elements.find((e) => e.role === "searchbox") || data.elements.find((e) => TYPEABLE.has(e.role) && /busca|pesquis|search|procur|o que voc/i.test(e.name)) || data.elements.find((e) => TYPEABLE.has(e.role) && e.inView);
+  if (!box) return false;
+  const locator = page.locator(`[data-aurora-ref="${box.ref}"]`).first();
+  await locator.click({ timeout: 5000 }).catch(() => {});
+  await locator.fill(String(query), { timeout: 5000 });
+  await page.keyboard.press("Enter");
+  return true;
 }
 
 export const browserTools = [
   {
     name: "browser_navigate",
-    description: "Abre um site no navegador controlado pela Aurora (janela visível para o usuário). Aceita URL completa ou domínio, ex.: \"youtube.com\". Devolve os elementos da página já carregada.",
-    parameters: { type: "object", properties: { url: { type: "string", description: "URL ou domínio" } }, required: ["url"] },
+    description: "Abre um site no navegador controlado pela Aurora (janela visível para o usuário). Aceita URL completa ou domínio, ex.: \"youtube.com\". Para buscar algo dentro do site, mande também search (ex.: url \"mercadolivre.com.br\", search \"geladeira frost free\"): abre direto os resultados, numa ação só. Para pesquisar na internet em geral, use web_search, não o Google no navegador. Devolve os elementos da página já carregada.",
+    parameters: { type: "object", properties: { url: { type: "string", description: "URL ou domínio" }, search: { type: "string", description: "o que buscar dentro do site (opcional)" } }, required: ["url"] },
     risk: "safe",
-    stage: (a) => `Abrindo ${a.url}…`,
-    async run({ url }, ctx) {
+    stage: (a) => (a.search ? `Buscando "${String(a.search).slice(0, 40)}" em ${a.url}…` : `Abrindo ${a.url}…`),
+    async run({ url, search }, ctx) {
       let target = String(url || "").trim();
       if (!target) throw new Error("Informe a URL.");
       if (!/[.:/]/.test(target)) target = `${target}.com`;
+      // A search inside a known site: straight to its results (open + type + Enter were three actions).
+      const results = search ? siteSearchUrl(target, search) : null;
+      if (results) target = results;
       let destination = new URL(normalizeGotoUrl(target));
+      // Web searches in the browser: the engines ask "are you a robot?" fast. web_search reads results
+      // with no browser at all; the browser only when the person asked for that engine.
+      if ((isWebSearchUrl(destination.href) || (search && /(^|\.)(google|bing)\.[a-z.]+$/.test(destination.host))) && !/\b(google|bing)\b/i.test(String(ctx.request || ""))) {
+        throw new Error(`Para pesquisar "${search || destination.searchParams.get("q") || ""}" na internet, use web_search (lê os resultados sem abrir o navegador e sem verificação de robô). Depois, se precisar, abra o site escolhido com browser_navigate.`);
+      }
       // Asked to open http://127.0.0.1:…/contato, the model opened an invented
       // loja-teclas-web.vercel.app/contato and sent the person's data there (battery, 05/10/2026).
       // Same page path on another host than the one the person gave: the person's address wins.
@@ -169,8 +217,59 @@ export const browserTools = [
       assertAllowedUrl(destination.href);
       const { page } = await current(ctx);
       await page.bringToFront().catch(() => {});
+      // The page already open: no reload (a reload is one more request the site counts).
+      const same = (a, b) => a.replace(/#.*$/, "").replace(/\/$/, "") === b.replace(/#.*$/, "").replace(/\/$/, "");
+      if (same(page.url(), destination.href) && !search) return `${note}A página ${page.url()} já está aberta (não recarreguei).\n\n${await snapshotText(page)}`;
+      await gate(ctx, page, destination.href);
       await page.goto(destination.href, { timeout: 30000, waitUntil: "domcontentloaded" });
-      return after(ctx, page, `Abri ${page.url()}.${note}`);
+      // An unknown site: its own search box, typed and sent in this same action.
+      if (search && !results) {
+        await settle(page);
+        await checkWall(page);
+        if (await searchInPage(page, search)) return after(ctx, page, `Abri ${destination.host} e busquei "${search}".${note}`);
+        return after(ctx, page, `Abri ${page.url()}, mas não achei caixa de busca: veja os elementos e use browser_type.${note}`);
+      }
+      return after(ctx, page, `${results ? `Abri os resultados de "${search}" em ${destination.host}` : `Abri ${page.url()}`}.${note}`);
+    },
+  },
+  {
+    name: "browser_fill",
+    description: "Preenche um formulário inteiro numa ação só: fields é a lista de campos ({field: rótulo/placeholder ou ref, value: o que escrever; numa lista de opções, a opção; numa caixa de marcar, \"sim\"/\"não\"}); submit (opcional) é o botão a clicar no fim (texto ou ref). Prefira a vários browser_type seguidos.",
+    parameters: { type: "object", properties: {
+      fields: { type: "array", items: { type: "object", properties: { field: { type: "string" }, value: { type: "string" } } } },
+      submit: { type: "string", description: "botão para enviar no fim (texto ou ref)" },
+    }, required: ["fields"] },
+    risk: "safe",
+    stage: (a) => `Preenchendo ${[a.fields].flat().length} campo(s)…`,
+    async run({ fields, submit }, ctx) {
+      const { page } = await current(ctx);
+      await gate(ctx, page);
+      const done = [];
+      const missing = [];
+      for (const f of [fields].flat().filter(Boolean)) {
+        const name = String(f.field || f.ref || "");
+        const locator = await locate(page, /^e\d+$/.test(name) ? { ref: name } : { text: name });
+        if (!locator) { missing.push(name); continue; }
+        const kind = await locator.evaluate((el) => (el.tagName === "SELECT" ? "select" : el.type === "checkbox" || el.getAttribute("role") === "checkbox" ? "checkbox" : el.type === "radio" ? "radio" : "text")).catch(() => "text");
+        const value = String(f.value ?? f.text ?? "");
+        await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+        if (kind === "select") await locator.selectOption({ label: value }).catch(() => locator.selectOption(value));
+        else if (kind === "checkbox") { if (/^(sim|true|marcar|marcado|x|1)$/i.test(value)) await locator.check({ timeout: 5000 }); else await locator.uncheck({ timeout: 5000 }); }
+        else if (kind === "radio") await locator.check({ timeout: 5000 });
+        else { await locator.fill(value, { timeout: 5000 }); }
+        // A person fills one field after the other, not all in the same millisecond.
+        await page.waitForTimeout(120 + Math.floor(Math.random() * 180));
+        done.push(name);
+      }
+      if (missing.length && !done.length) throw new Error(`Não achei os campos ${missing.join(", ")}. Campos nesta página: ${await typeableFields(page)}.`);
+      let sent = "";
+      if (submit) {
+        const button = await locate(page, /^e\d+$/.test(String(submit)) ? { ref: submit } : { text: submit });
+        if (!button) throw new Error(`Preenchi ${done.join(", ")}, mas não achei o botão "${submit}" para enviar.`);
+        await button.click({ timeout: 6000 });
+        sent = ` e cliquei em "${submit}"`;
+      }
+      return after(ctx, page, `Preenchi ${done.length} campo(s) (${done.join(", ")})${sent}.${missing.length ? ` Não achei: ${missing.join(", ")}.` : ""}`);
     },
   },
   {
@@ -181,6 +280,7 @@ export const browserTools = [
     stage: () => "Olhando a página…",
     async run(_args, ctx) {
       const { page } = await current(ctx);
+      await checkWall(page);
       return snapshotText(page);
     },
   },
@@ -192,6 +292,7 @@ export const browserTools = [
     stage: (a) => `Clicando em ${a.text || a.ref}…`,
     async run(args, ctx) {
       const { page } = await current(ctx);
+      await gate(ctx, page);
       const locator = await locate(page, args);
       if (locator) {
         await locator.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
@@ -215,6 +316,7 @@ export const browserTools = [
     stage: (a) => `Digitando "${String(a.text).slice(0, 40)}"…`,
     async run({ ref, field, text, submit }, ctx) {
       const { page } = await current(ctx);
+      if (submit) await gate(ctx, page);
       let locator = ref || field ? await locate(page, { ref, text: field }) : null;
       if (!ref && !field) {
         // No field named: the focused one, else the first visible text field
@@ -269,6 +371,7 @@ export const browserTools = [
     stage: (a) => `Apertando ${a.key}…`,
     async run({ key }, ctx) {
       const { page } = await current(ctx);
+      await gate(ctx, page);
       await page.keyboard.press(String(key));
       return after(ctx, page, `Apertei ${key}.`);
     },

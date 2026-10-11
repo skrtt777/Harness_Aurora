@@ -13,7 +13,11 @@ export const NEWS: Record<string, { title: string; items: [string, string][] }> 
     items: [
       ['Excel junto com você', '"Abre o Excel", "cria uma planilha de estoque com as colunas Produto, Quantidade e Preço": a Aurora monta na sua frente, com fórmulas que calculam de verdade, pergunta se está certo, formata em reais e salva onde você pedir.'],
       ['Word junto com você', '"Abre o Word e escreve um orçamento para o cliente Marcos": título, texto e tabela aparecem no documento. "Acrescenta o prazo no final", "salva em PDF": ela faz.'],
+      ['Power BI completo', '"Faz um Power BI com a planilha de vendas": a Aurora monta o modelo (calendário, relações, medidas como faturamento, ticket médio, margem e comparação com o ano anterior) e um painel com visão geral, detalhamento e tendência, e abre no Power BI já com os dados.'],
+      ['Pergunte ao seu Power BI', 'Com um relatório aberto: "qual produto vendeu mais em 2026?", "cria uma medida de lucro por pedido". A Aurora consulta e altera o modelo, confere cada medida e desfaz o que der erro.'],
+      ['PowerPoint junto com você', 'Capa, tópicos, tabelas e gráficos montados na sua frente, com notas do apresentador. Salva em .pptx ou PDF.'],
       ['Qualquer programa', 'Calculadora, Access, o sistema da empresa: a Aurora abre, olha a tela, faz os passos e confere o resultado na tela antes de responder. Você só confirma.'],
+      ['Navegador mais certeiro', 'Busca direto nos resultados do site, preenche o formulário inteiro de uma vez e vai no ritmo de uma pessoa. Se um site pedir "não sou um robô", ela para e pede para você resolver.'],
       ['Seus dados protegidos', 'O que é de uma empresa não aparece para outra. CPF, salário e dados de clientes não vão para a memória geral. Em Configurações → Privacidade você encontra, exporta ou apaga os dados de uma pessoa (LGPD).'],
       ['Sempre com sua autorização', 'Antes de mexer num programa, a Aurora pergunta uma vez. Ela nunca mexe nas configurações e na segurança do Windows, nem no terminal ou no gerenciador de tarefas, e no modo Plano só observa.'],
     ],
