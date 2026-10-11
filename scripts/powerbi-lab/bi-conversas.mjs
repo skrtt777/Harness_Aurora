@@ -22,7 +22,8 @@ const logistics = JSON.parse(readFileSync(join(data, "esperado-logistica.json"),
 if ((await openReports()).length) { console.log("Já há um Power BI aberto: feche-o antes."); process.exit(1); }
 const dax = async (q) => (await pbiRequest("query", { dax: q, max: 5 })).text || "";
 const built = (t) => t.steps.find((s) => s.tool === "powerbi" && s.args?.action === "build" && s.ok);
-const planOf = (t) => /Plano \(([^)]+)\): ([^\n]*)/.exec(String(built(t)?.result || "")) || [];
+// "Plano (feito pela IA local): …" or "Plano (automático): …" -> [whole, "modelo"|"automático", pages].
+const planOf = (t) => { const m = /Plano \(([^)]+)\): ([^\n]*)/.exec(String(built(t)?.result || "")); return m ? [m[0], /IA local|modelo/.test(m[1]) ? "modelo" : "automático", m[2]] : []; };
 // The guides the app writes on start (app/guides.js), as in the app.
 await (await import("../../app/guides.js")).seedGuides();
 
