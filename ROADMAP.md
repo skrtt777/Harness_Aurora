@@ -70,7 +70,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
-- **0.1.40 (09–11/10): trabalho junto nos programas.**
+- **0.1.40 (09–11/10, publicada): trabalho junto nos programas.**
   - Excel, Word e PowerPoint são abertos e preenchidos na tela, com tabelas, fórmulas e gráficos.
   - Qualquer programa pode ser operado por janela, com a diferença da tela conferida depois de cada ação.
   - Power BI:
@@ -84,7 +84,6 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 ## Agora
 
-1. **Publicar a 0.1.40** (instalador em `release/`): `gh release create v0.1.40 …` com o .exe, o .blockmap e o latest.yml.
 1. **BI com cena visual (próxima versão):** cena isométrica (CD/logística) com KPIs e rastreamento, montada em TMDL + PBIR, com medidas SVG. As páginas devem nascer do pedido, não de um molde fixo.
 1. **Áudio pelo celular:** hoje a mensagem de voz recebe "mande por texto"; falta uma transcrição local leve (a do Quest depende de um serviço à parte).
 2. **Briefings por setor** além de proposta e orçamento (RH, compras, jurídico), e medir quanto cada novo briefing ajuda com a bateria 4 antes de manter.
