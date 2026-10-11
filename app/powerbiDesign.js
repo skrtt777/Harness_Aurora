@@ -8,6 +8,7 @@ import { xlsxText } from "./docText.js";
 import { flowDesign, readFlow } from "./powerbiStory.js";
 import { moneyDesign, readMoney } from "./powerbiMoney.js";
 import { cityScene } from "./powerbiScene.js";
+import { plantaScene, readSpace } from "./powerbiSpace.js";
 import { composePage } from "./powerbiLayout.js";
 import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
@@ -220,6 +221,8 @@ export function prepare(tables, { title, goal = "" } = {}) {
       if (inFact && c.distinct === t.rows.length && t.rows.length > 0) { relationships.push({ from: col(fact.name, inFact.name), to: col(t.name, c.name), dim: t, key: c.name }); break; }
     }
   }
+  // Rows with a place (X, Y, size): the geometry columns are not summed, they draw the plan.
+  const space = readSpace(fact);
   const factCol = (role) => fact.columns.filter((c) => c.role === role);
   const date = factCol("date")[0];
   const money = factCol("money");
@@ -236,9 +239,11 @@ export function prepare(tables, { title, goal = "" } = {}) {
   const m = (name) => `[${name}]`;
   // "Pedido" / "Nº do pedido" -> "Qtd. de pedidos"; no id column -> "Qtd. de registros".
   const things = id ? plural(lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim()) || "registros" : "registros";
+  // A plan's rows are its rooms (desks, bays): "Qtd. de salas", not "de registros".
+  const spaceThings = space ? plural(lower(space.name)) : null;
   const count = id
     ? add(`Qtd. de ${things}`, `DISTINCTCOUNT(${col(fact.name, id.name)})`, INT, "Principais", `Quantos ${things} diferentes`)
-    : add("Qtd. de registros", `COUNTROWS(${q(fact.name)})`, INT, "Principais", "Quantas linhas");
+    : add(`Qtd. de ${spaceThings || "registros"}`, `COUNTROWS(${q(fact.name)})`, INT, "Principais", "Quantas linhas");
   let mainMeasure = null;
   // A measure cannot share its name with a column of the same table ("Valor total"): sales money is
   // "Faturamento"; others get "total" unless their name already says it.
@@ -249,7 +254,8 @@ export function prepare(tables, { title, goal = "" } = {}) {
   const qtyMeasure = qty ? add(sumName(qty), `SUM(${col(fact.name, qty.name)})`, qty.type === "inteiro" ? INT : DEC, "Principais", `Soma de ${qty.name}`) : null;
   for (const c of factCol("quantity").slice(1)) add(sumName(c), `SUM(${col(fact.name, c.name)})`, c.type === "inteiro" ? INT : DEC, "Valores");
   for (const c of factCol("value")) add(sumName(c), `SUM(${col(fact.name, c.name)})`, DEC, "Valores");
-  for (const c of factCol("percent")) add(`${c.name} médio`, `AVERAGE(${col(fact.name, c.name)})`, PCT, "Valores");
+  // "Ocupação média" is already an average: "Ocupação (média)" (the column keeps its own name).
+  for (const c of factCol("percent")) add(/m[ée]di[ao]$/i.test(c.name) ? `${c.name.replace(/\s*m[ée]di[ao]$/i, "")} (média)` : `${c.name} médio`, `AVERAGE(${col(fact.name, c.name)})`, PCT, "Valores");
   if (unit) add(`${unit.name.replace(/unit[áa]rio/i, "médio")}`.replace(/^(.*)$/, (s) => (s === unit.name ? `${unit.name} médio` : s)), `AVERAGE(${col(fact.name, unit.name)})`, MONEY, "Valores", `Média de ${unit.name}`);
   // No money column but price x quantity: the revenue is computed.
   if (!mainMeasure && unit && qty) mainMeasure = add("Faturamento", `SUMX(${q(fact.name)}, ${col(fact.name, unit.name)} * ${col(fact.name, qty.name)})`, MONEY, "Principais", `${unit.name} x ${qty.name}, linha a linha`);
@@ -269,7 +275,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
   if (fin && mainMeasure) { measures.splice(measures.findIndex((x) => x.name === mainMeasure), 1); mainMeasure = null; }
   let ticket = null;
   // "Ticket médio" for sales; otherwise "Custo médio por chamado".
-  const one = id ? lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "registro" : "registro";
+  const one = id ? lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "registro" : space ? lower(space.name) : "registro";
   if (mainMeasure) ticket = add(mainMeasure === "Faturamento" ? "Ticket médio" : `${mainMeasure.replace(/\s*(total|\(soma\))$/i, "")} médio por ${one}`, `DIVIDE(${m(mainMeasure)}, ${m(count)})`, MONEY, "Principais", `${mainMeasure} por ${one}`);
   let margin = null;
   if (mainMeasure && cost) {
@@ -308,7 +314,10 @@ export function prepare(tables, { title, goal = "" } = {}) {
 
   // ---- The catalog: every number, scene and block a page can have. The plan (the local model's, or
   // the automatic one) chooses among them; nothing is placed here.
-  const story = flow ? flowDesign(flow, { add, title: reportTitle, count }) : null;
+  // When the data was last refreshed: a table recalculated on each refresh (the Aurora refreshes the open
+  // report when the files change and at least every 10 minutes); the scenes show it in their live badge.
+  const stamp = add("Última atualização", "MAX('Atualização'[Atualizado em])", "dd/mm/yyyy HH:mm", "Operação", "Quando os dados foram atualizados pela última vez");
+  const story = flow ? flowDesign(flow, { add, title: reportTitle, count, stamp: m(stamp) }) : null;
   const scenes = { ...(story?.scenes || {}), ...(fin?.scenes || {}) };
   const cities = new Map();
   if (!plainPages) {
@@ -316,15 +325,38 @@ export function prepare(tables, { title, goal = "" } = {}) {
     const skip = new Set([flow?.status, ledger?.direction?.column].filter(Boolean));
     for (const d of dims.filter((x) => x.distinct >= 4 && x.distinct <= 30 && !skip.has(x.name)).slice(0, 5)) {
       scenes[`cidade de ${d.name}`] = {
+        covers: [d.name],
         desc: `os ${lower(d.name)}s como prédios: altura = ${headline}, cor = último ano contra o anterior (clicar acende)`,
-        make: () => {
-          if (!cities.has(d.name)) cities.set(d.name, add(`Cena: ${d.name}`, cityScene({ column: d.ref, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", year: previousYear ? "'Calendário'[Ano]" : null }), null, "Cenas", `Os ${lower(d.name)}s como prédios`, { category: "ImageUrl" }));
-          return { type: "image", url: m(cities.get(d.name)), title: `${headline} por ${lower(d.name)}` };
+        make: ({ look = "noite" } = {}) => {
+          const key = `${d.name}|${look}`;
+          if (!cities.has(key)) {
+            const made = cityScene({ column: d.ref, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", year: previousYear ? "'Calendário'[Ano]" : null, look });
+            const suffix = look === "dia" ? " (dia)" : "";
+            cities.set(key, { made, url: add(`Cena: ${d.name}${suffix}`, made.dax, null, "Cenas", `Os ${lower(d.name)}s como prédios`, { category: "ImageUrl" }), x: add(`${d.name} X${suffix}`, made.points.x, "0", "Cenas", "Posição na cena (para o clique)"), y: add(`${d.name} Y${suffix}`, made.points.y, "0", "Cenas", "Posição na cena (para o clique)") });
+          }
+          const c = cities.get(key);
+          return { type: "image", scene: true, look, url: m(c.url), title: `${headline} por ${lower(d.name)}`, overlay: { category: d.ref, x: m(c.x), y: m(c.y), w: Number(c.made.points.w), h: Number(c.made.points.h) } };
         },
       };
     }
   }
-  const kind = flow?.logistics ? "logistica" : flow ? "fluxo" : fin ? "financas" : "geral";
+  if (space && !plainPages) {
+    const plans = new Map();
+    scenes.planta = {
+      covers: [space.name, space.kind, space.floor].filter(Boolean),
+      desc: `a planta em 3D feita dos dados: cada ${lower(space.name)} é um bloco onde está${space.floor ? `, ${lower(space.floor)}s empilhados` : ""}${space.kind ? `, colorido por ${lower(space.kind)}` : ""}; clicar num(a) acende e deixa o resto em aramado`,
+      make: ({ look = "noite" } = {}) => {
+        if (!plans.has(look)) {
+          const made = plantaScene(space, { look });
+          const suffix = look === "dia" ? " (dia)" : "";
+          plans.set(look, { made, url: add(`Planta${suffix}`, made.dax, null, "Cenas", "A planta desenhada pelos dados", { category: "ImageUrl" }), x: add(`Planta X${suffix}`, made.points.x, "0", "Cenas", "Posição na planta (para o clique)"), y: add(`Planta Y${suffix}`, made.points.y, "0", "Cenas", "Posição na planta (para o clique)") });
+        }
+        const p = plans.get(look);
+        return { type: "image", scene: true, look, url: m(p.url), title: `Planta: ${lower(space.name)}s`, overlay: { category: p.made.points.category, x: m(p.x), y: m(p.y), w: p.made.points.w, h: p.made.points.h } };
+      },
+    };
+  }
+  const kind = flow?.logistics ? "logistica" : flow ? "fluxo" : fin ? "financas" : space ? "espacos" : "geral";
   const generic = [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || ytd].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   const keys = fin ? { income: fin.income, outgo: fin.outgo, balance: fin.balance, margin: fin.margin, execution: fin.execution, headline }
     : story ? { kpis: story.kpis, count, onTime: story.onTime, lateDone: story.lateDone, headline }
@@ -342,10 +374,12 @@ export function prepare(tables, { title, goal = "" } = {}) {
     dims: dims.slice(0, 14).map(({ name, ref, distinct }) => ({ name, ref, distinct })),
     time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
     scenes, specials: { ...(story?.specials || {}), ...(fin?.specials || {}) },
-    slicerRefs: [...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
+    // The unit switcher (CD, filial) comes first, like the switcher of a control room.
+    slicerRefs: [story?.site, ...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
     stories: [
       flow ? `Há um fluxo de etapas em ${flow.status}: ${flow.stages.map((x) => x.values[0]).join(" → ")}${flow.place ? `, com ${lower(flow.place)}s` : ""}${flow.asset ? ` e ${flow.vehicles} (${flow.asset})` : ""}.` : "",
       fin ? `É dinheiro entrando e saindo${ledger.category ? ` por ${lower(ledger.category.column)}` : ""}${ledger.budget ? ", com orçamento" : ""}.` : "",
+      space ? `Cada linha é um(a) ${lower(space.name)} com posição e tamanho (dá para desenhar a planta).` : "",
       date ? `Tem datas (${months} meses).` : "Não tem datas.",
     ].filter(Boolean),
     related: (a, b) => [headline, count, ticket, "% do total"].includes(b),
@@ -359,11 +393,11 @@ export function finish(prep, rawPlan = null) {
   const plan = (rawPlan && (rawPlan.planner ? rawPlan : normalizePlan(rawPlan, cat, goal))) || autoPlan(cat, goal);
   const reportTitle = prep.userTitle || plan.titulo || prep.reportTitle;
   const dark = plan.estilo.tema === "escuro";
-  const style = { dark, text: dark ? "#FFFFFF" : "#1B2A4A", soft: dark ? "#8FA3BF" : "#5B6B85" };
+  const style = { dark, text: dark ? "#FFFFFF" : "#1B2A4A", soft: dark ? "#8FA3BF" : "#5B6B85", pin: COLORS[plan.estilo.cor] || "#4F9BFF" };
   const pages = plan.paginas.map((p) => {
-    const visuals = composePage(materialize(p, cat), style, reportTitle);
-    // On a light page a scene keeps its night background, as a framed picture.
-    if (!dark) for (const v of visuals) if (v.type === "image") { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
+    // Light pages get the scenes by day; the night pictures (tracker, detail) keep a dark frame there.
+    const visuals = composePage(materialize(p, cat, dark ? "noite" : "dia"), style, reportTitle);
+    if (!dark) for (const v of visuals) if (v.type === "image" && !(v.scene && v.look === "dia")) { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
     return { displayName: p.nome, visuals };
   });
 
@@ -380,6 +414,7 @@ export function finish(prep, rawPlan = null) {
     measures: measures.filter((x) => (x.table || fact.name) === t.name).map(({ table, ...x }) => Object.fromEntries(Object.entries(x).filter(([, v]) => v !== null && v !== undefined && v !== ""))),
   }));
   const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
+  modelTables.push({ name: "Atualização", dax: "ROW(\"Atualizado em\", NOW())", hidden: "True", columns: [{ name: "Atualizado em", type: "data", format: "dd/mm/yyyy HH:mm" }] });
   if (date) {
     modelTables.push({ name: "Calendário", dax: calendarDax(fact.name, date.name), dateTable: "True", columns: CALENDAR_COLUMNS });
     modelRelationships.push({ from: col(fact.name, date.name), to: "'Calendário'[Data]" });

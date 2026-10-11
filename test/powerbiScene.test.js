@@ -113,7 +113,12 @@ test("the layout places every visual inside the page, without overlap", () => {
 test("the scene's DAX: one slot per dock, quotes and parentheses balanced, data text escaped", () => {
   const fact = shipments();
   const flow = readFlow(fact, [fact]);
-  const dax = yardScene(flow, { title: "CD 100% Norte #1" });
+  const { dax, points } = yardScene(flow, { title: "CD 100% Norte #1", look: "dia", stamp: "[Última atualização]" });
+  // Clickable: each bay's position for the scatter over the picture; the picture fills its box; it moves.
+  assert.match(points.x, /SWITCH\(i, 1, [\d.]+, 2, /);
+  assert.match(dax, /preserveAspectRatio='none'/);
+  assert.match(dax, /animateTransform/);
+  assert.match(dax, /AO VIVO/);
   const slots = dax.match(/SWITCH\(\[@i\], ([\s\S]*?), ""\), "", \[@i\], ASC\)/)[1];
   assert.equal((slots.match(/^ {4}\d+, |^\d+, /gm) || []).length, 6);
   const noStrings = dax.replace(/"(?:[^"]|"")*"/g, "\"\"");
@@ -140,4 +145,39 @@ test("a spreadsheet written by the Aurora is a whole workbook (Excel and Power Q
   assert.match(text, /## Dados\nC1 \| C2/);
   assert.match(text, /\| C30\n0 \| 1/);
   assert.match(text, /## Outra\nA\nx/);
+});
+
+test("rows with a place become a 3D plan: each row a box, the chosen lit, the rest wireframe, a click point each", async () => {
+  const { readSpace, plantaScene } = await import("../app/powerbiSpace.js");
+  const rows = [["Recepção", "Atendimento", "1", "0", "0", "8", "7", "56"], ["Diretoria", "Escritório", "1", "8,5", "0", "7", "7", "49"], ["RH", "Escritório", "2", "0", "10", "8", "7", "56"]];
+  const t = profile({ name: "Salas", header: ["Sala", "Tipo", "Andar", "X", "Y", "Largura", "Profundidade", "Área (m²)"], rows, source: { kind: "csv", path: "s.csv", delimiter: ";", encoding: 65001 } });
+  const space = readSpace(t);
+  assert.deepEqual([space.name, space.kind, space.floor, space.x, space.y, space.w, space.d], ["Sala", "Tipo", "Andar", "X", "Y", "Largura", "Profundidade"]);
+  // The geometry is not summed into measures.
+  const plan = design([t], {});
+  assert.ok(!plan.measureList.some((m) => /^(X|Y|Largura|Profundidade|Andar) total$/.test(m.name)));
+  assert.ok(plan.measureList.some((m) => m.name === "Qtd. de salas"));
+  const { dax, points } = plantaScene(space, { look: "dia" });
+  const noStrings = dax.replace(/"(?:[^"]|"")*"/g, "\"\"");
+  assert.equal((noStrings.match(/\(/g) || []).length, (noStrings.match(/\)/g) || []).length);
+  assert.match(dax, /ISCROSSFILTERED\('Salas'\[Sala\]\)/);
+  assert.match(dax, /fill='none' stroke=/, "the rest as wireframe");
+  // Sums in the projection keep their parentheses (a missing pair mirrored the tops, 11/10).
+  assert.match(dax, /INT\(\(\(/);
+  assert.match(points.x, /SELECTEDVALUE\('Salas'\[Sala\]\)/);
+});
+
+test("the digital twin page: the scene is the page, a scatter over it for the clicks, the chosen item's card floating", () => {
+  const visuals = composePage({ name: "Pátio", question: "agora", layout: "gemeo_digital", cards: [{ type: "card", values: "[a]", title: "a" }, { type: "card", values: "[b]", title: "b" }],
+    scene: { type: "image", url: "[Cena]", overlay: { category: "'T'[Doca]", x: "[PX]", y: "[PY]", w: 1200, h: 680 } },
+    blocks: [{ type: "image", url: "[Detalhe]", float: true }, { type: "image", url: "[Rastreamento]" }], slicers: [] }, { text: "#000", soft: "#555", pin: "#2F6FDB" }, "R");
+  const scene = visuals.find((v) => v.url === "[Cena]");
+  const overlay = visuals.find((v) => v.type === "scatterChart");
+  assert.deepEqual([overlay.x, overlay.y, overlay.w, overlay.h], [scene.x, scene.y, scene.w, scene.h]);
+  assert.ok(visuals.indexOf(overlay) > visuals.indexOf(scene), "the scatter is above the picture");
+  // The scene keeps the drawing's proportion (1200 x 680) within 15%.
+  assert.ok(Math.abs(scene.w / scene.h - 1200 / 680) / (1200 / 680) < 0.15);
+  const card = visuals.find((v) => v.url === "[Detalhe]");
+  assert.ok(card.x + card.w <= 1256 && card.y >= scene.y);
+  assert.ok(!visuals.some((v) => "fitted" in v));
 });

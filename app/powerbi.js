@@ -4,7 +4,7 @@
 // app/powerbiReport.js) and opening it in Power BI Desktop, already refreshed.
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -84,6 +84,7 @@ export async function pbiRequest(cmd, args = {}, timeoutMs = 120_000) {
   try { host ||= await start(); } catch (error) { return { ok: false, error: error.message }; }
   const id = (host.next += 1);
   const current = host;
+  if (cmd === "connect") lastPort = args.port;
   return new Promise((resolve) => {
     const timer = setTimeout(() => { current.pending.delete(id); resolve({ ok: false, error: `O Power BI demorou mais de ${Math.round(timeoutMs / 1000)} s para responder.` }); }, timeoutMs);
     current.pending.set(id, (reply) => { clearTimeout(timer); resolve(reply); });
@@ -91,7 +92,49 @@ export async function pbiRequest(cmd, args = {}, timeoutMs = 120_000) {
   });
 }
 
-export function stopPowerBi() { host?.child.kill(); host = null; }
+export function stopPowerBi() { host?.child.kill(); host = null; if (watchTimer) { clearInterval(watchTimer); watchTimer = null; } watched.clear(); }
+
+// ---- Keeping an open report current ------------------------------------------------------------------
+// The data of a BI the Aurora opened is at most REFRESH_MINUTES late: the source files are looked at every
+// minute and the model refreshed as soon as one changes, and every REFRESH_MINUTES anyway (the measures of
+// "now" — late, in the yard — move with the clock). The report shows the time in its live badge.
+export const REFRESH_MINUTES = Math.max(1, Number(process.env.HARNESS_PBI_REFRESH_MIN) || 10);
+const watched = new Map();
+let watchTimer = null;
+let lastPort = null;
+const mtimeOf = (f) => { try { return statSync(f).mtimeMs; } catch { return 0; } };
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+/** Keeps a report current: files = its source spreadsheets (empty: by the clock only). */
+export function watchReport(report, files = [], { everyMs = 60_000 } = {}) {
+  if (!report?.pid || !report?.port) return;
+  watched.set(report.pid, { pid: report.pid, port: report.port, title: report.title, files, mtimes: files.map(mtimeOf), lastRefresh: Date.now(), last: "aberto agora" });
+  if (!watchTimer) { watchTimer = setInterval(() => { void refreshDue().catch(() => {}); }, everyMs); watchTimer.unref?.(); }
+}
+
+/** The reports kept current, for the person and the diagnostics. */
+export const watchedReports = () => [...watched.values()].map((w) => ({ title: w.title, files: w.files, lastRefresh: new Date(w.lastRefresh).toISOString(), last: w.last }));
+
+/** One round: each watched report whose files changed (or whose time came) is refreshed. */
+export async function refreshDue(now = Date.now()) {
+  const done = [];
+  for (const w of [...watched.values()]) {
+    if (!alive(w.pid)) { watched.delete(w.pid); continue; }
+    const mtimes = w.files.map(mtimeOf);
+    const changed = mtimes.some((t, i) => t !== w.mtimes[i]);
+    if (!changed && now - w.lastRefresh < REFRESH_MINUTES * 60_000 - 15_000) continue;
+    const back = lastPort;
+    const c = await pbiRequest("connect", { port: w.port });
+    if (!c.ok) { w.last = c.error; continue; }
+    const r = await pbiRequest("refresh", {}, 300_000);
+    w.lastRefresh = Date.now(); w.mtimes = mtimes; w.last = r.ok ? (changed ? "planilha mudou" : "relógio") : r.error;
+    done.push({ title: w.title, why: changed ? "arquivo" : "tempo", ok: r.ok });
+    // Back to the report a conversation was working on.
+    if (back && back !== w.port) await pbiRequest("connect", { port: back });
+  }
+  if (!watched.size && watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+  return done;
+}
 process.once("exit", stopPowerBi);
 
 const ok = (reply) => { if (!reply.ok) throw new Error(reply.error); return reply; };
@@ -129,6 +172,8 @@ export async function connectReport(conversationId, title = "") {
   if (!target) throw new Error(`Há ${all.length} Power BI abertos: ${all.map((r) => `"${r.title}"`).join(", ")}. Diga qual (window: parte do título).`);
   const reply = ok(await pbiRequest("connect", { port: target.port }));
   connected.set(conversationId || "", { ...target, model: reply.text });
+  // A report the person opened: kept current by the clock (its sources are its own).
+  if (!watched.has(target.pid)) watchReport(target, []);
   return { ...target, text: reply.text };
 }
 
@@ -184,6 +229,8 @@ export async function buildReport({ files, folder, name, goal, conversationId, o
   result.opened = report;
   try {
     await loadOpened(result, plan, report, conversationId, onStage);
+    // From now on its data follows the spreadsheets (at most REFRESH_MINUTES late).
+    watchReport(report, files);
   } catch (error) {
     // Opened but not loaded: who called knows which window it was (a test closes it, 11/10).
     error.opened = report;

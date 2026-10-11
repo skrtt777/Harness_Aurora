@@ -2,7 +2,7 @@
 // BI (read it, ask it with DAX, add and fix measures, relationships and formats — each measure checked and
 // undone if it fails). The engine is app/powerbi.js; the design, app/powerbiDesign.js.
 import { existsSync } from "node:fs";
-import { buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
+import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
 import { desktopRequest } from "../desktop.js";
 import { groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
@@ -180,6 +180,7 @@ export const powerBiTools = [
           // The plan first: the result is cut when stored, and the pages are what the person should hear.
           `Plano (${r.plan.plan.planner === "modelo" ? "feito pela IA local" : "automático"}): ${r.plan.plan.paginas.map((p) => `"${p.nome}" (${p.pergunta}${p.cena !== "nenhuma" ? `; cena ${p.cena}` : ""})`).join("; ")}.`,
           r.refreshed,
+          `Atualização: a Aurora atualiza este painel sozinha quando as planilhas mudam e pelo menos a cada ${REFRESH_MINUTES} min, enquanto ele estiver aberto (a hora aparece no selo AO VIVO da cena).`,
           `Números dos cartões (todos os dados):\n${r.cards || r.checks}`,
           `Páginas: ${pages}.`,
           r.plan.flow?.place ? `A página ${r.plan.pages[0].displayName} tem a cena com as ${r.plan.flow.place.toLowerCase()}s e os ${r.plan.flow.vehicles || "itens"} desenhados pelos dados; clicar num item da tabela acende ele na cena e mostra o detalhe.` : "",

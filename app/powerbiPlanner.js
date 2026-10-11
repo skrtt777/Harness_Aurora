@@ -73,6 +73,7 @@ export function planPrompt(cat, goal) {
     "- Cada página mostra coisas diferentes das outras: não repita os mesmos números nem os mesmos gráficos.",
     "- Comece pelos números principais; cada número e cada gráfico precisa ajudar a responder a pergunta da página.",
     "- Cena só onde ela ajuda a entender (no máximo uma por página e duas no painel); blocos especiais só no assunto deles.",
+    "- Quando os dados descrevem um lugar ou processo (pátio, planta, etapas), a página principal pode ser um gêmeo digital (layout gemeo_digital): a cena é a tela, viva e clicável.",
     "- No máximo 5 números e 4 blocos por página; layouts diferentes entre as páginas quando fizer sentido.",
     "- O estilo combina com o assunto e com quem vai ler (diretoria: executivo e sóbrio; operação: escuro e técnico; dono de pequeno negócio: claro e acolhedor).",
     "Responda só o JSON.",
@@ -84,8 +85,12 @@ export function groundedName(name, said) {
   const words = [...new Set(fold(said).split(/[^\p{L}\p{N}]+/u).filter(Boolean))];
   const kept = String(name || "").replace(/[_-]+/g, " ").split(/\s+/).filter(Boolean).filter((w) => {
     const p = fold(w).replace(/[^\p{L}\p{N}]/gu, "");
-    return p.length <= 3 || words.includes(p) || words.some((x) => x.length >= 5 && p.length >= 5 && x.slice(0, 5) === p.slice(0, 5));
+    // Singular or plural ("salas" said as "sala"), or the same first five letters.
+    const stem = (w) => w.replace(/(oes|aes|es|s)$/, "");
+    return p.length <= 3 || words.includes(p) || words.some((x) => stem(x) === stem(p) || (x.length >= 5 && p.length >= 5 && x.slice(0, 5) === p.slice(0, 5)));
   });
+  // No dangling connector at the end ("Painel de").
+  while (kept.length && /^(de|do|da|dos|das|e|em|para|por)$/i.test(kept[kept.length - 1])) kept.pop();
   const title = kept.join(" ").trim();
   return title.split(" ").some((w) => w.length > 3) ? title : undefined;
 }
@@ -145,7 +150,7 @@ export function normalizePlan(raw, cat, goal = "") {
     const words = fold(`${page.nome} ${page.pergunta}`);
     for (const d of cat.dims) {
       const stem = fold(d.name).slice(0, Math.max(4, fold(d.name).length - 1));
-      if (page.blocos.length >= 4 || !words.includes(stem) || page.blocos.some((b) => b.por === d.name) || page.cena === `cidade de ${d.name}`) continue;
+      if (page.blocos.length >= 4 || !words.includes(stem) || page.blocos.some((b) => b.por === d.name) || cat.scenes[page.cena]?.covers?.includes(d.name)) continue;
       const measure = page.numeros.find((x) => !cat.foreign?.has(x)) || (cat.principal || cat.numbers).find((x) => !cat.foreign?.has(x));
       if (measure) page.blocos.push({ tipo: "barras", medida: measure, por: d.name, titulo: "" });
     }
@@ -156,7 +161,8 @@ export function normalizePlan(raw, cat, goal = "") {
   }
   if (!pages.length) return null;
   return {
-    titulo: groundedName(plan.titulo, `${goal} ${cat.sources} ${cat.stories.join(" ")}`) || cat.title,
+    // The model's title keeps only words that were said; the design's own title is kept as it is.
+    titulo: plan.titulo === cat.title ? cat.title : groundedName(plan.titulo, `${goal} ${cat.sources} ${cat.stories.join(" ")}`) || cat.title,
     estilo: { tema: estilo.tema === "claro" ? "claro" : "escuro", cor: COLORS[estilo.cor] ? estilo.cor : "azul", tom: TONES[estilo.tom] ? estilo.tom : "sobrio" },
     paginas: pages,
     planner: "modelo",
@@ -182,10 +188,16 @@ export function autoPlan(cat, goal = "") {
   } else if (cat.kind === "logistica" || cat.kind === "fluxo") {
     const k = cat.keys;
     const scene = cat.scenes.patio ? "patio" : "etapas";
-    pages.push({ nome: cat.kind === "logistica" ? pick(["Pátio agora", "Operação ao vivo", "Docas e caminhões"], seed) : pick(["Onde está cada um", "Andamento agora", "Fila de trabalho"], seed), pergunta: "O que está acontecendo agora e onde está cada um?", layout: pick(["cena_e_lateral", "cena_inteira", "cartoes_laterais"], seed), cena: scene, numeros: k.kpis.slice(0, 5), blocos: [has("detalhe_selecionado") ? { tipo: "detalhe_selecionado" } : null, has("tabela_andamento") ? { tipo: "tabela_andamento" } : null, has("rastreamento") ? { tipo: "rastreamento" } : null].filter(Boolean).slice(0, 3) });
+    pages.push({ nome: cat.kind === "logistica" ? pick(["Pátio agora", "Operação ao vivo", "Docas e caminhões"], seed) : pick(["Onde está cada um", "Andamento agora", "Fila de trabalho"], seed), pergunta: "O que está acontecendo agora e onde está cada um?", layout: scene === "patio" ? pick(["gemeo_digital", "gemeo_digital", "cena_e_lateral"], seed) : pick(["cena_e_lateral", "cena_inteira", "cartoes_laterais"], seed), cena: scene, numeros: k.kpis.slice(0, 5), blocos: [has("detalhe_selecionado") ? { tipo: "detalhe_selecionado" } : null, has("tabela_andamento") ? { tipo: "tabela_andamento" } : null, has("rastreamento") ? { tipo: "rastreamento" } : null].filter(Boolean).slice(0, 3) });
     const second = [chart("barras", k.onTime || k.count, dim(/transportadora|empresa|parceiro|equipe|respons|t[ée]cnico/i) || firstDim, ""), chart("barras", k.lateDone || k.count, dim(/cidade|destino|cliente|categoria|prioridade/i) || firstDim, ""), byTime ? chart("colunas", k.count, byTime, "") : null].filter(Boolean);
     if (second.length) pages.push({ nome: cat.kind === "logistica" ? pick(["Prazos e atrasos", "Quem entrega no prazo", "Entregas"], seed >>> 2) : pick(["Volume e prazos", "Quem resolve", "Ritmo"], seed >>> 2), pergunta: "Quem cumpre o prazo e onde estão os atrasos?", layout: pick(["grade", "narrativa", "comparacao"], seed >>> 3), cena: "nenhuma", numeros: [k.count, k.onTime, k.lateDone].filter(Boolean), blocos: second });
     estilo = { tema: "escuro", cor: pick(["azul", "teal", "laranja"], seed), tom: "tecnico" };
+  } else if (cat.kind === "espacos") {
+    const k = cat.keys;
+    const kindDim = cat.dims.find((d) => /tipo|uso|departamento|setor|categoria/i.test(d.name))?.name || firstDim;
+    pages.push({ nome: pick(["Planta", "O prédio", "Espaços"], seed), pergunta: "Como os espaços estão distribuídos e usados?", layout: pick(["gemeo_digital", "cena_e_lateral"], seed), cena: "planta", numeros: k.kpis.slice(0, 4), blocos: [chart("barras", k.headline, kindDim, ""), chart("rosca", k.headline, kindDim, "")].filter(Boolean).slice(0, 1) });
+    pages.push({ nome: pick(["Uso por tipo", "Ocupação", "Custos dos espaços"], seed >>> 2), pergunta: "Qual tipo de espaço custa e ocupa mais?", layout: pick(["comparacao", "grade"], seed >>> 3), cena: "nenhuma", numeros: [], blocos: [chart("barras", k.headline, kindDim, ""), chart("tabela", k.headline, firstDim, "")].filter(Boolean) });
+    estilo = { tema: pick(["claro", "escuro"], seed), cor: pick(["azul", "teal", "grafite"], seed >>> 1), tom: "tecnico" };
   } else {
     const k = cat.keys;
     const cityKey = Object.keys(cat.scenes).find((s) => goal && fold(goal).includes(fold(s.replace(/^cidade de /, "")))) || Object.keys(cat.scenes)[0];
@@ -202,7 +214,7 @@ export function autoPlan(cat, goal = "") {
 }
 
 /** The visuals of one planned page, without positions, for app/powerbiLayout.js. */
-export function materialize(page, cat) {
+export function materialize(page, cat, look = "noite") {
   const m = (name) => `[${name}]`;
   const timeRef = { mês: "'Calendário'[Mês/ano]", trimestre: "'Calendário'[Trimestre]", ano: "'Calendário'[Ano]", "dia da semana": "'Calendário'[Dia da semana]" };
   const refOf = (por) => timeRef[por] || cat.dims.find((d) => d.name === por)?.ref || null;
@@ -232,7 +244,7 @@ export function materialize(page, cat) {
       }
     }
   }).filter((v) => v && (v.type === "gauge" || v.type === "tableEx" || v.category || v.url || v.values));
-  const scene = page.cena !== "nenhuma" ? cat.scenes[page.cena]?.make() : null;
+  const scene = page.cena !== "nenhuma" ? cat.scenes[page.cena]?.make({ look }) : null;
   // The filters of the page: the year, and what its charts group by.
   const used = page.blocos.map((b) => b.por).filter((p) => p && !timeRef[p]);
   const slicerRefs = [cat.time.length ? "'Calendário'[Ano]" : null, ...used.map(refOf), ...cat.slicerRefs].filter(Boolean);

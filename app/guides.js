@@ -11,8 +11,10 @@ export const GUIDES = [
     content: [
       "1. Ache os dados: a planilha (.xlsx) ou .csv do assunto (a que a pessoa citou; senão, procure nos Documentos e Downloads). Nunca invente dados.",
       "2. Chame a ferramenta powerbi com action=build, files com a planilha e goal com o pedido inteiro nas palavras da pessoa: o que quer ver, para quem é (diretoria, operação, dono do negócio) e o tom.",
-      "3. Não escolha páginas nem gráficos: a ferramenta lê os dados (fluxo de etapas, dinheiro entrando e saindo, itens por categoria) e a IA local planeja um BI único para o goal — páginas que respondem às perguntas do pedido, layout, cenas desenhadas pelos dados (pátio com docas e caminhões, torres por etapa, fluxo do dinheiro, cidade dos itens) e estilo.",
+      "3. Não escolha páginas nem gráficos: a ferramenta lê os dados (fluxo de etapas, dinheiro entrando e saindo, espaços com posição, itens por categoria) e a IA local planeja um BI único para o goal — páginas que respondem às perguntas do pedido, layout, cenas desenhadas pelos dados (pátio com docas e caminhões, torres por etapa, fluxo do dinheiro, planta 3D das salas, cidade dos itens) e estilo claro ou escuro.",
+      "Gêmeo digital: quando os dados descrevem um lugar ou processo, a página principal pode ser a própria cena — viva (caminhões andando, selo AO VIVO), clicável (clicar numa doca, sala ou prédio filtra a página e acende o item) e com uma unidade por vez quando há várias (CD, filial).",
       "4. Responda com o que a ferramenta devolveu: as páginas e a pergunta de cada uma, os números dos cartões exatamente como vieram, e que o painel está aberto no Power BI Desktop.",
+      "Atualização: com o painel aberto, a Aurora o atualiza sozinha quando as planilhas mudam (confere a cada minuto) e pelo menos a cada 10 minutos; o selo AO VIVO mostra a hora e fica âmbar se passar de 10 minutos. Publicado no Power BI Service, o modo Importação tem poucas atualizações por dia: para no máximo 10 minutos lá, é preciso DirectQuery com atualização automática de página.",
       "5. Termine perguntando se está certo, com opções (mudar o estilo, juntar ou separar páginas, criar uma medida).",
     ].join("\n"),
   },

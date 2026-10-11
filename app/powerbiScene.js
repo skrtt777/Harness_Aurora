@@ -97,118 +97,165 @@ function helpers(flow) {
   };
 }
 
+// ---- Looks: the same scene by night (dark control room) or by day (a light render, white and blue) ------
+
+export const LOOKS = {
+  noite: { ground: "#0F1B2D", grid: "#15253B", yard: "#13233A", road: "#1A2638", roadLine: "#C9D3E3", spot: "#2C3E5A", walls: ["#2B3A55", "#22324D", "#1A263B"], stripe: "#3A4D6E", roofText: "#DCE6F5", door: "#0B1322", chassis: "#0A0F18", cab: ["#E8EDF5", "#B8C2D3", "#95A1B6"], glass: "#1E2A3F", text: "#C9D3E3", strong: "#FFFFFF", plate: "#0B1322", plateText: "#FFFFFF", tree: ["#1F5C45", "#174A37"], trunk: "#3B4A63", fence: "#2C3E5A", queue: "#F6D365", transit: "#C3A6FA", late: "#FF8A8A", pin: "#4F9BFF" },
+  dia: { ground: "#E9EFF8", grid: "#DCE5F2", yard: "#DDE6F3", road: "#C3CEDD", roadLine: "#FFFFFF", spot: "#AFC0D6", walls: ["#F4F7FC", "#E2E9F4", "#C9D5E8"], stripe: "#2F6FDB", roofText: "#2F6FDB", door: "#34425A", chassis: "#5B6B85", cab: ["#FFFFFF", "#E3EAF5", "#C5D1E3"], glass: "#2F3E57", text: "#3B4A63", strong: "#1B2A4A", plate: "#FFFFFF", plateText: "#1B2A4A", tree: ["#7CC9A0", "#5DB487"], trunk: "#8C9BB0", fence: "#B8C6DA", queue: "#B98A22", transit: "#7A4FD6", late: "#D94B4B", pin: "#2F6FDB" },
+};
+const lookOf = (name) => LOOKS[name] || LOOKS.noite;
+
+/** A tree: trunk and a round top, at world (X, Y). */
+function tree(cv, X, Y, L, size = 1) {
+  const [bx, by] = cv.at(X, Y, 0);
+  const [tx, ty] = cv.at(X, Y, 34 * size);
+  return [`<line x1='${bx}' y1='${by}' x2='${tx}' y2='${ty}' stroke='${L.trunk}' stroke-width='4'/>`, `<ellipse cx='${tx}' cy='${r1(Number(ty) - 8 * size)}' rx='${r1(17 * size)}' ry='${r1(19 * size)}' fill='${L.tree[0]}'/>`, `<ellipse cx='${r1(Number(tx) + 4 * size)}' cy='${r1(Number(ty) - 4 * size)}' rx='${r1(9 * size)}' ry='${r1(11 * size)}' fill='${L.tree[1]}' opacity='0.7'/>`];
+}
+
+/**
+ * The live badge: "AO VIVO · atualizado às 14:32", amber when the data is older than the limit (the
+ * Aurora refreshes the open report; minutes = how late it may be). stamp: DAX of the last refresh.
+ */
+export function liveBadge(stamp, x, y, L, minutes = 10) {
+  return [
+    `<g ${FONT}><rect x='${r1(x)}' y='${r1(y)}' width='300' height='38' rx='19' fill='${L.plate}' opacity='0.92'/>`,
+    `<circle cx='${r1(x + 22)}' cy='${r1(y + 19)}' r='7' fill='`, D(`IF(ISBLANK(${stamp}) || NOW() - ${stamp} > ${minutes} / 1440, ${daxText("#E8A33D")}, ${daxText("#3DDC97")})`), "'><animate attributeName='opacity' values='1;0.25;1' dur='1.6s' repeatCount='indefinite'/></circle>",
+    `<text x='${r1(x + 38)}' y='${r1(y + 25)}' fill='${L.strong}' font-size='16' font-weight='700'>`, D(`IF(ISBLANK(${stamp}), "SEM ATUALIZAÇÃO", IF(NOW() - ${stamp} > ${minutes} / 1440, "DESATUALIZADO", "AO VIVO") & " · " & FORMAT(${stamp}, "dd/mm HH:nn"))`), "</text></g>",
+  ];
+}
+
 // ---- The distribution centre ----------------------------------------------------------------------
 
 /**
- * The yard of a distribution centre, isometric: the warehouse with one door per dock (up to 10), the
- * vehicle at each dock coloured by its stage (red when late), the queue and the road with the vehicles
- * in transit. Returns the DAX of a measure (category ImageUrl).
+ * The yard of a distribution centre (or any place with bays and vehicles), isometric: the building with
+ * one door per bay (up to 10), the vehicle at each bay coloured by its stage (red when late), pallets
+ * going in while it loads, the queue, the road with the vehicles leaving (moving), trees and a fence;
+ * by night or by day. With a unit column (CD, filial) it shows one unit: the one chosen, or the first.
+ * Returns { dax, points } — points: the DAX of each bay's position, for a scatter laid over the picture
+ * (a click on a bay filters the page).
  */
-export function yardScene(flow, { title = "Centro de distribuição", slots = 10 } = {}) {
+export function yardScene(flow, { title = "Centro de distribuição", slots = 10, look = "noite", stamp = null } = {}) {
+  const L = lookOf(look);
   const h = helpers(flow);
   const F = flow.fact;
   const place = col(F, flow.place);
+  const site = flow.site ? col(F, flow.site) : null;
   const cv = new Canvas();
   const LEN = 600; const DEPTH = 200; const HEIGHT = 112;
   const parts = [];
-  // Ground, with a grid; the yard in front of the docks; the road on the right. The floor runs past the
-  // frame (an isometric floor is a tall diamond): the frame fits what is on it.
+  // Ground, grid, the yard, the road, the parking: the floor runs past the frame.
   cv.quiet = true;
-  parts.push(cv.poly([[-30, -30, 0], [820, -30, 0], [820, 610, 0], [-30, 610, 0]], "#0F1B2D"));
-  for (let g = 40; g <= 800; g += 95) parts.push(`<polyline points='${cv.pts([[g, -30, 0], [g, 610, 0]])}' stroke='#15253B' stroke-width='1' fill='none'/>`);
-  for (let g = 50; g <= 600; g += 90) parts.push(`<polyline points='${cv.pts([[-30, g, 0], [820, g, 0]])}' stroke='#15253B' stroke-width='1' fill='none'/>`);
-  parts.push(cv.poly([[0, DEPTH, 0], [LEN, DEPTH, 0], [LEN, 420, 0], [0, 420, 0]], "#13233A"));
-  parts.push(cv.poly([[690, -30, 0], [790, -30, 0], [790, 610, 0], [690, 610, 0]], "#1A2638"));
-  parts.push(`<polyline points='${cv.pts([[740, -30, 0], [740, 610, 0]])}' stroke='#C9D3E3' stroke-width='2' stroke-dasharray='14 12' fill='none' opacity='0.5'/>`);
-  // Parking for the queue: painted spots.
+  parts.push(cv.poly([[-120, -60, 0], [880, -60, 0], [880, 640, 0], [-120, 640, 0]], L.ground));
+  for (let g = 40; g <= 800; g += 95) parts.push(`<polyline points='${cv.pts([[g, -60, 0], [g, 640, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
+  for (let g = 50; g <= 600; g += 90) parts.push(`<polyline points='${cv.pts([[-120, g, 0], [880, g, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
+  parts.push(cv.poly([[0, DEPTH, 0], [LEN, DEPTH, 0], [LEN, 420, 0], [0, 420, 0]], L.yard));
+  parts.push(cv.poly([[690, -60, 0], [790, -60, 0], [790, 640, 0], [690, 640, 0]], L.road));
+  parts.push(`<polyline points='${cv.pts([[740, -60, 0], [740, 640, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
   const SPOTS = 5;
-  for (let j = 0; j < SPOTS; j += 1) parts.push(cv.poly([[20 + j * 82, 400, 0], [84 + j * 82, 400, 0], [84 + j * 82, 530, 0], [20 + j * 82, 530, 0]], "none", " stroke='#2C3E5A' stroke-width='1.5'"));
+  for (let j = 0; j < SPOTS; j += 1) parts.push(cv.poly([[20 + j * 82, 400, 0], [84 + j * 82, 400, 0], [84 + j * 82, 530, 0], [20 + j * 82, 530, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5'`));
+  // The fence around the yard, and trees along it.
+  parts.push(`<polyline points='${cv.pts([[-90, -40, 0], [-90, 600, 0], [660, 600, 0]])}' stroke='${L.fence}' stroke-width='2.5' fill='none'/>`);
   cv.quiet = false;
-  // The warehouse.
-  parts.push(cv.box(0, 0, 0, LEN, DEPTH, HEIGHT, ["#2B3A55", "#22324D", "#1A263B"]));
-  for (let r = 26; r < 100; r += 30) parts.push(`<polyline points='${cv.pts([[16, r, HEIGHT], [LEN - 16, r, HEIGHT]])}' stroke='#3A4D6E' stroke-width='5' fill='none'/>`);
-  // The name painted on the roof.
+  for (const [X, Y] of [[-60, 40], [-60, 160], [-60, 300], [-60, 470], [120, 590], [330, 590], [560, 590], [640, -20], [820, 120], [820, 420]]) parts.push(tree(cv, X, Y, L, 0.9));
+  // The building.
+  parts.push(cv.box(0, 0, 0, LEN, DEPTH, HEIGHT, L.walls));
+  for (let r = 26; r < 100; r += 30) parts.push(`<polyline points='${cv.pts([[16, r, HEIGHT], [LEN - 16, r, HEIGHT]])}' stroke='${L.stripe}' stroke-width='5' fill='none' opacity='${look === "dia" ? 0.35 : 1}'/>`);
   const [wx, wy] = cv.at(30, 168, HEIGHT);
-  parts.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${wx},${wy})' fill='#DCE6F5' ${FONT} font-size='34' font-weight='700' letter-spacing='3'>${xml(title.toUpperCase().slice(0, 30))}</text>`);
+  parts.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${wx},${wy})' fill='${L.roofText}' ${FONT} font-size='34' font-weight='700' letter-spacing='3'>`, site ? D(safe("UPPER(LEFT(Unidade, 30))")) : xml(title.toUpperCase().slice(0, 30)), "</text>");
 
-  // Docks: geometry for each slot, the data filled in per slot.
+  // Bays.
   const n = Math.max(1, Math.min(slots, flow.placeCount || slots));
   const w = (LEN - 40) / n;
   const tw = Math.min(w * 0.62, 46);
   const fragments = [];
+  const points = [];
   for (let k = 0; k < n; k += 1) {
-    const xs = 20 + k * w;
-    const cx = xs + w / 2;
+    const cx = 20 + k * w + w / 2;
     const frag = [];
-    frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], D("IF([@k] = \"livre\", " + daxText("#1E8C4D") + ", " + daxText("#0B1322") + ")")));
-    // The vehicle: chassis, trailer coloured by the stage, cab.
+    frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], D(`IF([@k] = "livre", ${daxText("#27AE60")}, ${daxText(L.door)})`)));
     const truck = [
-      cv.box(cx - tw / 2, DEPTH + 10, 0, tw, 150, 9, ["#0A0F18", "#0A0F18", "#0A0F18"]),
+      cv.box(cx - tw / 2, DEPTH + 10, 0, tw, 150, 9, [L.chassis, L.chassis, L.chassis]),
       cv.box(cx - tw / 2, DEPTH + 10, 9, tw, 118, 52, [shade("[@k]", 0), shade("[@k]", 1), shade("[@k]", 2)]),
-      cv.box(cx - tw / 2 + 2, DEPTH + 132, 9, tw - 4, 30, 40, ["#E8EDF5", "#B8C2D3", "#95A1B6"]),
-      cv.poly([[cx - tw / 2 + 4, DEPTH + 162, 30], [cx + tw / 2 - 6, DEPTH + 162, 30], [cx + tw / 2 - 6, DEPTH + 162, 44], [cx - tw / 2 + 4, DEPTH + 162, 44]], "#1E2A3F"),
+      cv.box(cx - tw / 2 + 2, DEPTH + 132, 9, tw - 4, 30, 40, L.cab),
+      cv.poly([[cx - tw / 2 + 4, DEPTH + 162, 30], [cx + tw / 2 - 6, DEPTH + 162, 30], [cx + tw / 2 - 6, DEPTH + 162, 44], [cx - tw / 2 + 4, DEPTH + 162, 44]], L.glass),
     ];
+    // Loading: a pallet goes from the door into the trailer, again and again.
+    const [p0x, p0y] = cv.at(cx, DEPTH - 6, 12); const [p1x, p1y] = cv.at(cx, DEPTH + 40, 12);
+    const pallet = when(`[@k] IN {"carregando", "separacao", "atraso"}`, [`<g><rect x='${r1(Number(p0x) - 9)}' y='${r1(Number(p0y) - 9)}' width='18' height='14' rx='2' fill='#C99A5B'/><animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(p1x) - Number(p0x))} ${r1(Number(p1y) - Number(p0y))}' dur='${(2.4 + (k % 3) * 0.5).toFixed(1)}s' repeatCount='indefinite'/><animate attributeName='opacity' values='0;1;1;0' dur='${(2.4 + (k % 3) * 0.5).toFixed(1)}s' repeatCount='indefinite'/></g>`]);
     const [px, py] = cv.at(cx, DEPTH + 60, 61);
     const plate = [
-      `<rect x='${r1(Number(px) - 46)}' y='${r1(Number(py) - 34)}' width='92' height='26' rx='5' fill='#0B1322' stroke='`, shade("[@k]", 0), "' stroke-width='2'/>",
-      `<text x='${px}' y='${r1(Number(py) - 15)}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='17' font-weight='600'>`, D(safe("LEFT([@placa], 9)")), "</text>",
+      `<rect x='${r1(Number(px) - 46)}' y='${r1(Number(py) - 34)}' width='92' height='26' rx='13' fill='${L.plate}' stroke='`, shade("[@k]", 0), "' stroke-width='2'/>",
+      `<text x='${px}' y='${r1(Number(py) - 15)}' text-anchor='middle' fill='${L.plateText}' ${FONT} font-size='16' font-weight='700'>`, D(safe("LEFT([@placa], 9)")), "</text>",
     ];
-    // With a selection (a click on the table, a slicer) the yard stays whole: the chosen ones lit, the others dim.
-    frag.push(when("[@k] <> \"livre\"", ["<g opacity='", D("IF([@sel] = 1, \"1\", \"0.22\")"), "'>", truck, plate, "</g>"]));
+    frag.push(when("[@k] <> \"livre\"", ["<g opacity='", D("IF([@sel] = 1, \"1\", \"0.22\")"), "'>", truck, pallet, plate, "</g>"]));
+    // The chosen bay: a ring on the ground.
+    const [gx, gy] = cv.at(cx, DEPTH + 90, 0);
+    frag.push(when("Filtrado && [@sel] = 1 && [@k] <> \"livre\"", [`<ellipse cx='${gx}' cy='${gy}' rx='70' ry='40' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
     const [nx, ny] = cv.at(cx - tw / 2 - 4, DEPTH, 76);
-    frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='#C9D3E3' ${FONT} font-size='15' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
+    frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='15' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
     fragments.push(`${k + 1}, ${joinDax(frag)}`);
+    points.push([k + 1, Number(gx), Number(gy)]);
   }
 
-  // The queue: one vehicle per spot (up to 5), and the count.
+  // The queue.
   const queue = [];
   for (let j = 0; j < SPOTS; j += 1) {
     const x = 20 + j * 82 + 16;
     queue.push(when(`nFila >= ${j + 1}`, ["<g opacity='", D(`IF(nFilaSel >= ${j + 1}, "1", "0.22")`), "'>",
-      cv.box(x, 410, 0, 32, 112, 7, ["#0A0F18", "#0A0F18", "#0A0F18"]),
+      cv.box(x, 410, 0, 32, 112, 7, [L.chassis, L.chassis, L.chassis]),
       cv.box(x, 410, 7, 32, 84, 40, STATE.fila.shades),
-      cv.box(x + 2, 496, 7, 28, 24, 32, ["#E8EDF5", "#B8C2D3", "#95A1B6"]),
+      cv.box(x + 2, 496, 7, 28, 24, 32, L.cab),
     "</g>"]));
   }
   const [qx, qy] = cv.at(0, 440, 0);
   cv.see(Number(qx) - 150, Number(qy));
-  queue.push(`<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 8)}' text-anchor='end' fill='#F6D365' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nFila, \"0\")"), ` ${flow.queueLabel || "na fila"}</text>`);
+  queue.push(`<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 8)}' text-anchor='end' fill='${L.queue}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nFila, \"0\")"), ` ${flow.queueLabel || "na fila"}</text>`);
 
-  // The road: up to 3 vehicles leaving, red when late, and the counts.
+  // The road: the vehicles in transit drive away, one after the other (a loop), red when late.
   const road = [];
+  const [s0x, s0y] = cv.at(700, 560, 0); const [s1x, s1y] = cv.at(700, -40, 0);
+  const dx = r1(Number(s1x) - Number(s0x)); const dy = r1(Number(s1y) - Number(s0y));
   for (let j = 0; j < 3; j += 1) {
-    const y = 270 - j * 165;
-    road.push(when(`nTransito >= ${j + 1}`, ["<g opacity='", D(`IF(nTransitoSel >= ${j + 1}, "1", "0.22")`), "'>",
-      cv.box(700, y, 0, 34, 118, 7, ["#0A0F18", "#0A0F18", "#0A0F18"]),
-      cv.box(700, y + 30, 7, 34, 88, 42, [shade(`IF(nAtrasoTransito >= ${j + 1}, "atraso", "transito")`, 0), shade(`IF(nAtrasoTransito >= ${j + 1}, "atraso", "transito")`, 1), shade(`IF(nAtrasoTransito >= ${j + 1}, "atraso", "transito")`, 2)]),
-      cv.box(702, y, 7, 30, 28, 34, ["#E8EDF5", "#B8C2D3", "#95A1B6"]),
-    "</g>"]));
+    const late = `IF(nAtrasoTransito >= ${j + 1}, "atraso", "transito")`;
+    road.push(when(`nTransito >= ${j + 1}`, [`<g opacity='`, D(`IF(nTransitoSel >= ${j + 1}, "1", "0.22")`), "'><g>",
+      `<animateTransform attributeName='transform' type='translate' values='0 0; ${dx} ${dy}' dur='12s' begin='-${j * 4}s' repeatCount='indefinite'/>`,
+      `<animate attributeName='opacity' values='0;1;1;1;0' dur='12s' begin='-${j * 4}s' repeatCount='indefinite'/>`,
+      cv.box(700, 520, 0, 34, 118, 7, [L.chassis, L.chassis, L.chassis]),
+      cv.box(700, 550, 7, 34, 88, 42, [shade(late, 0), shade(late, 1), shade(late, 2)]),
+      cv.box(702, 520, 7, 30, 28, 34, L.cab),
+    "</g></g>"]));
   }
   const [rx, ry] = cv.at(800, -30, 0);
   cv.see(Number(rx) + 230, Number(ry) + 40);
   road.push(
-    `<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 6)}' fill='#C3A6FA' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nTransito, \"0\")"), ` ${flow.transitLabel || "em trânsito"}</text>`,
-    when("nAtrasoTransito > 0", [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 36)}' fill='#FF8A8A' ${FONT} font-size='21'>`, D("FORMAT(nAtrasoTransito, \"0\")"), " com atraso</text>"]),
+    `<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 6)}' fill='${L.transit}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nTransito, \"0\")"), ` ${flow.transitLabel || "em trânsito"}</text>`,
+    when("nAtrasoTransito > 0", [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 36)}' fill='${L.late}' ${FONT} font-size='21'>`, D("FORMAT(nAtrasoTransito, \"0\")"), " com atraso</text>"]),
   );
 
-  // Legend, top left (empty sky in an isometric scene).
+  // Legend top left; the live badge top right.
   const vb = { x: cv.minX - 16, y: cv.minY - 16, w: cv.maxX - cv.minX + 32, h: cv.maxY - cv.minY + 32 };
   const legend = [];
   const legendKeys = [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", `${flow.place} livre`]];
   legendKeys.forEach(([key, text], i) => {
     const lx = vb.x + 24; const ly = vb.y + 34 + i * 32;
-    legend.push(`<rect x='${r1(lx)}' y='${r1(ly - 16)}' width='20' height='20' rx='4' fill='${STATE[key]?.shades[1] || "#6B7A90"}'/>`);
-    legend.push(`<text x='${r1(lx + 30)}' y='${r1(ly + 1)}' fill='#C9D3E3' ${FONT} font-size='20'>${xml(text)}</text>`);
+    legend.push(`<rect x='${r1(lx)}' y='${r1(ly - 16)}' width='20' height='20' rx='10' fill='${STATE[key]?.shades[1] || "#6B7A90"}'/>`);
+    legend.push(`<text x='${r1(lx + 30)}' y='${r1(ly + 1)}' fill='${L.text}' ${FONT} font-size='20'>${xml(text)}</text>`);
   });
+  if (stamp) legend.push(liveBadge(stamp, vb.x + vb.w - 320, vb.y + 14, L));
+  // All units in view: the first one is drawn, and the scene says how to pick another.
+  if (site) legend.push(when(`NOT HASONEVALUE(${site})`, [`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 76)}' text-anchor='end' fill='${L.text}' ${FONT} font-size='17'>`, D(safe(`Unidade & " · escolha outra no filtro ${flow.site.replace(/"/g, "")}"`)), "</text>"]));
 
   const order = [flow.date ? `${col(F, flow.date)}, DESC` : null, flow.id ? `${col(F, flow.id)}, DESC` : null].filter(Boolean).join(", ");
   const top1 = (t) => (order ? `TOPN(1, ${t}, ${order})` : t);
-  // The whole yard (no filter: it is the place as it is now); what the filters keep is what is lit.
   const selected = flow.id || flow.asset;
   const fila = `FILTER(Ativos, ${h.status} IN ${list(h.valuesOf(["fila"]))})`;
   const lit = (t) => (selected ? `FILTER(${t}, ${col(F, selected)} IN Visiveis)` : t);
-  return [
-    `VAR Ativos = FILTER(ALL(${q(F)}), NOT ISBLANK(${h.status}) && NOT ${h.status} IN ${list(flow.done)})`,
+  // The unit shown: the one chosen in the switcher, or the first one.
+  const unitVars = site ? [`VAR Unidade = IF(HASONEVALUE(${site}), VALUES(${site}), CALCULATE(MIN(${site}), ALL(${site})))`, `VAR Base = FILTER(ALL(${q(F)}), ${site} = Unidade)`] : [`VAR Base = ALL(${q(F)})`];
+  const docks = site ? `CALCULATETABLE(VALUES(${place}), ${site} = Unidade, REMOVEFILTERS(${q(F)}))` : `ALL(${place})`;
+  const dax = [
+    ...unitVars,
+    `VAR Ativos = FILTER(Base, NOT ISBLANK(${h.status}) && NOT ${h.status} IN ${list(flow.done)})`,
     `VAR Visiveis = ${selected ? `VALUES(${col(F, selected)})` : `{ BLANK() }`}`,
     `VAR Filtrado = ${selected ? `ISCROSSFILTERED(${col(F, selected)})` : "FALSE()"}`,
     `VAR NaDoca = FILTER(Ativos, ${h.status} IN ${list(h.atDock)} && NOT ISBLANK(${place}))`,
@@ -218,11 +265,12 @@ export function yardScene(flow, { title = "Centro de distribuição", slots = 10
     `VAR nTransito = ${h.count("Transito")} + 0`,
     `VAR nTransitoSel = IF(Filtrado, ${h.count(lit("Transito"))} + 0, nTransito)`,
     `VAR nAtrasoTransito = ${h.count(`FILTER(Transito, ${h.late})`)} + 0`,
-    `VAR Docas = TOPN(${n}, FILTER(ALL(${place}), NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,
+    `VAR Docas = TOPN(${n}, FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,
     `VAR Slots0 = ADDCOLUMNS(Docas, "@i", VAR d = ${place} RETURN COUNTROWS(FILTER(Docas, ${place} <= d)))`,
     `VAR Slots1 = ADDCOLUMNS(Slots0, "@placa", VAR d = ${place} RETURN MAXX(${top1(`FILTER(NaDoca, ${place} = d)`)}, ${h.label}), "@etapa", VAR d = ${place} RETURN MAXX(${top1(`FILTER(NaDoca, ${place} = d)`)}, ${h.status}), "@atraso", VAR d = ${place} RETURN MAXX(${top1(`FILTER(NaDoca, ${place} = d)`)}, IF(${h.late}, 1, 0)), "@id", VAR d = ${place} RETURN MAXX(${top1(`FILTER(NaDoca, ${place} = d)`)}, ${selected ? col(F, selected) : "BLANK()"}))`,
     `VAR Slots = ADDCOLUMNS(Slots1, "@k", IF(ISBLANK([@etapa]), "livre", IF([@atraso] = 1, "atraso", ${h.keyOf("[@etapa]")})), "@sel", IF(NOT Filtrado || [@id] IN Visiveis, 1, 0))`,
-    `RETURN ${daxText(URL_HEAD)} & ${daxText(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}'>`)}`,
+    // preserveAspectRatio none: the picture fills its box exactly, so a scatter over it lines up.
+    `RETURN ${daxText(URL_HEAD)} & ${daxText(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}' preserveAspectRatio='none'>`)}`,
     `  & ${joinDax(parts)}`,
     `  & CONCATENATEX(Slots, SWITCH([@i], ${fragments.join(",\n    ")}, ""), "", [@i], ASC)`,
     `  & ${joinDax(queue)}`,
@@ -230,6 +278,16 @@ export function yardScene(flow, { title = "Centro de distribuição", slots = 10
     `  & ${joinDax(legend)}`,
     "  & \"</svg>\"",
   ].join("\n");
+  // Each bay's position in the picture (0..w, 0..h from the bottom), for the scatter laid over it.
+  const index = [
+    ...unitVars.slice(0, 1),
+    `VAR Docas = TOPN(${n}, FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,
+    `VAR d = SELECTEDVALUE(${place})`,
+    "VAR i = IF(ISBLANK(d) || NOT d IN Docas, 0, COUNTROWS(FILTER(Docas, " + place + " <= d)))",
+  ].join("\n");
+  const pointX = `${index}\nRETURN SWITCH(i, ${points.map(([i, x]) => `${i}, ${r1(x - vb.x)}`).join(", ")}, BLANK())`;
+  const pointY = `${index}\nRETURN SWITCH(i, ${points.map(([i, , y]) => `${i}, ${r1(vb.h - (y - vb.y))}`).join(", ")}, BLANK())`;
+  return { dax, points: { category: place, x: pointX, y: pointY, w: r1(vb.w), h: r1(vb.h) } };
 }
 
 // ---- Stage tracker --------------------------------------------------------------------------------
@@ -363,7 +421,8 @@ const DOWN = ["#FF8A8A", "#D94B4B", "#B33636"];
  * spec: { column: "'Vendas'[Loja]", measure: "[Faturamento]", format: "\"R$\" #,0", year?: "'Calendário'[Ano]", slots? }
  */
 export function cityScene(spec) {
-  const { column, measure, format = "#,0", year = null } = spec;
+  const { column, measure, format = "#,0", year = null, look = "noite" } = spec;
+  const L = lookOf(look);
   const n = Math.max(1, Math.min(spec.slots || 10, 10));
   // A row runs across the screen (X up, Y down): a wide panel gets a wide city; more than 6, two rows.
   const cols = n <= 6 ? n : Math.ceil(n / 2);
@@ -374,32 +433,35 @@ export function cityScene(spec) {
   const rows = n > cols ? 2 : 1;
   const at = (k) => { const c = k % cols; const r = Math.floor(k / cols); return [c * STEP_X + r * STEP_Y, -c * STEP_X + r * STEP_Y]; };
   const [x0] = at(0); const [xl, yl] = at(cols - 1); const [, yr] = at((rows - 1) * cols);
-  parts.push(cv.poly([[x0 - 70, -70, 0], [xl + FOOT + 70, yl - 70, 0], [xl + FOOT + 70 + (rows - 1) * STEP_Y, yl + FOOT + 70 + (rows - 1) * STEP_Y, 0], [x0 - 70 + (rows - 1) * STEP_Y, yr + FOOT + 70, 0]], "#0F1B2D"));
+  parts.push(cv.poly([[x0 - 70, -70, 0], [xl + FOOT + 70, yl - 70, 0], [xl + FOOT + 70 + (rows - 1) * STEP_Y, yl + FOOT + 70 + (rows - 1) * STEP_Y, 0], [x0 - 70 + (rows - 1) * STEP_Y, yr + FOOT + 70, 0]], L.ground));
   cv.quiet = false;
   const slots = [];
+  const points = [];
   for (let k = 0; k < n; k += 1) {
     const [X, Y] = at(k);
     const colour = (i) => D(year ? `IF(ISBLANK([@p]) || ISBLANK([@a]), ${daxText(PALETTE[0][i])}, IF([@a] >= [@p], ${daxText(UP[i])}, ${daxText(DOWN[i])}))` : `SWITCH(TRUE(), [@i] <= 1, ${daxText(PALETTE[0][i])}, [@i] <= 3, ${daxText(PALETTE[1][i])}, ${daxText(PALETTE[2][i])})`);
     const h = `MAX(6, INT(${H} * DIVIDE([@v], Mx)))`;
-    const frag = [cv.poly([[X - 14, Y - 14, 0], [X + FOOT + 14, Y - 14, 0], [X + FOOT + 14, Y + FOOT + 14, 0], [X - 14, Y + FOOT + 14, 0]], "#16263D")];
+    const frag = [cv.poly([[X - 14, Y - 14, 0], [X + FOOT + 14, Y - 14, 0], [X + FOOT + 14, Y + FOOT + 14, 0], [X - 14, Y + FOOT + 14, 0]], L.yard)];
     frag.push("<g opacity='", D("IF([@sel] = 1, \"1\", \"0.22\")"), "'>");
     frag.push(rising(cv, X, Y, FOOT, FOOT, h, H, [colour(0), colour(1), colour(2)]));
     // Windows: a few lit rows on the front faces, as high as the building goes.
     const [tx, ty] = cv.at(X + FOOT / 2, Y + FOOT / 2, 0);
     cv.see(Number(tx), Number(ty) - H - 80);
-    frag.push(`<text x='${tx}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='22' font-weight='700' y='`, D(`INT(${ty} - (${h}) - 18)`), "'>", D(safe(`FORMAT([@v], "${format.replace(/"/g, "\"\"")}")`)), "</text>");
+    frag.push(`<text x='${tx}' text-anchor='middle' fill='${L.strong}' ${FONT} font-size='22' font-weight='700' y='`, D(`INT(${ty} - (${h}) - 18)`), "'>", D(safe(`FORMAT([@v], "${format.replace(/"/g, "\"\"")}")`)), "</text>");
     if (year) frag.push(`<text x='${tx}' text-anchor='middle' ${FONT} font-size='17' y='`, D(`INT(${ty} - (${h}) - 44)`), "' fill='", D(`IF([@a] >= [@p], ${daxText("#3DDC97")}, ${daxText("#FF8A8A")})`), "'>", D(`IF(ISBLANK([@p]) || ISBLANK([@a]), "", IF([@a] >= [@p], "▲ ", "▼ ") & ${safe("FORMAT(ABS(DIVIDE([@a] - [@p], [@p])), \"0%\")")})`), "</text>");
     frag.push("</g>");
     const [lx, ly] = cv.at(X + FOOT + 14, Y + FOOT + 14, 0);
     cv.see(Number(lx) + 10, Number(ly) + 40);
-    frag.push(`<text x='${r1(Number(lx) - 70)}' y='${r1(Number(ly) + 6)}' text-anchor='middle' fill='#C9D3E3' ${FONT} font-size='19' font-weight='600'>`, D(safe(`LEFT(${column}, 18)`)), "</text>");
+    frag.push(`<text x='${r1(Number(lx) - 70)}' y='${r1(Number(ly) + 6)}' text-anchor='middle' fill='${L.text}' ${FONT} font-size='19' font-weight='600'>`, D(safe(`LEFT(${column}, 18)`)), "</text>");
+    const [cxp, cyp] = cv.at(X + FOOT / 2, Y + FOOT / 2, 0);
+    points.push([k + 1, Number(cxp), Number(cyp)]);
     slots.push(`${k + 1}, ${joinDax(frag)}`);
   }
   const vb = frame(cv, 20);
   const lastYear = year ? [
     `VAR AnoAtual = CALCULATE(MAX(${year}), ALLSELECTED())`,
   ] : [];
-  return [
+  const dax = [
     ...lastYear,
     `VAR Base = CALCULATETABLE(ADDCOLUMNS(VALUES(${column}), "@v", ${measure}), REMOVEFILTERS(${column}))`,
     `VAR Itens = TOPN(${n}, FILTER(Base, NOT ISBLANK([@v]) && [@v] > 0), [@v], DESC, ${column}, ASC)`,
@@ -410,12 +472,28 @@ export function cityScene(spec) {
     year
       ? `VAR S = ADDCOLUMNS(S0, "@a", CALCULATE(${measure}, REMOVEFILTERS(${year}), ${year} = AnoAtual), "@p", CALCULATE(${measure}, REMOVEFILTERS(${year}), ${year} = AnoAtual - 1))`
       : "VAR S = S0",
-    `RETURN ${daxText(URL_HEAD)} & ${daxText(svgOpen(vb))} & ${joinDax(parts)}`,
+    `RETURN ${daxText(URL_HEAD)} & ${daxText(svgOpen(vb).replace("'>", "' preserveAspectRatio='none'>"))} & ${joinDax(parts)}`,
     `  & CONCATENATEX(S, SWITCH([@i], ${slots.join(",\n    ")}, ""), "", [@i], ASC)`,
     "  & \"</svg>\"",
   ].join("\n");
+  // Each item's position in the picture, for the scatter laid over it (a click on a building filters).
+  const index = [
+    "VAR c = SELECTEDVALUE(" + column + ")",
+    `VAR Base = CALCULATETABLE(ADDCOLUMNS(VALUES(${column}), "@v", ${measure}), REMOVEFILTERS(${column}))`,
+    `VAR Itens = TOPN(${n}, FILTER(Base, NOT ISBLANK([@v]) && [@v] > 0), [@v], DESC, ${column}, ASC)`,
+    `VAR v = MAXX(FILTER(Itens, ${column} = c), [@v])`,
+    `VAR i = IF(ISBLANK(v), 0, COUNTROWS(FILTER(Itens, [@v] > v || ([@v] = v && ${column} < c))) + 1)`,
+  ].join("\n");
+  return {
+    dax,
+    points: {
+      category: column,
+      x: `${index}\nRETURN SWITCH(i, ${points.map(([i, x]) => `${i}, ${r1(x - vb.x)}`).join(", ")}, BLANK())`,
+      y: `${index}\nRETURN SWITCH(i, ${points.map(([i, , y]) => `${i}, ${r1(vb.h - (y - vb.y))}`).join(", ")}, BLANK())`,
+      w: r1(vb.w), h: r1(vb.h),
+    },
+  };
 }
-
 // ---- Towers of a flow without a place (tickets, hiring, production orders) ------------------------
 
 /**

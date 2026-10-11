@@ -11,6 +11,10 @@ const { desktopRequest, stopDesktop } = await import("../../app/desktop.js");
 const { localPlanAsk } = await import("../../app/powerbiPlanner.js");
 // --modelo: the local model plans the BI (as in the app); without it, the automatic plan.
 const planner = process.argv.includes("--modelo") ? { ask: await localPlanAsk(process.env), env: process.env } : null;
+// --plano <arquivo.json>: a plan given (as the model would write it), to look at one layout.
+const { readFileSync: readPlan } = await import("node:fs");
+const { prepare: prep0, finish: finish0 } = await import("../../app/powerbiDesign.js");
+const fixedPlan = process.argv.includes("--plano") ? JSON.parse(readPlan(process.argv[process.argv.indexOf("--plano") + 1], "utf8")) : null;
 
 const [file, shots] = process.argv.slice(2);
 const flag = (name) => process.argv.flatMap((a, i) => (a === `--${name}` ? [process.argv[i + 1]] : []));
@@ -23,7 +27,7 @@ const num = (s) => Number(String(s).replace(/R\$\s*/, "").replace(/\./g, "").rep
 const out = mkdtempSync(join(tmpdir(), "aurora-cenas-"));
 let opened = null;
 try {
-  const r = await buildReport({ files: [file], folder: out, goal: flag("goal")[0] || "", planner, conversationId: "cenas", onStage: (s) => console.log(`  … ${s}`) }).catch((e) => { opened = e.opened; throw e; });
+  const r = await buildReport({ files: [file], folder: out, goal: flag("goal")[0] || "", planner: fixedPlan ? { ask: async () => ({ ok: true, text: JSON.stringify(fixedPlan) }), env: {} } : planner, conversationId: "cenas", onStage: (s) => console.log(`  … ${s}`) }).catch((e) => { opened = e.opened; throw e; });
   opened = r.opened;
   console.log(`  ${r.refreshed}\n  ${r.plan.summary.split("\n").filter((l) => /^Plano/.test(l)).join("\n")}`);
   check("abriu e carregou", /Atualizei os dados/.test(r.refreshed), r.refreshed);
@@ -49,6 +53,15 @@ try {
     const loaded = await page.evaluate(() => document.getElementById("i").naturalWidth > 0);
     check(`imagem ${m.name} abre como SVG`, loaded);
     if (loaded) await (await page.$("#i")).screenshot({ path: join(shots, `${name}.png`) });
+    // --selecao "'Tabela'[Coluna]=valor": the same picture with that item chosen (lit, the rest dim).
+    for (const sel of flag("selecao")) {
+      const [, ref, val] = /^(.+?)=(.+)$/.exec(sel);
+      const vs = await value(`CALCULATE([${m.name}], ${ref} = "${val}")`);
+      const u = vs.text || "";
+      if (!u.startsWith("data:image/svg+xml;utf8,<svg")) continue;
+      await page.setContent(`<body style="margin:0;background:#0B1220"><img id="i" style="width:100%" src="${u.replace(/"/g, "&quot;")}"></body>`);
+      if (await page.evaluate(() => document.getElementById("i").naturalWidth > 0)) await (await page.$("#i")).screenshot({ path: join(shots, `${name}-selecao.png`) });
+    }
   }
   await browser.close();
   await new Promise((res) => setTimeout(res, 6000));

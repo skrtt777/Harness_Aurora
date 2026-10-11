@@ -39,6 +39,8 @@ const ROLES = {
   treemap: { category: "Group", values: "Values" },
   waterfallChart: { category: "Category", values: "Y" },
   funnel: { category: "Category", values: "Y" },
+  // x_/y_ (x and y are the visual's position): a scatter over a scene, one point per object.
+  scatterChart: { category: "Category", x_: "X", y_: "Y", size: "Size" },
 };
 
 /**
@@ -86,6 +88,16 @@ export function visual(spec, measures, z = 0) {
   if (spec.labels) objects.labels = [{ properties: { show: literal(true) } }];
   if (spec.dropdown) objects.data = [{ properties: { mode: literal("Dropdown") } }];
   if (spec.type === "slicer") objects.header = [{ properties: { show: literal(true) } }];
+  // A scatter laid over a scene: no axes, no background, the scale of the picture (0..w, 0..h), so a
+  // click on an object of the scene selects it and filters the page.
+  if (spec.overlay) {
+    const box = spec.overlay === true ? { w: 1000, h: 500 } : spec.overlay;
+    objects.categoryAxis = [{ properties: { show: literal(false), showAxisTitle: literal(false), start: literal(0), end: literal(box.w) } }];
+    objects.valueAxis = [{ properties: { show: literal(false), showAxisTitle: literal(false), start: literal(0), end: literal(box.h) } }];
+    objects.legend = [{ properties: { show: literal(false) } }];
+    objects.dataPoint = [{ properties: { fill: color(spec.pointColor || "#FFFFFF") } }];
+    objects.markers = [{ properties: { markerSize: literal(spec.pointSize || 18) } }];
+  }
   // A table with a picture measure (progress bars): the size of the pictures in the cells.
   if (spec.totals === false) objects.total = [{ properties: { totals: literal(false) } }];
   if (spec.image) objects.grid = [{ properties: { imageHeight: literal(spec.image.height), imageWidth: literal(spec.image.width) } }];
@@ -97,6 +109,7 @@ export function visual(spec, measures, z = 0) {
   }
   const visualContainerObjects = {};
   if (spec.title) visualContainerObjects.title = [{ properties: { show: literal(true), text: literal(spec.title) } }];
+  if (spec.overlay) Object.assign(visualContainerObjects, { title: [{ properties: { show: literal(false) } }], background: [{ properties: { show: literal(false) } }], border: [{ properties: { show: literal(false) } }], dropShadow: [{ properties: { show: literal(false) } }], visualHeader: [{ properties: { show: literal(false) } }] });
   container.visual = { visualType: spec.type, query, ...(Object.keys(objects).length ? { objects } : {}), ...(Object.keys(visualContainerObjects).length ? { visualContainerObjects } : {}), drillFilterOtherVisuals: true };
   return container;
 }

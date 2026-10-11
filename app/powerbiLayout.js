@@ -4,6 +4,7 @@
 // focus. The canvas is 1280 x 720. Blocks arrive without positions (app/powerbiPlanner.js builds them).
 
 export const LAYOUTS = {
+  gemeo_digital: "a cena é a tela (gêmeo digital): números numa faixa fina em cima, o painel do item escolhido flutuando sobre a cena à direita, um bloco embaixo",
   cena_inteira: "a cena ocupa a página; números numa faixa em cima; até 3 blocos numa faixa embaixo",
   cena_e_lateral: "a cena à esquerda (2/3); os blocos numa coluna à direita",
   cartoes_laterais: "os números numa coluna à esquerda; a cena e os blocos no resto",
@@ -60,11 +61,43 @@ export function composePage(page, style, reportTitle) {
   const main = [page.scene, ...page.blocks].filter(Boolean);
   const body = rect(M, HEAD, RIGHT - M, BOTTOM - HEAD);
   const cardRow = (r) => { if (!cards.length) return r; split(rect(r.x, r.y, r.w, CARD_H), cards.length, true).forEach((c, i) => visuals.push(place(cards[i], c))); return rect(r.x, r.y + CARD_H + G, r.w, r.h - CARD_H - G); };
-  const put = (items, rects) => items.forEach((v, i) => rects[i] && visuals.push(place(v, rects[i])));
+  // A scene with click points gets a scatter laid over it, same box: a click on an object filters the page.
+  const put = (items, rects) => items.forEach((v, i) => {
+    if (!rects[i]) return;
+    const { overlay, ...spec } = v;
+    let r = rects[i];
+    // The picture fills its box exactly (so the clicks line up): the box keeps the drawing's proportion
+    // (within 15%), on the left, so an isometric scene is not stretched.
+    if (overlay?.w && overlay?.h) {
+      const ar = overlay.w / overlay.h; const boxAr = r.w / r.h;
+      if (boxAr > ar * 1.15) r = rect(r.x, r.y, Math.round(r.h * ar * 1.1), r.h);
+      else if (boxAr < ar / 1.15) r = rect(r.x, r.y, r.w, Math.round(r.w / ar / 1.1));
+      spec.fitted = { right: rects[i].x + rects[i].w - (r.x + r.w), box: r };
+    }
+    visuals.push(place(spec, r));
+    if (overlay) visuals.push(place({ type: "scatterChart", category: overlay.category, x_: overlay.x, y_: overlay.y, overlay: { w: overlay.w, h: overlay.h }, pointColor: style.pin || "#4F9BFF" }, r));
+  });
   let layout = page.layout in LAYOUTS ? page.layout : "grade";
   // One or two cards down the side stretched each to half the page: they go on top instead.
   if (layout === "cartoes_laterais" && cards.length < 3) layout = cards.length ? "narrativa" : "grade";
-  if (layout === "cena_inteira") {
+  if (layout === "gemeo_digital") {
+    // WareTrack-like: a thin strip of numbers, the scene as the page, the chosen item's card floating on it.
+    const strip = rect(M, HEAD, RIGHT - M, 64);
+    if (cards.length) split(strip, cards.length, true).forEach((c, i) => visuals.push(place({ ...cards[i], fontSize: 18 }, c)));
+    const top = cards.length ? HEAD + 64 + G : HEAD;
+    const [first, ...rest] = main;
+    const bottom = rest.filter((b) => !b.float);
+    const floating = rest.filter((b) => b.float).concat(bottom.length > 1 ? bottom.splice(1) : []);
+    const sceneH = BOTTOM - top - (bottom.length ? 104 + G : 0);
+    if (first) put([first], [rect(M, top, RIGHT - M, sceneH)]);
+    // The floating cards: in the strip the scene left free on the right, or over the scene's corner.
+    const free = visuals.find((v) => v.fitted)?.fitted?.right || 0;
+    const fw = free >= 300 ? free - G : 360;
+    const fh = Math.min(240, Math.floor((sceneH - G) / Math.max(1, Math.min(floating.length, 2))) - (free >= 300 ? 0 : 12));
+    floating.slice(0, 2).forEach((b, i) => visuals.push(place(b, rect(RIGHT - fw - (free >= 300 ? 0 : 12), top + (free >= 300 ? 0 : 12) + i * (fh + G), fw, fh))));
+    for (const v of visuals) delete v.fitted;
+    if (bottom.length) visuals.push(place(bottom[0], rect(M, BOTTOM - 104, RIGHT - M, 104)));
+  } else if (layout === "cena_inteira") {
     const rest = cardRow(body);
     const below = main.slice(1, 4);
     if (!below.length) put(main.slice(0, 1), [rest]);
@@ -104,5 +137,6 @@ export function composePage(page, style, reportTitle) {
     const rest = cardRow(body);
     put(main.slice(0, 6), grid(rest, Math.min(main.length, 6)));
   }
+  for (const v of visuals) delete v.fitted;
   return visuals;
 }

@@ -21,6 +21,7 @@ const DRIVER = /motorista|condutor/i;
 const DUE = /previs|prazo|promet|agend|vencim|\bsla\b|limite/i;
 const DONE_AT = /entrega|conclus|fechament|baixa|finaliz|chegada|resolu|atendid/i;
 const STOCK = /estoque|saldo/i;
+const SITE = /^(cd|centro de distribui|unidade|filial|armaz[ée]m|dep[óo]sito|planta|site|hub|base|galp[ãa]o)\b/i;
 
 /** The column values of a profiled table. */
 const valuesOf = (table, column) => table.rows.map((r) => String(r[table.columns.indexOf(column)] ?? "").trim()).filter(Boolean);
@@ -47,7 +48,9 @@ export function readFlow(fact, tables = []) {
   }
   const done = best.matched.filter(([, s]) => s[1] === 5 || s[1] === 0).map(([v]) => v);
   const find = (re, test = () => true) => fact.columns.find((c) => re.test(c.name) && c !== best.column && test(c));
-  const place = find(PLACE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 24);
+  const place = find(PLACE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 40);
+  // A unit (CD, filial): the yard shows one at a time, chosen in a switcher.
+  const site = find(SITE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 12 && c !== place);
   const asset = find(ASSET, (c) => c.type === "texto");
   const driver = find(DRIVER, (c) => c.type === "texto");
   const id = fact.columns.find((c) => c.role === "id");
@@ -72,7 +75,7 @@ export function readFlow(fact, tables = []) {
   const stock = tables.filter((t) => t !== fact).map((t) => ({ table: t, column: t.columns.find((c) => STOCK.test(c.name) && /quantity|value|money/.test(c.role) && !/m[íi]nimo/i.test(c.name)), minimum: t.columns.find((c) => /m[íi]nimo/i.test(c.name) && c.type !== "texto") })).find((s) => s.column) || null;
   return {
     fact: fact.name, status: best.column.name, stages, done,
-    place: place?.name || null, placeCount: place?.distinct || 0, asset: asset?.name || null, driver: driver?.name || null,
+    place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, asset: asset?.name || null, driver: driver?.name || null,
     id: id?.name || null, date: date?.name || null, due: due?.name || null, doneAt: doneAt?.name || null,
     details, vehicles, stock,
     logistics: Boolean(place || asset || stages.some((s) => s.key === "transito")),
@@ -89,7 +92,7 @@ const PCT = "0.0%";
  * The flow's measures (added to the design's list) and its operations page. add(name, expression,
  * format, folder, description, extra) is the design's own; returns { kpis, page, palette }.
  */
-export function flowDesign(flow, { add, title, count }) {
+export function flowDesign(flow, { add, title, count, stamp = null }) {
   const F = flow.fact;
   const status = col(F, flow.status);
   const active = `FILTER(${q(F)}, NOT ISBLANK(${status}) && NOT ${status} IN ${list(flow.done)})`;
@@ -121,7 +124,23 @@ export function flowDesign(flow, { add, title, count }) {
   const driver = flow.driver && flow.asset ? add(`${flow.driver} atual`, `MAXX(${latestActive}, ${col(F, flow.driver)})`, null, "Operação") : null;
   // Pictures.
   const picture = (name, expression, description) => add(name, expression, null, "Cenas", description, { category: "ImageUrl" });
-  const scene = flow.place ? picture("Cena do pátio", yardScene(flow, { title: title || "Centro de distribuição" }), `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`) : null;
+  // The yard is made when a plan places it, in the plan's look (by night or by day), with the position of
+  // each bay for the scatter laid over it (a click on a bay filters the page).
+  const yards = new Map();
+  const yard = (look) => {
+    if (!yards.has(look)) {
+      const made = yardScene(flow, { title: title || "Centro de distribuição", look, stamp });
+      const suffix = look === "dia" ? " (dia)" : "";
+      yards.set(look, {
+        url: picture(`Cena do pátio${suffix}`, made.dax, `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`),
+        x: add(`Pátio X${suffix}`, made.points.x, "0", "Cenas", "Posição de cada doca na cena (para o clique)"),
+        y: add(`Pátio Y${suffix}`, made.points.y, "0", "Cenas", "Posição de cada doca na cena (para o clique)"),
+        made,
+      });
+    }
+    return yards.get(look);
+  };
+  const scene = flow.place ? true : null;
   const tracker = picture("Rastreamento", trackerScene(flow), "As etapas e quantos estão em cada uma");
   const progress = picture("Progresso", progressBar(flow), "Quanto falta para concluir");
   const key = flow.asset || flow.id;
@@ -133,12 +152,12 @@ export function flowDesign(flow, { add, title, count }) {
   const rowsBy = key ? col(F, key) : status;
   const things = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
   const scenes = {};
-  if (scene) scenes.patio = { desc: `o lugar desenhado: cada ${flow.place.toLowerCase()} com o ${flow.asset ? (flow.vehicles === "caminhões" ? "caminhão" : "veículo") : "item"} dela colorido pela etapa, livres em verde, fila e trânsito`, make: () => ({ type: "image", url: m(scene), title: `${flow.place}s e ${things.toLowerCase()} agora` }) };
+  if (scene) scenes.patio = { covers: [flow.place, flow.site, flow.asset].filter(Boolean), desc: `o lugar desenhado e vivo: cada ${flow.place.toLowerCase()} com o ${flow.asset ? (flow.vehicles === "caminhões" ? "caminhão" : "veículo") : "item"} dela colorido pela etapa, livres em verde, fila, caminhões andando na estrada; clicar numa ${flow.place.toLowerCase()} filtra a página${flow.site ? `; uma ${flow.site.toLowerCase()} por vez` : ""}`, make: ({ look = "noite" } = {}) => { const y = yard(look); return { type: "image", scene: true, look, url: m(y.url), title: `${flow.place}s e ${things.toLowerCase()} agora`, overlay: { category: y.made.points.category, x: m(y.x), y: m(y.y), w: Number(y.made.points.w), h: Number(y.made.points.h) } }; } };
   else scenes.etapas = { desc: "as etapas como torres: quantos em cada uma, os atrasados em vermelho", make: () => ({ type: "image", url: m(towers), title: "Onde está cada um agora" }) };
   const specials = {
     rastreamento: { desc: "as etapas em sequência com quantos em cada (ou o caminho do item escolhido)", make: () => ({ type: "image", url: m(tracker), title: "Rastreamento" }) },
     tabela_andamento: { desc: `${things.toLowerCase()} em andamento com a etapa e a barra de progresso (clicar acende na cena)`, make: () => ({ type: "tableEx", title: `${things} em andamento`, values: [rowsBy, ...[place, driver && !place ? driver : null, stage].filter(Boolean).map(m), m(progress)], image: { height: 22, width: 128 }, totals: false, sort: { by: rowsBy, desc: false } }) },
   };
-  if (detail) specials.detalhe_selecionado = { desc: "o item escolhido: seus dados e a etapa", make: () => ({ type: "image", url: m(detail), title: flow.asset ? `${things.slice(0, -1).replace(/õe$/, "ão")} selecionado` : "Selecionado" }) };
-  return { kpis, onTime, lateDone, scenes, specials, picture: { scene, tracker, progress, detail, towers } };
+  if (detail) specials.detalhe_selecionado = { desc: "o item escolhido: seus dados e a etapa", make: () => ({ type: "image", float: true, url: m(detail), title: flow.asset ? `${things.slice(0, -1).replace(/õe$/, "ão")} selecionado` : "Selecionado" }) };
+  return { kpis, onTime, lateDone, scenes, specials, site: flow.site ? col(F, flow.site) : null, picture: { tracker, progress, detail, towers } };
 }
