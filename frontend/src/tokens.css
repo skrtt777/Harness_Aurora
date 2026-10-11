@@ -25,14 +25,14 @@
 
   /* Text hierarchy. */
   --text-1: color-mix(in srgb, var(--base) 94%, transparent);
-  --text-2: color-mix(in srgb, var(--base) 72%, transparent);
-  --text-3: color-mix(in srgb, var(--base) 52%, transparent);
-  --text-4: color-mix(in srgb, var(--base) 34%, transparent);
+  --text-2: color-mix(in srgb, var(--base) 78%, transparent);
+  --text-3: color-mix(in srgb, var(--base) 62%, transparent);
+  --text-4: color-mix(in srgb, var(--base) 46%, transparent);
 
   /* Hairlines, strongest to faintest. */
   --stroke-1: color-mix(in srgb, var(--base) 16%, transparent);
-  --stroke-2: color-mix(in srgb, var(--base) 10%, transparent);
-  --stroke-3: color-mix(in srgb, var(--base) 7%, transparent);
+  --stroke-2: color-mix(in srgb, var(--base) 12%, transparent);
+  --stroke-3: color-mix(in srgb, var(--base) 9%, transparent);
   --stroke-4: color-mix(in srgb, var(--base) 4%, transparent);
 
   /* Quiet fills for hover/active/soft controls. */

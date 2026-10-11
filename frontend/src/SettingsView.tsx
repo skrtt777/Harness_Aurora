@@ -33,7 +33,7 @@ import PhonePanel from './PhonePanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
 
-const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "Local (Ollama)" };
+const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "IA local" };
 const SECTIONS = [
   { id: "general", label: "Geral" },
   { id: "folders", label: "Pastas" },

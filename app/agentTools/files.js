@@ -1294,7 +1294,20 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // A list missing rows of the read it came from is not written the first time: written and
       // flagged, the agent saved the full list under another name and left the 2-row sheet beside
       // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
-      const body = String(args.content ?? args.text ?? args.markdown ?? "");
+      let body = String(args.content ?? args.text ?? args.markdown ?? "");
+      // A call cut at the output limit while copying the rows of the last read: the table is completed
+      // from that read, exactly (the model retried the cut copy 3 times and delivered 8 of 16
+      // overdue invoices, agents 11/10). Only when the read has every row the document lacks.
+      if (args.__salvaged && ctx.lastTable && !existsSync(file)) {
+        const short = [...new Set([...missingRows(ctx.lastRows, body), ...missingRows(ctx.anchorRows, body)])];
+        const readKeys = ctx.lastTable.rows.map((r) => r.join(" | "));
+        if (short.length && short.every((k) => readKeys.some((line) => line.includes(k)))) {
+          const tableStart = body.search(/^\s*\|/m);
+          const intro = (tableStart >= 0 ? body.slice(0, tableStart) : body).trim();
+          body = `${intro ? `${intro}\n\n` : ""}${expandRows("{{linhas}}", ctx.lastTable)}\n`;
+          args = { ...args, content: body, __salvaged: false, __completed: short.length };
+        }
+      }
       let gaps = missingRows(ctx.lastRows, body);
       // From a ready filter (one condition of the request), fewer than half of its rows is a list cut
       // short, not another condition at work: 1 of 7 orders "até 15/10" went out (06/10).
@@ -1343,7 +1356,8 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // The answer after a document is short: it recounted the table in 100-320 tokens (10-30 s on a
       // processor) when the file already has it (token measurement, 07/10). Not when something is to fix.
       const next = note ? "" : "\nPronto. Agora responda à pessoa em até 2 frases: onde está o arquivo e o resultado principal (um número ou nome). Não repita a tabela nem o conteúdo do arquivo.";
-      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}${next}`;
+      const completed = args.__completed ? ` (Sua chamada foi cortada no limite de saída; completei a tabela com as ${ctx.lastTable.rows.length} linhas da última leitura, exatas: está completa, não grave de novo.)` : "";
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${completed}${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}${next}`;
     },
   },
   {

@@ -59,12 +59,15 @@ function exportConversation(conversation: ConversationWithMessages, format: 'md'
   else downloadBlob(conversationToJson(conversation), `${slug}.json`, 'application/json');
 }
 
-// What the Aurora does best for anyone, as ready starts (the old ones — a game, a dashboard — were a programmer's).
-const STARTERS: [string, string][] = [
-  ['Organizar meus Downloads', 'Organize a minha pasta Downloads por tipo de arquivo, sem apagar nada.'],
-  ['Resumir um documento', 'Resuma este documento em tópicos: '],
-  ['Criar uma planilha', 'Crie uma planilha com '],
-  ['Pesquisar na internet', 'Pesquise na internet e me dê um resumo com as fontes sobre '],
+// What the Aurora does best for anyone, as ready starts: working live in the person's programs
+// (Excel, Word, PowerPoint, Power BI) first, then files and research. Each fills a request to finish.
+const STARTERS: [string, string, string][] = [
+  ['Trabalhar no Excel', 'Ela monta a planilha na sua frente', 'Abre o Excel e cria uma planilha de '],
+  ['Montar um Power BI', 'Modelo e painel a partir de uma planilha', 'Faz um Power BI com a planilha '],
+  ['Escrever no Word', 'Proposta, orçamento, relatório', 'Abre o Word e escreve '],
+  ['Apresentação no PowerPoint', 'Slides com tópicos, tabelas e gráficos', 'Abre o PowerPoint e monta uma apresentação sobre '],
+  ['Organizar meus Downloads', 'Por tipo de arquivo, sem apagar nada', 'Organize a minha pasta Downloads por tipo de arquivo, sem apagar nada.'],
+  ['Pesquisar na internet', 'Resumo com as fontes', 'Pesquise na internet e me dê um resumo com as fontes sobre '],
 ];
 
 const TOOL_LABELS: Record<string, string> = {
@@ -289,7 +292,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
     if (!ok && !drafts.get(id)) setDraft(message, id);
     textareaRef.current?.focus();
   };
-  const provider = conversation.provider === 'local' ? 'Local' : conversation.provider === 'claude' ? 'Claude' : 'Codex';
+  const provider = conversation.provider === 'local' ? 'IA local' : conversation.provider === 'claude' ? 'Claude' : 'Codex';
   return <div className={`conversation-workspace ${panel ? 'with-panel' : ''} ${composerExpanded ? 'composer-expanded' : ''}`}>
     <section className="chat-page">
       <header className="chat-page-head">
@@ -310,7 +313,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
       <LocalSetupPanel active={conversation.provider === 'local'} compact />
       <div className="chat-messages" ref={scrollRef}>
         {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><HomeToday />
-          <div className="starter-prompts">{STARTERS.map(([label, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}>{label}<span>↗</span></button>)}</div>
+          <div className="starter-prompts">{STARTERS.map(([label, hint, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}><strong>{label}</strong><small>{hint}</small></button>)}</div>
         </div> : conversation.messages.map((message, index) => <MessageBubble key={message.id} message={message} onPick={!sending && index === conversation.messages.length - 1 && message.role !== 'user' ? text => { void onSend(text); } : undefined} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">

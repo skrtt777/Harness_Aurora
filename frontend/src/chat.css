@@ -654,28 +654,44 @@
   color: var(--text-3);
 }
 .app-shell .conversation-workspace .starter-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 720px);
+  margin-inline: auto;
 }
 .app-shell .conversation-workspace .starter-prompts button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid var(--stroke-3);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--stroke-2);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  text-align: left;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
 }
 .app-shell .conversation-workspace .starter-prompts button:hover {
-  background: var(--fill-hover);
-  color: var(--text-1);
+  border-color: var(--accent-line);
+  background: var(--bg-elevated);
 }
-.app-shell .conversation-workspace .starter-prompts button span {
-  color: var(--text-4);
+.app-shell .conversation-workspace .starter-prompts button strong {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.app-shell .conversation-workspace .starter-prompts button small {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+@media (max-width: 760px) {
+  .app-shell .conversation-workspace .starter-prompts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 440px) {
+  .app-shell .conversation-workspace .starter-prompts { grid-template-columns: 1fr; }
 }
 .app-shell .chat-empty-state {
   display: grid;

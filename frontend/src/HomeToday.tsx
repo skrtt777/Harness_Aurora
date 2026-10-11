@@ -29,7 +29,7 @@ export default function HomeToday() {
 
   return <div className="home-today">
     <h1>{greeting()}{name ? `, ${name}` : ''}.</h1>
-    <p>O que vamos fazer hoje? A Aurora organiza seus arquivos, cria documentos e planilhas e pesquisa para você.</p>
+    <p>O que vamos fazer hoje? Peça no chat e a Aurora faz nos seus programas: Excel, Word, PowerPoint, Power BI e o que mais estiver neste computador.</p>
     {(soon.length > 0 || files.length > 0) && <ul className="home-today-list" aria-label="Hoje">
       {soon.map((s) => <li key={s.name}><span className="home-tag">Agenda</span>{s.name} trabalha {s.when}</li>)}
       {files.map((f) => <li key={f}><span className="home-tag done">Feito</span><span className="home-file" title={f}>{f.split(/[\\/]/).pop()}</span>

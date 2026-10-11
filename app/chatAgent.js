@@ -462,7 +462,7 @@ export async function runChatAgent({
       // (After the repetition guard: 8 cut calls in a row went by it, each one 4096 tokens, 06/10.)
       if (call.arguments?.__cut && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: count === 1
-          ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras)${call.name === "write_document" ? "; num documento longo, grave a primeira metade agora e depois chame write_document com o mesmo path, append=true e o restante" : ""}.`
+          ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras)${call.name === "write_document" ? ". Se o texto longo eram as linhas de uma planilha que você leu, escreva {{linhas}} no lugar delas (a ferramenta copia todas, exatas); num documento longo de outro tipo, grave a primeira metade agora e depois chame write_document com o mesmo path, append=true e o restante" : ""}.`
           : `ERRO: cortada de novo. Grave a tabela com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: os argumentos de ${call.name} vieram com JSON inválido (começo: ${call.arguments.__raw}). Chame de novo com JSON válido: no texto, troque aspas duplas por aspas simples e não use barras invertidas soltas.`, ms: 0 };
@@ -478,7 +478,7 @@ export async function runChatAgent({
         try { outcome = await executeTool(call.name, call.arguments, ctx, tools); }
         catch { return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls }; }
       }
-      if (call.arguments?.__salvaged && outcome.ok) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
+      if (call.arguments?.__salvaged && outcome.ok && !/completei a tabela/.test(outcome.result)) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });

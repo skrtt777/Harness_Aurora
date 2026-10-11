@@ -239,7 +239,7 @@ export default function Sidebar({
     return { map, ungrouped };
   }, [filtered]);
 
-  const providerLabel = newConversationProvider === "local" ? "Local" : newConversationProvider === "claude" ? "Claude" : "Codex";
+  const providerLabel = newConversationProvider === "local" ? "IA local" : newConversationProvider === "claude" ? "Claude" : "Codex";
   const rowProps = (conversation: Conversation): RowProps => ({
     conversation,
     active: activeView === "chat" && conversation.id === activeConversationId,
