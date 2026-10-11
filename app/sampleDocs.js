@@ -52,17 +52,25 @@ export function makeDocx(blocks) {
 
 export function makeXlsx(sheets) {
   const strings = [];
-  const index = (s) => { const i = strings.indexOf(s); return i >= 0 ? i : strings.push(s) - 1; };
-  const col = (i) => String.fromCharCode(65 + i);
+  const seen = new Map();
+  const index = (s) => { if (!seen.has(s)) { seen.set(s, strings.length); strings.push(s); } return seen.get(s); };
+  // A, B, … Z, AA, AB, …
+  const col = (i) => { let name = ""; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) name = String.fromCharCode(65 + ((n - 1) % 26)) + name; return name; };
+  const names = Object.keys(sheets);
   const files = {};
-  Object.entries(sheets).forEach(([, rows], s) => {
-    files[`xl/worksheets/sheet${s + 1}.xml`] = `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => typeof v === "number" ? `<c r="${col(c)}${r + 1}"><v>${v}</v></c>` : `<c r="${col(c)}${r + 1}" t="s"><v>${index(String(v))}</v></c>`).join("")}</row>`).join("")}</sheetData></worksheet>`;
+  Object.values(sheets).forEach((rows, s) => {
+    files[`xl/worksheets/sheet${s + 1}.xml`] = `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => (v === "" || v === null || v === undefined ? "" : typeof v === "number" ? `<c r="${col(c)}${r + 1}"><v>${v}</v></c>` : `<c r="${col(c)}${r + 1}" t="s"><v>${index(String(v))}</v></c>`)).join("")}</row>`).join("")}</sheetData></worksheet>`;
   });
+  // Excel and Power Query find the sheets through the workbook's relationships (without them Power BI
+  // could not open the file: "a chave não correspondia a nenhuma linha", 11/10).
+  const SHEET = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+  const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
   return zipStore({
-    "[Content_Types].xml": CT('<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'),
+    "[Content_Types].xml": CT(`<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${names.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${SHEET}"/>`).join("")}<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>`),
     "_rels/.rels": REL(OFFICE_DOC, "xl/workbook.xml"),
-    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${Object.keys(sheets).map((name, i) => `<sheet name="${esc(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`,
-    "xl/sharedStrings.xml": `<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${strings.map((s) => `<si><t xml:space="preserve">${esc(s)}</t></si>`).join("")}</sst>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${REL_NS}"><sheets>${names.map((name, i) => `<sheet name="${esc(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL_NS}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${names.length + 1}" Type="${REL_NS}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+    "xl/sharedStrings.xml": `<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${strings.length}" uniqueCount="${strings.length}">${strings.map((s) => `<si><t xml:space="preserve">${esc(s)}</t></si>`).join("")}</sst>`,
     ...files,
   });
 }

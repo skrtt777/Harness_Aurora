@@ -24,7 +24,7 @@ try {
   opened = r.opened;
   console.log(`  (${((Date.now() - started) / 1000).toFixed(0)} s) ${r.pbip}`);
   check("abriu no Power BI", Boolean(r.opened?.port), r.opened?.title);
-  check("carregou os dados", which === "vendas" ? /Vendas 1480/.test(r.refreshed) && /Produtos 10/.test(r.refreshed) && /Calendário \d{3}/.test(r.refreshed) : /Chamados_suporte 300/.test(r.refreshed), r.refreshed);
+  check("carregou os dados", which === "vendas" ? /Vendas 1480/.test(r.refreshed) && /Produtos 10/.test(r.refreshed) && /Calendário \d{3}/.test(r.refreshed) : /Chamados.suporte 300/.test(r.refreshed), r.refreshed);
   const kpi = r.checks.split("\n")[2]?.split(" | ") || [];
   console.log(`  cartões: ${r.checks.split("\n").slice(1, 3).join(" ⏎ ")}`);
   if (which === "vendas") {

@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { xlsxText } from "./docText.js";
+import { flowDesign, readFlow } from "./powerbiStory.js";
 
 // ---- Reading -------------------------------------------------------------------------------------
 
@@ -187,11 +188,36 @@ export function plural(word) {
   return word.split(" ").map((w, i) => (i > 0 && !/^(fiscal|fiscais)$/.test(w) ? w : /[sz]$/.test(w) ? w : /al$/.test(w) ? w.replace(/al$/, "ais") : /[aeiouáéó]$/.test(w) ? `${w}s` : /m$/.test(w) ? w.replace(/m$/, "ns") : `${w}es`)).join(" ");
 }
 
+// What each page is about, in the words a request uses.
+const PAGE_WORDS = [
+  [/^(Operação|Acompanhamento)$/, /opera[çc]|p[áa]tio|doca|rastre|acompanh|agora|tempo real|caminh|fila|status|etapa/i],
+  [/^(Entregas|Visão geral)$/, /entrega|vis[ãa]o geral|resumo|indicador|kpi|prazo|faturamento|vendas/i],
+  [/^Detalhamento$/, /detalh|tabela|lista|por (cliente|produto|item)/i],
+  [/^Tendência$/, /tend[êe]ncia|evolu|m[êe]s a m[êe]s|hist[óo]ric|sazonal|ano a ano/i],
+];
+const wordsOf = (page) => PAGE_WORDS.find(([name]) => name.test(page.displayName))?.[1] || null;
+
+/**
+ * The pages the request asks for: "sem a tendência" drops it; "só a operação" / "uma página" keeps what
+ * it names; what it names comes first. Without a goal, all of them in the designed order.
+ */
+export function pagesFor(pages, goal = "") {
+  const g = String(goal || "");
+  if (!g.trim()) return pages;
+  const without = [...g.matchAll(/\bsem (?:a |o |as |os )?([\p{L} ]{3,30})/giu)].map((x) => x[1]);
+  let kept = pages.filter((p) => !without.some((w) => wordsOf(p)?.test(w)));
+  const named = kept.filter((p) => wordsOf(p)?.test(g.replace(/\bsem (?:a |o |as |os )?[\p{L} ]{3,30}/giu, "")));
+  // (In JS "\b" does not see "só" as a word: letters by Unicode.)
+  if (/(?<!\p{L})(s[óo]|apenas|somente)(?!\p{L})|uma (s[óo] )?(p[áa]gina|tela)/iu.test(g) && named.length) kept = named;
+  else kept = [...named, ...kept.filter((p) => !named.includes(p))];
+  return kept.length ? kept : pages;
+}
+
 /**
  * The complete design. tables: profiled tables. Returns { model, measures (name -> table), report
  * pages, summary } for app/powerbi.js.
  */
-export function design(tables, { title } = {}) {
+export function design(tables, { title, goal = "" } = {}) {
   if (!tables.length) throw new Error("Nenhuma tabela com dados (cabeçalho e pelo menos uma linha) nos arquivos.");
   // Unique table names.
   const seen = new Map();
@@ -219,7 +245,8 @@ export function design(tables, { title } = {}) {
 
   // ---- Measures, in the fact table, grouped in display folders.
   const measures = [];
-  const add = (name, expression, format, folder, description) => { measures.push({ name, expression, format, folder, description }); return name; };
+  // extra: { table } for a measure of another table (the stock), { category: "ImageUrl" } for a picture.
+  const add = (name, expression, format, folder, description, extra = {}) => { measures.push({ name, expression, format, folder, description, ...extra }); return name; };
   const m = (name) => `[${name}]`;
   // "Pedido" / "Nº do pedido" -> "Qtd. de pedidos"; no id column -> "Qtd. de registros".
   const things = id ? plural(lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim()) || "registros" : "registros";
@@ -240,7 +267,9 @@ export function design(tables, { title } = {}) {
   if (unit) add(`${unit.name.replace(/unit[áa]rio/i, "médio")}`.replace(/^(.*)$/, (s) => (s === unit.name ? `${unit.name} médio` : s)), `AVERAGE(${col(fact.name, unit.name)})`, MONEY, "Valores", `Média de ${unit.name}`);
   // No money column but price x quantity: the revenue is computed.
   if (!mainMeasure && unit && qty) mainMeasure = add("Faturamento", `SUMX(${q(fact.name)}, ${col(fact.name, unit.name)} * ${col(fact.name, qty.name)})`, MONEY, "Principais", `${unit.name} x ${qty.name}, linha a linha`);
-  const headline = mainMeasure || qtyMeasure || count;
+  // A flow of work (orders through docks and trucks, tickets through stages): the BI is about it.
+  const flow = readFlow(fact, tables);
+  const headline = flow?.logistics ? count : mainMeasure || qtyMeasure || count;
   let ticket = null;
   // "Ticket médio" for sales; otherwise "Custo médio por chamado".
   const one = id ? lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "registro" : "registro";
@@ -267,30 +296,11 @@ export function design(tables, { title } = {}) {
     }
   }
 
-  // ---- Model spec for PbiHost.Build
-  const modelTables = tables.map((t) => ({
-    name: t.name,
-    m: mExpression(t),
-    columns: t.columns.map((c) => ({
-      name: c.name, type: c.type,
-      ...(c.type === "data" ? { format: "dd/mm/yyyy" } : c.role === "money" || c.role === "unitPrice" ? { format: MONEY } : c.role === "percent" ? { format: PCT } : c.type === "inteiro" && c.role !== "id" ? { format: INT } : c.type === "numero" ? { format: DEC } : {}),
-      summarize: "none",
-      ...(c.role === "date" && t === fact ? { hidden: "True" } : {}),
-    })),
-    measures: t === fact ? measures : [],
-  }));
-  const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
-  if (date) {
-    modelTables.push({ name: "Calendário", dax: calendarDax(fact.name, date.name), dateTable: "True", columns: CALENDAR_COLUMNS });
-    modelRelationships.push({ from: col(fact.name, date.name), to: "'Calendário'[Data]" });
-  }
-  const measureTable = Object.fromEntries(measures.map((x) => [x.name, fact.name]));
-
   // ---- Dimensions for the visuals: from the dimension tables first, then the fact's own.
   const dims = [];
   for (const r of relationships) for (const c of r.dim.columns) if (c.role === "dimension" && c.name !== r.key) dims.push({ ref: col(r.dim.name, c.name), name: c.name, distinct: c.distinct });
   for (const c of fact.columns) if (c.role === "dimension") dims.push({ ref: col(fact.name, c.name), name: c.name, distinct: c.distinct });
-  const PRIORITY = ["produto", "categoria", "loja", "filial", "regi", "cliente", "vendedor", "canal", "segmento", "departamento", "setor", "status", "tipo", "cidade", "estado"];
+  const PRIORITY = ["produto", "categoria", "transportadora", "loja", "filial", "regi", "cliente", "vendedor", "canal", "segmento", "departamento", "setor", "status", "tipo", "cidade", "estado"];
   const rank = (d) => { const i = PRIORITY.findIndex((p) => d.name.toLowerCase().includes(p)); return (i < 0 ? 100 : i) * 1000 + Math.abs(d.distinct - 8); };
   dims.sort((a, b) => rank(a) - rank(b));
   const small = dims.filter((d) => d.distinct >= 2 && d.distinct <= 7);
@@ -301,9 +311,10 @@ export function design(tables, { title } = {}) {
   const months = date ? new Set(fact.rows.map((r) => String(r[fact.columns.indexOf(date)] || "").replace(/^\d{1,2}\//, "").slice(0, 7))).size : 0;
 
   const pages = [];
+  const dark = Boolean(flow);
   const header = (subtitle) => ({ type: "textbox", x: 24, y: 8, w: 760, h: 76, paragraphs: [
-    { textRuns: [{ value: reportTitle, textStyle: { fontWeight: "bold", fontSize: "20pt", color: "#1B2A4A" } }] },
-    { textRuns: [{ value: subtitle, textStyle: { fontSize: "10pt", color: "#5B6B85" } }] },
+    { textRuns: [{ value: reportTitle, textStyle: { fontWeight: "bold", fontSize: "20pt", color: dark ? "#FFFFFF" : "#1B2A4A" } }] },
+    { textRuns: [{ value: subtitle, textStyle: { fontSize: "10pt", color: dark ? "#8FA3BF" : "#5B6B85" } }] },
   ] });
   const slicers = () => {
     const s = [];
@@ -314,17 +325,34 @@ export function design(tables, { title } = {}) {
   };
   const sources = [...new Set(tables.map((t) => basename(t.source.path)))].join(", ");
 
+  // Page 0, with a flow: the operation as it is now.
+  let op = null;
+  if (flow) {
+    op = flowDesign(flow, { add, title: reportTitle, subtitle: `Agora · fonte: ${sources} · ${fact.rows.length.toLocaleString("pt-BR")} linhas`, count });
+    pages.push(op.page);
+  }
+
   // Page 1: overview.
   // (The monthly change is blank in a card with no month picked: it goes to the trend page.)
-  const kpis = [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || (ticket ? qtyMeasure : null) || ytd].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+  // Deliveries: the count, on time, the freight and the late ones; otherwise money first.
+  const freight = flow?.logistics ? measures.find((x) => /frete/i.test(x.name) && /total|soma/i.test(x.name))?.name : null;
+  const kpis = (flow?.logistics ? [count, op?.onTime, freight, op?.lateDone || ticket] : [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || (ticket ? qtyMeasure : null) || ytd]).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
   const kpiW = Math.floor((1232 - (kpis.length - 1) * 16) / kpis.length);
   const overview = [header(`Fonte: ${sources} · ${fact.rows.length.toLocaleString("pt-BR")} linhas`), ...slicers()];
   kpis.forEach((k, i) => overview.push({ type: "card", x: 24 + i * (kpiW + 16), y: 92, w: kpiW, h: 108, values: m(k), title: k }));
   if (date) overview.push({ type: months > 14 ? "lineChart" : "clusteredColumnChart", x: 24, y: 216, w: 760, h: 488, title: `${headline} por mês`, category: "'Calendário'[Mês/ano]", values: m(headline), labels: months <= 14, sort: { by: "'Calendário'[Mês/ano]", desc: false } });
   else if (thirdDim) overview.push({ type: "clusteredColumnChart", x: 24, y: 216, w: 760, h: 488, title: `${headline} por ${lower(thirdDim.name)}`, category: thirdDim.ref, values: m(headline), labels: true, sort: { by: m(headline) } });
+  const carrier = flow?.logistics && op?.onTime ? dims.find((d) => /transportadora|empresa|parceiro/i.test(d.name)) : null;
+  const destination = flow?.logistics && op?.lateDone ? dims.find((d) => /cidade|destino|uf\b|regi/i.test(d.name)) : null;
+  if (carrier || destination) {
+    // Who delivers on time, and where the delays go.
+    if (carrier) overview.push({ type: "clusteredBarChart", x: 800, y: 216, w: 456, h: destination ? 236 : 488, title: `${op.onTime.replace(/ %$/, "")} por ${lower(carrier.name)}`, category: carrier.ref, values: m(op.onTime), labels: true, sort: { by: m(op.onTime), desc: false } });
+    if (destination) overview.push({ type: "clusteredBarChart", x: 800, y: carrier ? 468 : 216, w: 456, h: carrier ? 236 : 488, title: `${op.lateDone} por ${lower(destination.name)}`, category: destination.ref, values: m(op.lateDone), labels: true, sort: { by: m(op.lateDone) } });
+  } else {
   if (barDim) overview.push({ type: "clusteredBarChart", x: 800, y: 216, w: 456, h: donutDim ? 236 : 488, title: `${headline} por ${lower(barDim.name)}`, category: barDim.ref, values: m(headline), labels: true, sort: { by: m(headline) } });
   if (donutDim) overview.push({ type: "donutChart", x: 800, y: barDim ? 468 : 216, w: 456, h: barDim ? 236 : 488, title: `Participação por ${lower(donutDim.name)}`, category: donutDim.ref, values: m(headline), labels: true });
-  pages.push({ displayName: "Visão geral", visuals: overview });
+  }
+  pages.push({ displayName: flow?.logistics ? "Entregas" : "Visão geral", visuals: overview });
 
   // Page 2: detail.
   const detail = [header("Detalhamento: clique num item para filtrar a página"), ...slicers()];
@@ -346,12 +374,35 @@ export function design(tables, { title } = {}) {
     pages.push({ displayName: "Tendência", visuals: trend });
   }
 
+  const chosen = pagesFor(pages, goal);
+  pages.splice(0, pages.length, ...chosen);
+
+  // ---- Model spec for PbiHost.Build
+  const modelTables = tables.map((t) => ({
+    name: t.name,
+    m: mExpression(t),
+    columns: t.columns.map((c) => ({
+      name: c.name, type: c.type,
+      ...(c.type === "data" ? { format: "dd/mm/yyyy" } : c.role === "money" || c.role === "unitPrice" ? { format: MONEY } : c.role === "percent" ? { format: PCT } : c.type === "inteiro" && c.role !== "id" ? { format: INT } : c.type === "numero" ? { format: DEC } : {}),
+      summarize: "none",
+      ...(c.role === "date" && t === fact ? { hidden: "True" } : {}),
+    })),
+    measures: measures.filter((x) => (x.table || fact.name) === t.name).map(({ table, ...x }) => Object.fromEntries(Object.entries(x).filter(([, v]) => v !== null && v !== undefined && v !== ""))),
+  }));
+  const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
+  if (date) {
+    modelTables.push({ name: "Calendário", dax: calendarDax(fact.name, date.name), dateTable: "True", columns: CALENDAR_COLUMNS });
+    modelRelationships.push({ from: col(fact.name, date.name), to: "'Calendário'[Data]" });
+  }
+  const measureTable = Object.fromEntries(measures.map((x) => [x.name, x.table || fact.name]));
+
   const summary = [
     `Fato: ${fact.name} (${fact.rows.length} linhas; ${fact.columns.map((c) => `${c.name}: ${c.type}`).join(", ")}).`,
     relationships.length ? `Relações: ${relationships.map((r) => `${r.from} → ${r.to}`).join("; ")}.` : "",
     date ? `Calendário em português ligado a ${fact.name}[${date.name}].` : "Sem coluna de data: sem páginas de tempo.",
     `Medidas: ${measures.map((x) => x.name).join(", ")}.`,
+    flow ? `Fluxo: ${flow.status} (${flow.stages.map((x) => x.values[0]).join(" → ")})${flow.place ? `; cena com as ${flow.place.toLowerCase()}s` : ""}${flow.asset ? `; ${flow.vehicles} por ${flow.asset}` : ""}.` : "",
     `Páginas: ${pages.map((p) => `${p.displayName} (${p.visuals.length} visuais)`).join(", ")}.`,
   ].filter(Boolean).join("\n");
-  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures };
+  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark }, flow };
 }

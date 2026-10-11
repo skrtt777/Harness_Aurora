@@ -50,6 +50,24 @@ export function visual(spec, measures, z = 0) {
     container.visual = { visualType: "textbox", objects: { general: [{ properties: { paragraphs: spec.paragraphs } }] }, drillFilterOtherVisuals: true };
     return container;
   }
+  // A picture drawn by a measure (an SVG from the data): the Image visual with its source bound to it.
+  if (spec.type === "image") {
+    const f = field(spec.url, measures);
+    container.visual = {
+      visualType: "image",
+      objects: {
+        image: [{ properties: { sourceType: literal("imageUrl"), sourceUrl: { expr: f.json }, ...(spec.fit ? { fit: literal(spec.fit) } : {}) } }],
+        general: [{ properties: { imageUrl: { expr: f.json } } }],
+      },
+      visualContainerObjects: {
+        ...(spec.title ? { title: [{ properties: { show: literal(true), text: literal(spec.title) } }] } : { title: [{ properties: { show: literal(false) } }] }),
+        ...(spec.background ? { background: [{ properties: { show: literal(true), color: color(spec.background) } }] } : {}),
+        ...(spec.border === false ? { border: [{ properties: { show: literal(false) } }] } : {}),
+      },
+      drillFilterOtherVisuals: true,
+    };
+    return container;
+  }
   const roles = ROLES[spec.type];
   if (!roles) throw new Error(`Visual desconhecido: ${spec.type}`);
   const queryState = {};
@@ -66,6 +84,9 @@ export function visual(spec, measures, z = 0) {
   if (spec.labels) objects.labels = [{ properties: { show: literal(true) } }];
   if (spec.dropdown) objects.data = [{ properties: { mode: literal("Dropdown") } }];
   if (spec.type === "slicer") objects.header = [{ properties: { show: literal(true) } }];
+  // A table with a picture measure (progress bars): the size of the pictures in the cells.
+  if (spec.totals === false) objects.total = [{ properties: { totals: literal(false) } }];
+  if (spec.image) objects.grid = [{ properties: { imageHeight: literal(spec.image.height), imageWidth: literal(spec.image.width) } }];
   // A card: the title names it, so no second label under the value; the full value ("R$ 94.419,80",
   // not "R$ 94,42 Mil").
   if (spec.type === "card") {
@@ -80,6 +101,7 @@ export function visual(spec, measures, z = 0) {
 
 /** The Aurora's report theme: navy and blue, light grey page, white cards with soft borders. */
 export function theme(palette = {}) {
+  if (palette.dark) return darkTheme(palette);
   const accent = palette.accent || "#0078D4";
   return {
     name: "Aurora",
@@ -103,6 +125,48 @@ export function theme(palette = {}) {
       page: { "*": { background: [{ color: { solid: { color: "#F3F5F9" } }, transparency: 0 }], outspace: [{ color: { solid: { color: "#F3F5F9" } } }] } },
       textbox: { "*": { border: [{ show: false }], background: [{ show: false }], padding: [{ top: 0, bottom: 0, left: 4, right: 4 }] } },
       slicer: { "*": { title: [{ show: false }] } },
+    },
+  };
+}
+
+/** The operations theme: a dark control room (the scenes are drawn for it), bright data colours. */
+function darkTheme(palette = {}) {
+  const accent = palette.accent || "#4F9BFF";
+  const solid = (c) => ({ solid: { color: c } });
+  const PAGE = "#0B1220"; const CARD = "#111B2E"; const LINE = "#1F2C44"; const TEXT = "#E8EDF5"; const SOFT = "#A9B8CF";
+  return {
+    name: "Aurora Operação",
+    dataColors: [accent, "#3DDC97", "#F6D365", "#C3A6FA", "#FF8A8A", "#7FD3F7", "#FFB86B", "#8FA3BF"],
+    background: CARD, foreground: TEXT, backgroundLight: "#16233A", foregroundNeutralSecondary: SOFT, foregroundNeutralTertiary: "#6B7A90", backgroundNeutral: LINE, tableAccent: accent,
+    good: "#3DDC97", neutral: "#F6D365", bad: "#FF8A8A", maximum: accent, center: "#F6D365", minimum: "#16233A",
+    textClasses: {
+      callout: { fontSize: 26, fontFace: "Segoe UI Semibold", color: TEXT },
+      title: { fontSize: 12, fontFace: "Segoe UI Semibold", color: TEXT },
+      header: { fontSize: 12, fontFace: "Segoe UI Semibold", color: TEXT },
+      label: { fontSize: 10, fontFace: "Segoe UI", color: SOFT },
+    },
+    visualStyles: {
+      "*": { "*": {
+        border: [{ show: true, color: solid(LINE), radius: 10 }],
+        background: [{ show: true, color: solid(CARD), transparency: 0 }],
+        padding: [{ top: 10, bottom: 10, left: 12, right: 12 }],
+        dropShadow: [{ show: false }],
+        title: [{ show: true, fontSize: 12, fontColor: solid(TEXT) }],
+        categoryAxis: [{ labelColor: solid(SOFT), gridlineColor: solid(LINE) }],
+        valueAxis: [{ labelColor: solid(SOFT), gridlineColor: solid(LINE) }],
+        legend: [{ labelColor: solid(SOFT) }],
+        labels: [{ color: solid(TEXT) }],
+      } },
+      page: { "*": { background: [{ color: solid(PAGE), transparency: 0 }], outspace: [{ color: solid(PAGE) }] } },
+      textbox: { "*": { border: [{ show: false }], background: [{ show: false }], padding: [{ top: 0, bottom: 0, left: 4, right: 4 }] } },
+      slicer: { "*": { title: [{ show: false }], header: [{ fontColor: solid(SOFT) }], items: [{ fontColor: solid(TEXT), background: solid(CARD) }] } },
+      tableEx: { "*": {
+        columnHeaders: [{ fontColor: solid(SOFT), backColor: solid(CARD) }],
+        values: [{ fontColorPrimary: solid(TEXT), backColorPrimary: solid(CARD), fontColorSecondary: solid(TEXT), backColorSecondary: solid("#0F1829") }],
+        total: [{ fontColor: solid(TEXT), backColor: solid(CARD) }],
+        grid: [{ gridHorizontalColor: solid(LINE), outlineColor: solid(LINE) }],
+      } },
+      card: { "*": { labels: [{ color: solid(TEXT) }], categoryLabels: [{ color: solid(SOFT) }] } },
     },
   };
 }

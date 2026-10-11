@@ -84,7 +84,22 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 ## Agora
 
-1. **BI com cena visual (próxima versão):** cena isométrica (CD/logística) com KPIs e rastreamento, montada em TMDL + PBIR, com medidas SVG. As páginas devem nascer do pedido, não de um molde fixo.
+1. **BI com cena visual (próxima versão), primeira etapa feita em 11/10:**
+   - Quando os dados têm um fluxo com etapas (status de pedido, entrega ou chamado), o BI abre numa página de operação, com o tema escuro.
+   - **Cena isométrica do CD:** uma medida DAX devolve um SVG, mostrado no visual de Imagem. Desenha as docas com o caminhão de cada uma, colorido pela etapa ou em vermelho se atrasado, as docas livres em verde, a fila e a estrada.
+   - **Trilha de etapas**, barras de progresso na tabela e o **painel do item selecionado**.
+   - **Clique na tabela:** acende o caminhão na cena, apaga os outros e mostra o detalhe dele e a trilha.
+   - **Medidas de operação:** em andamento, no pátio, no prazo %, atrasados agora, estoque.
+   - **Outras páginas:** a de entregas mostra prazo por transportadora e atrasos por destino. As páginas seguem o pedido ("só a operação", "sem a tendência").
+   - **Laboratórios:**
+     - `scene-lab.mjs`: 21/21;
+     - `scene-cowork.mjs` com o modelo local: 16/16 em 2 rodadas;
+     - o painel de vendas sem fluxo continua igual: 10/10.
+   - **Próximas etapas:**
+     - cenas para outros domínios: loja ou vendas por região, fábrica e linhas, chamados por equipe;
+     - escolha da cena pelo pedido;
+     - mais de 10 docas;
+     - mapa do Brasil com as rotas em trânsito.
 1. **Áudio pelo celular:** hoje a mensagem de voz recebe "mande por texto"; falta uma transcrição local leve (a do Quest depende de um serviço à parte).
 2. **Briefings por setor** além de proposta e orçamento (RH, compras, jurídico), e medir quanto cada novo briefing ajuda com a bateria 4 antes de manter.
 3. **Respostas longas e o limite de saída do modelo:** o relatório completo ainda passa do limite às vezes; ver se o `append` é usado sozinho ou se precisa de trava.

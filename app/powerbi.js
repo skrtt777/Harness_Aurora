@@ -150,10 +150,12 @@ export async function openInDesktop(file, { timeoutMs = 150_000 } = {}) {
  * A complete BI from spreadsheets: profile the data, design model and pages, write the .pbip project,
  * open it in Power BI Desktop, refresh, and check the numbers. Returns a summary for the person.
  */
-export async function buildReport({ files, folder, name, conversationId, open = true, onStage = () => {} }) {
+export async function buildReport({ files, folder, name, goal, conversationId, open = true, onStage = () => {}, adjust = null }) {
   onStage("Lendo os dados…");
   const tables = files.flatMap((f) => readSources(f)).map(profile);
-  const plan = design(tables, { title: name });
+  const designed = design(tables, { title: name, goal });
+  // A lab may change the plan before it is written (a new visual tried on real data).
+  const plan = adjust ? adjust(designed) || designed : designed;
   const projectName = String(name || plan.name).replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   const projectDir = join(folder, projectName);
   mkdirSync(projectDir, { recursive: true });
@@ -161,12 +163,23 @@ export async function buildReport({ files, folder, name, conversationId, open = 
   const pbip = writeProject(projectDir, projectName);
   ok(await pbiRequest("build", { folder: join(projectDir, `${projectName}.SemanticModel`), model: plan.model }));
   onStage("Desenhando as páginas…");
-  writeReport(join(projectDir, `${projectName}.Report`), { name: projectName, modelFolder: `${projectName}.SemanticModel`, pages: plan.pages, measures: plan.measures });
+  writeReport(join(projectDir, `${projectName}.Report`), { name: projectName, modelFolder: `${projectName}.SemanticModel`, pages: plan.pages, measures: plan.measures, palette: plan.palette });
   const result = { pbip, folder: projectDir, plan, opened: null, refreshed: "", checks: "" };
   if (!open) return result;
   onStage("Abrindo no Power BI Desktop…");
   const report = await openInDesktop(pbip);
   result.opened = report;
+  try {
+    await loadOpened(result, plan, report, conversationId, onStage);
+  } catch (error) {
+    // Opened but not loaded: who called knows which window it was (a test closes it, 11/10).
+    error.opened = report;
+    throw error;
+  }
+  return result;
+}
+
+async function loadOpened(result, plan, report, conversationId, onStage) {
   // The engine is up before the project's model is in it: a few tries.
   let model = "";
   for (let tries = 0; ; tries += 1) {
@@ -186,6 +199,12 @@ export async function buildReport({ files, folder, name, conversationId, open = 
     const dax = `EVALUATE ROW(${kpis.map((k) => `"${k.replace(/^\[|\]$/g, "").replace(/"/g, "\"\"")}", ${formatOf(k) ? `FORMAT(${k}, "${formatOf(k).replace(/"/g, "\"\"")}")` : k}`).join(", ")})`;
     const reply = await pbiRequest("query", { dax, max: 2 });
     result.checks = reply.ok ? reply.text : `(não consegui conferir os números: ${reply.error})`;
+    // One "Name: value" per line: a small model misaligned the columns of the table (13 and 9 swapped, 11/10).
+    if (reply.ok) {
+      const [, head = "", row = ""] = String(reply.text).split("\n");
+      const names = head.split(" | "); const values = row.split(" | ");
+      result.cards = names.map((n, i) => `- ${n}: ${values[i] ?? ""}`).join("\n");
+    }
   }
   return result;
 }

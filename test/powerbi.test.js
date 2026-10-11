@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { design, parseNumber, plural, profile, readSources } from "../app/powerbiDesign.js";
 import { field, visual } from "../app/powerbiReport.js";
-import { columnRef, simpleDax } from "../app/agentTools/powerbi.js";
+import { checkFilters, columnRef, groundedName, simpleDax } from "../app/agentTools/powerbi.js";
 
 const csv = (text) => { const dir = mkdtempSync(join(tmpdir(), "pbi-")); const f = join(dir, "vendas_loja.csv"); writeFileSync(f, text); return f; };
 
@@ -73,4 +73,20 @@ test("a small model's measure is repaired: columns named as measures become sums
   assert.equal(fixMeasureRefs("[Valor total] - [Custo]", model), "SUM('Vendas'[Valor total]) - SUM('Vendas'[Custo])");
   assert.equal(fixMeasureRefs("DIVIDE([Lucro], [Qtd. de pedidos])", model), "DIVIDE([Lucro], [Qtd. de pedidos])");
   assert.equal(fixMeasureRefs("SUM(Vendas[Custo])", model), "SUM(Vendas[Custo])");
+});
+
+test("a question's filter is checked against the column's real values", async () => {
+  const model = "Tabela Embarques:\n  colunas: Status (texto), Transportadora (texto)\n  medida [Entregas atrasadas] = COUNTROWS(x)\n  medida [Atrasados agora] = y\n";
+  const values = async (ref) => (/Status/.test(ref) ? ["Pedido recebido", "Carregando", "Em trânsito", "Entregue"] : ["TransRápido"]);
+  assert.equal(await checkFilters("Status=em transito; Ano=2026", model, values), "Status=Em trânsito; Ano=2026");
+  await assert.rejects(checkFilters("Status='Atrasado'", model, values), /Status não tem "Atrasado".*Em trânsito.*\[Entregas atrasadas\]/s);
+  await assert.rejects(checkFilters("Transportadora=Rodonaves", model, values), /valores de Transportadora são: TransRápido\. Use um desses valores ou tire o filtro/);
+});
+
+test("the report's title keeps only words the person or the files said", () => {
+  const said = "monta um power bi da operação do CD com a planilha operacao_cd.xlsx, quero ver o rastreamento";
+  assert.equal(groundedName("Operação_CD_Permacultura", said), "Operação CD");
+  assert.equal(groundedName("Rastreamento da operação", said), "Rastreamento da operação");
+  assert.equal(groundedName("Permacultura", said), undefined);
+  assert.equal(groundedName("", said), undefined);
 });

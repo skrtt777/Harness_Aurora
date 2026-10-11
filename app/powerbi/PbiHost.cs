@@ -374,6 +374,8 @@ static class Pbi {
         if (ms.ContainsKey("format")) measure.FormatString = Str(ms, "format");
         if (ms.ContainsKey("folder")) measure.DisplayFolder = Str(ms, "folder");
         if (ms.ContainsKey("description")) measure.Description = Str(ms, "description");
+        // "ImageUrl": a measure that returns a picture (an SVG drawn from the data).
+        if (ms.ContainsKey("category")) measure.DataCategory = Str(ms, "category");
         t.Measures.Add(measure);
       }
       model.Tables.Add(t);
