@@ -9,7 +9,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { design, profile, readSources } from "./powerbiDesign.js";
+import { finish, prepare, profile, readSources } from "./powerbiDesign.js";
+import { planWithModel } from "./powerbiPlanner.js";
 import { writeProject, writeReport } from "./powerbiReport.js";
 
 const SOURCE = fileURLToPath(new URL("./powerbi/PbiHost.cs", import.meta.url));
@@ -150,10 +151,22 @@ export async function openInDesktop(file, { timeoutMs = 150_000 } = {}) {
  * A complete BI from spreadsheets: profile the data, design model and pages, write the .pbip project,
  * open it in Power BI Desktop, refresh, and check the numbers. Returns a summary for the person.
  */
-export async function buildReport({ files, folder, name, goal, conversationId, open = true, onStage = () => {}, adjust = null }) {
+/**
+ * planner: { ask, env } to have the local model plan the BI (its pages, layout, scenes, style) from the
+ * catalog of the data; without it, or when it gives nothing usable, the automatic plan.
+ */
+export async function buildReport({ files, folder, name, goal, conversationId, open = true, onStage = () => {}, adjust = null, planner = null }) {
   onStage("Lendo os dados…");
   const tables = files.flatMap((f) => readSources(f)).map(profile);
-  const designed = design(tables, { title: name, goal });
+  const prep = prepare(tables, { title: name, goal });
+  let modelPlan = null; let plannerError = null;
+  if (planner?.ask) {
+    onStage("Planejando o painel…");
+    modelPlan = await planWithModel(prep.cat, goal || "", planner.ask, planner.env, (e) => { plannerError = e; }).catch((e) => { plannerError = e.message; return null; });
+  }
+  const designed = finish(prep, modelPlan);
+  // Why the automatic plan was used, for whoever reads the result (a test, the diagnostics).
+  if (plannerError) designed.summary += `\n(A IA local não planejou: ${String(plannerError).slice(0, 160)}; usei o plano automático.)`;
   // A lab may change the plan before it is written (a new visual tried on real data).
   const plan = adjust ? adjust(designed) || designed : designed;
   const projectName = String(name || plan.name).replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);

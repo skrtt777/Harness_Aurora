@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
 import { desktopRequest } from "../desktop.js";
+import { groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
 
 const ok = (reply) => { if (!reply.ok) throw new Error(reply.error); return reply.text; };
@@ -92,12 +93,13 @@ const plain = (s) => String(s).normalize("NFD").replace(/\p{M}/gu, "").toLowerCa
  * model got 0 and said there were no delays) goes back with the values and the measure that answers it.
  */
 export async function checkFilters(filter, modelText, values = columnValues) {
-  const parts = String(filter || "").split(/;\s*/).filter(Boolean);
+  // ("\"Categoria=Marketing\"": quotes around the whole filter, 11/10.)
+  const parts = String(filter || "").split(/;\s*/).map((p) => p.trim().replace(/^["']+|["']+$/g, "")).filter(Boolean);
   const out = [];
   for (const part of parts) {
     const [, column, raw] = /^(.+?)\s*=\s*(.+)$/.exec(part) || [];
     if (!column) { out.push(part); continue; }
-    const value = raw.trim().replace(/^["']|["']$/g, "");
+    const value = raw.trim().replace(/^["']+|["']+$/g, "");
     if (/^-?\d+([.,]\d+)?$/.test(value)) { out.push(`${column}=${value}`); continue; }
     const ref = columnRef(modelText, column);
     const existing = await values(ref);
@@ -111,24 +113,24 @@ export async function checkFilters(filter, modelText, values = columnValues) {
   return out.join("; ");
 }
 
+/**
+ * The measure of a simple question is one the model has: an expression ("[Saldo] - [Orçado]", 11/10, the
+ * wrong answer) or an invented name goes back with the measures whose words match the question.
+ */
+export function checkMeasure(measure, modelText, request = "") {
+  const name = String(measure || "").trim().replace(/^\[|\]$/g, "");
+  const { measures } = modelIndex(modelText);
+  const found = measures.get(name.toLowerCase());
+  if (found) return found.name;
+  const stems = plain(`${name} ${request}`).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 5).map((w) => w.slice(0, 5));
+  const like = [...measures.values()].map((m) => m.name).filter((n) => stems.some((s) => plain(n).includes(s))).slice(0, 5);
+  throw new Error(`Não há a medida "${name}". ${like.length ? `As que combinam com a pergunta: ${like.map((n) => `[${n}]`).join(", ")}. ` : ""}measure é o nome de UMA medida que existe (veja com action=model); para "o que mais estourou o orçamento", por exemplo, measure "Execução do orçamento %", by a coluna, top 1.`);
+}
+
 async function columnValues(ref) {
   const reply = await pbiRequest("query", { dax: `EVALUATE TOPN(60, DISTINCT(${ref}))`, max: 60 });
   if (!reply.ok) return [];
   return String(reply.text || "").split("\n").slice(2).map((l) => l.trim()).filter((l) => l && !/^…/.test(l));
-}
-
-/**
- * The title the model gave, with only the words the person or the files said ("Operação_CD_Permacultura"
- * for a CD's operation, 11/10): an invented word is dropped; nothing left, the design names it.
- */
-export function groundedName(name, said) {
-  const words = [...new Set(plain(said).split(/[^\p{L}\p{N}]+/u).filter(Boolean))];
-  const kept = String(name || "").replace(/[_-]+/g, " ").split(/\s+/).filter(Boolean).filter((w) => {
-    const p = plain(w).replace(/[^\p{L}\p{N}]/gu, "");
-    return p.length <= 3 || words.includes(p) || words.some((x) => x.length >= 5 && p.length >= 5 && x.slice(0, 5) === p.slice(0, 5));
-  });
-  const title = kept.join(" ").trim();
-  return title.split(" ").some((w) => w.length > 3) ? title : undefined;
 }
 
 const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b|medida|\.pbix|\.pbip/i;
@@ -136,7 +138,7 @@ const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b
 export const powerBiTools = [
   {
     name: "powerbi",
-    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; dax só se isso não bastar; action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
+    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; a medida pelo sentido (gasto/despesa = Saídas; receita = Entradas; quantos = contagem) e o item citado no filter (\"quanto gastamos com marketing\" = measure \"Saídas no período\", filter \"Categoria=Marketing\"); dax só se isso não bastar; action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
     parameters: { type: "object", properties: {
       action: { type: "string", enum: ["build", "connect", "model", "query", "change", "refresh", "save"] },
       files: { type: "array", items: { type: "string" }, description: "planilhas .xlsx/.csv (build)" },
@@ -169,15 +171,20 @@ export const powerBiTools = [
         for (const f of files) paths.push(await resolveFile(f, ctx));
         const folder = expandPath(args.folder || "Documentos/Power BI", ctx.knownFolders, ctx.workspace);
         // The pages follow what was asked: the goal, or the request itself.
-        const r = await buildReport({ files: paths, folder, name: groundedName(args.name, `${ctx.request || ""} ${args.goal || ""} ${files.join(" ")}`), goal: args.goal || ctx.request || "", conversationId: conversation, onStage: (s) => ctx.onStage?.(s) });
+        const r = await buildReport({ files: paths, folder, name: groundedName(args.name, `${ctx.request || ""} ${args.goal || ""} ${files.join(" ")}`), goal: args.goal || ctx.request || "", conversationId: conversation, onStage: (s) => ctx.onStage?.(s),
+          // The local model plans this BI's pages, layout and style (ctx.ask in tests).
+          planner: { ask: ctx.planAsk || await localPlanAsk(ctx.env || process.env).catch(() => null), env: ctx.env || process.env } });
         const pages = r.plan.pages.map((p) => `${p.displayName} (${p.visuals.filter((v) => v.type !== "textbox").length} visuais)`).join(", ");
         return [
           `Pronto: o painel "${r.plan.name}" está aberto no Power BI Desktop, na frente da pessoa (projeto em ${r.folder}).`,
+          // The plan first: the result is cut when stored, and the pages are what the person should hear.
+          `Plano (${r.plan.plan.planner === "modelo" ? "feito pela IA local" : "automático"}): ${r.plan.plan.paginas.map((p) => `"${p.nome}" (${p.pergunta}${p.cena !== "nenhuma" ? `; cena ${p.cena}` : ""})`).join("; ")}.`,
           r.refreshed,
           `Números dos cartões (todos os dados):\n${r.cards || r.checks}`,
           `Páginas: ${pages}.`,
           r.plan.flow?.place ? `A página ${r.plan.pages[0].displayName} tem a cena com as ${r.plan.flow.place.toLowerCase()}s e os ${r.plan.flow.vehicles || "itens"} desenhados pelos dados; clicar num item da tabela acende ele na cena e mostra o detalhe.` : "",
           r.plan.summary,
+          `Diga à pessoa o plano: as páginas (${r.plan.plan.paginas.map((p) => p.nome).join(", ")}) e o que cada uma responde.`,
         ].join("\n") + NEXT;
       }
       if (action === "connect") {
@@ -194,7 +201,7 @@ export const powerBiTools = [
         if (!dax) {
           if (!args.measure) throw new Error("Diga a medida (measure) e, se quiser, por qual coluna (by), ou mande dax.");
           const modelText = ok(await pbiRequest("model", {}));
-          args = { ...args, filter: await checkFilters(args.filter, modelText) };
+          args = { ...args, measure: checkMeasure(args.measure, modelText, ctx.request), filter: await checkFilters(args.filter, modelText) };
           dax = simpleDax(args, modelText);
         }
         // A failed DAX of the model's own goes back with the simple form and the right names (a small
@@ -239,3 +246,5 @@ export const powerBiTools = [
   },
 ];
 
+
+export { groundedName };

@@ -29,7 +29,7 @@ test("a Brazilian CSV is profiled: dates, money, ids, dimensions", () => {
   assert.deepEqual(roles, { Pedido: "inteiro/id", Data: "data/date", Loja: "texto/dimension", Produto: "texto/dimension", Quantidade: "inteiro/quantity", "Preço unitário": "numero/unitPrice", "Valor total": "numero/money" });
 });
 
-test("the design: no measure named like a column, a calendar, KPIs and three pages", () => {
+test("the design: no measure named like a column, a calendar, the main numbers on the first page", () => {
   const f = csv("Pedido;Data;Loja;Produto;Quantidade;Preço unitário;Valor total;Custo\n1;01/01/2025;Centro;Pão;10;0,90;9,00;3,00\n2;15/02/2026;Savassi;Bolo;1;32,00;32,00;11,00\n3;03/03/2026;Centro;Pão;20;0,90;18,00;6,00\n");
   const plan = design(readSources(f).map(profile));
   const names = plan.measureList.map((m) => m.name);
@@ -40,9 +40,11 @@ test("the design: no measure named like a column, a calendar, KPIs and three pag
   assert.match(cal.dax, /COALESCE\(MIN/);
   assert.match(cal.dax, /EOMONTH\(COALESCE\(MAX/);
   assert.deepEqual(plan.model.relationships, [{ from: "'Vendas loja'[Data]", to: "'Calendário'[Data]" }]);
-  assert.deepEqual(plan.pages.map((p) => p.displayName), ["Visão geral", "Detalhamento", "Tendência"]);
+  // No fixed pages: the automatic plan (no model here) opens on the results, with the main numbers.
+  assert.equal(plan.plan.planner, "automático");
+  assert.ok(plan.pages.length >= 1 && plan.pages.length <= 4);
   const cards = plan.pages[0].visuals.filter((v) => v.type === "card").map((v) => v.title);
-  assert.deepEqual(cards, ["Faturamento", "Qtd. de pedidos", "Ticket médio", "Margem %"]);
+  assert.ok(cards.includes("Faturamento"));
   // Every field of every visual exists in the model.
   for (const page of plan.pages) for (const v of page.visuals) if (v.type !== "textbox") assert.ok(visual(v, plan.measures).visual.query);
 });

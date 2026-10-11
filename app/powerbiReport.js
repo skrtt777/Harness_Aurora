@@ -37,6 +37,8 @@ const ROLES = {
   gauge: { values: "Y", target: "TargetValue" },
   kpi: { values: "Indicator", category: "TrendLine", target: "Goal" },
   treemap: { category: "Group", values: "Values" },
+  waterfallChart: { category: "Category", values: "Y" },
+  funnel: { category: "Category", values: "Y" },
 };
 
 /**
@@ -60,7 +62,7 @@ export function visual(spec, measures, z = 0) {
         general: [{ properties: { imageUrl: { expr: f.json } } }],
       },
       visualContainerObjects: {
-        ...(spec.title ? { title: [{ properties: { show: literal(true), text: literal(spec.title) } }] } : { title: [{ properties: { show: literal(false) } }] }),
+        ...(spec.title ? { title: [{ properties: { show: literal(true), text: literal(spec.title), ...(spec.titleColor ? { fontColor: color(spec.titleColor) } : {}) } }] } : { title: [{ properties: { show: literal(false) } }] }),
         ...(spec.background ? { background: [{ properties: { show: literal(true), color: color(spec.background) } }] } : {}),
         ...(spec.border === false ? { border: [{ properties: { show: literal(false) } }] } : {}),
       },
@@ -91,12 +93,22 @@ export function visual(spec, measures, z = 0) {
   // not "R$ 94,42 Mil").
   if (spec.type === "card") {
     objects.categoryLabels = [{ properties: { show: literal(false) } }];
-    objects.labels = [{ properties: { labelDisplayUnits: literal(1), ...(spec.fontSize ? { fontSize: literal(spec.fontSize) } : {}) } }];
+    objects.labels = [{ properties: { labelDisplayUnits: literal(1), ...(spec.precision !== undefined ? { labelPrecision: literal(spec.precision) } : {}), ...(spec.fontSize ? { fontSize: literal(spec.fontSize) } : {}) } }];
   }
   const visualContainerObjects = {};
   if (spec.title) visualContainerObjects.title = [{ properties: { show: literal(true), text: literal(spec.title) } }];
   container.visual = { visualType: spec.type, query, ...(Object.keys(objects).length ? { objects } : {}), ...(Object.keys(visualContainerObjects).length ? { visualContainerObjects } : {}), drillFilterOtherVisuals: true };
   return container;
+}
+
+// The tone of the plan: how round the cards are and which colours follow the accent.
+const RADIUS = { sobrio: 4, tecnico: 4, executivo: 6, vibrante: 12, acolhedor: 16 };
+function toneColors(accent, tone, dark) {
+  if (tone === "sobrio") return [accent, dark ? "#8FA3BF" : "#5B6B85", dark ? "#C9D3E3" : "#9AA5B5", dark ? "#4A5D7A" : "#C8D0DB", "#B0B8C4", "#6B7A90", "#3B4A63", "#D5DBE3"];
+  if (tone === "executivo") return [accent, dark ? "#E8C468" : "#1B2A4A", "#C99A2E", "#7FA7D9", "#8C9BB0", "#3E6B5A", "#A3667A", "#5B6B85"];
+  if (tone === "vibrante") return [accent, "#FF5D8F", "#FFC53D", "#2ED3B7", "#8B5CF6", "#FF8A3D", "#3DA5FF", "#7EE07A"];
+  if (tone === "acolhedor") return [accent, "#F2A97E", "#8CC9A6", "#F4D35E", "#B5A1E0", "#7FB7D9", "#E58FA8", "#A0B88A"];
+  return dark ? [accent, "#3DDC97", "#F6D365", "#C3A6FA", "#FF8A8A", "#7FD3F7", "#FFB86B", "#8FA3BF"] : [accent, "#1B2A4A", "#00B294", "#FF8C00", "#8764B8", "#E3008C", "#69797E", "#4F6BED"];
 }
 
 /** The Aurora's report theme: navy and blue, light grey page, white cards with soft borders. */
@@ -105,7 +117,7 @@ export function theme(palette = {}) {
   const accent = palette.accent || "#0078D4";
   return {
     name: "Aurora",
-    dataColors: [accent, "#1B2A4A", "#00B294", "#FF8C00", "#8764B8", "#E3008C", "#69797E", "#4F6BED"],
+    dataColors: toneColors(accent, palette.tone, false),
     background: "#FFFFFF", foreground: "#1B2A4A", tableAccent: accent,
     good: "#107C10", neutral: "#FFB900", bad: "#D13438", maximum: accent, center: "#FFB900", minimum: "#DEEFFF",
     textClasses: {
@@ -116,7 +128,7 @@ export function theme(palette = {}) {
     },
     visualStyles: {
       "*": { "*": {
-        border: [{ show: true, color: { solid: { color: "#E3E7EE" } }, radius: 8 }],
+        border: [{ show: true, color: { solid: { color: "#E3E7EE" } }, radius: RADIUS[palette.tone] ?? 8 }],
         background: [{ show: true, color: { solid: { color: "#FFFFFF" } }, transparency: 0 }],
         padding: [{ top: 10, bottom: 10, left: 12, right: 12 }],
         dropShadow: [{ show: false }],
@@ -136,7 +148,7 @@ function darkTheme(palette = {}) {
   const PAGE = "#0B1220"; const CARD = "#111B2E"; const LINE = "#1F2C44"; const TEXT = "#E8EDF5"; const SOFT = "#A9B8CF";
   return {
     name: "Aurora Operação",
-    dataColors: [accent, "#3DDC97", "#F6D365", "#C3A6FA", "#FF8A8A", "#7FD3F7", "#FFB86B", "#8FA3BF"],
+    dataColors: toneColors(accent, palette.tone, true),
     background: CARD, foreground: TEXT, backgroundLight: "#16233A", foregroundNeutralSecondary: SOFT, foregroundNeutralTertiary: "#6B7A90", backgroundNeutral: LINE, tableAccent: accent,
     good: "#3DDC97", neutral: "#F6D365", bad: "#FF8A8A", maximum: accent, center: "#F6D365", minimum: "#16233A",
     textClasses: {
@@ -147,7 +159,7 @@ function darkTheme(palette = {}) {
     },
     visualStyles: {
       "*": { "*": {
-        border: [{ show: true, color: solid(LINE), radius: 10 }],
+        border: [{ show: true, color: solid(LINE), radius: RADIUS[palette.tone] ?? 10 }],
         background: [{ show: true, color: solid(CARD), transparency: 0 }],
         padding: [{ top: 10, bottom: 10, left: 12, right: 12 }],
         dropShadow: [{ show: false }],

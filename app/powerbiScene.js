@@ -194,7 +194,7 @@ export function yardScene(flow, { title = "Centro de distribuição", slots = 10
   // Legend, top left (empty sky in an isometric scene).
   const vb = { x: cv.minX - 16, y: cv.minY - 16, w: cv.maxX - cv.minX + 32, h: cv.maxY - cv.minY + 32 };
   const legend = [];
-  const legendKeys = [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", STATE.livre.label]];
+  const legendKeys = [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", `${flow.place} livre`]];
   legendKeys.forEach(([key, text], i) => {
     const lx = vb.x + 24; const ly = vb.y + 34 + i * 32;
     legend.push(`<rect x='${r1(lx)}' y='${r1(ly - 16)}' width='20' height='20' rx='4' fill='${STATE[key]?.shades[1] || "#6B7A90"}'/>`);
@@ -327,5 +327,244 @@ export function detailCard(flow, { pick = "Escolha um item na tabela ou no filtr
     `VAR Atrasado = TemAtiva && MAXX(Ativa, IF(${h.late}, 1, 0)) = 1`,
     // The hint alone in a short frame, so it reads as large as the details.
     `RETURN ${daxText(URL_HEAD)} & IF(Uma, ${daxText(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 ${height}'>`)} & ${joinDax(body)}, ${daxText("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 124'>")} & ${joinDax(empty)}) & "</svg>"`,
+  ].join("\n");
+}
+
+// ---- Rising boxes: a height that comes from the data ----------------------------------------------
+
+/**
+ * A box rising from the ground by h (a DAX integer expression, up to maxH units): the sides and the top
+ * follow h. Coordinates that depend on it pass through INT() — a pt-BR model writes "123,5" otherwise.
+ */
+function rising(cv, X, Y, dx, dy, h, maxH, fills, extra = "") {
+  const x1 = X + dx; const y1 = Y + dy;
+  const flat = (x, y) => cv.at(x, y, 0).join(",");
+  cv.at(X, Y, maxH); cv.at(x1, Y, maxH);
+  const up = (x, y) => { const [sx, sy] = cv.at(x, y, 0); return [`${sx},`, D(`INT(${sy} - (${h}))`)]; };
+  const poly = (points, fill) => ["<polygon points='", points.flatMap((p, i) => [i ? " " : "", p]), "' fill='", fill, `'${extra}/>`];
+  return [
+    poly([flat(X, y1), flat(x1, y1), up(x1, y1), up(X, y1)], fills[1]),
+    poly([flat(x1, Y), flat(x1, y1), up(x1, y1), up(x1, Y)], fills[2]),
+    poly([up(X, Y), up(x1, Y), up(x1, y1), up(X, y1)], fills[0]),
+  ];
+}
+const svgOpen = (vb) => `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}'>`;
+const frame = (cv, pad = 16, extraBottom = 0) => ({ x: cv.minX - pad, y: cv.minY - pad, w: cv.maxX - cv.minX + pad * 2, h: cv.maxY - cv.minY + pad * 2 + extraBottom });
+
+// ---- A city of the items (any domain: stores, products, cost centres, sellers) --------------------
+
+const PALETTE = [["#6EA8FF", "#2F6FDB", "#2257B0"], ["#7FD3F7", "#4BAFD9", "#2E8FB8"], ["#C3A6FA", "#8E66D9", "#6E48B8"], ["#F6D365", "#D9A93A", "#B98A22"], ["#3DDC97", "#27AE60", "#1E8C4D"]];
+const UP = ["#3DDC97", "#27AE60", "#1E8C4D"];
+const DOWN = ["#FF8A8A", "#D94B4B", "#B33636"];
+
+/**
+ * The top items of a column as buildings: the height is the measure, the colour the trend (last year of
+ * the data against the one before: green up, red down) or the rank. Clicking an item elsewhere lights it.
+ * spec: { column: "'Vendas'[Loja]", measure: "[Faturamento]", format: "\"R$\" #,0", year?: "'Calendário'[Ano]", slots? }
+ */
+export function cityScene(spec) {
+  const { column, measure, format = "#,0", year = null } = spec;
+  const n = Math.max(1, Math.min(spec.slots || 10, 10));
+  // A row runs across the screen (X up, Y down): a wide panel gets a wide city; more than 6, two rows.
+  const cols = n <= 6 ? n : Math.ceil(n / 2);
+  const cv = new Canvas();
+  const FOOT = 100; const STEP_X = 175; const STEP_Y = 210; const H = 300;
+  const parts = [];
+  cv.quiet = true;
+  const rows = n > cols ? 2 : 1;
+  const at = (k) => { const c = k % cols; const r = Math.floor(k / cols); return [c * STEP_X + r * STEP_Y, -c * STEP_X + r * STEP_Y]; };
+  const [x0] = at(0); const [xl, yl] = at(cols - 1); const [, yr] = at((rows - 1) * cols);
+  parts.push(cv.poly([[x0 - 70, -70, 0], [xl + FOOT + 70, yl - 70, 0], [xl + FOOT + 70 + (rows - 1) * STEP_Y, yl + FOOT + 70 + (rows - 1) * STEP_Y, 0], [x0 - 70 + (rows - 1) * STEP_Y, yr + FOOT + 70, 0]], "#0F1B2D"));
+  cv.quiet = false;
+  const slots = [];
+  for (let k = 0; k < n; k += 1) {
+    const [X, Y] = at(k);
+    const colour = (i) => D(year ? `IF(ISBLANK([@p]) || ISBLANK([@a]), ${daxText(PALETTE[0][i])}, IF([@a] >= [@p], ${daxText(UP[i])}, ${daxText(DOWN[i])}))` : `SWITCH(TRUE(), [@i] <= 1, ${daxText(PALETTE[0][i])}, [@i] <= 3, ${daxText(PALETTE[1][i])}, ${daxText(PALETTE[2][i])})`);
+    const h = `MAX(6, INT(${H} * DIVIDE([@v], Mx)))`;
+    const frag = [cv.poly([[X - 14, Y - 14, 0], [X + FOOT + 14, Y - 14, 0], [X + FOOT + 14, Y + FOOT + 14, 0], [X - 14, Y + FOOT + 14, 0]], "#16263D")];
+    frag.push("<g opacity='", D("IF([@sel] = 1, \"1\", \"0.22\")"), "'>");
+    frag.push(rising(cv, X, Y, FOOT, FOOT, h, H, [colour(0), colour(1), colour(2)]));
+    // Windows: a few lit rows on the front faces, as high as the building goes.
+    const [tx, ty] = cv.at(X + FOOT / 2, Y + FOOT / 2, 0);
+    cv.see(Number(tx), Number(ty) - H - 80);
+    frag.push(`<text x='${tx}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='22' font-weight='700' y='`, D(`INT(${ty} - (${h}) - 18)`), "'>", D(safe(`FORMAT([@v], "${format.replace(/"/g, "\"\"")}")`)), "</text>");
+    if (year) frag.push(`<text x='${tx}' text-anchor='middle' ${FONT} font-size='17' y='`, D(`INT(${ty} - (${h}) - 44)`), "' fill='", D(`IF([@a] >= [@p], ${daxText("#3DDC97")}, ${daxText("#FF8A8A")})`), "'>", D(`IF(ISBLANK([@p]) || ISBLANK([@a]), "", IF([@a] >= [@p], "▲ ", "▼ ") & ${safe("FORMAT(ABS(DIVIDE([@a] - [@p], [@p])), \"0%\")")})`), "</text>");
+    frag.push("</g>");
+    const [lx, ly] = cv.at(X + FOOT + 14, Y + FOOT + 14, 0);
+    cv.see(Number(lx) + 10, Number(ly) + 40);
+    frag.push(`<text x='${r1(Number(lx) - 70)}' y='${r1(Number(ly) + 6)}' text-anchor='middle' fill='#C9D3E3' ${FONT} font-size='19' font-weight='600'>`, D(safe(`LEFT(${column}, 18)`)), "</text>");
+    slots.push(`${k + 1}, ${joinDax(frag)}`);
+  }
+  const vb = frame(cv, 20);
+  const lastYear = year ? [
+    `VAR AnoAtual = CALCULATE(MAX(${year}), ALLSELECTED())`,
+  ] : [];
+  return [
+    ...lastYear,
+    `VAR Base = CALCULATETABLE(ADDCOLUMNS(VALUES(${column}), "@v", ${measure}), REMOVEFILTERS(${column}))`,
+    `VAR Itens = TOPN(${n}, FILTER(Base, NOT ISBLANK([@v]) && [@v] > 0), [@v], DESC, ${column}, ASC)`,
+    "VAR Mx = MAXX(Itens, [@v])",
+    `VAR Visiveis = VALUES(${column})`,
+    `VAR Filtrado = ISFILTERED(${column})`,
+    `VAR S0 = ADDCOLUMNS(Itens, "@i", VAR v = [@v] VAR c = ${column} RETURN COUNTROWS(FILTER(Itens, [@v] > v || ([@v] = v && ${column} < c))) + 1, "@sel", IF(NOT Filtrado || ${column} IN Visiveis, 1, 0))`,
+    year
+      ? `VAR S = ADDCOLUMNS(S0, "@a", CALCULATE(${measure}, REMOVEFILTERS(${year}), ${year} = AnoAtual), "@p", CALCULATE(${measure}, REMOVEFILTERS(${year}), ${year} = AnoAtual - 1))`
+      : "VAR S = S0",
+    `RETURN ${daxText(URL_HEAD)} & ${daxText(svgOpen(vb))} & ${joinDax(parts)}`,
+    `  & CONCATENATEX(S, SWITCH([@i], ${slots.join(",\n    ")}, ""), "", [@i], ASC)`,
+    "  & \"</svg>\"",
+  ].join("\n");
+}
+
+// ---- Towers of a flow without a place (tickets, hiring, production orders) ------------------------
+
+/**
+ * One tower per open stage, as tall as how many are in it, the late ones as a red cap; the finished ones
+ * as a flat green block at the end. With one item selected, its stage is outlined.
+ */
+export function stageTowers(flow) {
+  const h = helpers(flow);
+  const F = flow.fact;
+  const open = flow.stages.filter((s) => s.key !== "concluido");
+  const done = flow.stages.find((s) => s.key === "concluido");
+  const cv = new Canvas();
+  const W = 130; const GAP = 90; const H = 280;
+  const parts = [];
+  cv.quiet = true;
+  parts.push(cv.poly([[-50, -50, 0], [(open.length + 1) * (W + GAP), -50, 0], [(open.length + 1) * (W + GAP), W + 90, 0], [-50, W + 90, 0]], "#0F1B2D"));
+  cv.quiet = false;
+  const one = [flow.asset, flow.id].filter(Boolean).map((c) => `HASONEVALUE(${col(F, c)})`).join(" || ") || "FALSE()";
+  open.forEach((s, i) => {
+    const X = i * (W + GAP);
+    const nVar = `n${i}`; const lVar = `l${i}`;
+    const tall = `MAX(4, INT(${H} * DIVIDE(${nVar}, Mx)))`;
+    const red = `INT(${H} * DIVIDE(${lVar}, Mx))`;
+    parts.push(cv.poly([[X - 12, -12, 0], [X + W + 12, -12, 0], [X + W + 12, W + 12, 0], [X - 12, W + 12, 0]], "#16263D"));
+    parts.push(when(`${nVar} > 0`, rising(cv, X, 0, W, W, tall, H, STATE[s.key]?.shades || PALETTE[0])));
+    // The red cap: the top part of the tower, as thick as the late share.
+    parts.push(when(`${lVar} > 0`, capParts(cv, X, W, tall, red)));
+    const [tx, ty] = cv.at(X + W / 2, W / 2, 0);
+    parts.push(`<text x='${tx}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='30' font-weight='700' y='`, D(`INT(${ty} - (${tall}) - 22)`), "'>", D(`FORMAT(${nVar}, "#,0")`), "</text>");
+    parts.push(when(`${lVar} > 0`, [`<text x='${tx}' text-anchor='middle' fill='#FF8A8A' ${FONT} font-size='18' y='`, D(`INT(${ty} - (${tall}) - 54)`), "'>", D(`FORMAT(${lVar}, "#,0")`), " atrasados</text>"]));
+    parts.push(when(`Uma && Atual = ${flow.stages.indexOf(s) + 1}`, [`<circle cx='${tx}' cy='${r1(Number(ty) + 8)}' r='96' fill='none' stroke='#FFFFFF' stroke-width='3' opacity='0.8'/>`]));
+    const [lx, ly] = cv.at(X + W + 12, W + 12, 0);
+    cv.see(Number(lx) + 20, Number(ly) + 44);
+    parts.push(`<text x='${r1(Number(lx) - 60)}' y='${r1(Number(ly) + 14)}' text-anchor='middle' fill='#C9D3E3' ${FONT} font-size='21' font-weight='600'>${xml(s.values[0].slice(0, 20))}</text>`);
+    if (i < open.length - 1 || done) {
+      const [ax, ay] = cv.at(X + W + 22, W / 2, 0); const [bx, by] = cv.at(X + W + GAP - 22, W / 2, 0);
+      parts.push(`<line x1='${ax}' y1='${ay}' x2='${bx}' y2='${by}' stroke='#3A4D6E' stroke-width='5' stroke-dasharray='10 8'/>`);
+    }
+  });
+  if (done) {
+    const X = open.length * (W + GAP);
+    parts.push(cv.box(X, 0, 0, W, W, 26, STATE.livre.shades));
+    const [tx, ty] = cv.at(X + W / 2, W / 2, 26);
+    parts.push(`<text x='${tx}' y='${r1(Number(ty) - 30)}' text-anchor='middle' fill='#3DDC97' ${FONT} font-size='30' font-weight='700'>`, D("FORMAT(nFeitos, \"#,0\")"), "</text>");
+    const [lx, ly] = cv.at(X + W + 12, W + 12, 0);
+    cv.see(Number(lx) + 20, Number(ly) + 44);
+    parts.push(`<text x='${r1(Number(lx) - 60)}' y='${r1(Number(ly) + 14)}' text-anchor='middle' fill='#C9D3E3' ${FONT} font-size='21' font-weight='600'>${xml(done.values[0].slice(0, 20))}</text>`);
+  }
+  const order = [flow.date ? `${col(F, flow.date)}, DESC` : null, flow.id ? `${col(F, flow.id)}, DESC` : null].filter(Boolean).join(", ");
+  const vb = frame(cv, 20);
+  return [
+    `VAR Uma = ${one}`,
+    `VAR Atual = MAXX(${order ? `TOPN(1, ${q(F)}, ${order})` : q(F)}, ${h.rankOf})`,
+    ...open.flatMap((s, i) => [
+      `VAR n${i} = CALCULATE(COUNTROWS(${q(F)}), ${h.status} IN ${list(s.values)}) + 0`,
+      `VAR l${i} = ${flow.due ? `COUNTROWS(FILTER(CALCULATETABLE(${q(F)}, ${h.status} IN ${list(s.values)}), ${h.late})) + 0` : "0"}`,
+    ]),
+    `VAR Mx = MAX(1, ${open.map((_, i) => `n${i}`).reduce((a, b) => `MAX(${a}, ${b})`)})`,
+    `VAR nFeitos = ${done ? `CALCULATE(COUNTROWS(${q(F)}), ${h.status} IN ${list(done.values)}) + 0` : "0"}`,
+    `RETURN ${daxText(URL_HEAD)} & ${daxText(svgOpen(vb))} & ${joinDax(parts)} & "</svg>"`,
+  ].join("\n");
+}
+
+/** The top slab of a tower, red, `red` units thick (the late ones). */
+function capParts(cv, X, W, tall, red) {
+  const x1 = X + W; const y1 = W;
+  const at = (x, y, z) => { const [sx, sy] = cv.at(x, y, 0); return [`${sx},`, D(`INT(${sy} - (${z}))`)]; };
+  const low = `MAX(0, (${tall}) - MAX(4, ${red}))`;
+  const poly = (points, fill) => ["<polygon points='", points.flatMap((p, i) => [i ? " " : "", p]), `' fill='${fill}'/>`];
+  return [
+    poly([at(X, y1, low), at(x1, y1, low), at(x1, y1, tall), at(X, y1, tall)], STATE.atraso.shades[1]),
+    poly([at(x1, 0, low), at(x1, y1, low), at(x1, y1, tall), at(x1, 0, tall)], STATE.atraso.shades[2]),
+    poly([at(X, 0, tall), at(x1, 0, tall), at(x1, y1, tall), at(X, y1, tall)], STATE.atraso.shades[0]),
+  ];
+}
+
+// ---- Where the money goes (finance) ---------------------------------------------------------------
+
+/**
+ * Money in by category on the left, the cash in the middle, money out by category on the right, each band
+ * as thick as its value; what is left over (or missing) closes the picture. spec: { category,
+ * income: "[Entradas no período]", outgo: "[Saídas no período]", top? }.
+ */
+export function moneyFlowScene({ category, income, outgo, top = 6 }) {
+  const W = 1400; const H = 330; const TOP = 70; const GAP = 10; const MIN = 34;
+  const xL = 300; const xC = 640; const xR = 1080; const NODE = 26;
+  const side = (name, measure, extraName, extraExpr) => [
+    `VAR ${name}0 = TOPN(${top}, FILTER(ADDCOLUMNS(VALUES(${category}), "@v", ${measure}), [@v] > 0), [@v], DESC, ${category}, ASC)`,
+    `VAR ${name}Resto = ${measure} - SUMX(${name}0, [@v])`,
+    `VAR ${name}1 = UNION(SELECTCOLUMNS(${name}0, "@n", ${category} & "", "@v", [@v]), FILTER(ROW("@n", "Outras", "@v", ${name}Resto), [@v] > 0.5), FILTER(ROW("@n", "${extraName}", "@v", ${extraExpr}), [@v] > 0.5))`,
+    `VAR ${name}2 = ADDCOLUMNS(${name}1, "@o", VAR v = [@v] VAR c = [@n] RETURN SWITCH(c, "Outras", 90, "${extraName}", 91, 1 + COUNTROWS(FILTER(${name}1, NOT [@n] IN {"Outras", "${extraName}"} && ([@v] > v || ([@v] = v && [@n] < c))))))`,
+    `VAR ${name} = ADDCOLUMNS(${name}2, "@c", VAR o = [@o] RETURN SUMX(FILTER(${name}2, [@o] < o), [@v]), "@y", VAR o = [@o] RETURN SUMX(FILTER(${name}2, [@o] < o), MAX(${MIN}, INT([@v] * K))) + COUNTROWS(FILTER(${name}2, [@o] < o)) * ${GAP}, "@h", MAX(2, INT([@v] * K)))`,
+  ];
+  const band = (left) => {
+    const x1 = left ? xL + NODE : xC + NODE; const x2 = left ? xC : xR; const xm = Math.round((x1 + x2) / 2);
+    const nodeMid = `INT(${TOP} + [@y] + MAX(${MIN}, [@h]) / 2)`;
+    const cashMid = `INT(${TOP} + [@c] * K + [@h] / 2)`;
+    const [a, b] = left ? [nodeMid, cashMid] : [cashMid, nodeMid];
+    const colourIn = `IF([@n] = "Falta no caixa", ${daxText("#FF8A8A")}, ${daxText("#3DDC97")})`;
+    const colourOut = `IF([@n] = "Sobra no caixa", ${daxText("#3DDC97")}, SWITCH(MOD([@o], 4), 1, ${daxText("#FF8A8A")}, 2, ${daxText("#FFB86B")}, 3, ${daxText("#C3A6FA")}, ${daxText("#7FD3F7")}))`;
+    const colour = left ? colourIn : colourOut;
+    const nodeX = left ? xL : xR;
+    const tx = left ? xL - 14 : xR + NODE + 14; const anchor = left ? "end" : "start";
+    return joinDax([
+      `<path fill='none' stroke-opacity='0.38' d='M${x1} `, D(a), ` C${xm} `, D(a), ` ${xm} `, D(b), ` ${x2} `, D(b), "' stroke='", D(colour), "' stroke-width='", D("[@h]"), "'/>",
+      `<rect x='${nodeX}' width='${NODE}' rx='4' y='`, D(`INT(${TOP} + [@y] + MAX(${MIN}, [@h]) / 2 - [@h] / 2)`), "' height='", D("[@h]"), "' fill='", D(colour), "'/>",
+      `<text x='${tx}' text-anchor='${anchor}' fill='#E8EDF5' ${FONT} font-size='19' font-weight='600' y='`, D(`${nodeMid} - 2`), "'>", D(safe("LEFT([@n], 24)")), "</text>",
+      `<text x='${tx}' text-anchor='${anchor}' fill='#8FA3BF' ${FONT} font-size='16' y='`, D(`${nodeMid} + 18`), "'>", D(safe("FORMAT([@v], \"R$ #,0\") & \"  ·  \" & FORMAT(DIVIDE([@v], Tot), \"0%\")")), "</text>",
+    ]);
+  };
+  return [
+    `VAR Ent = ${income} + 0`,
+    `VAR Sai = ${outgo} + 0`,
+    "VAR Tot = MAX(1, MAX(Ent, Sai))",
+    `VAR K = DIVIDE(${H}, Tot)`,
+    ...side("Ins", income, "Falta no caixa", "Sai - Ent"),
+    ...side("Outs", outgo, "Sobra no caixa", "Ent - Sai"),
+    "VAR Alto = MAX(MAXX(Ins, [@y] + MAX(" + MIN + ", [@h])), MAXX(Outs, [@y] + MAX(" + MIN + ", [@h])))",
+    `RETURN ${daxText(URL_HEAD)} & "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${W} " & INT(${TOP} + MAX(Alto, ${H}) + 40) & "'>"`,
+    `  & ${joinDax([
+      `<text x='${xL + NODE}' y='38' text-anchor='end' fill='#3DDC97' ${FONT} font-size='22' font-weight='700'>ENTRADAS · `, D(safe("FORMAT(Ent, \"R$ #,0\")")), "</text>",
+      `<text x='${xR}' y='38' fill='#FF8A8A' ${FONT} font-size='22' font-weight='700'>SAÍDAS · `, D(safe("FORMAT(Sai, \"R$ #,0\")")), "</text>",
+    ])}`,
+    "  & CONCATENATEX(Ins, " + band(true) + ", \"\", [@o], ASC)",
+    "  & CONCATENATEX(Outs, " + band(false) + ", \"\", [@o], ASC)",
+    `  & ${joinDax([
+      `<rect x='${xC}' y='${TOP}' width='${NODE}' rx='4' height='`, D(`INT(Tot * K)`), "' fill='#6EA8FF'/>",
+      `<text x='${xC + NODE / 2}' y='${TOP - 30}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='22' font-weight='700'>CAIXA</text>`,
+      `<text x='${xC + NODE / 2}' text-anchor='middle' ${FONT} font-size='21' font-weight='700' y='`, D(`INT(${TOP} + Tot * K + 30)`), "' fill='", D(`IF(Ent >= Sai, ${daxText("#3DDC97")}, ${daxText("#FF8A8A")})`), "'>", D(`IF(Ent >= Sai, "Saldo +", "Saldo −") & ${safe("FORMAT(ABS(Ent - Sai), \"R$ #,0\")")}`), "</text>",
+    ])}`,
+    "  & \"</svg>\"",
+  ].join("\n");
+}
+
+// ---- Execution of a target or budget (one per row of a table) -------------------------------------
+
+/**
+ * How much of the target was reached: the bar, the 100% mark and the percentage. For spending
+ * (lowerIsBetter) over 100% is red; for a goal, under 100% is the warning.
+ */
+export function targetBar({ actual, target, lowerIsBetter = false }) {
+  const good = daxText("#3DDC97"); const warn = daxText("#F6D365"); const bad = daxText("#FF8A8A");
+  const colour = lowerIsBetter ? `IF(Pct > 1, ${bad}, IF(Pct > 0.9, ${warn}, ${good}))` : `IF(Pct >= 1, ${good}, IF(Pct >= 0.8, ${warn}, ${bad}))`;
+  return [
+    `VAR Pct = DIVIDE(${actual}, ${target})`,
+    `RETURN IF(ISBLANK(Pct), BLANK(), ${daxText(URL_HEAD)} & ${joinDax([
+      "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 24'><rect x='0' y='7' width='150' height='10' rx='5' fill='#22324D'/><rect x='0' y='7' height='10' rx='5' width='",
+      D("INT(MIN(150, 120 * Pct))"), "' fill='", D(colour), "'/><line x1='120' y1='3' x2='120' y2='21' stroke='#E8EDF5' stroke-width='2'/>",
+      `<text x='156' y='17' fill='#C9D3E3' ${FONT} font-size='12'>`, D("FORMAT(Pct * 100, \"0\")"), "%</text></svg>",
+    ])})`,
   ].join("\n");
 }

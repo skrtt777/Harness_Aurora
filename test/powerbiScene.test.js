@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { design, pagesFor, profile } from "../app/powerbiDesign.js";
+import { design, finish, prepare, profile } from "../app/powerbiDesign.js";
+import { autoPlan, humanTitle, normalizePlan, planPrompt, planSchema } from "../app/powerbiPlanner.js";
+import { composePage, split } from "../app/powerbiLayout.js";
 import { readFlow } from "../app/powerbiStory.js";
 import { daxText, safe, yardScene } from "../app/powerbiScene.js";
 import { makeXlsx } from "../app/sampleDocs.js";
@@ -39,31 +41,73 @@ test("a flow is read from the columns: stages in order, the place, the vehicle a
   assert.equal(readFlow(plain, [plain]), null);
 });
 
-test("with a flow the BI opens on the operation: the scene, the tracker, the vehicles and their detail", () => {
+test("with a flow the catalog offers the yard, the tracker, the selected item and the table in progress", () => {
   const fact = shipments();
-  const plan = design([fact, stock()], { title: "Operação do CD" });
-  const op = plan.pages[0];
-  assert.equal(op.displayName, "Operação");
-  assert.equal(plan.palette.dark, true);
-  const images = op.visuals.filter((v) => v.type === "image").map((v) => v.url);
-  assert.deepEqual(images, ["[Cena do pátio]", "[Rastreamento]", "[Detalhe selecionado]"]);
-  for (const name of ["Cena do pátio", "Rastreamento", "Progresso", "Detalhe selecionado"]) {
-    assert.equal(plan.measureList.find((m) => m.name === name)?.category, "ImageUrl", name);
-  }
-  // The stock measure lives in its own table; every card names a measure that exists.
+  const prep = prepare([fact, stock()], { title: "Operação do CD" });
+  const { cat } = prep;
+  assert.equal(cat.kind, "logistica");
+  assert.ok(cat.scenes.patio);
+  for (const k of ["rastreamento", "tabela_andamento", "detalhe_selecionado"]) assert.ok(cat.specials[k], k);
+  assert.ok(!cat.cardable.includes("% do total"));
+  assert.ok(cat.principal.includes("Em andamento"));
+  // The stock measure lives in its own table and is never grouped by the fact's columns.
+  const plan = finish(prep, null);
   assert.equal(plan.measures["Estoque no CD"], "Estoque");
-  assert.ok(plan.model.tables.find((t) => t.name === "Estoque").measures.some((m) => m.name === "Estoque no CD"));
-  assert.ok(!plan.model.tables.find((t) => t.name === "Embarques").measures.some((m) => m.name === "Estoque no CD"));
+  assert.ok(cat.foreign.has("Estoque no CD"));
+  // The automatic plan opens on the yard; every field of every visual exists.
+  assert.equal(plan.plan.paginas[0].cena, "patio");
   for (const v of plan.pages.flatMap((p) => p.visuals)) {
     for (const ref of [v.values, v.url, v.category].flat().filter((r) => typeof r === "string" && /^\[/.test(r))) assert.ok(plan.measures[ref.slice(1, -1)], `${v.type}: ${ref}`);
   }
-  const table = op.visuals.find((v) => v.type === "tableEx");
-  assert.equal(table.totals, false);
-  assert.deepEqual(table.image, { height: 22, width: 128 });
-  // Deliveries: on time by carrier, late by destination (not the generic share by status).
-  const deliveries = plan.pages.find((p) => p.displayName === "Entregas");
-  assert.ok(deliveries.visuals.some((v) => v.values === "[Entregas no prazo %]" && /Transportadora/.test(v.category)));
-  assert.ok(!deliveries.visuals.some((v) => v.type === "donutChart"));
+});
+
+test("the local model's plan is checked: unknown names out, cards not repeated, twins dropped, a column asked about gets its chart", () => {
+  const fact = shipments();
+  const { cat } = prepare([fact], { title: "CD" });
+  const plan = normalizePlan({
+    titulo: "CD Permacultura", estilo: { tema: "claro", cor: "roxo", tom: "inexistente" },
+    paginas: [
+      { nome: "VisaoGeralPatio", pergunta: "Como está o pátio?", layout: "cena_e_lateral", cena: "patio", numeros: ["Em andamento", "Não existe", "% do total"], blocos: [{ tipo: "tabela_andamento", medida: "", por: "", titulo: "" }, { tipo: "barras", medida: "Inventada", por: "Doca", titulo: "" }] },
+      { nome: "Outra", pergunta: "Qual transportadora atrasa mais?", layout: "grade", cena: "patio", numeros: ["Em andamento", "Atrasados agora"], blocos: [] },
+      { nome: "Gêmea", pergunta: "x", layout: "grade", cena: "nenhuma", numeros: ["Atrasados agora"], blocos: [] },
+    ],
+  }, cat, "operação do CD");
+  assert.equal(plan.titulo, "CD");
+  assert.deepEqual(plan.estilo, { tema: "claro", cor: "roxo", tom: "sobrio" });
+  assert.equal(plan.paginas[0].nome, "Visão geral pátio");
+  assert.deepEqual(plan.paginas[0].numeros, ["Em andamento"]);
+  assert.deepEqual(plan.paginas[0].blocos.map((b) => b.tipo), ["tabela_andamento"]);
+  // The second page: the yard again is dropped (one scene once), the card already shown is not repeated,
+  // and "transportadora" in its question brings the ranking by Transportadora.
+  assert.equal(plan.paginas[1].cena, "nenhuma");
+  assert.deepEqual(plan.paginas[1].numeros, ["Atrasados agora"]);
+  assert.ok(plan.paginas[1].blocos.some((b) => b.tipo === "barras" && b.por === "Transportadora"));
+  assert.ok(planPrompt(cat, "x").includes("português do Brasil"));
+  assert.ok(planSchema(cat).properties.paginas.items.properties.cena.enum.includes("patio"));
+  assert.equal(humanTitle("evoluçao_do_orcamento"), "Evolução do orçamento");
+});
+
+test("the automatic plan follows the subject and varies with the request", () => {
+  const fact = shipments();
+  const { cat } = prepare([fact], { title: "CD" });
+  const a = autoPlan(cat, "pátio para o supervisor");
+  const b = autoPlan(cat, "visão para a diretoria sobre os prazos");
+  assert.equal(a.paginas[0].cena, "patio");
+  const shape = (p) => p.paginas.map((x) => `${x.nome}|${x.layout}`).join(";") + p.estilo.cor;
+  assert.notEqual(shape(a), shape(b));
+  assert.equal(autoPlan(cat, "quero só uma página").paginas.length, 1);
+});
+
+test("the layout places every visual inside the page, without overlap", () => {
+  const card = (t) => ({ type: "card", values: `[${t}]`, title: t });
+  const block = (t) => ({ type: "clusteredBarChart", title: t });
+  for (const layout of ["cena_inteira", "cena_e_lateral", "cartoes_laterais", "grade", "narrativa", "comparacao", "foco_unico"]) {
+    const visuals = composePage({ name: "P", question: "?", layout, cards: [card("a"), card("b"), card("c"), card("d")], scene: { type: "image", url: "[S]" }, blocks: [block("x"), block("y"), block("z")], slicers: [{ type: "slicer", values: "'T'[A]" }] }, { text: "#000", soft: "#555" }, "R");
+    const boxes = visuals.filter((v) => v.type !== "textbox");
+    for (const v of boxes) assert.ok(v.x >= 0 && v.y >= 0 && v.x + v.w <= 1280 && v.y + v.h <= 720 && v.w > 40 && v.h > 40, `${layout}: ${v.type} ${v.x},${v.y},${v.w},${v.h}`);
+    for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1)) assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y, `${layout}: ${a.type} x ${b.type}`);
+  }
+  assert.deepEqual(split({ x: 0, y: 0, w: 100, h: 10 }, 2, true).map((r) => r.w), [44, 44]);
 });
 
 test("the scene's DAX: one slot per dock, quotes and parentheses balanced, data text escaped", () => {
@@ -78,16 +122,6 @@ test("the scene's DAX: one slot per dock, quotes and parentheses balanced, data 
   assert.match(dax, /ISCROSSFILTERED\('Embarques'\[Pedido\]\)/);
   assert.equal(daxText("a#b%c\"d"), "\"a%23b%25c\"\"d\"");
   assert.match(safe("[@placa]"), /"&", "&amp;"\), "<", "&lt;"\), "%", "%25"\), "#", "%23"/);
-});
-
-test("the pages follow the request", () => {
-  const P = ["Operação", "Entregas", "Detalhamento", "Tendência"].map((displayName) => ({ displayName }));
-  const names = (goal) => pagesFor(P, goal).map((p) => p.displayName).join(", ");
-  assert.equal(names(""), "Operação, Entregas, Detalhamento, Tendência");
-  assert.equal(names("quero só a operação"), "Operação");
-  assert.equal(names("painel sem a tendência"), "Operação, Entregas, Detalhamento");
-  assert.equal(names("uma página com a evolução mês a mês"), "Tendência");
-  assert.equal(names("BI das entregas por transportadora"), "Entregas, Operação, Detalhamento, Tendência");
 });
 
 test("a spreadsheet written by the Aurora is a whole workbook (Excel and Power Query open it)", () => {

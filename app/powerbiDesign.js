@@ -6,6 +6,10 @@ import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { xlsxText } from "./docText.js";
 import { flowDesign, readFlow } from "./powerbiStory.js";
+import { moneyDesign, readMoney } from "./powerbiMoney.js";
+import { cityScene } from "./powerbiScene.js";
+import { composePage } from "./powerbiLayout.js";
+import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
 // ---- Reading -------------------------------------------------------------------------------------
 
@@ -188,36 +192,18 @@ export function plural(word) {
   return word.split(" ").map((w, i) => (i > 0 && !/^(fiscal|fiscais)$/.test(w) ? w : /[sz]$/.test(w) ? w : /al$/.test(w) ? w.replace(/al$/, "ais") : /[aeiouáéó]$/.test(w) ? `${w}s` : /m$/.test(w) ? w.replace(/m$/, "ns") : `${w}es`)).join(" ");
 }
 
-// What each page is about, in the words a request uses.
-const PAGE_WORDS = [
-  [/^(Operação|Acompanhamento)$/, /opera[çc]|p[áa]tio|doca|rastre|acompanh|agora|tempo real|caminh|fila|status|etapa/i],
-  [/^(Entregas|Visão geral)$/, /entrega|vis[ãa]o geral|resumo|indicador|kpi|prazo|faturamento|vendas/i],
-  [/^Detalhamento$/, /detalh|tabela|lista|por (cliente|produto|item)/i],
-  [/^Tendência$/, /tend[êe]ncia|evolu|m[êe]s a m[êe]s|hist[óo]ric|sazonal|ano a ano/i],
-];
-const wordsOf = (page) => PAGE_WORDS.find(([name]) => name.test(page.displayName))?.[1] || null;
-
 /**
- * The pages the request asks for: "sem a tendência" drops it; "só a operação" / "uma página" keeps what
- * it names; what it names comes first. Without a goal, all of them in the designed order.
+ * The complete design, in two steps: prepare (the data -> the measures and the catalog of what a page can
+ * show) and finish (a plan -> the pages and the model). Between them the local model may write the plan
+ * (app/powerbiPlanner.js); design() does both with the plan given or the automatic one.
  */
-export function pagesFor(pages, goal = "") {
-  const g = String(goal || "");
-  if (!g.trim()) return pages;
-  const without = [...g.matchAll(/\bsem (?:a |o |as |os )?([\p{L} ]{3,30})/giu)].map((x) => x[1]);
-  let kept = pages.filter((p) => !without.some((w) => wordsOf(p)?.test(w)));
-  const named = kept.filter((p) => wordsOf(p)?.test(g.replace(/\bsem (?:a |o |as |os )?[\p{L} ]{3,30}/giu, "")));
-  // (In JS "\b" does not see "só" as a word: letters by Unicode.)
-  if (/(?<!\p{L})(s[óo]|apenas|somente)(?!\p{L})|uma (s[óo] )?(p[áa]gina|tela)/iu.test(g) && named.length) kept = named;
-  else kept = [...named, ...kept.filter((p) => !named.includes(p))];
-  return kept.length ? kept : pages;
+export function design(tables, options = {}) {
+  const prep = prepare(tables, options);
+  return finish(prep, options.plan);
 }
 
-/**
- * The complete design. tables: profiled tables. Returns { model, measures (name -> table), report
- * pages, summary } for app/powerbi.js.
- */
-export function design(tables, { title, goal = "" } = {}) {
+/** The data read, the measures made, and the catalog for a plan. */
+export function prepare(tables, { title, goal = "" } = {}) {
   if (!tables.length) throw new Error("Nenhuma tabela com dados (cabeçalho e pelo menos uma linha) nos arquivos.");
   // Unique table names.
   const seen = new Map();
@@ -267,9 +253,20 @@ export function design(tables, { title, goal = "" } = {}) {
   if (unit) add(`${unit.name.replace(/unit[áa]rio/i, "médio")}`.replace(/^(.*)$/, (s) => (s === unit.name ? `${unit.name} médio` : s)), `AVERAGE(${col(fact.name, unit.name)})`, MONEY, "Valores", `Média de ${unit.name}`);
   // No money column but price x quantity: the revenue is computed.
   if (!mainMeasure && unit && qty) mainMeasure = add("Faturamento", `SUMX(${q(fact.name)}, ${col(fact.name, unit.name)} * ${col(fact.name, qty.name)})`, MONEY, "Principais", `${unit.name} x ${qty.name}, linha a linha`);
-  // A flow of work (orders through docks and trucks, tickets through stages): the BI is about it.
-  const flow = readFlow(fact, tables);
-  const headline = flow?.logistics ? count : mainMeasure || qtyMeasure || count;
+  // What the data is about decides the first page and its scene: a flow of work (orders through docks
+  // and trucks, tickets through stages), money in and out (a ledger), or — any other data — the items
+  // as a city. "sem cena" in the request keeps the classic pages.
+  // ("simples" is not "without scenes": a simple panel for the owner still shows where the money goes.)
+  const plainPages = /sem (a |as )?cenas?|sem 3d|sem desenhos?/i.test(goal);
+  const flow = plainPages ? null : readFlow(fact, tables);
+  const ledger = plainPages ? null : readMoney(fact, relationships, (v) => parseNumber(v, fact.decimalComma));
+  const reportTitle = title || `Painel de ${lower(fact.name)}`.replace(/^Painel de (.)/, (s, c) => `Painel de ${c}`);
+  const sources = [...new Set(tables.map((t) => basename(t.source.path)))].join(", ");
+  const fin = ledger ? moneyDesign(ledger, { add, hasCalendar: Boolean(date) }) : null;
+  // Money: the detail and the trend follow what goes out (where the money goes); the balance is on top.
+  const headline = fin ? fin.outgo : flow?.logistics ? count : mainMeasure || qtyMeasure || count;
+  // A ledger's plain sum adds money in and money out together: no "Faturamento" (nor ticket) from it.
+  if (fin && mainMeasure) { measures.splice(measures.findIndex((x) => x.name === mainMeasure), 1); mainMeasure = null; }
   let ticket = null;
   // "Ticket médio" for sales; otherwise "Custo médio por chamado".
   const one = id ? lower(id.name).replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "registro" : "registro";
@@ -307,75 +304,68 @@ export function design(tables, { title, goal = "" } = {}) {
   const barDim = dims.find((d) => d.distinct > 2) || dims[0];
   const donutDim = small.find((d) => d !== barDim) || dims.find((d) => d !== barDim);
   const thirdDim = dims.find((d) => d !== barDim && d !== donutDim);
-  const reportTitle = title || `Painel de ${lower(fact.name)}`.replace(/^Painel de (.)/, (s, c) => `Painel de ${c}`);
   const months = date ? new Set(fact.rows.map((r) => String(r[fact.columns.indexOf(date)] || "").replace(/^\d{1,2}\//, "").slice(0, 7))).size : 0;
 
-  const pages = [];
-  const dark = Boolean(flow);
-  const header = (subtitle) => ({ type: "textbox", x: 24, y: 8, w: 760, h: 76, paragraphs: [
-    { textRuns: [{ value: reportTitle, textStyle: { fontWeight: "bold", fontSize: "20pt", color: dark ? "#FFFFFF" : "#1B2A4A" } }] },
-    { textRuns: [{ value: subtitle, textStyle: { fontSize: "10pt", color: dark ? "#8FA3BF" : "#5B6B85" } }] },
-  ] });
-  const slicers = () => {
-    const s = [];
-    if (date) s.push({ type: "slicer", x: 800, y: 8, w: 150, h: 76, values: "'Calendário'[Ano]", dropdown: true });
-    if (barDim) s.push({ type: "slicer", x: date ? 962 : 800, y: 8, w: 150, h: 76, values: barDim.ref, dropdown: true });
-    if (donutDim) s.push({ type: "slicer", x: date ? 1124 : 962, y: 8, w: date ? 132 : 150, h: 76, values: donutDim.ref, dropdown: true });
-    return s;
+  // ---- The catalog: every number, scene and block a page can have. The plan (the local model's, or
+  // the automatic one) chooses among them; nothing is placed here.
+  const story = flow ? flowDesign(flow, { add, title: reportTitle, count }) : null;
+  const scenes = { ...(story?.scenes || {}), ...(fin?.scenes || {}) };
+  const cities = new Map();
+  if (!plainPages) {
+    // A city needs a few items to compare: 4 to 30 (not a status, not money in/out, not a yes/no).
+    const skip = new Set([flow?.status, ledger?.direction?.column].filter(Boolean));
+    for (const d of dims.filter((x) => x.distinct >= 4 && x.distinct <= 30 && !skip.has(x.name)).slice(0, 5)) {
+      scenes[`cidade de ${d.name}`] = {
+        desc: `os ${lower(d.name)}s como prédios: altura = ${headline}, cor = último ano contra o anterior (clicar acende)`,
+        make: () => {
+          if (!cities.has(d.name)) cities.set(d.name, add(`Cena: ${d.name}`, cityScene({ column: d.ref, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", year: previousYear ? "'Calendário'[Ano]" : null }), null, "Cenas", `Os ${lower(d.name)}s como prédios`, { category: "ImageUrl" }));
+          return { type: "image", url: m(cities.get(d.name)), title: `${headline} por ${lower(d.name)}` };
+        },
+      };
+    }
+  }
+  const kind = flow?.logistics ? "logistica" : flow ? "fluxo" : fin ? "financas" : "geral";
+  const generic = [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || ytd].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+  const keys = fin ? { income: fin.income, outgo: fin.outgo, balance: fin.balance, margin: fin.margin, execution: fin.execution, headline }
+    : story ? { kpis: story.kpis, count, onTime: story.onTime, lateDone: story.lateDone, headline }
+      : { kpis: generic, headline };
+  const numbers = measures.filter((x) => !x.category && x.format).map((x) => x.name);
+  // A card shows the number alone: not a share, nor a month-on-month change (blank without one month).
+  const cardable = numbers.filter((n) => !/% do total|mês anterior|Variação %|ano anterior/.test(n));
+  const principal = [...new Set([...(keys.kpis || []), keys.income, keys.outgo, keys.balance, keys.margin, keys.execution, keys.onTime, keys.lateDone, headline].filter(Boolean))];
+  const flowSlicers = flow ? [flow.details.find((x) => /transportadora|empresa|parceiro|equipe|respons/i.test(x.column))?.column, flow.asset, flow.place].filter(Boolean).map((c) => col(fact.name, c)) : [];
+  const cat = {
+    title: reportTitle, sources, rows: fact.rows.length, kind, keys, months,
+    // Where each measure lives: one of another table (the stock) cannot be grouped by the fact's columns.
+    foreign: new Set(measures.filter((x) => x.table && x.table !== fact.name).map((x) => x.name)),
+    numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),
+    dims: dims.slice(0, 14).map(({ name, ref, distinct }) => ({ name, ref, distinct })),
+    time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
+    scenes, specials: { ...(story?.specials || {}), ...(fin?.specials || {}) },
+    slicerRefs: [...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
+    stories: [
+      flow ? `Há um fluxo de etapas em ${flow.status}: ${flow.stages.map((x) => x.values[0]).join(" → ")}${flow.place ? `, com ${lower(flow.place)}s` : ""}${flow.asset ? ` e ${flow.vehicles} (${flow.asset})` : ""}.` : "",
+      fin ? `É dinheiro entrando e saindo${ledger.category ? ` por ${lower(ledger.category.column)}` : ""}${ledger.budget ? ", com orçamento" : ""}.` : "",
+      date ? `Tem datas (${months} meses).` : "Não tem datas.",
+    ].filter(Boolean),
+    related: (a, b) => [headline, count, ticket, "% do total"].includes(b),
   };
-  const sources = [...new Set(tables.map((t) => basename(t.source.path)))].join(", ");
+  return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title };
+}
 
-  // Page 0, with a flow: the operation as it is now.
-  let op = null;
-  if (flow) {
-    op = flowDesign(flow, { add, title: reportTitle, subtitle: `Agora · fonte: ${sources} · ${fact.rows.length.toLocaleString("pt-BR")} linhas`, count });
-    pages.push(op.page);
-  }
-
-  // Page 1: overview.
-  // (The monthly change is blank in a card with no month picked: it goes to the trend page.)
-  // Deliveries: the count, on time, the freight and the late ones; otherwise money first.
-  const freight = flow?.logistics ? measures.find((x) => /frete/i.test(x.name) && /total|soma/i.test(x.name))?.name : null;
-  const kpis = (flow?.logistics ? [count, op?.onTime, freight, op?.lateDone || ticket] : [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || (ticket ? qtyMeasure : null) || ytd]).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
-  const kpiW = Math.floor((1232 - (kpis.length - 1) * 16) / kpis.length);
-  const overview = [header(`Fonte: ${sources} · ${fact.rows.length.toLocaleString("pt-BR")} linhas`), ...slicers()];
-  kpis.forEach((k, i) => overview.push({ type: "card", x: 24 + i * (kpiW + 16), y: 92, w: kpiW, h: 108, values: m(k), title: k }));
-  if (date) overview.push({ type: months > 14 ? "lineChart" : "clusteredColumnChart", x: 24, y: 216, w: 760, h: 488, title: `${headline} por mês`, category: "'Calendário'[Mês/ano]", values: m(headline), labels: months <= 14, sort: { by: "'Calendário'[Mês/ano]", desc: false } });
-  else if (thirdDim) overview.push({ type: "clusteredColumnChart", x: 24, y: 216, w: 760, h: 488, title: `${headline} por ${lower(thirdDim.name)}`, category: thirdDim.ref, values: m(headline), labels: true, sort: { by: m(headline) } });
-  const carrier = flow?.logistics && op?.onTime ? dims.find((d) => /transportadora|empresa|parceiro/i.test(d.name)) : null;
-  const destination = flow?.logistics && op?.lateDone ? dims.find((d) => /cidade|destino|uf\b|regi/i.test(d.name)) : null;
-  if (carrier || destination) {
-    // Who delivers on time, and where the delays go.
-    if (carrier) overview.push({ type: "clusteredBarChart", x: 800, y: 216, w: 456, h: destination ? 236 : 488, title: `${op.onTime.replace(/ %$/, "")} por ${lower(carrier.name)}`, category: carrier.ref, values: m(op.onTime), labels: true, sort: { by: m(op.onTime), desc: false } });
-    if (destination) overview.push({ type: "clusteredBarChart", x: 800, y: carrier ? 468 : 216, w: 456, h: carrier ? 236 : 488, title: `${op.lateDone} por ${lower(destination.name)}`, category: destination.ref, values: m(op.lateDone), labels: true, sort: { by: m(op.lateDone) } });
-  } else {
-  if (barDim) overview.push({ type: "clusteredBarChart", x: 800, y: 216, w: 456, h: donutDim ? 236 : 488, title: `${headline} por ${lower(barDim.name)}`, category: barDim.ref, values: m(headline), labels: true, sort: { by: m(headline) } });
-  if (donutDim) overview.push({ type: "donutChart", x: 800, y: barDim ? 468 : 216, w: 456, h: barDim ? 236 : 488, title: `Participação por ${lower(donutDim.name)}`, category: donutDim.ref, values: m(headline), labels: true });
-  }
-  pages.push({ displayName: flow?.logistics ? "Entregas" : "Visão geral", visuals: overview });
-
-  // Page 2: detail.
-  const detail = [header("Detalhamento: clique num item para filtrar a página"), ...slicers()];
-  const tableFields = [...dims.slice(0, 2).map((d) => d.ref), ...[...new Set([headline, count, ticket, qtyMeasure, margin, "% do total"].filter(Boolean))].map(m)];
-  detail.push({ type: "tableEx", x: 24, y: 92, w: 760, h: 612, title: "Resumo", values: tableFields.slice(0, 7), sort: { by: m(headline) } });
-  const sideDims = dims.filter((d) => d !== dims[0]).slice(0, 2).length ? dims.slice(1, 3) : dims.slice(0, 1);
-  sideDims.forEach((d, i) => detail.push({ type: i === 0 ? "clusteredBarChart" : "treemap", x: 800, y: 92 + i * 314, w: 456, h: sideDims.length > 1 ? 298 : 612, title: `${headline} por ${lower(d.name)}`, category: d.ref, values: m(headline), labels: i === 0, sort: i === 0 ? { by: m(headline) } : undefined }));
-  pages.push({ displayName: "Detalhamento", visuals: detail });
-
-  // Page 3: trend.
-  if (date) {
-    const trend = [header("Tendência: mês a mês e acumulado no ano"), ...slicers()];
-    // Several years: one line per year over jan-dez (the classic comparison); one year: month by month.
-    trend.push(previousYear
-      ? { type: "lineChart", x: 24, y: 92, w: 1232, h: 300, title: `${headline} por mês, ano a ano`, category: "'Calendário'[Mês]", series: "'Calendário'[Ano]", values: m(headline), sort: { by: "'Calendário'[Mês]", desc: false } }
-      : { type: "lineChart", x: 24, y: 92, w: 1232, h: 300, title: `${headline} mês a mês`, category: "'Calendário'[Mês/ano]", values: m(headline), labels: true, sort: { by: "'Calendário'[Mês/ano]", desc: false } });
-    trend.push({ type: "clusteredColumnChart", x: 24, y: 408, w: 600, h: 296, title: `${ytd}`, category: "'Calendário'[Mês/ano]", values: m(ytd), sort: { by: "'Calendário'[Mês/ano]", desc: false } });
-    trend.push({ type: "tableEx", x: 640, y: 408, w: 616, h: 296, title: "Mês a mês", values: ["'Calendário'[Mês/ano]", m(headline), m(previousMonth), m(momChange), ...(yoyChange ? [m(yoyChange)] : [])], sort: { by: "'Calendário'[Mês/ano]", desc: false } });
-    pages.push({ displayName: "Tendência", visuals: trend });
-  }
-
-  const chosen = pagesFor(pages, goal);
-  pages.splice(0, pages.length, ...chosen);
+/** The pages from a plan (or the automatic one), and the model. */
+export function finish(prep, rawPlan = null) {
+  const { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline } = prep;
+  const plan = (rawPlan && (rawPlan.planner ? rawPlan : normalizePlan(rawPlan, cat, goal))) || autoPlan(cat, goal);
+  const reportTitle = prep.userTitle || plan.titulo || prep.reportTitle;
+  const dark = plan.estilo.tema === "escuro";
+  const style = { dark, text: dark ? "#FFFFFF" : "#1B2A4A", soft: dark ? "#8FA3BF" : "#5B6B85" };
+  const pages = plan.paginas.map((p) => {
+    const visuals = composePage(materialize(p, cat), style, reportTitle);
+    // On a light page a scene keeps its night background, as a framed picture.
+    if (!dark) for (const v of visuals) if (v.type === "image") { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
+    return { displayName: p.nome, visuals };
+  });
 
   // ---- Model spec for PbiHost.Build
   const modelTables = tables.map((t) => ({
@@ -401,8 +391,10 @@ export function design(tables, { title, goal = "" } = {}) {
     relationships.length ? `Relações: ${relationships.map((r) => `${r.from} → ${r.to}`).join("; ")}.` : "",
     date ? `Calendário em português ligado a ${fact.name}[${date.name}].` : "Sem coluna de data: sem páginas de tempo.",
     `Medidas: ${measures.map((x) => x.name).join(", ")}.`,
+    fin ? `Dinheiro: ${fin.income} e ${fin.outgo}${ledger.category ? ` por ${ledger.category.column}` : ""}${ledger.budget ? `; orçamento em ${ledger.budget.table}[${ledger.budget.column}]` : ""}; cena do fluxo do dinheiro.` : "",
     flow ? `Fluxo: ${flow.status} (${flow.stages.map((x) => x.values[0]).join(" → ")})${flow.place ? `; cena com as ${flow.place.toLowerCase()}s` : ""}${flow.asset ? `; ${flow.vehicles} por ${flow.asset}` : ""}.` : "",
+    `Plano (${plan.planner}): ${plan.paginas.map((p) => `${p.nome} [${p.layout}${p.cena !== "nenhuma" ? `, cena ${p.cena}` : ""}] — ${p.pergunta}`).join("; ")}. Estilo: ${plan.estilo.tema}, ${plan.estilo.cor}, ${plan.estilo.tom}.`,
     `Páginas: ${pages.map((p) => `${p.displayName} (${p.visuals.length} visuais)`).join(", ")}.`,
   ].filter(Boolean).join("\n");
-  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark }, flow };
+  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark, accent: COLORS[plan.estilo.cor], tone: plan.estilo.tom }, flow, ledger: fin ? ledger : null, plan };
 }

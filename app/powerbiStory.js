@@ -3,7 +3,7 @@
 // and deadlines around it. With a flow the BI gets an operations page — the scene of the place drawn from
 // the data, the stage tracker, the vehicles with their progress and the selected one's detail — instead of
 // starting from the generic overview. app/powerbiDesign.js calls this; the pictures are app/powerbiScene.js.
-import { detailCard, progressBar, trackerScene, yardScene } from "./powerbiScene.js";
+import { detailCard, progressBar, stageTowers, trackerScene, yardScene } from "./powerbiScene.js";
 
 const STAGE_RULES = [
   ["cancelado", 0, /cancel|devolv|perdid|recusad|estornad/i],
@@ -89,7 +89,7 @@ const PCT = "0.0%";
  * The flow's measures (added to the design's list) and its operations page. add(name, expression,
  * format, folder, description, extra) is the design's own; returns { kpis, page, palette }.
  */
-export function flowDesign(flow, { add, title, subtitle, count }) {
+export function flowDesign(flow, { add, title, count }) {
   const F = flow.fact;
   const status = col(F, flow.status);
   const active = `FILTER(${q(F)}, NOT ISBLANK(${status}) && NOT ${status} IN ${list(flow.done)})`;
@@ -127,26 +127,18 @@ export function flowDesign(flow, { add, title, subtitle, count }) {
   const key = flow.asset || flow.id;
   const detail = key ? picture("Detalhe selecionado", detailCard(flow, { pick: `Escolha ${flow.asset ? (flow.vehicles === "caminhões" ? "um caminhão" : "um veículo") : "um item"} na tabela` }), "O item escolhido e a etapa dele") : null;
 
-  // The page: 1280 x 720, dark.
-  const visuals = [];
-  visuals.push({ type: "textbox", x: 24, y: 8, w: 620, h: 64, paragraphs: [
-    { textRuns: [{ value: title, textStyle: { fontWeight: "bold", fontSize: "20pt", color: "#FFFFFF" } }] },
-    { textRuns: [{ value: subtitle, textStyle: { fontSize: "10pt", color: "#8FA3BF" } }] },
-  ] });
-  const slicerColumns = [/transportadora|empresa|parceiro/i, ASSET, PLACE].map((re) => [re, flow.details.find((d) => re.test(d.column))?.column || (re === ASSET ? flow.asset : re === PLACE ? flow.place : null)]).map(([, c]) => c).filter(Boolean);
-  [...new Set(slicerColumns)].slice(0, 3).forEach((c, i) => visuals.push({ type: "slicer", x: 660 + i * 202, y: 12, w: 190, h: 60, values: col(F, c), dropdown: true }));
-  const kw = Math.floor((1232 - (Math.min(kpis.length, 5) - 1) * 12) / Math.min(kpis.length, 5));
-  kpis.slice(0, 5).forEach((k, i) => visuals.push({ type: "card", x: 24 + i * (kw + 12), y: 80, w: kw, h: 92, values: m(k), title: k }));
-  if (scene) {
-    visuals.push({ type: "image", x: 24, y: 184, w: 820, h: 396, url: m(scene), title: `${flow.place}s e ${flow.vehicles || "itens"} agora` });
-    visuals.push({ type: "image", x: 24, y: 590, w: 820, h: 114, url: m(tracker), title: "Rastreamento" });
-  } else {
-    visuals.push({ type: "image", x: 24, y: 184, w: 820, h: 200, url: m(tracker), title: "Rastreamento" });
-  }
-  const tableTop = detail ? 396 : 184;
-  if (detail) visuals.push({ type: "image", x: 860, y: 184, w: 396, h: 200, url: m(detail), title: flow.asset ? (flow.vehicles === "caminhões" ? "Caminhão selecionado" : "Veículo selecionado") : "Selecionado" });
+  // The blocks a plan can place: the scene (the yard, or the stages as towers), the tracker, the selected
+  // item and the table of what is in progress with its progress bars.
+  const towers = scene ? null : picture("Cena das etapas", stageTowers(flow), "Quantos estão em cada etapa, os atrasados em vermelho");
   const rowsBy = key ? col(F, key) : status;
-  visuals.push({ type: "tableEx", x: 860, y: tableTop, w: 396, h: 704 - tableTop, title: flow.asset ? `${flow.vehicles === "caminhões" ? "Caminhões" : "Veículos"} em operação` : "Em aberto agora", values: [rowsBy, ...[place, driver && !place ? driver : null, stage].filter(Boolean).map(m), m(progress)], image: { height: 22, width: 128 }, totals: false, sort: { by: rowsBy, desc: false } });
-  if (!scene) visuals.push({ type: "tableEx", x: 24, y: 396, w: 820, h: 308, title: "Detalhe", values: [rowsBy, ...flow.details.slice(0, 4).map((d) => col(F, d.column)), m(stage)], totals: false, sort: { by: rowsBy, desc: false } });
-  return { kpis, onTime, lateDone, page: { displayName: flow.logistics ? "Operação" : "Acompanhamento", visuals, dark: true }, picture: { scene, tracker, progress, detail } };
+  const things = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
+  const scenes = {};
+  if (scene) scenes.patio = { desc: `o lugar desenhado: cada ${flow.place.toLowerCase()} com o ${flow.asset ? (flow.vehicles === "caminhões" ? "caminhão" : "veículo") : "item"} dela colorido pela etapa, livres em verde, fila e trânsito`, make: () => ({ type: "image", url: m(scene), title: `${flow.place}s e ${things.toLowerCase()} agora` }) };
+  else scenes.etapas = { desc: "as etapas como torres: quantos em cada uma, os atrasados em vermelho", make: () => ({ type: "image", url: m(towers), title: "Onde está cada um agora" }) };
+  const specials = {
+    rastreamento: { desc: "as etapas em sequência com quantos em cada (ou o caminho do item escolhido)", make: () => ({ type: "image", url: m(tracker), title: "Rastreamento" }) },
+    tabela_andamento: { desc: `${things.toLowerCase()} em andamento com a etapa e a barra de progresso (clicar acende na cena)`, make: () => ({ type: "tableEx", title: `${things} em andamento`, values: [rowsBy, ...[place, driver && !place ? driver : null, stage].filter(Boolean).map(m), m(progress)], image: { height: 22, width: 128 }, totals: false, sort: { by: rowsBy, desc: false } }) },
+  };
+  if (detail) specials.detalhe_selecionado = { desc: "o item escolhido: seus dados e a etapa", make: () => ({ type: "image", url: m(detail), title: flow.asset ? `${things.slice(0, -1).replace(/õe$/, "ão")} selecionado` : "Selecionado" }) };
+  return { kpis, onTime, lateDone, scenes, specials, picture: { scene, tracker, progress, detail, towers } };
 }

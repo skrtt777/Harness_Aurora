@@ -979,6 +979,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     server.on("listening", () => { void startTelegram({ handleChatTurn }).catch(() => {}); });
     const offPhone = onAutomaticRun((agent, run) => { void notifyRunOnPhone(agent, run).catch(() => {}); });
     server.on("close", () => { stopTelegram(); offPhone(); });
+    // The Aurora's step-by-step guides (app/guides.js) as memories: written once, rewritten when changed.
+    server.on("listening", () => { void import("./guides.js").then(({ seedGuides }) => seedGuides()).catch(() => {}); });
   }
   if (centralSync) {
     let stop;
