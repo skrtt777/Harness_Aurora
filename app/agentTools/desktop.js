@@ -226,6 +226,86 @@ export const wordTools = [
   },
 ];
 
+// ---- PowerPoint ao vivo: "# Título" abre um slide; "- tópicos"; "| tabela |"; "[gráfico de colunas]"
+// antes da tabela faz um gráfico; "Notas: …" vira anotação do apresentador. Um "# Título" com só uma
+// linha de texto (sem tópicos) é a capa.
+const CHART_KIND = [[/pizza|rosca|setor/i, "pizza"], [/linha|evolu|tend/i, "linha"], [/barra/i, "barra"], [/./, "coluna"]];
+export function pptSlides(text) {
+  const slides = [];
+  let slide = null;
+  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    const heading = /^#{1,3}\s+(.*)$/.exec(line);
+    if (heading) { slide = { title: heading[1].trim(), bullets: [], rows: [], plain: [] }; slides.push(slide); continue; }
+    if (!line || !slide) continue;
+    if (/^\|.*\|$/.test(line)) { if (!/^\|[\s:|-]+\|$/.test(line)) slide.rows.push(line.slice(1, -1).split("|").map((c) => c.trim())); continue; }
+    const chart = /^\[?\s*gr[áa]fico\b(.*?)\]?$/i.exec(line);
+    if (chart) { slide.chart = CHART_KIND.find(([re]) => re.test(chart[1] || "coluna"))[1]; continue; }
+    const notes = /^(?:(?:notas?|anota[çc][ãa]o)\s*:|>)\s*(.*)$/i.exec(line);
+    if (notes) { slide.notes = [slide.notes, notes[1]].filter(Boolean).join(" "); continue; }
+    const bullet = /^([-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (bullet) slide.bullets.push(bullet[2].replace(/\*\*/g, ""));
+    else slide.plain.push(line.replace(/\*\*/g, ""));
+  }
+  return slides.map(({ title, bullets, rows, plain, chart, notes }) => {
+    const base = { title, ...(notes ? { notes } : {}) };
+    if (rows.length) return { ...base, kind: chart ? "chart" : "table", rows, ...(chart ? { chart } : {}) };
+    if (!bullets.length && plain.length <= 1) return { ...base, kind: "title", subtitle: plain[0] || "" };
+    return { ...base, kind: "bullets", bullets: [...plain, ...bullets] };
+  });
+}
+
+let pptOwn = true;
+let pptOpen = false;
+let pptConversation = null;
+export const pptIsOpen = (conversationId) => pptOpen && (!conversationId || conversationId === pptConversation);
+const ASKS_PPT = /\b(power ?point|pptx?)\b|apresenta[çc][ãa]o (que )?(est[áa]|t[áa]) aberta|na apresenta[çc][ãa]o aberta/i;
+const pptAnswer = (reply) => {
+  if (!reply.ok) { if (/fechada|Nenhuma apresenta/.test(reply.error || "")) pptOpen = false; throw new Error(reply.error); }
+  if (typeof reply.own === "boolean") { pptOwn = reply.own; pptOpen = true; }
+  return reply.text;
+};
+const PPT_NEXT = "\nAgora diga à pessoa, em 1-2 frases, o que ficou nos slides e pergunte se está certo, com **Quer ajustar?** e opções numeradas (ex.: 1. Está certo, pode seguir (recomendado) 2. Mudar algum slide 3. Salvar em PDF).";
+
+export const pptTools = [
+  {
+    name: "powerpoint",
+    description: "Só quando a pessoa pedir o PowerPoint (\"abre o PowerPoint\", \"no PowerPoint\"): monta slides ao vivo, na frente dela. Para só criar um arquivo, use write_document. action=open abre com uma apresentação nova (ou file= um .pptx). action=write acrescenta slides (text em markdown: cada \"# Título\" é um slide; \"- tópico\"; uma linha só abaixo do título = capa; \"| tabela |\"; \"[gráfico de colunas]\" (ou linha, barra, pizza) antes da tabela faz um gráfico; \"Notas: …\" = anotação do apresentador). action=look mostra os slides. action=save salva (path: Documentos/nome.pptx, ou .pdf). action=use_open usa a apresentação que a pessoa já tinha aberta (só se ela pedir).",
+    parameters: { type: "object", properties: {
+      action: { type: "string", enum: ["open", "write", "look", "save", "use_open"] },
+      text: { type: "string", description: "os slides em markdown (action=write)" },
+      path: { type: "string", description: "onde salvar (action=save)" },
+      file: { type: "string", description: "arquivo .pptx para abrir (action=open)" },
+    }, required: ["action"] },
+    stage: (a) => ({ open: "Abrindo o PowerPoint…", write: "Montando os slides…", look: "Olhando os slides…", save: "Salvando a apresentação…", use_open: "Pegando a apresentação aberta…" }[a.action] || "Usando o PowerPoint…"),
+    describe: (a, ctx) => {
+      if (a.action === "open") return a.file ? { kind: "read", paths: [accessPath(a.file, ctx)] } : { kind: "open", launch: "app", target: "PowerPoint" };
+      if (a.action === "save") return { kind: "write", paths: [accessPath(a.path || "Documentos/apresentacao.pptx", ctx)], summary: `Salvar a apresentação em ${accessPath(a.path || "Documentos/apresentacao.pptx", ctx)}` };
+      if (a.action === "look") return { kind: "meta" };
+      if (a.action === "use_open" || !pptOwn) return { kind: "desktop", program: "POWERPNT", summary: a.action === "use_open" ? "Usar a apresentação que você tem aberta no PowerPoint" : `Alterar a sua apresentação no PowerPoint (${a.action})` };
+      return { kind: "meta" };
+    },
+    async run(args, ctx) {
+      const action = args.action;
+      if (!args.__fromOpen && !pptIsOpen(ctx.conversationId) && !ASKS_PPT.test(String(ctx.request || ""))) throw new Error("A pessoa não pediu o PowerPoint: para criar uma apresentação, use write_document. A ferramenta powerpoint é só quando ela pede o PowerPoint (\"abre o PowerPoint\", \"no PowerPoint\").");
+      if (action === "open") {
+        pptConversation = ctx.conversationId || null;
+        return `${pptAnswer(await desktopRequest("ppt_open", { file: args.file ? accessPath(args.file, ctx) : "" }))}\nAgora pergunte à pessoa sobre o que é a apresentação, com 2 ou 3 sugestões curtas numeradas em **Quer ajustar?** (ex.: 1. Apresentação de resultados (recomendado) 2. Proposta para cliente 3. Treinamento da equipe).`;
+      }
+      if (action === "use_open") return pptAnswer(await desktopRequest("ppt_attach"));
+      if (action === "look") return pptAnswer(await desktopRequest("ppt_look"));
+      if (action === "write") {
+        const slides = pptSlides(args.text);
+        if (!slides.length) throw new Error("Mande os slides em text, em markdown: cada slide começa com \"# Título\".");
+        const wrote = pptAnswer(await desktopRequest("ppt_write", { slides }));
+        return `${wrote}\n\n${pptAnswer(await desktopRequest("ppt_look"))}${PPT_NEXT}`;
+      }
+      if (action === "save") return pptAnswer(await desktopRequest("ppt_save", { path: accessPath(args.path || "Documentos/apresentacao.pptx", ctx) }));
+      throw new Error("action: open, write, look, save ou use_open.");
+    },
+  },
+];
+
 export const desktopTools = [
   {
     name: "desktop_windows",

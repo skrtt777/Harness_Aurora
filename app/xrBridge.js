@@ -130,6 +130,19 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
         try{return respond(res,200,await media.wake(await jsonBody(req,2_800_000)));}
         finally{wakeActive--;}
       }
+      const bench = p.match(/^\/xr\/v1\/projects\/([\w-]+)\/bench(?:\/(decisions)|\/materials\/([\w-]+)\/preview)?$/);
+      if(bench) {
+        const [,projectId,action,materialId]=bench;
+        const path='/projects/'+projectId+'/bench';
+        if(method==='GET'&&!action)return respond(res,200,await desktop(path+(materialId?'/materials/'+materialId+'/preview':'')));
+        if(method==='POST'&&action==='decisions') {
+          const body=await jsonBody(req,20000);
+          // The durable id reaches the same transaction as the memory write on the PC.
+          const data={content:textField(body,'content',12000),materialIds:body.materialIds,expectedRevision:body.expectedRevision,
+            operationKey:'xr:'+device+':'+identifier(body.requestId)};
+          return respond(res,200,await desktop(path+'/decisions','POST',data));
+        }
+      }
       if(p==='/xr/v1/projects'&&method==='GET')return respond(res,200,await desktop('/projects'));
       if(p==='/xr/v1/providers'&&method==='GET')return respond(res,200,await desktop('/providers'));
       if(p==='/xr/v1/conversations'&&method==='GET') {

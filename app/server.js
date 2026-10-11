@@ -1,3 +1,4 @@
+import { getBench, getBenchPreview, saveBenchDecision } from './bench.js';
 import "./config.js";
 import http from "node:http";
 import { randomBytes } from "node:crypto";
@@ -119,6 +120,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       const method = request.method;
       authorize(request, url, apiToken, allowDev);
       if (method === "GET" && pathname === "/api/session") return sendJson(response, 200, { token: apiToken });
+
+      const benchMatch = pathname.match(/^\/api\/projects\/([\w-]+)\/bench(?:\/(decisions)|\/materials\/([\w-]+)\/preview)?$/);
+      if (benchMatch) {
+        const [, projectId, action, materialId] = benchMatch;
+        if (method === 'GET' && materialId) return sendJson(response, 200, await getBenchPreview(projectId, materialId));
+        if (method === 'GET' && !action) return sendJson(response, 200, await getBench(projectId));
+        if (method === 'POST' && action === 'decisions') return sendJson(response, 200, await saveBenchDecision(projectId, await readJson(request)));
+      }
 
       if (pathname === '/api/central/status' && method === 'GET') return sendJson(response, 200, await centralStatus());
       // LGPD, art. 18: what is kept about a person or client, a copy of it, and its erasure.

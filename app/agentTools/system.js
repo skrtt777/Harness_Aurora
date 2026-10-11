@@ -152,6 +152,20 @@ export const systemTools = [
         const { wordTools } = await import("./desktop.js");
         return wordTools[0].run(/\.(docx|doc)\s*$/i.test(String(target)) ? { action: "open", file: target, __fromOpen: true } : { action: "open", __fromOpen: true }, ctx);
       }
+      // Power BI or a .pbix/.pbip: opened in Power BI Desktop and connected, so its model can be asked.
+      if (process.platform === "win32" && /\.(pbix|pbip)\s*$/i.test(String(target))) {
+        const { openInDesktop, connectReport } = await import("../powerbi.js");
+        const resolved = await resolveOpenTarget(target, ctx);
+        const report = await openInDesktop(resolved.target);
+        const c = await connectReport(ctx.conversationId, report.title).catch(() => null);
+        return `Abri ${resolved.target} no Power BI${c ? ` e me conectei ao modelo.
+${c.text}` : "."}
+Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer ajustar?** (ex.: 1. Responder uma pergunta sobre os números (recomendado) 2. Criar uma medida 3. Revisar o modelo).`;
+      }
+      if (process.platform === "win32" && (/^\s*(o\s+)?(microsoft\s+)?power ?point(\.exe)?\s*$/i.test(String(target)) || /\.(pptx|ppt)\s*$/i.test(String(target)))) {
+        const { pptTools } = await import("./desktop.js");
+        return pptTools[0].run(/\.(pptx|ppt)\s*$/i.test(String(target)) ? { action: "open", file: target, __fromOpen: true } : { action: "open", __fromOpen: true }, ctx);
+      }
       const resolved = await resolveOpenTarget(target, ctx);
       // A program on Windows: its window is waited for and looked at, so the Aurora can work in it
       // with the person ("abre a calculadora" -> "o que vamos fazer?"). A link opens in the browser.

@@ -8,14 +8,15 @@ import { webTools } from "./web.js";
 import { knowledgeTools } from "./knowledge.js";
 import { computerTools } from "./computer.js";
 import { delegateTools } from "./delegate.js";
-import { desktopTools, excelTools, wordTools } from "./desktop.js";
+import { desktopTools, excelTools, pptTools, wordTools } from "./desktop.js";
+import { powerBiTools } from "./powerbi.js";
 import { decide } from "../agentPolicy.js";
 
 // Browser and web tools only look, except the ones that act on a page.
 const INTERACT = new Set(["browser_click", "browser_type", "browser_key"]);
 for (const tool of [...browserTools, ...webTools]) tool.describe ||= () => ({ kind: INTERACT.has(tool.name) ? "interact" : "browse" });
 
-export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...desktopTools, ...excelTools, ...wordTools];
+export const AGENT_TOOLS = [...browserTools, ...webTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...desktopTools, ...excelTools, ...wordTools, ...pptTools, ...powerBiTools];
 const byName = new Map(AGENT_TOOLS.map((tool) => [tool.name, tool]));
 export const MAX_TOOL_RESULT = 4500;
 

@@ -30,8 +30,9 @@ import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
 import { onlyTextAsked, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
-import { excelIsOpen, wordIsOpen } from "./agentTools/desktop.js";
+import { excelIsOpen, pptIsOpen, wordIsOpen } from "./agentTools/desktop.js";
 import { coworkApp } from "./desktop.js";
+import { connectedReport, modelNames } from "./powerbi.js";
 import { sheetHint } from "./agentTools/knowledge.js";
 import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
@@ -317,6 +318,15 @@ const TEXT_DIRECT = "O pedido é um TEXTO para a pessoa usar: escreva-o direto n
 // the company system): the next requests go to it, one step at a time, each step confirmed.
 const coworkDirect = (app) => `Vocês estão trabalhando juntos no programa "${app.window}" (${app.program}), aberto na frente da pessoa. Se o pedido é sobre ele, faça NELE: veja a janela com desktop_snapshot (window: "${app.window.slice(0, 40)}") e faça VOCÊ: desktop_type com window e text digita onde o cursor está (ex.: na calculadora, "1234*56="); desktop_click pelos refs; desktop_key para atalhos. Nunca diga à pessoa quais botões apertar nem mostre refs. Depois de cada passo, diga em 1-2 frases o que fez e o resultado e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Se o pedido for outro assunto, responda normalmente.`;
 
+// The Power BI the Aurora built or connected to in this conversation: questions about the numbers are
+// answered from its model (DAX), changes go into it, each checked.
+// The names of the open model go along: a small model asks the right measure by the right column.
+const pbiDirect = (conversationId) => {
+  const { measures, columns } = modelNames(conversationId);
+  return `${PBI_DIRECT}${measures.length ? `\nMedidas: ${measures.slice(0, 25).join(", ")}.\nColunas: ${columns.join(" | ")}.` : ""}`;
+};
+const PBI_DIRECT = "Há um Power BI aberto e conectado nesta conversa. Perguntas sobre os números: powerbi action=query com measure + by (+ top, filter \"Ano=2026\") e responda com os números que voltarem. Pedidos de medida, coluna, relação ou formato: powerbi action=change, reaproveitando as medidas que existem (ex.: DIVIDE([Lucro], [Qtd. de pedidos])). Depois de cada mudança, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas.";
+const PPT_DIRECT = "O PowerPoint aberto por você está na frente da pessoa (trabalho em conjunto): monte os slides que ela pede NELE, com a ferramenta powerpoint (write com os slides em markdown, look para conferir), não com write_document. Ao terminar cada parte, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (powerpoint action=save) quando ela pedir.";
 const WORD_DIRECT = "O Word aberto por você está na frente da pessoa (trabalho em conjunto): escreva o que ela pede NELE, com a ferramenta word (write para o texto em markdown, look para conferir), não com write_document. Ao terminar cada parte, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (word action=save) quando ela pedir.";
 const EXCEL_DIRECT = "O Excel aberto por você está na frente da pessoa (trabalho em conjunto): faça o que ela pede NELE, com a ferramenta excel (write para os dados, format para deixar bonito, look para conferir), não com write_document. Ao terminar cada passo, diga em 1-2 frases o que ficou e pergunte se está certo, com **Quer ajustar?** e opções numeradas. Salve (excel action=save) quando ela pedir.";
 
@@ -563,7 +573,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:wordIsOpen(conversationId)?[WORD_DIRECT]:coworkApp(conversationId)?[coworkDirect(coworkApp(conversationId))]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:wordIsOpen(conversationId)?[WORD_DIRECT]:pptIsOpen(conversationId)?[PPT_DIRECT]:connectedReport(conversationId)?[pbiDirect(conversationId)]:coworkApp(conversationId)?[coworkDirect(coworkApp(conversationId))]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from

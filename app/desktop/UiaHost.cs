@@ -396,18 +396,34 @@ static class UiaHost {
     foreach (System.Collections.IList r in rows) width = Math.Max(width, r.Count);
     dynamic first = sh.Range(string.IsNullOrEmpty(start) ? "A1" : start);
     int top = (int)first.Row, left = (int)first.Column;
+    // One block in a single call (cell by cell, 1.300 rows took over 20 s); English formulas go in the
+    // block too ("=B2*C2" is entered as a formula), Portuguese ones and date formats cell by cell after.
+    var block = new object[rows.Count, width];
+    var localFormulas = new List<KeyValuePair<int[], string>>();
+    var dateCells = new List<int[]>();
     for (int i = 0; i < rows.Count; i++) {
       var r = (System.Collections.IList)rows[i];
       for (int j = 0; j < r.Count; j++) {
         object v = r[j];
-        dynamic cell = sh.Cells[top + i, left + j];
         var dict = v as Dictionary<string, object>;
-        if (dict != null && dict.ContainsKey("date")) { cell.Value2 = DateTime.Parse(Convert.ToString(dict["date"])).ToOADate(); cell.NumberFormatLocal = "dd/mm/aaaa"; }
-        else if (dict != null && dict.ContainsKey("formula")) { if (dict.ContainsKey("local") && Convert.ToBoolean(dict["local"])) cell.FormulaLocal = Convert.ToString(dict["formula"]); else cell.Formula = Convert.ToString(dict["formula"]); }
-        else if (v is string && ((string)v).StartsWith("=")) cell.Formula = (string)v;
-        else cell.Value2 = v;
+        if (dict != null && dict.ContainsKey("date")) { block[i, j] = DateTime.Parse(Convert.ToString(dict["date"])).ToOADate(); dateCells.Add(new[] { i, j }); }
+        else if (dict != null && dict.ContainsKey("formula")) {
+          if (dict.ContainsKey("local") && Convert.ToBoolean(dict["local"])) localFormulas.Add(new KeyValuePair<int[], string>(new[] { i, j }, Convert.ToString(dict["formula"])));
+          else block[i, j] = Convert.ToString(dict["formula"]);
+        } else block[i, j] = v;
       }
     }
+    dynamic area = sh.Range(sh.Cells[top, left], sh.Cells[top + rows.Count - 1, left + width - 1]);
+    area.Formula = block;
+    // Date formats by column run (a whole column of dates in one call).
+    var dateColumns = new Dictionary<int, List<int>>();
+    foreach (var c in dateCells) { if (!dateColumns.ContainsKey(c[1])) dateColumns[c[1]] = new List<int>(); dateColumns[c[1]].Add(c[0]); }
+    foreach (var kv in dateColumns) {
+      int firstRow = kv.Value[0], lastRow = kv.Value[kv.Value.Count - 1];
+      if (kv.Value.Count == lastRow - firstRow + 1) sh.Range(sh.Cells[top + firstRow, left + kv.Key], sh.Cells[top + lastRow, left + kv.Key]).NumberFormatLocal = "dd/mm/aaaa";
+      else foreach (int i in kv.Value) sh.Cells[top + i, left + kv.Key].NumberFormatLocal = "dd/mm/aaaa";
+    }
+    foreach (var f in localFormulas) sh.Cells[top + f.Key[0], left + f.Key[1]].FormulaLocal = f.Value;
     string from = sh.Cells[top, left].Address(false, false), to = sh.Cells[top + rows.Count - 1, left + width - 1].Address(false, false);
     return "Escrevi " + rows.Count + " linha(s) em " + from + ":" + to + " da aba \"" + sh.Name + "\".";
   }
@@ -573,6 +589,184 @@ static class UiaHost {
     return "Fechei o documento da Aurora.";
   }
 
+  // ---- PowerPoint, through its own automation: the slides appear in front of the person.
+  static dynamic pp;
+  static dynamic pres;
+  static bool presIsOwn;
+  static int ppPid;
+  // Palette: deep navy, an accent and greys (RGB as BGR ints for Office).
+  static int Bgr(int r, int g, int b) { return r | (g << 8) | (b << 16); }
+  static readonly int NAVY = Bgr(22, 36, 71), ACCENT = Bgr(0, 120, 212), INK = Bgr(32, 32, 32), MUTED = Bgr(96, 96, 96), LIGHT = Bgr(242, 245, 250);
+
+  static void NeedPres() {
+    if (pres == null) throw new Exception("Nenhuma apresentação aberta pela Aurora. Use powerpoint com action=open primeiro.");
+    try { var n = (string)pres.Name; } catch { pres = null; throw new Exception("A apresentação foi fechada. Abra de novo com action=open."); }
+  }
+  static string PptOpen(string file) {
+    if (pp == null) pp = Activator.CreateInstance(Type.GetTypeFromProgID("PowerPoint.Application"));
+    try { pp.Visible = -1; } catch { pp = Activator.CreateInstance(Type.GetTypeFromProgID("PowerPoint.Application")); pp.Visible = -1; }
+    pres = string.IsNullOrEmpty(file) ? pp.Presentations.Add(-1) : pp.Presentations.Open(file, 0, 0, -1);
+    presIsOwn = true;
+    if (string.IsNullOrEmpty(file)) { try { pres.PageSetup.SlideSize = 15; } catch { } } // 16:9
+    try { pp.WindowState = 3; pp.Activate(); } catch { } // maximized
+    try { foreach (var p in Process.GetProcessesByName("POWERPNT")) ppPid = p.Id; } catch { }
+    return "Abri o PowerPoint" + (string.IsNullOrEmpty(file) ? " com uma apresentação nova (\"" + pres.Name + "\")" : " com \"" + pres.Name + "\"") + ". A pessoa está vendo a apresentação.";
+  }
+  static string PptAttach() {
+    dynamic app;
+    try { app = Marshal.GetActiveObject("PowerPoint.Application"); } catch { throw new Exception("Não há um PowerPoint aberto. Use action=open."); }
+    pp = app; pres = app.ActivePresentation; presIsOwn = false;
+    return "Usando a apresentação aberta pela pessoa: \"" + pres.Name + "\" (" + pres.Slides.Count + " slides).";
+  }
+  static void Style(dynamic range, int size, int color, bool bold) {
+    range.Font.Name = "Segoe UI"; range.Font.Size = size; range.Font.Color.RGB = color; range.Font.Bold = bold ? -1 : 0;
+  }
+  static dynamic AddBox(dynamic slide, float left, float top, float width, float height, string text, int size, int color, bool bold) {
+    dynamic box = slide.Shapes.AddTextbox(1, left, top, width, height);
+    box.TextFrame.WordWrap = -1;
+    box.TextFrame.TextRange.Text = text;
+    Style(box.TextFrame.TextRange, size, color, bold);
+    return box;
+  }
+  // slides: [{kind:"title"|"bullets"|"table"|"chart", title, subtitle, bullets:[], rows:[[...]], chart:"coluna"|"barra"|"linha"|"pizza", notes}]
+  static string PptWrite(object slidesObj) {
+    NeedPres();
+    var slides = slidesObj as System.Collections.IList;
+    if (slides == null || slides.Count == 0) throw new Exception("Nada para pôr nos slides.");
+    float W = (float)pres.PageSetup.SlideWidth, H = (float)pres.PageSetup.SlideHeight;
+    int added = 0, first = (int)pres.Slides.Count + 1;
+    foreach (var item in slides) {
+      var s = item as Dictionary<string, object>;
+      if (s == null) continue;
+      string kind = Convert.ToString(s.ContainsKey("kind") ? s["kind"] : "bullets");
+      string title = Convert.ToString(s.ContainsKey("title") ? s["title"] : "");
+      dynamic slide = pres.Slides.Add((int)pres.Slides.Count + 1, 12); // blank: the Aurora lays it out
+      slide.FollowMasterBackground = 0;
+      if (kind == "title") {
+        slide.Background.Fill.ForeColor.RGB = NAVY;
+        dynamic bar = slide.Shapes.AddShape(1, 60f, H * 0.36f, 90f, 6f); bar.Fill.ForeColor.RGB = ACCENT; bar.Line.Visible = 0;
+        AddBox(slide, 60f, H * 0.40f, W - 120f, 90f, title, 40, Bgr(255, 255, 255), true);
+        string sub = Convert.ToString(s.ContainsKey("subtitle") ? s["subtitle"] : "");
+        if (sub.Length > 0) AddBox(slide, 60f, H * 0.40f + 95f, W - 120f, 60f, sub, 20, Bgr(200, 210, 230), false);
+      } else {
+        slide.Background.Fill.ForeColor.RGB = Bgr(255, 255, 255);
+        dynamic band = slide.Shapes.AddShape(1, 0f, 0f, 10f, H); band.Fill.ForeColor.RGB = ACCENT; band.Line.Visible = 0;
+        AddBox(slide, 50f, 30f, W - 100f, 60f, title, 30, NAVY, true);
+        float top = 105f, height = H - top - 40f;
+        if (kind == "table" || kind == "chart") {
+          var rows = s.ContainsKey("rows") ? s["rows"] as System.Collections.IList : null;
+          if (rows == null || rows.Count == 0) throw new Exception("O slide \"" + title + "\" precisa de uma tabela.");
+          int cols = 0; foreach (System.Collections.IList r in rows) cols = Math.Max(cols, r.Count);
+          if (kind == "table") {
+            dynamic shape = slide.Shapes.AddTable(rows.Count, cols, 50f, top, W - 100f, Math.Min(height, 34f * rows.Count));
+            dynamic table = shape.Table;
+            for (int i = 0; i < rows.Count; i++) {
+              var r = (System.Collections.IList)rows[i];
+              for (int j = 0; j < cols; j++) {
+                dynamic cell = table.Cell(i + 1, j + 1);
+                cell.Shape.TextFrame.TextRange.Text = j < r.Count ? Convert.ToString(r[j]) : "";
+                Style(cell.Shape.TextFrame.TextRange, 16, i == 0 ? Bgr(255, 255, 255) : INK, i == 0);
+                cell.Shape.Fill.ForeColor.RGB = i == 0 ? NAVY : (i % 2 == 0 ? LIGHT : Bgr(255, 255, 255));
+              }
+            }
+          } else {
+            string type = Convert.ToString(s.ContainsKey("chart") ? s["chart"] : "coluna");
+            int xlType = type == "barra" ? 57 : type == "linha" ? 4 : type == "pizza" ? 5 : 51;
+            string step = "criar o gráfico";
+            try {
+              dynamic chartShape = slide.Shapes.AddChart2(-1, xlType, 50f, top, W - 100f, height);
+              dynamic chart = chartShape.Chart;
+              step = "abrir os dados do gráfico";
+              dynamic data = chart.ChartData;
+              data.ActivateChartDataWindow();
+              dynamic wb = data.Workbook;
+              dynamic ws = wb.Worksheets[1];
+              step = "escrever os dados";
+              var cellsData = new object[rows.Count, cols];
+              var br = new System.Globalization.CultureInfo("pt-BR");
+              for (int i = 0; i < rows.Count; i++) {
+                var r = (System.Collections.IList)rows[i];
+                for (int j = 0; j < cols; j++) {
+                  string v = j < r.Count ? Convert.ToString(r[j]) : "";
+                  double d;
+                  if (i > 0 && j > 0 && double.TryParse(v.Replace("R$", "").Replace("%", "").Trim(), System.Globalization.NumberStyles.Any, br, out d)) cellsData[i, j] = d;
+                  else cellsData[i, j] = v;
+                }
+              }
+              ws.Range["A1:Z200"].ClearContents();
+              string end = ((char)('A' + cols - 1)).ToString() + rows.Count;
+              ws.Range["A1:" + end].Value2 = cellsData;
+              step = "ligar os dados ao gráfico";
+              chart.SetSourceData("'" + ws.Name + "'!$A$1:$" + end.Substring(0, 1) + "$" + rows.Count);
+              try { wb.Close(); } catch { }
+              step = "formatar o gráfico";
+              // No repeated title (the slide has one); the axis from zero (from 38.000 the bars lie);
+              // thousands separated; the brand colours; values on the bars when there are few.
+              try { chart.HasTitle = true; chart.ChartTitle.Delete(); } catch { }
+              try { chart.HasLegend = cols > 2 || xlType == 5; } catch { }
+              int[] palette = { ACCENT, NAVY, Bgr(0, 178, 148), Bgr(255, 140, 0), Bgr(136, 23, 152) };
+              if (xlType != 5) {
+                try { dynamic axis = chart.Axes(2); axis.MinimumScale = 0; axis.TickLabels.NumberFormat = "#,##0"; axis.MajorGridlines.Format.Line.ForeColor.RGB = Bgr(225, 228, 235); } catch { }
+                for (int k = 1; k < cols; k++) {
+                  try { dynamic series = chart.SeriesCollection(k); if (xlType == 4) { series.Format.Line.ForeColor.RGB = palette[(k - 1) % palette.Length]; series.Format.Line.Weight = 3f; } else series.Format.Fill.ForeColor.RGB = palette[(k - 1) % palette.Length]; if (rows.Count <= 13) { series.HasDataLabels = true; dynamic labels = series.DataLabels(); labels.NumberFormatLinked = false; labels.NumberFormat = "#,##0"; series.DataLabels().Font.Size = 12; } } catch { }
+                }
+              } else {
+                try { dynamic series = chart.SeriesCollection(1); for (int p = 1; p < rows.Count; p++) series.Points(p).Format.Fill.ForeColor.RGB = palette[(p - 1) % palette.Length]; series.HasDataLabels = true; series.DataLabels().ShowPercentage = true; series.DataLabels().ShowValue = false; } catch { }
+              }
+            } catch (Exception e) { throw new Exception("Gráfico do slide \"" + title + "\": falhou ao " + step + " (" + e.Message + ")."); }
+          }
+        } else {
+          var bullets = s.ContainsKey("bullets") ? s["bullets"] as System.Collections.IList : null;
+          var lines = new List<string>(); if (bullets != null) foreach (var b in bullets) lines.Add(Convert.ToString(b));
+          dynamic body = AddBox(slide, 60f, top, W - 120f, height, string.Join("\r", lines), lines.Count > 6 ? 18 : 22, INK, false);
+          body.TextFrame.TextRange.ParagraphFormat.Bullet.Visible = -1;
+          body.TextFrame.TextRange.ParagraphFormat.Bullet.Character = 8226;
+          body.TextFrame.TextRange.ParagraphFormat.SpaceAfter = 10;
+        }
+      }
+      string notes = Convert.ToString(s.ContainsKey("notes") ? s["notes"] : "");
+      if (notes.Length > 0) { try { slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = notes; } catch { } }
+      added++;
+    }
+    try { pp.ActiveWindow.View.GotoSlide((int)pres.Slides.Count); } catch { }
+    return "Criei " + added + " slide(s) (do " + first + " ao " + pres.Slides.Count + ") em \"" + pres.Name + "\".";
+  }
+  static string PptLook() {
+    NeedPres();
+    var sb = new StringBuilder("Apresentação \"" + pres.Name + "\"" + (presIsOwn ? " (aberta pela Aurora)" : " (da pessoa)") + ", " + pres.Slides.Count + " slide(s):\n");
+    foreach (dynamic slide in pres.Slides) {
+      var texts = new List<string>();
+      foreach (dynamic shape in slide.Shapes) {
+        try {
+          if ((int)shape.HasTable == -1) { texts.Add("[tabela " + shape.Table.Rows.Count + "x" + shape.Table.Columns.Count + "]"); continue; }
+          if ((int)shape.HasChart == -1) { texts.Add("[gráfico]"); continue; }
+          if ((int)shape.HasTextFrame == -1) { string t = ((string)shape.TextFrame.TextRange.Text).Replace("\r", " • ").Trim(); if (t.Length > 0) texts.Add(t); }
+        } catch { }
+      }
+      sb.Append(slide.SlideIndex).Append(". ").Append(string.Join(" | ", texts)).Append('\n');
+    }
+    return sb.ToString();
+  }
+  static string PptSave(string path) {
+    NeedPres();
+    if (string.IsNullOrEmpty(path)) { pres.Save(); return "Salvei \"" + pres.Name + "\"."; }
+    pres.SaveAs(path, path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? 32 : 24);
+    return "Salvei " + path + ".";
+  }
+  static string PptClose() {
+    object p = pres, a = pp;
+    pres = null; pp = null;
+    if (p != null && presIsOwn) { try { ((dynamic)p).Saved = -1; ((dynamic)p).Close(); } catch { } }
+    if (p != null) { try { Marshal.FinalReleaseComObject(p); } catch { } }
+    if (a != null) { try { if ((int)((dynamic)a).Presentations.Count == 0) ((dynamic)a).Quit(); } catch { } try { Marshal.FinalReleaseComObject(a); } catch { } }
+    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); GC.WaitForPendingFinalizers();
+    if (ppPid != 0) {
+      try { var pr = Process.GetProcessById(ppPid); if (!pr.WaitForExit(3000) && pr.ProcessName.Equals("POWERPNT", StringComparison.OrdinalIgnoreCase) && pr.MainWindowTitle.Length == 0) pr.Kill(); } catch { }
+      ppPid = 0;
+    }
+    return "Fechei a apresentação da Aurora.";
+  }
+
   [STAThread]
   static void Main() {
     Console.InputEncoding = Encoding.UTF8;
@@ -640,6 +834,12 @@ static class UiaHost {
         else if (cmd == "word_look") { int m = 3000; int.TryParse(str("max") ?? "3000", out m); reply["text"] = WordLook(m); reply["own"] = docIsOwn; }
         else if (cmd == "word_save") { reply["text"] = WordSave(str("path")); reply["own"] = docIsOwn; }
         else if (cmd == "word_close") reply["text"] = WordClose();
+        else if (cmd == "ppt_open") { reply["text"] = PptOpen(str("file")); reply["own"] = presIsOwn; }
+        else if (cmd == "ppt_attach") { reply["text"] = PptAttach(); reply["own"] = presIsOwn; }
+        else if (cmd == "ppt_write") { object sl; req.TryGetValue("slides", out sl); reply["text"] = PptWrite(sl); reply["own"] = presIsOwn; }
+        else if (cmd == "ppt_look") { reply["text"] = PptLook(); reply["own"] = presIsOwn; }
+        else if (cmd == "ppt_save") { reply["text"] = PptSave(str("path")); reply["own"] = presIsOwn; }
+        else if (cmd == "ppt_close") reply["text"] = PptClose();
         else if (cmd == "excel_state") { reply["text"] = book == null ? "none" : "open"; reply["own"] = bookIsOwn; }
         else if (cmd == "db_tables") reply["text"] = DbTables(str("path"));
         else if (cmd == "db_query") reply["text"] = DbQuery(str("path"), str("sql"));

@@ -1276,8 +1276,9 @@ export const fileTools = [
       const format = extname(file).slice(1).toLowerCase();
       // The document the person is watching in Word/Excel is saved from there: a file written anew
       // here would not be the one on their screen (Word cowork, 10/10).
-      if (process.platform === "win32" && ["docx", "pdf", "xlsx"].includes(format)) {
-        const { excelIsOpen, wordIsOpen } = await import("./desktop.js");
+      if (process.platform === "win32" && ["docx", "pdf", "xlsx", "pptx"].includes(format)) {
+        const { excelIsOpen, pptIsOpen, wordIsOpen } = await import("./desktop.js");
+        if (["pptx", "pdf"].includes(format) && pptIsOpen(ctx.conversationId)) throw new Error(`A apresentação está aberta no PowerPoint, na frente da pessoa: salve ela mesma com powerpoint action=save, path "${args.path}".`);
         if (format !== "xlsx" && wordIsOpen(ctx.conversationId)) throw new Error(`O documento está aberto no Word, na frente da pessoa: salve ele mesmo com word action=save, path "${args.path}".`);
         if (format === "xlsx" && excelIsOpen(ctx.conversationId)) throw new Error(`A planilha está aberta no Excel, na frente da pessoa: salve ela mesma com excel action=save, path "${args.path}".`);
       }

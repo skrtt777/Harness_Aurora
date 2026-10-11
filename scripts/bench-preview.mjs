@@ -1,0 +1,20 @@
+// Isolated workbench review. No Telegram connection or production database is used.
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const dir=mkdtempSync(join(tmpdir(),'aurora-bench-preview-'));
+process.env.HARNESS_DB_FILE=join(dir,'preview.db');
+const { createProject,createConversation,setSetting }=await import('../app/store.js');
+const { captureBenchMaterial }=await import('../app/bench.js');
+const { createCanvas }=await import('@napi-rs/canvas');
+const canvas=createCanvas(640,400),ctx=canvas.getContext('2d');
+ctx.fillStyle='#0b1b25';ctx.fillRect(0,0,640,400);ctx.strokeStyle='#65e3ef';ctx.lineWidth=4;ctx.strokeRect(70,220,500,90);ctx.strokeRect(215,90,210,130);ctx.beginPath();ctx.moveTo(180,310);ctx.lineTo(180,370);ctx.moveTo(460,310);ctx.lineTo(460,370);ctx.stroke();ctx.fillStyle='#c8edf2';ctx.font='22px sans-serif';ctx.fillText('REFERÊNCIA DE TESTE / BANCADA',110,50);
+const image=join(dir,'bancada-teste.png');writeFileSync(image,await canvas.encode('png'));
+const p=await createProject({name:'Estúdio Aurora — TESTE ISOLADO'});
+await createConversation({title:'Conceito da bancada',projectId:p.id,provider:'local'});
+await captureBenchMaterial({projectId:p.id,operationKey:'fixture-image',title:'Bancada com luz indireta',note:'Material de teste, não enviado pelo usuário.',file:image,source:'Prévia isolada'});
+await captureBenchMaterial({projectId:p.id,operationKey:'fixture-note',title:'Manter espaço livre',note:'Testar uma referência em texto junto à imagem.',source:'Prévia isolada'});
+await setSetting('onboardingCompleted',true);
+const { createServer }=await import('../app/server.js');
+const server=createServer({centralSync:false,agentScheduler:false,warmLocal:false});
+server.listen(8792,'127.0.0.1',()=>console.log('Prévia isolada: http://127.0.0.1:8792'));

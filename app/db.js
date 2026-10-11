@@ -78,6 +78,37 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS bench_state (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS bench_materials (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  operation_key TEXT NOT NULL UNIQUE,
+  payload_hash TEXT NOT NULL,
+  title TEXT NOT NULL,
+  note TEXT NOT NULL,
+  source TEXT NOT NULL,
+  file_name TEXT,
+  original_path TEXT,
+  sha256 TEXT,
+  preview BLOB,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bench_decisions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  operation_key TEXT NOT NULL UNIQUE,
+  payload_hash TEXT NOT NULL,
+  memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+  content TEXT NOT NULL,
+  material_ids TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_materials_project ON bench_materials(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_bench_decisions_project ON bench_decisions(project_id, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope, project_id, conversation_id);

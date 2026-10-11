@@ -106,3 +106,17 @@ test('The headset can answer the agent permission requests through the desktop r
   assert.equal(answered.status,200);assert.equal(answered.data.resolved,true);
   assert.deepEqual(seen,[{path:'/conversations/c/approval',method:'POST',body:{id:'a1',approved:false}}]);
 });
+
+test('workbench reads are authenticated and decision identity reaches the PC unchanged on retry',async t=>{
+  const seen=[];const {store,call}=await setup(t,async(path,method,body)=>{seen.push({path,method,body});return {ok:true};});
+  assert.equal((await call('/projects/p/bench')).status,401);
+  const {token}=store.issueDevice('Quest');
+  assert.equal((await call('/projects/p/bench',token)).status,200);
+  const request={requestId:'decision-1',content:'Luz azul',expectedRevision:2,materialIds:['ref']};
+  assert.equal((await call('/projects/p/bench/decisions',token,request)).status,200);
+  assert.equal((await call('/projects/p/bench/decisions',token,request)).status,200);
+  assert.equal(seen[1].body.operationKey,seen[2].body.operationKey);
+  assert.match(seen[1].body.operationKey,/^xr:.*:decision-1$/);
+  assert.deepEqual(seen[1].body.materialIds,['ref']);
+  assert.equal((await call('/projects/p/bench/decisions',token,{...request,requestId:'../unsafe'})).status,400);
+});

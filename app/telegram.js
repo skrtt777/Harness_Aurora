@@ -1,3 +1,4 @@
+import { captureBenchMaterial, findBenchCapture, getBench } from './bench.js';
 // The Aurora on the phone (OpenClaw's channels): a Telegram bot the person creates and links. Off until
 // they paste the bot's token; then only the one chat that sent the pairing code is heard. A message
 // from it is a turn in the "Celular (Telegram)" conversation and the answer goes back, with the files
@@ -7,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { personalFolders } from "./fileAccess.js";
-import { getSetting, setSetting, createConversation, getConversationWithMessages } from "./store.js";
+import { getSetting, setSetting, createConversation, getConversationWithMessages, listProjects } from "./store.js";
 import { approvalEvents, getApproval, resolveApproval } from "./pendingTurns.js";
 
 const API = (env) => env.TELEGRAM_API_BASE || "https://api.telegram.org";
@@ -50,14 +51,14 @@ export async function connectTelegram(token, { env = process.env, handleChatTurn
   await setSetting("telegram_pair_code", String(randomInt(100000, 999999)));
   state.bot = me.username || me.first_name || null;
   // The bot's Menu button: the two commands a person may not guess.
-  await call(clean, "setMyCommands", { commands: [{ command: "agentes", description: "Ver seus agentes e a última vez de cada um" }, { command: "ajuda", description: "Como usar a Aurora pelo celular" }] }, { env }).catch(() => {});
+  await call(clean, "setMyCommands", { commands: [{ command: "bancada", description: "Escolher o projeto para receber referências" }, { command: "agentes", description: "Ver seus agentes e a última vez de cada um" }, { command: "ajuda", description: "Como usar a Aurora pelo celular" }] }, { env }).catch(() => {});
   await startTelegram({ env, handleChatTurn });
   return telegramStatus();
 }
 
 export async function disconnectTelegram() {
   stopTelegram();
-  for (const key of ["telegram_token", "telegram_chat_id", "telegram_pair_code", "telegram_offset"]) await setSetting(key, "");
+  for (const key of ["telegram_token", "telegram_chat_id", "telegram_pair_code", "telegram_offset", "telegram_bench_project"]) await setSetting(key, "");
   state.bot = null; state.error = null;
   return telegramStatus();
 }
@@ -152,12 +153,44 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
   }
   if (chat !== linked) return; // anyone else who finds the bot is ignored
   if (/^\/start\b/.test(text)) return;
+  if (/^\/bancada(?:\s|$)/i.test(text)) {
+    const target = text.replace(/^\/bancada\s*/i, '').trim();
+    if (target.toLowerCase() === 'sair') { await setSetting('telegram_bench_project', ''); await sendToPhone('Captura para a bancada desativada.', { env }); return; }
+    const projects = await listProjects();
+    if (!target) { await sendToPhone('Escolha com /bancada seguido do nome ou ID do projeto:\n'+projects.map(p=>`${p.name} — ${p.id}`).join('\n')+'\nUse /bancada sair para desativar.', { env }); return; }
+    const matches = projects.filter(p=>p.id===target || p.name.toLowerCase()===target.toLowerCase());
+    if(matches.length!==1) { await sendToPhone('Projeto não identificado. Use /bancada para listar os nomes e IDs.', { env }); return; }
+    await setSetting('telegram_bench_project', matches[0].id);
+    await sendToPhone(`Bancada: ${matches[0].name}. Fotos e documentos irão para este projeto. Para uma ideia em texto, use /referencia sua ideia. Mensagens comuns continuam na conversa do celular.`, { env }); return;
+  }
+  const isReference = /^\/referencia(?:\s|$)/i.test(text);
+  const benchProject = await getSetting('telegram_bench_project');
+  if (isReference || (attachment && benchProject)) {
+    if (!benchProject) { await sendToPhone('Escolha primeiro o projeto com /bancada.', { env }); return; }
+    try {
+      const target = await getBench(benchProject);
+      const identity = message.message_id ?? update.update_id;
+      if (!Number.isInteger(identity)) throw new Error('Mensagem sem identificador; envie novamente.');
+      const op = `telegram:${token.split(':')[0]}:${chat}:${identity}`;
+      let captured = await findBenchCapture(op);
+      if (!captured) {
+        const note = isReference ? text.replace(/^\/referencia\s*/i, '').trim() : text;
+        if (!attachment && !note) throw new Error('Escreva a ideia depois de /referencia.');
+        const file = attachment ? await receiveFile(token, attachment, env) : null;
+        captured = await captureBenchMaterial({ projectId: target.project.id, operationKey: op,
+          title: (note || attachment?.file_name || 'Referência do celular').slice(0,200), note, file });
+      }
+      const destination = captured.projectId === target.project.id ? target : await getBench(captured.projectId);
+      await sendToPhone(`Referência salva no PC, na bancada ${destination.project.name}: ${captured.title}\nAbra Bancada no Quest ou no projeto do computador.`, { env });
+    } catch(e) { await sendToPhone(`Não foi possível guardar na bancada: ${e.message}`, { env }); }
+    return;
+  }
   if (message?.voice || message?.audio || message?.video_note) {
     await sendToPhone("Ainda não consigo ouvir áudios por aqui. Mande por texto, por favor.", { env });
     return;
   }
   if (/^\/(ajuda|help)\b/i.test(text)) {
-    await sendToPhone("Escreva como escreveria no computador: \"organize meus Downloads\", \"resuma esse PDF\" (mande o arquivo com a legenda), \"faça uma planilha com…\".\nOs arquivos que eu criar chegam aqui. Quando eu precisar de autorização, aparecem os botões Permitir e Negar.\n/agentes mostra os seus agentes.", { env });
+    await sendToPhone("Escreva como escreveria no computador: \"organize meus Downloads\", \"resuma esse PDF\" (mande o arquivo com a legenda), \"faça uma planilha com…\".\nPara referências de projetos, use /bancada e /referencia. Os arquivos que eu criar chegam aqui. Quando eu precisar de autorização, aparecem os botões Permitir e Negar.\n/agentes mostra os seus agentes.", { env });
     return;
   }
   if (/^\/agentes\b/i.test(text)) {
@@ -234,10 +267,14 @@ export async function startTelegram({ env = process.env, handleChatTurn } = {}) 
         const updates = await call(token, "getUpdates", { offset: state.offset, timeout: Number(env.TELEGRAM_POLL_SECONDS ?? 25) }, { env, signal: controller.signal });
         backoff = 1000; state.error = null;
         for (const update of updates) {
-          state.offset = update.update_id + 1;
-          await setSetting("telegram_offset", String(state.offset)).catch(() => {});
-          // One at a time: the conversation is one, and a turn can take a while.
-          await handleUpdate(update, { env, handleChatTurn }).catch((e) => { state.error = e.message; });
+          const msg = update.message;
+          const benchCapture = /^\/referencia(?:\s|$)/i.test(msg?.text || msg?.caption || '') ||
+            ((msg?.document || msg?.photo?.length) && await getSetting('telegram_bench_project'));
+          // Bench captures are idempotent in SQLite; acknowledge only after processing.
+          // Preserve the existing at-most-once behavior of ordinary agent turns.
+          if (!benchCapture) { state.offset = update.update_id + 1; await setSetting('telegram_offset', String(state.offset)); }
+          await handleUpdate(update, { env, handleChatTurn });
+          if (benchCapture) { state.offset = update.update_id + 1; await setSetting('telegram_offset', String(state.offset)); }
         }
       } catch (e) {
         if (controller.signal.aborted) break;

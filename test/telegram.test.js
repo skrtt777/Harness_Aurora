@@ -109,6 +109,23 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   assert.equal(readFileSync(saved, "utf8"), "conteudo do boleto");
   assert.match(turns.at(-1), /^resuma isso[\s\S]*Arquivo recebido pelo celular e salvo em: .*boleto luz\.pdf/);
 
+  const { createProject } = await import('../app/store.js');
+  const { getBench } = await import('../app/bench.js');
+  const project = await createProject({ name: 'Bancada teste' });
+  await tg.handleUpdate({ update_id: 40, message: { chat: { id: 555 }, text: '/bancada Bancada teste' } }, { env, handleChatTurn });
+  assert.match(last('sendMessage').text, /Bancada: Bancada teste/);
+  const capture = { update_id: 41, message: { message_id: 41, chat: { id: 555 }, text: '/referencia Mesa com luz azul' } };
+  await tg.handleUpdate(capture, { env, handleChatTurn });
+  await tg.handleUpdate(capture, { env, handleChatTurn });
+  assert.equal((await getBench(project.id)).materials.length, 1);
+  assert.equal((await getBench(project.id)).materials[0].note, 'Mesa com luz azul');
+  await tg.handleUpdate({ update_id: 42, message: { message_id: 42, chat: { id: 999 }, text: '/referencia intruso' } }, { env, handleChatTurn });
+  assert.equal((await getBench(project.id)).materials.length, 1);
+  await tg.handleUpdate({ update_id: 43, message: { message_id: 43, chat: { id: 555 }, document: { file_id: 'abc', file_name: 'referencia.pdf', file_size: 18 } } }, { env: phoneEnv, handleChatTurn });
+  assert.equal((await getBench(project.id)).materials.length, 2);
+  assert.match(last('sendMessage').text, /Referência salva no PC/);
+  await tg.handleUpdate({ update_id: 44, message: { chat: { id: 555 }, text: '/bancada sair' } }, { env, handleChatTurn });
+
   const off = await tg.disconnectTelegram();
   assert.equal(off.configured, false);
   assert.equal(await tg.sendToPhone("x", { env }), false, "nothing goes out once disconnected");
