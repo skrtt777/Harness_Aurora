@@ -29,7 +29,7 @@ export function roomKit(env, ctx) {
   const backdrop = [];
   // The room: a floor, a back wall and a side wall (a cut-away, so everything inside is seen).
   // The room ends before the road (when the data has a way out).
-  const right = ctx.hasRoad ? 690 : 910;
+  const right = (ctx.hasRoad ? 690 : 910) + (LEN - 640);
   floor.push(cv.poly([[-110, -50, 0], [right, -50, 0], [right, 810, 0], [-110, 810, 0]], R.floor));
   for (let g = -30; g <= right - 10; g += 80) floor.push(`<polyline points='${cv.pts([[g, -50, 0], [g, 810, 0]])}' stroke='${R.tile}' stroke-width='1.5' fill='none'/>`);
   for (let g = 30; g <= 800; g += 80) floor.push(`<polyline points='${cv.pts([[-110, g, 0], [right, g, 0]])}' stroke='${R.tile}' stroke-width='1.5' fill='none'/>`);

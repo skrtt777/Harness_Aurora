@@ -243,14 +243,16 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const site = flow.site ? col(F, flow.site) : null;
   const G = flow.glyph || "veiculo";
   const cv = new Canvas();
-  const LEN = 640; const DEPTH = 200; const HEIGHT = 112;
+  const n0 = Math.max(1, Math.min(32, flow.placeCount || 10));
+  const LEN = Math.max(640, 40 + n0 * 38); const DEPTH = 200; const HEIGHT = 112;
+  const RX = LEN - 640; // how much wider than the 16-place scene
   const QUEUE0 = { veiculo: 10, pessoa: 20, volume: 15 }[G];
   const ROAD = 8;
   const hasRoad = flow.stages.some((st) => st.key === "transito");
   // The room of this area (a shop, a clinic, a hall, a factory): app/powerbiPlaces.js. Vehicles at docks
   // keep the warehouse drawn below.
   const env = G === "veiculo" ? "armazem" : flow.environment || "fabrica";
-  const n = Math.max(1, Math.min(16, flow.placeCount || 10));
+  const n = n0;
   const w = (LEN - 40) / n;
   const kit = env === "armazem" ? null : roomKit(env, { cv, look, LEN, DEPTH, n, w, hasRoad, D, safe, siteName: site ? "Unidade" : null, title });
   // The general queue's ground: parking spots for vehicles, a marked line for people, a bay for loads.
@@ -265,24 +267,24 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   if (kit) {
     parts.push(kit.floor);
     if (hasRoad) {
-      parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
-      parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
+      parts.push(cv.poly([[720 + RX, -60, 0], [880 + RX, -60, 0], [880 + RX, 800, 0], [720 + RX, 800, 0]], L.road));
+      parts.push(`<polyline points='${cv.pts([[800 + RX, -60, 0], [800 + RX, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
     }
     cv.quiet = false;
     parts.push(kit.queueGround, kit.backdrop);
   } else {
-  parts.push(cv.poly([[-120, -60, 0], [920, -60, 0], [920, 800, 0], [-120, 800, 0]], L.ground));
-  for (let g = 40; g <= 880; g += 95) parts.push(`<polyline points='${cv.pts([[g, -60, 0], [g, 800, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
-  for (let g = 50; g <= 760; g += 90) parts.push(`<polyline points='${cv.pts([[-120, g, 0], [920, g, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
+  parts.push(cv.poly([[-120, -60, 0], [920 + RX, -60, 0], [920 + RX, 800, 0], [-120, 800, 0]], L.ground));
+  for (let g = 40; g <= 880 + RX; g += 95) parts.push(`<polyline points='${cv.pts([[g, -60, 0], [g, 800, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
+  for (let g = 50; g <= 760; g += 90) parts.push(`<polyline points='${cv.pts([[-120, g, 0], [920 + RX, g, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
   parts.push(cv.poly([[0, DEPTH, 0], [LEN, DEPTH, 0], [LEN, 470, 0], [0, 470, 0]], L.yard));
   if (hasRoad) {
-    parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
-    parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
+    parts.push(cv.poly([[720 + RX, -60, 0], [880 + RX, -60, 0], [880 + RX, 800, 0], [720 + RX, 800, 0]], L.road));
+    parts.push(`<polyline points='${cv.pts([[800 + RX, -60, 0], [800 + RX, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
   }
   if (G === "veiculo") for (let j = 0; j < QUEUE; j += 1) { const [x, y] = spot(j); parts.push(cv.poly([[x, y, 0], [x + 64, y, 0], [x + 64, y + 130, 0], [x, y + 130, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5'`)); }
   parts.push(`<polyline points='${cv.pts([[-90, -40, 0], [-90, 790, 0], [690, 790, 0]])}' stroke='${L.fence}' stroke-width='2.5' fill='none'/>`);
   cv.quiet = false;
-  for (const [X, Y] of [[-60, 40], [-60, 220], [-60, 420], [-60, 640], [480, 760], [660, 740], [690, -20], ...(hasRoad ? [[905, 160], [905, 520]] : [])]) parts.push(tree(cv, X, Y, L, 0.9));
+  for (const [X, Y] of [[-60, 40], [-60, 220], [-60, 420], [-60, 640], [480 + RX, 760], [660 + RX, 740], [690 + RX, -20], ...(hasRoad ? [[905 + RX, 160], [905 + RX, 520]] : [])]) parts.push(tree(cv, X, Y, L, 0.9));
   parts.push(cv.box(0, 0, 0, LEN, DEPTH, HEIGHT, L.walls));
   for (let r = 26; r < 100; r += 30) parts.push(`<polyline points='${cv.pts([[16, r, HEIGHT], [LEN - 16, r, HEIGHT]])}' stroke='${L.stripe}' stroke-width='5' fill='none' opacity='${look === "dia" ? 0.35 : 1}'/>`);
   const [wx, wy] = cv.at(30, 168, HEIGHT);
@@ -314,9 +316,11 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     const [ox, oy] = cv.at(x, y, 0);
     const [hx, hy] = [r1(Number(ox) + Number(model.head[0])), r1(Number(oy) + Number(model.head[1]))];
     const used = place2(id, x, y, colours(key)[0], [[-12, -12, 80], [12, 12, 0]]);
+    const [cx2, cy2] = cv.at(x, y, seat ? 32 : 34);
+    const rank = byColour && key !== `"fila"` ? [`<text x='${cx2}' y='${r1(Number(cy2) + 4)}' text-anchor='middle' ${FONT} font-size='11' font-weight='800' fill='#FFFFFF' stroke='#000000' stroke-width='0.6' paint-order='stroke'>`, D(`SWITCH(LOWER([@cor]), ${flow.colorBy.values.map(([v], i) => `"${String(v).toLowerCase().replace(/"/g, "\"\"")}", "${i + 1}"`).join(", ")}, "")`), "</text>"] : "";
     // Past the limit with a colour column: a red mark over the head (the colour already says the risk).
     const late = byColour && key !== `"fila"` ? when("[@atraso] = 1", [`<circle cx='${hx}' cy='${r1(Number(hy) - 24)}' r='8' fill='#E53935'/><text x='${hx}' y='${r1(Number(hy) - 19)}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='12' font-weight='800'>!</text>`]) : "";
-    return [open(where), used, late, "</g>"];
+    return [open(where), used, rank, late, "</g>"];
   };
   const load = (x, y, key, where) => { sym("l0", () => parcel(symCv, 0, 0, { body: tint })); return [open(where), place2("l0", x, y, colours(key)[0], [[-18, -18, 40], [18, 18, 0]]), "</g>"]; };
   const glyph = (x, y, key, where, tw = 34) => (G === "veiculo" ? vehicle(x - tw / 2, y, tw, key, where) : G === "pessoa" ? person(x, y + 20, key, where) : load(x, y + 20, key, where));
@@ -402,7 +406,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   if (hasRoad) {
     for (let j = 0; j < ROAD; j += 1) {
       const lane = j % 2; const pos = Math.floor(j / 2);
-      const X = 735 + lane * 80; const Y = 560 - pos * 165;
+      const X = 735 + RX + lane * 80; const Y = 560 - pos * 165;
       const [a0x, a0y] = cv.at(X, Y, 0); const [a1x, a1y] = cv.at(X, Y - 40, 0);
       const moving = `<animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`;
       // Loads and people go out by vehicle too: a van carrying them, coloured by their stage.
@@ -411,9 +415,9 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada", -1), when("[@nome] IN Destacados", auroraRing(mx, my, 50, 30)), "</g>"])}`);
     }
   }
-  const [qx, qy] = G === "veiculo" ? cv.at(-40, 470, 0) : cv.at(0, 590, 0);
+  const [qx, qy] = G === "veiculo" ? cv.at(-40, 470, 0) : cv.at(-80, 640, 0);
   cv.see(Number(qx) - 170, Number(qy));
-  const [rx, ry] = cv.at(900, -40, 0);
+  const [rx, ry] = cv.at(900 + RX, -40, 0);
   if (hasRoad) cv.see(Number(rx) + 250, Number(ry) + 60);
   const counts = [
     `<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 8)}' text-anchor='end' fill='${L.queue}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nFila + nFilaLocal, \"0\")"), ` ${xml(flow.queueLabel || "na fila")}</text>`,
@@ -428,7 +432,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const vb = { x: cv.minX - 16, y: cv.minY - 16, w: cv.maxX - cv.minX + 32, h: cv.maxY - cv.minY + 32 };
   const legend = [];
   const legendKeys = flow.colorBy
-    ? [...flow.colorBy.values.map(([v, hex]) => [hex, v]), ["#E53935", "! passou do limite"], [STATE.livre.shades[1], `${flow.place} livre`]]
+    ? [...flow.colorBy.values.map(([v, hex], i) => [hex, `${i + 1} · ${v}`]), ["#E53935", "! passou do limite"], [STATE.livre.shades[1], `${flow.place} livre`]]
     : [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", `${flow.place} livre`]];
   if (flow.colorBy) legend.push(`<text x='${r1(vb.x + 24)}' y='${r1(vb.y + 28)}' fill='${L.strong}' ${FONT} font-size='18' font-weight='700'>${xml(flow.colorBy.column)}</text>`);
   legendKeys.forEach(([key, text], i) => {
@@ -449,7 +453,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const docks = site ? `CALCULATETABLE(VALUES(${place}), ${site} = Unidade, REMOVEFILTERS(${q(F)}))` : `ALL(${place})`;
   const svgHead = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}' preserveAspectRatio='none'>`;
   const askUnit = site ? [
-    `IF(ISBLANK(Unidade), ${daxText(URL_HEAD)} & ${daxText(svgHead)} & ${joinDax([cv.poly([[-120, -60, 0], [920, -60, 0], [920, 800, 0], [-120, 800, 0]], L.ground)])}`,
+    `IF(ISBLANK(Unidade), ${daxText(URL_HEAD)} & ${daxText(svgHead)} & ${joinDax([cv.poly([[-120, -60, 0], [920 + RX, -60, 0], [920 + RX, 800, 0], [-120, 800, 0]], L.ground)])}`,
     `  & ${daxText(`<text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 - 10)}' text-anchor='middle' fill='${L.strong}' ${FONT} font-size='34' font-weight='700'>Escolha uma ${xml(flow.site)} no filtro</text><text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 + 30)}' text-anchor='middle' fill='${L.text}' ${FONT} font-size='22'>`)} & ${safe(`"A cena desenha uma unidade por vez (há " & COUNTROWS(ALL(${site})) & "); os números acima somam todas."`)} & "</text></svg>",`,
   ] : [];
   const capServed = 3; const capLine = G === "veiculo" ? 2 : 4;
