@@ -50,6 +50,17 @@ Cada pessoa na sala é algo real do Harness, no estado em que está agora. Nada 
 
 Quem chega entra pela porta e anda até o seu lugar; quem sai do retrato anda até a porta.
 
+### A sala cresce com a equipe
+
+A sala ganha uma fileira de 7 computadores para cada 7 pessoas, com pelo menos 2 fileiras (14 computadores). O sofá e a porta descem junto, e a sala fica mais comprida.
+- **Reunião:** tem 12 cadeiras e lugar para mais 14 de pé em volta da mesa. Numa reunião cheia fala um de cada vez, o chefe com mais frequência, e só aparece o nome de quem fala.
+- **Estante e servidor:** quando estão ocupados, quem precisa deles trabalha no computador.
+- **Sem lugar certo:** quem não tem um lugar específico fica de pé num ponto livre entre as fileiras. Ninguém sai da sala por falta de lugar.
+
+![Uma equipe de 20 agentes](img/escritorio-20.png)
+
+![Uma reunião de 18](img/escritorio-reuniao-18.png)
+
 ### Vivo, sem inventar
 
 O lugar e o gesto também seguem o que está acontecendo:

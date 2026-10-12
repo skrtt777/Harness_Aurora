@@ -10,23 +10,32 @@ export type OfficeActor = {
   plan?: { done: number; total: number } | null;
 };
 
-export const COLS = 30, ROWS = 18;
 export type Tile = { x: number; y: number };
 export type Spot = Tile & { face: "up" | "down" | "left" | "right"; sit: boolean; kind: SpotKind; desk?: number };
 export type SpotKind = "desk" | "meeting" | "boss" | "visit" | "coffee" | "sofa" | "rest" | "door" | "shelf" | "server" | "pace";
 
 /** The furniture: blocked tiles, drawn by the view. */
 export type Furniture = { kind: "desk" | "table" | "bossdesk" | "counter" | "machine" | "sofa" | "plant" | "roundtable" | "glass" | "shelf" | "whiteboard" | "server"; x: number; y: number; w: number; h: number; desk?: number };
+export type Plan = { cols: number; rows: number; desks: number; furniture: Furniture[]; spots: Spot[]; door: Tile; lounge: { y0: number; y1: number } };
 
-function plan() {
+export const DESKS_PER_ROW = 7;
+/**
+ * The floor plan for a team of a size: the top of the room is fixed (meeting room, the boss's corner,
+ * coffee, the server), then one row of seven desks for every seven people (at least two rows), the
+ * lounge and the door below the last one. The meeting room seats 12 and has room for 14 more standing.
+ */
+export function makePlan(desks = 14): Plan {
+  const rowsOfDesks = Math.max(2, Math.ceil(desks / DESKS_PER_ROW));
   const furniture: Furniture[] = [];
   const spots: Spot[] = [];
-  // Meeting room (top left), behind glass with an opening.
+  // Meeting room (top left), walled, with a door.
   furniture.push({ kind: "table", x: 3, y: 3, w: 4, h: 2 }, { kind: "whiteboard", x: 1, y: 1, w: 3, h: 1 });
   for (let x = 1; x <= 8; x++) if (x !== 5) furniture.push({ kind: "glass", x, y: 7, w: 1, h: 1 });
   for (let y = 1; y <= 6; y++) furniture.push({ kind: "glass", x: 9, y, w: 1, h: 1 });
   for (const x of [3, 4, 5, 6]) { spots.push({ x, y: 2, face: "down", sit: true, kind: "meeting" }); spots.push({ x, y: 5, face: "up", sit: true, kind: "meeting" }); }
   for (const y of [3, 4]) { spots.push({ x: 2, y, face: "right", sit: true, kind: "meeting" }); spots.push({ x: 7, y, face: "left", sit: true, kind: "meeting" }); }
+  // Standing round the table when the meeting is bigger than the chairs.
+  for (const [x, y, face] of [[1, 3, "right"], [1, 4, "right"], [1, 5, "right"], [8, 2, "left"], [8, 3, "left"], [8, 4, "left"], [8, 5, "left"], [2, 6, "up"], [3, 6, "up"], [4, 6, "up"], [6, 6, "up"], [7, 6, "up"], [1, 6, "up"], [8, 6, "up"]] as const) spots.push({ x, y, face, sit: false, kind: "meeting" });
   // The boss's corner (top middle): the desk and two places to stand in front of it.
   furniture.push({ kind: "bossdesk", x: 13, y: 2, w: 3, h: 1 }, { kind: "shelf", x: 11, y: 1, w: 2, h: 1 }, { kind: "plant", x: 17, y: 1, w: 1, h: 1 });
   spots.push({ x: 14, y: 1, face: "down", sit: true, kind: "boss" });
@@ -39,30 +48,50 @@ function plan() {
   furniture.push({ kind: "machine", x: 27, y: 1, w: 1, h: 1 }, { kind: "counter", x: 22, y: 1, w: 5, h: 1 }, { kind: "roundtable", x: 24, y: 4, w: 1, h: 1 }, { kind: "plant", x: 28, y: 1, w: 1, h: 1 });
   for (const x of [27, 22, 23, 24, 25, 26]) spots.push({ x, y: 2, face: "up", sit: false, kind: "coffee" });
   spots.push({ x: 23, y: 4, face: "right", sit: true, kind: "coffee" }, { x: 25, y: 4, face: "left", sit: true, kind: "coffee" }, { x: 24, y: 5, face: "up", sit: true, kind: "coffee" });
-  // Desks (two rows of seven, people facing their screens).
+  for (const [x, y] of [[20, 6], [11, 6]]) spots.push({ x, y, face: "down", sit: false, kind: "rest" });
+  // Desks: rows of seven, four tiles apart, people facing their screens.
   let n = 0;
-  for (const y of [9, 13]) for (let x = 5; x <= 23; x += 3) {
-    furniture.push({ kind: "desk", x, y, w: 2, h: 1, desk: n });
-    spots.push({ x, y: y + 1, face: "up", sit: true, kind: "desk", desk: n });
-    n++;
+  for (let r = 0; r < rowsOfDesks; r++) {
+    const y = 9 + r * 4;
+    for (let x = 5; x <= 23; x += 3) {
+      furniture.push({ kind: "desk", x, y, w: 2, h: 1, desk: n });
+      spots.push({ x, y: y + 1, face: "up", sit: true, kind: "desk", desk: n });
+      n++;
+    }
+    furniture.push({ kind: "plant", x: 1, y, w: 1, h: 1 }, { kind: "plant", x: 28, y, w: 1, h: 1 });
+    if (r < rowsOfDesks - 1) spots.push({ x: 27, y: y + 3, face: "down", sit: false, kind: "rest" }, { x: 2, y: y + 3, face: "down", sit: false, kind: "rest" });
   }
-  // Lounge (bottom right): the sofa, plants; rest spots around.
-  furniture.push({ kind: "sofa", x: 23, y: 16, w: 4, h: 1 }, { kind: "plant", x: 28, y: 16, w: 1, h: 1 }, { kind: "plant", x: 22, y: 16, w: 1, h: 1 }, { kind: "plant", x: 1, y: 9, w: 1, h: 1 }, { kind: "plant", x: 28, y: 9, w: 1, h: 1 });
-  for (const x of [23, 24, 25, 26]) spots.push({ x, y: 16, face: "down", sit: true, kind: "sofa" });
-  for (const [x, y] of [[20, 6], [11, 6], [27, 12], [2, 12], [18, 16], [9, 16]]) spots.push({ x, y, face: "down", sit: false, kind: "rest" });
-  spots.push({ x: 3, y: 16, face: "up", sit: false, kind: "door" });
-  return { furniture, spots };
+  // Lounge and door below the last row.
+  const sofaY = 9 + (rowsOfDesks - 1) * 4 + 3;
+  furniture.push({ kind: "sofa", x: 23, y: sofaY, w: 4, h: 1 }, { kind: "plant", x: 28, y: sofaY, w: 1, h: 1 }, { kind: "plant", x: 22, y: sofaY, w: 1, h: 1 });
+  for (const x of [23, 24, 25, 26]) spots.push({ x, y: sofaY, face: "down", sit: true, kind: "sofa" });
+  for (const [x, y] of [[18, sofaY], [9, sofaY]]) spots.push({ x, y, face: "down", sit: false, kind: "rest" });
+  const door = { x: 3, y: sofaY };
+  spots.push({ ...door, face: "up", sit: false, kind: "door" });
+  return { cols: 30, rows: sofaY + 2, desks: n, furniture, spots, door, lounge: { y0: sofaY - 2, y1: sofaY } };
 }
-export const PLAN = plan();
-export const DOOR: Tile = { x: 3, y: 16 };
+
+// The plan in use (live bindings: the view reads them as they change).
+export let PLAN: Plan = makePlan(14);
+export let COLS = PLAN.cols, ROWS = PLAN.rows;
+export let DOOR: Tile = PLAN.door;
 
 /** Walkable tiles (walls round the room; furniture blocks, except where someone sits on it: the sofa). */
-export function walkable(): boolean[][] {
-  const g = Array.from({ length: ROWS }, (_, y) => Array.from({ length: COLS }, (_, x) => x > 0 && y > 0 && x < COLS - 1 && y < ROWS - 1));
-  for (const f of PLAN.furniture) if (f.kind !== "sofa") for (let y = f.y; y < f.y + f.h; y++) for (let x = f.x; x < f.x + f.w; x++) g[y][x] = false;
+export function walkable(plan: Plan = PLAN): boolean[][] {
+  const g = Array.from({ length: plan.rows }, (_, y) => Array.from({ length: plan.cols }, (_, x) => x > 0 && y > 0 && x < plan.cols - 1 && y < plan.rows - 1));
+  for (const f of plan.furniture) if (f.kind !== "sofa") for (let y = f.y; y < f.y + f.h; y++) for (let x = f.x; x < f.x + f.w; x++) g[y][x] = false;
   return g;
 }
-const GRID = walkable();
+let GRID = walkable();
+
+/** How many desks the people of a room need (seven to a row, at least two rows). */
+export const desksFor = (people: number) => Math.max(14, Math.ceil(people / DESKS_PER_ROW) * DESKS_PER_ROW);
+/** A plan for this many desks (the room grows or shrinks); true when it changed. */
+export function usePlan(desks: number): boolean {
+  if (desks === PLAN.desks) return false;
+  PLAN = makePlan(desks); COLS = PLAN.cols; ROWS = PLAN.rows; DOOR = PLAN.door; GRID = walkable();
+  return true;
+}
 
 /** The shortest walk between two tiles (4 directions), without the start; [] when there is none. */
 export function findPath(from: Tile, to: Tile, grid: boolean[][] = GRID): Tile[] {
@@ -139,7 +168,8 @@ export function assignSpots(actors: OfficeActor[], before: Map<string, Spot> = n
     const partner = a.with ? out.get(a.with) : undefined;
     const options = free(kind as SpotKind).sort((p, q) => (partner ? Math.hypot(p.x - partner.x, p.y - partner.y) - Math.hypot(q.x - partner.x, q.y - partner.y) : 0));
     if (partner && options.length) { take(a, options[0]); continue; }
-    const rest = kind === "sofa" || kind === "coffee" ? [...options, ...free("rest"), ...free(kind === "sofa" ? "coffee" : "sofa")] : options.length ? options : free("rest");
+    // Full shelves or server: the computer; full sofa or café: any rest spot.
+    const rest = kind === "sofa" || kind === "coffee" ? [...options, ...free("rest"), ...free(kind === "sofa" ? "coffee" : "sofa")] : options.length ? options : kind === "shelf" || kind === "server" ? free("desk") : free("rest");
     // The same desk for the same person, when it is free (their place in the office).
     const pick = rest.length ? rest[hash(a.id) % Math.min(rest.length, kind === "desk" ? rest.length : 3)] : undefined;
     take(a, pick);
@@ -150,6 +180,15 @@ export function assignSpots(actors: OfficeActor[], before: Map<string, Spot> = n
     const target = a.with ? out.get(a.with) : undefined;
     if (target) out.set(a.id, { x: target.x + 1, y: target.y + (target.kind === "desk" ? 0 : 1), face: "left", sit: false, kind: "visit" });
     else take(a, PLAN.spots.find((s) => s.kind === "boss"));
+  }
+  // Nobody is left out for lack of a place: a free spot of the open floor (between the desk rows),
+  // standing, always the same for the same person while it is free.
+  const missing = actors.filter((a) => !out.has(a.id) && want(a) !== "gone");
+  if (missing.length) {
+    const used = new Set([...PLAN.spots, ...out.values()].map((s) => `${s.x},${s.y}`));
+    const open: Spot[] = [];
+    for (let y = 8; y < PLAN.rows - 1; y++) for (let x = 2; x < PLAN.cols - 2; x++) if (GRID[y][x] && !used.has(`${x},${y}`) && !PLAN.spots.some((s) => s.kind === "desk" && Math.abs(s.x - x) <= 1 && s.y === y)) open.push({ x, y, face: "down", sit: false, kind: "rest" });
+    for (const a of missing) { const free = open.filter((s) => !taken.has(s)); if (free.length) take(a, free[hash(a.id) % free.length]); }
   }
   return out;
 }
@@ -251,7 +290,10 @@ export function routines(walkers: Walker[], now: number): void {
       // Now and then next to another idle person, to chat; otherwise another rest spot.
       const mate = walkers.find((o) => o !== w && o.actor.state === "descanso" && arrived(o) && !o.chatWith && o.spot);
       if (mate && hash(w.id + String(now)) % 2 === 0) {
-        const near = [[1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: mate.spot!.x + dx, y: mate.spot!.y + dy })).find((t) => findPath(w, t).length || (w.x === t.x && w.y === t.y));
+        // A free floor tile beside the mate (never on the sofa nor in furniture).
+        const onSofa = (t: Tile) => PLAN.furniture.some((f) => f.kind === "sofa" && t.y === f.y && t.x >= f.x && t.x < f.x + f.w);
+        const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: mate.spot!.x + dx, y: mate.spot!.y + dy }))
+          .find((t) => GRID[t.y]?.[t.x] && !onSofa(t) && !PLAN.spots.some((s) => s.x === t.x && s.y === t.y && used.has(s)) && (findPath(w, t).length || (w.x === t.x && w.y === t.y)));
         if (near) { const face: Spot["face"] = near.x > mate.spot!.x ? "left" : near.x < mate.spot!.x ? "right" : "up"; go(w, { ...near, face, sit: false, kind: "rest" }); w.home = w.spot; w.chatWith = mate.id; mate.chatWith = w.id; continue; }
       }
       const options = PLAN.spots.filter((s) => (s.kind === "sofa" || s.kind === "rest" || s.kind === "coffee") && !used.has(s));

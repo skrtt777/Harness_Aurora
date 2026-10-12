@@ -6,7 +6,8 @@
 import { COLS, ROWS, PLAN, type Furniture, type Walker, type OfficeActor } from "./officeSim";
 
 export const T = 16;                         // pixels per tile
-export const W = COLS * T, H = ROWS * T;
+/** The room in pixels (it grows with the team: officeSim usePlan). */
+export const size = () => ({ W: COLS * T, H: ROWS * T });
 type Ctx = CanvasRenderingContext2D;
 const px = (c: Ctx, x: number, y: number, w: number, h: number, col: string) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), w, h); };
 const OUT = "#17141f";
@@ -27,7 +28,7 @@ const P = {
 
 // ---------------- Floors and walls ----------------
 const zoneOf = (x: number, y: number) =>
-  x >= 1 && x <= 8 && y >= 1 && y <= 6 ? "meet" : x >= 11 && x <= 17 && y >= 1 && y <= 4 ? "boss" : x >= 21 && x <= 28 && y >= 1 && y <= 6 ? "cafe" : x >= 21 && x <= 28 && y >= 14 && y <= 16 ? "lounge" : "wood";
+  x >= 1 && x <= 8 && y >= 1 && y <= 6 ? "meet" : x >= 11 && x <= 17 && y >= 1 && y <= 4 ? "boss" : x >= 21 && x <= 28 && y >= 1 && y <= 6 ? "cafe" : x >= 21 && x <= 28 && y >= PLAN.lounge.y0 && y <= PLAN.lounge.y1 ? "lounge" : "wood";
 
 function floorTile(c: Ctx, tx: number, ty: number) {
   const x = tx * T, y = ty * T; const z = zoneOf(tx, ty);
@@ -50,6 +51,7 @@ function floorTile(c: Ctx, tx: number, ty: number) {
 
 /** The fixed part of the room (floors, walls, wall decoration), drawn once into a buffer. */
 export function drawRoom(c: Ctx) {
+  const { W, H } = size();
   for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < COLS; tx++) floorTile(c, tx, ty);
   // Back wall: cap, face with panels, baseboard.
   px(c, 0, 0, W, 3, P.wallCap); px(c, 0, 3, W, T - 3, P.wallFace);
@@ -187,6 +189,7 @@ export function drawWindows(c: Ctx, now: Date) {
 }
 /** Evening and night: the room dims and the screens of who works glow. */
 export function drawLight(c: Ctx, now: Date, glows: Array<{ x: number; y: number }>) {
+  const { W, H } = size();
   const h = now.getHours() + now.getMinutes() / 60;
   const dark = h >= 20 || h < 5.5 ? 0.42 : h >= 18.5 ? 0.22 : h < 7 ? 0.18 : 0;
   if (!dark) return;

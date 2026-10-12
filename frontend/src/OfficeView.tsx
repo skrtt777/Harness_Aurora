@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getOffice, type OfficeRoom } from "./api";
-import { PLAN, step, sync, stroll, type OfficeActor, type Walker } from "./officeSim";
-import { T, W, H, drawRoom, drawFurniture, drawClock, drawWindows, drawLight, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks, type Sign } from "./officePixel";
+import { PLAN, step, sync, stroll, usePlan, desksFor, type OfficeActor, type Walker } from "./officeSim";
+import { T, size, drawRoom, drawFurniture, drawClock, drawWindows, drawLight, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks, type Sign } from "./officePixel";
 import "./office.css";
 
 /**
@@ -34,6 +34,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
   const [roomId, setRoomId] = useState<string>(() => { try { return localStorage.getItem("aurora-office-room") || "equipe"; } catch { return "equipe"; } });
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [rows, setRows] = useState(() => size().H / T);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const walkersRef = useRef<Walker[]>([]);
   const hoverRef = useRef<string | null>(null);
@@ -60,7 +61,9 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
   useEffect(() => {
     if (!room) return;
     const actors = room.actors.filter((a) => a.state !== "desligado");
-    if (lastRoom.current !== room.id) { walkersRef.current = sync([], actors, Date.now()); lastRoom.current = room.id; }
+    // The room has a desk for each one (a row of seven more when the team grows): a new plan is a new floor.
+    const grew = usePlan(desksFor(actors.filter((a) => a.kind !== "chefe").length));
+    if (grew || lastRoom.current !== room.id) { walkersRef.current = sync([], actors, Date.now()); lastRoom.current = room.id; setRows(size().H / T); }
     else walkersRef.current = sync(walkersRef.current, actors, Date.now());
   }, [room]);
 
@@ -84,7 +87,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
   // Pointing at someone: their name and what they do; a click selects them.
   const pick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current; if (!canvas) return null;
-    const r = canvas.getBoundingClientRect(); const s = r.width / W;
+    const r = canvas.getBoundingClientRect(); const s = r.width / size().W;
     const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
     let best: Walker | null = null; let bd = 12;
     for (const w of walkersRef.current) { const p = feet(w); const d = Math.hypot(p.x - x, p.y - 11 - y); if (d < bd) { bd = d; best = w; } }
@@ -109,7 +112,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
     {error && <p role="alert" className="office-error">Não consegui ler o escritório: {error}</p>}
     <div className="office-body">
       <div className="office-stage">
-        <canvas ref={canvasRef} className="office-canvas" width={W * 3} height={H * 3} aria-label={`Sala ${room?.name || ""}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
+        <canvas ref={canvasRef} className="office-canvas" style={{ aspectRatio: `30 / ${rows}` }} width={size().W * 3} height={size().H * 3} aria-label={`Sala ${room?.name || ""}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
           onMouseMove={(e) => { const w = pick(e); hoverRef.current = w?.id || null; e.currentTarget.style.cursor = w ? "pointer" : "default"; }}
           onMouseLeave={() => { hoverRef.current = null; }}
           onClick={(e) => setSelected(pick(e)?.id || null)} />
@@ -160,10 +163,11 @@ function poseOf(w: Walker): { pose: Pose; facing: Walker["facing"] } {
 }
 
 const lookHash = (s: string) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
-let low: HTMLCanvasElement | null = null, room: HTMLCanvasElement | null = null;
+let low: HTMLCanvasElement | null = null, room: HTMLCanvasElement | null = null, roomPlan: unknown = null;
 function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers: Walker[], t: number, hover: string | null, selected: string | null) {
-  if (!low) { low = document.createElement("canvas"); low.width = W; low.height = H; }
-  if (!room) { room = document.createElement("canvas"); room.width = W; room.height = H; drawRoom(room.getContext("2d")!); }
+  const { W, H } = size();
+  if (!low || low.height !== H) { low = document.createElement("canvas"); low.width = W; low.height = H; }
+  if (!room || roomPlan !== PLAN) { room = document.createElement("canvas"); room.width = W; room.height = H; drawRoom(room.getContext("2d")!); roomPlan = PLAN; }
   const c = low.getContext("2d")!;
   c.imageSmoothingEnabled = false;
   c.drawImage(room, 0, 0);
@@ -173,7 +177,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   const items: Array<{ y: number; draw: () => void }> = [];
   for (const f of PLAN.furniture) if (f.kind !== "glass") items.push({ y: (f.y + f.h) * T - (f.kind === "shelf" || f.kind === "whiteboard" ? 8 : 0), draw: () => drawFurniture(c, f, working, t) });
   const seated = new Set(walkers.filter((w) => w.seat && w.spot).map((w) => `${w.spot!.x},${w.spot!.y}`));
-  for (const s of PLAN.spots) if ((s.kind === "desk" || s.kind === "meeting") && !seated.has(`${s.x},${s.y}`)) items.push({ y: s.y * T + 10, draw: () => drawEmptySeat(c, s.x, s.y) });
+  for (const s of PLAN.spots) if ((s.kind === "desk" || s.kind === "meeting") && s.sit && !seated.has(`${s.x},${s.y}`)) items.push({ y: s.y * T + 10, draw: () => drawEmptySeat(c, s.x, s.y) });
   for (const w of walkers) {
     const p = feet(w); const { pose, facing } = poseOf(w);
     items.push({ y: p.y + (w.seat && w.spot?.kind === "sofa" ? T : 0), draw: () => drawPerson(c, p.x, p.y, w.actor, lookOf(w.actor), pose, facing, Math.floor(w.phase), t, w.carry ?? null) });
@@ -183,24 +187,30 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   drawLight(c, now, PLAN.furniture.filter((f) => f.kind === "desk" && working.has(f.desk!)).map((f) => ({ x: f.x * T + 9, y: f.y * T - 6 })));
   // Signs over the heads of who has arrived: at the shelves a book, at the server a terminal, a
   // conversation in turns (one talks, then the other).
+  // In a meeting one speaks at a time (the boss more often), in turns of 1.6 s.
+  const meeting = walkers.filter((w) => !w.path.length && w.spot?.kind === "meeting");
+  const order = [...meeting.filter((w) => w.actor.kind === "chefe"), ...meeting].map((w) => w.id);
+  const speaker = order.length ? order[Math.floor(t / 1.6) % order.length] : null;
   for (const w of walkers) {
     if (w.path.length) continue;
+    if (w.spot?.kind === "meeting" && meeting.length > 2 && w.id !== speaker) continue;
     let sgn: Sign | null = w.spot?.kind === "shelf" ? "book" : w.spot?.kind === "server" ? "term" : w.spot?.kind === "pace" ? "think" : w.carry === "paper" ? "paper" : signOf(w.actor.state, w.actor.kind);
     const talking = w.chatWith ? walkers.find((o) => o.id === w.chatWith && !o.path.length) : null;
     if (talking) sgn = "talk";
-    if (sgn === "talk" && Math.floor(t / 1.6 + (talking ? (w.id < talking.id ? 0 : 1) : (lookHash(w.id) % 2))) % 2) continue;
+    if (sgn === "talk" && w.id !== speaker && Math.floor(t / 1.6 + (talking ? (w.id < talking.id ? 0 : 1) : (lookHash(w.id) % 2))) % 2) continue;
     if (sgn) { const p = feet(w); drawBubble(c, p.x + 1, p.y - (w.seat ? 25 : 27), sgn, t); }
   }
   // Enlarged without smoothing; the names sharp on top.
   const ratio = window.devicePixelRatio || 1; const shown = canvas.clientWidth || W * 3;
   const want = Math.max(W, Math.round(shown * ratio));
-  if (canvas.width !== want) { canvas.width = want; canvas.height = Math.round(want * H / W); }
+  if (canvas.width !== want || canvas.height !== Math.round(want * H / W)) { canvas.width = want; canvas.height = Math.round(want * H / W); }
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
   ctx.drawImage(low, 0, 0, canvas.width, canvas.height);
   const k = canvas.width / W;
   ctx.textAlign = "center";
   for (const w of walkers) {
     const lit = w.id === hover || w.id === selected; const a = w.actor; const p = feet(w);
+    if (!lit && w.spot?.kind === "meeting" && !w.path.length && meeting.length > 6 && w.id !== speaker) continue;      // a crowd: only who speaks
     const text = lit ? `${who(a)}: ${STATE_LABEL[a.state] || a.state}` : a.kind === "copia" ? a.name.replace(/ de .*/, "") : a.name.length > 14 ? `${a.name.slice(0, 13)}…` : a.name;
     const size = Math.round((lit ? 4.6 : 3.6) * k); ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
     const x = p.x * k, y = (p.y + 5) * k + size * 0.6;

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PLAN, DOOR, findPath, walkable, placeOf, assignSpots, sync, step, routines } from "../.test-build/officeSim.js";
+import * as sim from "../.test-build/officeSim.js";
+import { PLAN, DOOR, findPath, walkable, placeOf, assignSpots, sync, step, routines, usePlan, desksFor, makePlan } from "../.test-build/officeSim.js";
 
 const actor = (id, state, extra = {}) => ({ id, kind: "agente", name: id, state, activity: "", ...extra });
 
@@ -74,4 +75,23 @@ test("office: life between the facts: the boss goes round who works, idle people
   floor = sync([], [actor("t", "pensando", { since: 1 })], 0); now = 0; let paced = false;
   for (let i = 0; i < 20 * 20; i++) { now += 50; floor = step(floor, 0.05, now); routines(floor, now); paced ||= floor[0].spot.kind === "pace"; }
   assert.ok(paced);
+});
+
+test("office: the room grows with the team (20 working, a meeting of 20, 40 at rest: nobody is left out)", () => {
+  assert.equal(desksFor(20), 21); assert.equal(desksFor(3), 14);
+  assert.equal(makePlan(21).rows, makePlan(14).rows + 4);
+  try {
+    usePlan(desksFor(20));
+    assert.equal(sim.PLAN.spots.filter((s) => s.kind === "desk").length, 21);
+    // Every place still reachable from the door in the bigger room.
+    for (const s of sim.PLAN.spots) assert.ok(findPath(sim.DOOR, s).length > 0 || (s.x === sim.DOOR.x && s.y === sim.DOOR.y), `${s.kind} ${s.x},${s.y}`);
+    const working = Array.from({ length: 20 }, (_, i) => actor(`w${i}`, "trabalhando"));
+    const spots = assignSpots(working);
+    assert.equal(spots.size, 20); assert.ok([...spots.values()].every((s) => s.kind === "desk"));
+    const meeting = assignSpots(Array.from({ length: 20 }, (_, i) => actor(`m${i}`, "reuniao")));
+    assert.equal(meeting.size, 20); assert.equal([...meeting.values()].filter((s) => s.sit).length, 12);
+    const resting = assignSpots(Array.from({ length: 40 }, (_, i) => actor(`r${i}`, "descanso")));
+    assert.equal(resting.size, 40); assert.equal(new Set([...resting.values()].map((s) => `${s.x},${s.y}`)).size, 40);
+    const grid = walkable(); for (const s of resting.values()) if (!s.sit) assert.ok(grid[s.y][s.x], `em pé num móvel ${s.x},${s.y}`);
+  } finally { usePlan(14); }
 });
