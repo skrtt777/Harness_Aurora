@@ -146,7 +146,10 @@ function fitChart(b, cat) {
 function fitType(b, cat) {
   if (/anterior|varia[çc][ãa]o %/i.test(b.medida) && (cat.months || 0) < 2) b = { ...b, medida: (cat.principal || cat.numbers).find((n) => !/anterior|varia/i.test(n)) || b.medida, titulo: "" };
   const time = cat.time.includes(b.por);
-  if (b.tipo === "medidor" && !(/%/.test(b.medida) && !/anterior|varia|acumulad/i.test(b.medida))) return { ...b, tipo: "barras", por: b.por || cat.dims[0]?.name || "" };
+  // A column of dozens of values (a description, a date as text) is not a chart's axis: a fewer-valued one.
+  const dim = cat.dims.find((d) => d.name === b.por);
+  if (dim && dim.distinct > 30) b = { ...b, por: cat.dims.find((d) => d.distinct >= 3 && d.distinct <= 30)?.name || "", titulo: "" };
+  if (b.tipo === "medidor" && !(/%/.test(b.medida) && !/anterior|varia|acumulad|do total/i.test(b.medida))) return { ...b, tipo: "barras", por: b.por || cat.dims[0]?.name || "" };
   if (["linha", "area"].includes(b.tipo) && b.por && !time) return { ...b, tipo: "barras" };
   if (b.tipo === "cascata" && (b.por !== "mês" || (cat.months || 0) < 3)) return { ...b, tipo: b.por === "mês" ? "colunas" : "barras" };
   if (b.tipo === "funil" && !(cat.statusColumn && b.por === cat.statusColumn)) return { ...b, tipo: "barras" };

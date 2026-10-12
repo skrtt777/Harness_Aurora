@@ -430,7 +430,9 @@ export function prepare(tables, { title, goal = "" } = {}) {
   const keys = fin ? { income: fin.income, outgo: fin.outgo, balance: fin.balance, margin: fin.margin, execution: fin.execution, headline }
     : story ? { kpis: story.kpis, count, onTime: story.onTime, lateDone: story.lateDone, headline }
       : { kpis: generic, headline };
-  const numbers = measures.filter((x) => !x.category && x.format).map((x) => x.name);
+  // The numbers of the business: not the refresh time (a card "Última atualização", a chart of it by
+  // group, 12/10), nor a simulation outside its own table (its scenario is chosen there).
+  const numbers = measures.filter((x) => !x.category && x.format && x.name !== stamp && x.folder !== "Simulação").map((x) => x.name);
   // A card shows the number alone: not a share, nor a month-on-month change (blank without one month).
   const simulated = new Set(measures.filter((x) => x.folder === "Simulação").map((x) => x.name));
   const cardable = numbers.filter((n) => !/% do total|mês anterior|Variação %|ano anterior/.test(n) && !simulated.has(n));
