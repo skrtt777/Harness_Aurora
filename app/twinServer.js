@@ -4,10 +4,10 @@
 // certificate made in memory by app/selfsigned.js) and plain HTTP on this computer (localhost is secure).
 import http from "node:http";
 import https from "node:https";
-import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
 import { selfSigned } from "./selfsigned.js";
+import { serveXrFile } from "./xrStatic.js";
 
 let running = null;
 const lanAddresses = () => Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => a.address);
@@ -19,14 +19,15 @@ const lanAddresses = () => Object.values(networkInterfaces()).flat().filter((a) 
 export async function startTwinServer({ getState, lan = true, port = 8765, securePort = 8766, everyMs = 15_000 } = {}) {
   if (running) return running.info;
   const token = randomBytes(9).toString("base64url");
-  const page = readFileSync(new URL("./twin/index.html", import.meta.url), "utf8");
   let cache = { at: 0, state: null };
   const handler = async (req, res) => {
     const url = new URL(req.url, "http://x");
-    const [, tk, what] = url.pathname.split("/");
+    const [, tk, ...rest] = url.pathname.split("/");
+    const what = rest.join("/");
     if (tk !== token || req.method !== "GET") { res.writeHead(404); return res.end(); }
     try {
-      if (!what) { res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); return res.end(page); }
+      // The Aurora XR app (app/xr) in read-only mode: only the operation, from ./state next to it.
+      if (what !== "state") { if (await serveXrFile(res, what)) return; res.writeHead(404); return res.end(); }
       if (what === "state") {
         // One read of the model every 15 s at most, however many are looking.
         if (Date.now() - cache.at > everyMs) cache = { at: Date.now(), state: (await getState()) || { version: 1, kind: "vazio", title: "Nenhum Power BI aberto pela Aurora", units: [], entities: [], numbers: {}, notes: [], highlight: { values: [], note: "" } } };

@@ -8,8 +8,9 @@ relatório desenha: 5 caminhões na doca no Power BI são 5 caminhões na doca n
 - **Frequência:** o relatório se atualiza quando a planilha muda e no máximo a cada 10 minutos. Quem lê o estado não precisa ler mais de uma vez a cada 15 s.
 - **Conferência:** `scripts/powerbi-lab/gemeo-lab.mjs` compara o estado com o gerador dos dados (CD: 11/11).
 - **Onde ler:**
-  - **Quest (app AuroraXR):** `GET /xr/v1/twin` na ponte XR (pareada, autenticada, só leitura). Ela repassa para `GET /api/powerbi/twin` no PC. A página **Operação** do painel mostra os números e o que mudou, e põe a maquete na mesa (`AuroraTwin.h/.cpp`).
-  - **Navegador / WebXR:** `powerbi action=vr` sobe um servidor só de leitura com código aleatório no endereço (`app/twinServer.js`). Ele responde em HTTP neste computador e em HTTPS na rede, com certificado feito em memória. Serve `/<código>/` (página three.js com "Entrar em VR") e `/<código>/state`.
+  - **Aurora XR (óculos, celular, PC):** `GET /xr/v1/twin` na ponte XR (pareada, autenticada, só leitura). Ela repassa para `GET /api/powerbi/twin` no PC. A página **Operação** mostra os números e o que mudou, e põe a maquete na mesa: real em MR/AR, virtual em VR (`app/xr/lib/twinLayout.js`, `app/xr/xr/twin3d.js`). Veja [AURORA_XR.md](AURORA_XR.md).
+  - **Só leitura, sem pareamento:** `powerbi action=vr` sobe um servidor com código aleatório no endereço (`app/twinServer.js`). Ele responde em HTTP neste computador e em HTTPS na rede, com certificado feito em memória. Serve `/<código>/` (o Aurora XR só com a Operação) e `/<código>/state`.
+  - **Unreal (anterior):** `AuroraTwin.h/.cpp` desenha o mesmo contrato.
 
 ## Formato (version 1)
 

@@ -319,7 +319,8 @@ test("the twin server: page and state behind a random code, read only, the state
     assert.match(info.local, /^http:\/\/localhost:\d+\/[\w-]{12}\/$/);
     const page = await fetch(info.local);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Entrar em VR|VRButton/);
+    assert.match(await page.text(), /Aurora XR/);
+    assert.equal((await fetch(`${info.local}vendor/three.module.js`)).status, 200, "the app's files next to the state");
     const state = await (await fetch(`${info.local}state`)).json();
     assert.equal(state.title, "CD");
     await fetch(`${info.local}state`);

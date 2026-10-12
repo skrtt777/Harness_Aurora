@@ -8,6 +8,8 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "node app/server.js",
+    "xr": "node app/xrBridge.js",
+    "xr:lab": "node scripts/xr-lab/xr-lab.mjs output/xr-lab",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "check": "node --check app/server.js",
     "frontend:dev": "npm --prefix frontend run dev",

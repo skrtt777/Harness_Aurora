@@ -1,5 +1,7 @@
 # AuroraXR
 
+> **12/10/2026: substituído pelo Aurora XR web** (`app/xr/`, [docs/AURORA_XR.md](../../docs/AURORA_XR.md)). Ele é realidade mista, VR e AR no navegador do Quest, do celular e do PC, servido pela ponte XR do PC, sem APK. Este projeto Unreal fica como referência e para o runtime embarcado no óculos.
+
 Base de desenvolvimento XR da Aurora, criada a partir do template Virtual Reality instalado da Unreal Engine 5.8.
 
 **Versao MR / Quest 3:** painel animado com lista de opcoes, controle por pinca

@@ -31,11 +31,12 @@ try {
   const seal = await page.textContent("#seal");
   const first = state.units[0];
   check("a página 3D desenha todos", new RegExp(`✓ ${first.counts.total} de ${first.counts.total}`).test(seal), seal);
-  check("botão de VR presente", await page.evaluate(() => [...document.querySelectorAll("button, a")].some((b) => /VR/.test(b.textContent))));
+  // The Aurora XR app in read-only mode: the operation page (MR/VR buttons appear where the browser has WebXR).
+  check("Aurora XR na página da operação", await page.evaluate(() => window.auroraXR?.S.page === "operacao" && !!document.querySelector(".nums")));
   // The other unit, chosen on the page.
   if (other) {
     // (The scene animates without stopping: a click through the page, not one waiting for it to settle.)
-    await page.evaluate((name) => [...document.querySelectorAll("#units button")].find((b) => b.textContent === name)?.click(), other.name);
+    await page.evaluate((name) => [...document.querySelectorAll('[data-act="unit"]')].find((b) => b.textContent === name)?.click(), other.name);
     await page.waitForTimeout(1500);
     check("trocar de unidade na página", new RegExp(`${other.counts.total} de ${other.counts.total}`).test(await page.textContent("#seal")), await page.textContent("#seal"));
     await page.screenshot({ path: join(shots, "gemeo-3d-outra.png") });

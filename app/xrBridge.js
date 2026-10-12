@@ -1,5 +1,9 @@
 // Dedicated, TLS-only XR surface. The desktop API and its local session stay private.
 import https from 'node:https';
+import http from 'node:http';
+import { networkInterfaces } from 'node:os';
+import { serveXrFile } from './xrStatic.js';
+import { selfSigned } from './selfsigned.js';
 import { randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -9,6 +13,9 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const equal = (a,b) => a.length === b.length && timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const idPattern = /^[a-zA-Z0-9_-]{1,100}$/;
+const loopback = req => ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket?.remoteAddress);
+const sameOrigin = req => { try { return new URL(req.headers.origin).host===req.headers.host; } catch { return false; } };
+export const lanAddresses = () => Object.values(networkInterfaces()).flat().filter(a=>a&&a.family==='IPv4'&&!a.internal).map(a=>a.address);
 export class XRStore {
   constructor(directory) {
     mkdirSync(directory,{recursive:true}); this.file=join(directory,'state.json');
@@ -97,8 +104,16 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
   };
   const handler=async(req,res)=>{
     try {
-      if(req.headers.origin)fail(403,'A ponte aceita somente clientes nativos.');
       const url=new URL(req.url,'https://xr.local');const p=url.pathname;const method=req.method;
+      // The Aurora XR web app (app/xr), the same for the headset, the phone and the PC.
+      if(method==='GET'&&(p==='/xr/app'||p==='/'||p==='/xr')){res.writeHead(302,{location:'/xr/app/'});return res.end();}
+      if(method==='GET'&&p.startsWith('/xr/app/')){if(await serveXrFile(res,p.slice(8)))return;fail(404,'Arquivo não encontrado.');}
+      // Native clients send no Origin; the web app sends its own (it is served from here). Any other
+      // site is refused, so no page elsewhere can use a paired browser's token.
+      if(req.headers.origin&&!sameOrigin(req))fail(403,'A ponte aceita somente clientes nativos e o próprio app.');
+      // On the PC itself (loopback): open a new pairing window and show its code, to pair the headset
+      // or the phone without reading files.
+      if(p==='/xr/v1/pairing'&&method==='POST'){if(!loopback(req))fail(403,'Pareamento só pelo próprio PC.');return respond(res,200,{...startPairing(),addresses:lanAddresses()});}
       if(p==='/xr/v1/health'&&method==='GET')return respond(res,200,{ok:true,protocol:1});
       if(p==='/xr/v1/pair'&&method==='POST') {
         if(!pairing||pairing.expires<now()||pairing.attempts>=5)fail(403,'Pareamento fechado ou expirado.');
@@ -119,7 +134,7 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
         const body=await jsonBody(req,9000000);if(!['speak','transcribe','observe'].includes(body.kind)||!media[body.kind])fail(503,'Mídia indisponível.');
         return respond(res,200,await media[body.kind](body));
       }
-      if(p==='/xr/v1/capabilities'&&method==='GET')return respond(res,200,{protocol:1,chat:true,projects:true,memories:true,artifacts:true,twin:true,
+      if(p==='/xr/v1/capabilities'&&method==='GET')return respond(res,200,{protocol:1,chat:true,projects:true,memories:true,artifacts:true,twin:true,app:'/xr/app/',
         voice:!!media.transcribe,speech:!!media.speak,vision:!!media.observe,tokenStreaming:false});
       if(p==='/xr/v1/device'&&method==='DELETE'){store.revoke(device);return respond(res,200,{revoked:true});}
       // Ephemeral name detection: never journal ambient audio or non-addressed speech.
@@ -204,8 +219,16 @@ export async function runBridge() {
   const {createMedia}=await import('./xrMedia.js');
   const {runCodex}=await import('./codex.js');const {runClaude}=await import('./claude.js');
   const bridge=createXRHandler({store,desktop:createDesktopClient(),media:createMedia(),teachers:{codex:runCodex,claude:runClaude}});
-  const server=https.createServer({key:readFileSync(join(directory,'server-key.pem')),cert:readFileSync(join(directory,'server-cert.pem')),minVersion:'TLSv1.2'},bridge.handler);
+  // The certificate the Quest app already trusts; made here (and kept) on a PC that has none.
+  const keyFile=join(directory,'server-key.pem'),certFile=join(directory,'server-cert.pem');
+  if(!existsSync(keyFile)||!existsSync(certFile)){const made=selfSigned({name:'aurora-xr',dns:['localhost'],ips:['127.0.0.1',...lanAddresses()]});writeFileSync(keyFile,made.key,{mode:0o600});writeFileSync(certFile,made.cert);}
+  const server=https.createServer({key:readFileSync(keyFile),cert:readFileSync(certFile),minVersion:'TLSv1.2'},bridge.handler);
   server.requestTimeout=15000;server.headersTimeout=10000;
+  // Plain HTTP only on this computer: http://localhost is a secure page for WebXR, so the PC's browser
+  // and a headset on USB (adb reverse tcp:8789 tcp:8789) open the app without a certificate warning.
+  const local=http.createServer(bridge.handler);local.requestTimeout=15000;local.headersTimeout=10000;
+  local.on('error',e=>console.error('Aurora XR local:',e.message));
+  local.listen(Number(process.env.AURORA_XR_LOCAL_PORT||8789),'127.0.0.1');
   const pairing=bridge.startPairing();
   writeFileSync(join(directory,'pairing.json'),JSON.stringify(pairing),{mode:0o600});
   server.listen(Number(process.env.AURORA_XR_PORT||8788),'0.0.0.0',()=>console.log('Aurora XR HTTPS pronta na porta 8788. Pareamento temporário no arquivo local pairing.json.'));
