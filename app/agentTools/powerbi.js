@@ -138,9 +138,9 @@ const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b
 export const powerBiTools = [
   {
     name: "powerbi",
-    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; a medida pelo sentido (gasto/despesa = Saídas; receita = Entradas; quantos = contagem) e o item citado no filter (\"quanto gastamos com marketing\" = measure \"Saídas no período\", filter \"Categoria=Marketing\"); dax só se isso não bastar; action=show acende no painel o que a pessoa pediu para ver (values com os nomes exatos, note com a frase curta; ex. \"mostra a doca parada\" = consulte, depois show values [\"Doca 03\"]); action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
+    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; a medida pelo sentido (gasto/despesa = Saídas; receita = Entradas; quantos = contagem) e o item citado no filter (\"quanto gastamos com marketing\" = measure \"Saídas no período\", filter \"Categoria=Marketing\"); dax só se isso não bastar; action=vr abre o painel em 3D/VR (para ver no computador ou no óculos Quest; dê os endereços que ela devolver); action=show acende no painel o que a pessoa pediu para ver (values com os nomes exatos, note com a frase curta; ex. \"mostra a doca parada\" = consulte, depois show values [\"Doca 03\"]); action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
     parameters: { type: "object", properties: {
-      action: { type: "string", enum: ["build", "connect", "model", "query", "show", "change", "refresh", "save"] },
+      action: { type: "string", enum: ["build", "connect", "model", "query", "show", "vr", "change", "refresh", "save"] },
       values: { type: "array", items: { type: "string" }, description: "show: o que acender no painel, com o nome exato como está nos dados (ex.: [\"Doca 03\"], [\"ABC-3P34\"], [\"Caixa 04\"], [\"MG\"]); vazio apaga" },
       note: { type: "string", description: "show: a frase curta que aparece na cena (ex.: \"Doca 03 parada há 40 min\")" },
       files: { type: "array", items: { type: "string" }, description: "planilhas .xlsx/.csv (build)" },
@@ -159,6 +159,7 @@ export const powerBiTools = [
         return { kind: "write", paths: [folder], summary: `Criar o painel do Power BI em ${folder}` };
       }
       // Changing or saving the person's open report: their authorization, once per turn.
+      if (a.action === "vr") return { kind: "desktop", program: "PBIDesktop", summary: "Abrir o gêmeo digital do Power BI em 3D/VR: um endereço só de leitura nesta rede (para o óculos) e neste computador" };
       if (a.action === "show") return { kind: "desktop", program: "PBIDesktop", summary: `Destacar no Power BI: ${[a.values].flat().filter(Boolean).join(", ") || "(apagar o destaque)"}` };
       if (a.action === "change" || a.action === "save" || a.action === "refresh") return { kind: "desktop", program: "PBIDesktop", summary: a.action === "change" ? `Alterar o modelo do Power BI: ${(a.ops || []).map((o) => `${o.op} ${o.name || o.column || o.from || ""}`).join(", ")}` : a.action === "save" ? "Salvar o arquivo do Power BI" : "Atualizar os dados do Power BI" };
       return { kind: "meta" };
@@ -237,6 +238,17 @@ export const powerBiTools = [
         const done = ok(await pbiRequest("apply", { ops }));
         rememberModel(conversation, ok(await pbiRequest("model", {})));
         return `${done}Confira se o valor faz sentido para o nome (ex.: algo "por pedido" é bem menor que o total); se não fizer, corrija com outra action=change.${NEXT}`;
+      }
+      if (action === "vr") {
+        // The open report's twin in 3D and VR: the same state as the scene, read only, refreshed every 15 s.
+        const { startTwinServer } = await import("../twinServer.js");
+        const { twinNow } = await import("../powerbi.js");
+        const info = await startTwinServer({ getState: () => twinNow() });
+        return [
+          `Gêmeo digital aberto em 3D: ${info.local} (neste computador).`,
+          info.network.length ? `No óculos (Quest), no navegador: ${info.network.join(" ou ")} — o aviso de certificado é esperado (o certificado é desta Aurora): toque em Avançado e continue; depois, "Entrar em VR".` : "Sem rede local agora: só neste computador.",
+          "Ele mostra o Power BI que a Aurora abriu por último, com os mesmos números da cena, e se atualiza a cada 15 s. Diga à pessoa os endereços como estão acima.",
+        ].join("\n");
       }
       if (action === "show") {
         // The Aurora points at something in the report: the scenes ring it and show her note.

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gêmeo digital — Aurora</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b1220; --fg: #e6edf3; --muted: #8ea0b2; --accent: #b04bff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #hud { position: fixed; left: 16px; top: 12px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; pointer-events: none; }
+  #hud h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  #hud .n { color: var(--muted); }
+  #hud .n b { color: var(--fg); font-variant-numeric: tabular-nums; }
+  #seal { position: fixed; right: 16px; bottom: 12px; font-weight: 700; color: #3ddc97; }
+  #units { position: fixed; left: 16px; bottom: 12px; display: flex; gap: 6px; }
+  #units button { background: #16243a; color: var(--fg); border: 1px solid #2c3e5a; border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  #units button[aria-pressed="true"] { border-color: var(--accent); }
+  #note { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); background: var(--accent); color: #fff; border-radius: 16px; padding: 6px 14px; font-weight: 700; }
+  #err { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 16px; }
+</style>
+</head>
+<body>
+<div id="hud"><h1 id="title">Gêmeo digital</h1><span class="n" id="numbers"></span><span class="n" id="live"></span></div>
+<div id="note" hidden></div>
+<div id="units"></div>
+<div id="seal"></div>
+<div id="err" hidden></div>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { VRButton } from "three/addons/webxr/VRButton.js";
+
+// The same rules as the Power BI scene (docs/GEMEO_DIGITAL_CONTRATO.md): one object per entity, where it
+// is; the colour of its stage (or of its risk); the rest written.
+const STAGE = { fila: 0xf6d365, separacao: 0x4bafd9, carregando: 0x2f6fdb, transito: 0x8e66d9, atraso: 0xd94b4b, livre: 0x27ae60 };
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1220);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 200);
+camera.position.set(-6, 9, 14);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(6, 0, 3);
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a2638, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(8, 14, 10); scene.add(sun);
+// In VR the person stands at the front of the room, looking at the places.
+const rig = new THREE.Group(); rig.position.set(-2, 0, 10); scene.add(rig);
+renderer.xr.addEventListener("sessionstart", () => { rig.add(camera); camera.position.set(0, 1.6, 0); });
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+const world = new THREE.Group(); scene.add(world);
+const mat = (c, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, ...extra });
+function label(text, { size = 0.35, color = "#ffffff", bg = "rgba(11,18,32,0.85)" } = {}) {
+  const c = document.createElement("canvas"); const g = c.getContext("2d");
+  g.font = "700 48px Segoe UI, sans-serif"; const w = Math.ceil(g.measureText(text).width) + 40;
+  c.width = w; c.height = 72; g.font = "700 48px Segoe UI, sans-serif";
+  g.fillStyle = bg; g.beginPath(); g.roundRect(0, 0, w, 72, 36); g.fill();
+  g.fillStyle = color; g.textBaseline = "middle"; g.fillText(text, 20, 38);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(size * w / 72, size, 1); return s;
+}
+// The models: a person (legs, body, head), a truck (cargo and cab), a box.
+function person(color) {
+  const g = new THREE.Group();
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.18), mat(0x2c3a52)); legs.position.y = 0.25; g.add(legs);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.22), mat(color)); body.position.y = 0.75; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), mat(0xc99a73)); head.position.y = 1.15; g.add(head);
+  return g;
+}
+function truck(color) {
+  const g = new THREE.Group();
+  const cargo = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 2.4), mat(color)); cargo.position.set(0, 0.65, -0.3); g.add(cargo);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.7, 0.6), mat(0xe8edf5)); cab.position.set(0, 0.55, 1.25); g.add(cab);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.02), mat(0x1e2a3f)); glass.position.set(0, 0.75, 1.56); g.add(glass);
+  for (const z of [-1.2, 0.6, 1.25]) for (const x of [-0.42, 0.42]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.1, 16), mat(0x0b0f16)); w.rotation.z = Math.PI / 2; w.position.set(x, 0.16, z); g.add(w); }
+  return g;
+}
+function box(color) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), mat(color)); m.position.y = 0.3; return m; }
+
+const base = location.pathname.replace(/\/$/, "");
+let state = null; let unit = null;
+function colourOf(e) {
+  if (state.colorBy && e.color) { const hit = state.colorBy.values.find(([v]) => v.toLowerCase() === e.color.toLowerCase()); if (hit) return new THREE.Color(hit[1]).getHex(); }
+  if (e.late) return STAGE.atraso;
+  const st = state.stages.find((s) => s.label === e.status);
+  return STAGE[st?.key] ?? (e.where === "estrada" ? STAGE.transito : STAGE.carregando);
+}
+function model(e) {
+  const c = colourOf(e);
+  const m = state.glyph === "veiculo" ? truck(c) : state.glyph === "pessoa" ? person(c) : box(c);
+  const tag = label(state.glyph === "pessoa" && e.waited ? `${e.name} · ${e.waited < 60 ? `${e.waited} min` : `${Math.floor(e.waited / 60)} h`}` : e.name, { size: 0.28 });
+  tag.position.y = state.glyph === "veiculo" ? 1.6 : 1.55; m.add(tag);
+  if (state.highlight.values.includes(e.name)) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.05, 8, 40), mat(0xb04bff, { emissive: 0xb04bff })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.05; m.add(ring); }
+  return m;
+}
+function draw() {
+  world.clear();
+  const u = state.units.find((x) => x.name === unit) || state.units[0];
+  if (!u) return;
+  const step = state.glyph === "veiculo" ? 1.6 : 1.3;
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(Math.max(14, u.places.length * step + 6), 0.1, 16), mat(0x17263d)); floor.position.set(u.places.length * step / 2, -0.05, 4); world.add(floor);
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(Math.max(14, u.places.length * step + 6), 2.4, 0.2), mat(0x22324d)); wall.position.set(u.places.length * step / 2, 1.2, -2.2); world.add(wall);
+  const title = label((u.name || state.title || "").toUpperCase(), { size: 0.8, bg: "rgba(0,0,0,0)" }); title.position.set(u.places.length * step / 2, 2.8, -2.1); world.add(title);
+  let drawn = 0;
+  const byName = new Map(state.entities.filter((e) => e.unit === u.name).map((e) => [e.name, e]));
+  u.places.forEach((p, i) => {
+    const x = i * step; const free = !p.serving.length && !p.waiting.length;
+    const spot = new THREE.Mesh(new THREE.BoxGeometry(step * 0.8, state.glyph === "veiculo" ? 2 : 0.9, 0.3), mat(free ? STAGE.livre : 0x2b3a55)); spot.position.set(x, state.glyph === "veiculo" ? 1 : 0.45, -1.6); world.add(spot);
+    const name = label(p.name.replace(new RegExp(`^${state.placeLabel}\\s*`, "i"), "") || p.name, { size: 0.3 }); name.position.set(x, 2.3, -1.5); world.add(name);
+    p.serving.forEach((n, k) => { const e = byName.get(n); if (!e) return; const m = model(e); m.position.set(x + (k - (p.serving.length - 1) / 2) * 0.45, 0, state.glyph === "veiculo" ? -0.2 + k * 2.8 : 0); world.add(m); drawn += 1; });
+    p.waiting.forEach((n, k) => { const e = byName.get(n); if (!e) return; const m = model(e); m.position.set(x, 0, (state.glyph === "veiculo" ? 3.2 : 1.2) + k * (state.glyph === "veiculo" ? 2.8 : 0.8)); world.add(m); drawn += 1; });
+  });
+  // The general line, in rows; the road out, on the left.
+  u.queue.forEach((n, k) => { const e = byName.get(n); if (!e) return; const m = model(e); const cols = state.glyph === "veiculo" ? 5 : 10; m.position.set((k % cols) * (state.glyph === "veiculo" ? 1.5 : 0.8), 0, 8 + Math.floor(k / cols) * (state.glyph === "veiculo" ? 3 : 1)); world.add(m); drawn += 1; });
+  u.road.forEach((n, k) => { const e = byName.get(n); if (!e) return; const m = model(e); m.rotation.y = Math.PI; m.position.set(-3 - (k % 2) * 1.4, 0, 9 - Math.floor(k / 2) * 3.2); world.add(m); drawn += 1; });
+  const total = u.counts.total;
+  document.getElementById("seal").textContent = `${drawn === total ? "✓" : "◐"} ${drawn} de ${total} desenhados`;
+}
+function hud() {
+  document.getElementById("title").textContent = state.title || "Gêmeo digital";
+  document.getElementById("numbers").innerHTML = Object.entries(state.numbers).slice(0, 4).map(([k, v]) => `${k}: <b>${v}</b>`).join(" · ");
+  const age = (Date.now() - new Date(state.lastRefresh).getTime()) / 60000;
+  document.getElementById("live").textContent = `${age > 10 ? "desatualizado" : "ao vivo"} · ${new Date(state.lastRefresh).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  const note = document.getElementById("note"); note.hidden = !state.highlight.note; note.textContent = `Aurora: ${state.highlight.note}`;
+  const units = document.getElementById("units");
+  units.innerHTML = "";
+  if (state.units.length > 1) for (const u of state.units) {
+    const b = document.createElement("button"); b.textContent = u.name; b.setAttribute("aria-pressed", String(u.name === (unit || state.units[0].name)));
+    b.onclick = () => { unit = u.name; hud(); draw(); }; units.appendChild(b);
+  }
+}
+async function load() {
+  try {
+    const r = await fetch(`${base}/state`, { cache: "no-store" });
+    state = await r.json();
+    const err = document.getElementById("err");
+    err.hidden = state.kind === "operacao";
+    if (state.kind !== "operacao") err.textContent = state.kind === "vazio" ? "Abra um Power BI pela Aurora para ver o gêmeo aqui." : "Este painel não tem uma operação para desenhar (lugares e quem está neles).";
+    hud(); draw();
+  } catch (e) { const err = document.getElementById("err"); err.hidden = false; err.textContent = `Não consegui ler o estado: ${e.message}`; }
+}
+await load();
+setInterval(load, 15000);
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

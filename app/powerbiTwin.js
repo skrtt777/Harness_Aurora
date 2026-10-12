@@ -13,7 +13,7 @@ export function twinQueries(flow) {
   const units = flow.site && flow.siteValues?.length ? flow.siteValues : [null];
   return units.map((unit) => {
     const base = unit == null ? q(F) : `FILTER(ALL(${q(F)}), ${col(F, flow.site)} = ${str(unit)})`;
-    const entities = `EVALUATE\n${vehicleVars(flow, base).join("\n")}\nRETURN SELECTCOLUMNS(Veiculos, "n", [@nome], "i", [@id], "s", [@st], "w", [@where], "d", [@doca], "a", [@atraso])`;
+    const entities = `EVALUATE\n${vehicleVars(flow, base).join("\n")}\nRETURN SELECTCOLUMNS(Veiculos, "n", [@nome], "i", [@id], "s", [@st], "w", [@where], "d", [@doca], "a", [@atraso]${flow.colorBy ? ', "c", [@cor]' : ""}${vehicleVars(flow, base).join("").includes("@espera") ? ', "e", [@espera]' : ""})`;
     const places = flow.place ? `EVALUATE FILTER(CALCULATETABLE(VALUES(${col(F, flow.place)})${unit == null ? "" : `, ${col(F, flow.site)} = ${str(unit)}`}), ${col(F, flow.place)} <> "")` : null;
     return { unit, entities, places };
   });
@@ -24,7 +24,8 @@ export function twinQueries(flow) {
  */
 export async function twinState(w, ask) {
   const flow = w.watch?.flow || null;
-  const state = { version: 1, title: w.title, kind: flow?.place ? "operacao" : "numeros", updatedAt: new Date().toISOString(), lastRefresh: new Date(w.lastRefresh || Date.now()).toISOString(), glyph: flow?.glyph || null, noun: flow?.vehicles || null, placeLabel: flow?.place || null, units: [], entities: [], numbers: {}, highlight: { values: [], note: "" }, notes: (w.notes || []).slice(0, 6) };
+  const state = { version: 1, title: w.title, kind: flow?.place ? "operacao" : "numeros", updatedAt: new Date().toISOString(), lastRefresh: new Date(w.lastRefresh || Date.now()).toISOString(), glyph: flow?.glyph || null, noun: flow?.vehicles || null, placeLabel: flow?.place || null, environment: flow?.environment || null,
+    colorBy: flow?.colorBy ? { column: flow.colorBy.column, values: flow.colorBy.values } : null, stages: (flow?.stages || []).filter((st) => st.rank < 5).map((st) => ({ key: st.key, label: st.values[0] })), units: [], entities: [], numbers: {}, highlight: { values: [], note: "" }, notes: (w.notes || []).slice(0, 6) };
   if (w.watch?.numbers?.length) {
     const r = await ask("query", { dax: `EVALUATE ROW(${w.watch.numbers.map((n, i) => `"m${i}", [${n.replace(/]/g, "]]")}]`).join(", ")})`, max: 2 });
     const values = rowsOf(r)[0] || [];
@@ -34,7 +35,7 @@ export async function twinState(w, ask) {
   state.highlight = { values: hl.map((r) => r[0]).filter(Boolean), note: hl.find((r) => r[1])?.[1] || "" };
   if (!flow?.place) return state;
   for (const { unit, entities, places } of twinQueries(flow)) {
-    const list = rowsOf(await ask("query", { dax: entities, max: 3000 })).map(([name, id, status, where, place, late]) => ({ name, id, status, where, place: place || "", late: late === "1", unit }));
+    const list = rowsOf(await ask("query", { dax: entities, max: 3000 })).map(([name, id, status, where, place, late, ...more]) => ({ name, id, status, where, place: place || "", late: late === "1", unit, ...(flow.colorBy ? { color: more.shift() || "" } : {}), ...(more.length && more[0] !== "" ? { waited: Number(more[0]) } : {}) }));
     const placeNames = places ? rowsOf(await ask("query", { dax: places, max: 200 })).map((r) => r[0]).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true })) : [];
     const at = (p, where) => list.filter((e) => e.place === p && e.where === where).map((e) => e.name);
     state.units.push({

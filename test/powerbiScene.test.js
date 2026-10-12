@@ -310,3 +310,21 @@ test("a sheet as it comes: title over it, blank rows, a total at the end, mixed 
   assert.equal(parseNumber("1234.56", false), 1234.56);
   assert.equal(cleanTable([["Planilha mantida pelo financeiro."], ["Valores sem impostos."]]), null, "a notes sheet is not a table");
 });
+
+test("the twin server: page and state behind a random code, read only, the state cached", async () => {
+  const { startTwinServer, stopTwinServer } = await import("../app/twinServer.js");
+  let asked = 0;
+  const info = await startTwinServer({ getState: async () => { asked += 1; return { version: 1, kind: "operacao", title: "CD", units: [], entities: [], numbers: {}, notes: [], highlight: { values: [], note: "" } }; }, lan: false, port: 0 });
+  try {
+    assert.match(info.local, /^http:\/\/localhost:\d+\/[\w-]{12}\/$/);
+    const page = await fetch(info.local);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Entrar em VR|VRButton/);
+    const state = await (await fetch(`${info.local}state`)).json();
+    assert.equal(state.title, "CD");
+    await fetch(`${info.local}state`);
+    assert.equal(asked, 1, "one read of the model for both");
+    assert.equal((await fetch(info.local.replace(info.token, "outro"))).status, 404);
+    assert.equal((await fetch(`${info.local}state`, { method: "POST" })).status, 404);
+  } finally { stopTwinServer(); }
+});
