@@ -40,6 +40,7 @@ FAuroraTwinLayout FAuroraTwinLayout::Build(const TSharedPtr<FJsonObject>& State,
     for(const auto& U:*Units)if(Str(U->AsObject(),TEXT("name"))==Wanted)Unit=U->AsObject();
     L.Unit=Str(Unit,TEXT("name"));
     const FString Glyph=Str(State,TEXT("glyph"));
+    L.Environment=Str(State,TEXT("environment"));
     const bool Vehicles=Glyph==TEXT("veiculo"),People=Glyph==TEXT("pessoa");
     // Each one by name (its stage, colour, delay), for the unit shown.
     TMap<FString,TSharedPtr<FJsonObject>> ByName;
@@ -69,8 +70,11 @@ FAuroraTwinLayout FAuroraTwinLayout::Build(const TSharedPtr<FJsonObject>& State,
         const TArray<TSharedPtr<FJsonValue>>* Serving=nullptr;const TArray<TSharedPtr<FJsonValue>>* Waiting=nullptr;
         Place->TryGetArrayField(TEXT("serving"),Serving);Place->TryGetArrayField(TEXT("waiting"),Waiting);
         const bool IsFree=(!Serving||Serving->IsEmpty())&&(!Waiting||Waiting->IsEmpty());
-        FAuroraTwinItem Spot;Spot.Kind=FAuroraTwinItem::EKind::Place;Spot.Position=FVector(20,Y,Vehicles?3:1.5f);Spot.Size=FVector(1.2f,Step*.8f,Vehicles?6:3);
-        Spot.Color=IsFree?Free:Busy;Spot.Label=Str(Place,TEXT("name"));Spot.bHighlight=Lit.Contains(Spot.Label);L.Items.Add(Spot);
+        // Each area's place in its own shape: a dock door, a checkout counter, a bed, a desk, a machine.
+        const FString& Env=L.Environment;
+        const FVector Shape=Vehicles||Env==TEXT("armazem")?FVector(1.2f,Step*.8f,6):Env==TEXT("loja")?FVector(3.5f,Step*.45f,2):Env==TEXT("clinica")?FVector(3.2f,Step*.5f,1.2f):Env==TEXT("salao")?FVector(1.6f,Step*.85f,2.2f):FVector(3,Step*.7f,4);
+        FAuroraTwinItem Spot;Spot.Kind=FAuroraTwinItem::EKind::Place;Spot.Position=FVector(20,Y,Shape.Z/2);Spot.Size=Shape;Spot.bFree=IsFree;
+        Spot.Color=Vehicles||Env==TEXT("armazem")?(IsFree?Free:Busy):Env==TEXT("clinica")?FLinearColor(.85f,.88f,.93f,1):Env==TEXT("fabrica")?FLinearColor(.36f,.42f,.5f,1):Busy;Spot.Label=Str(Place,TEXT("name"));Spot.bHighlight=Lit.Contains(Spot.Label);L.Items.Add(Spot);
         if(Serving)for(int32 K=0;K<Serving->Num()&&K<3;++K)Add((*Serving)[K]->AsString(),FVector(Vehicles?16-K*6.f:16,Vehicles?Y:Y+(K-(Serving->Num()-1)/2.f)*1.6f,0));
         if(Waiting)for(int32 K=0;K<Waiting->Num()&&K<(Vehicles?2:4);++K)Add((*Waiting)[K]->AsString(),FVector((Vehicles?4:12)-K*(Vehicles?6:2.4f),Y,0));
     }
@@ -146,7 +150,9 @@ void AAuroraTwinActor::Apply(const FAuroraTwinLayout& Layout)
     for(const auto& I:Layout.Items){
         switch(I.Kind){
         case EKind::Floor:AddMesh(Cube,I.Position,I.Size,I.Color);break;
-        case EKind::Place:AddMesh(Cube,I.Position-FVector(0,0,I.Size.Z/2),I.Size,I.Color);PlaceNames.Add(I.Label.Right(2));PlaceColors.Add(I.bHighlight?FLinearColor(.8f,.6f,1,1):AuroraTwin::Text);
+        case EKind::Place:AddMesh(Cube,I.Position-FVector(0,0,I.Size.Z/2),I.Size,I.Color);
+            // Free: a green light on it (a dock door is green itself).
+            if(I.bFree&&I.Color!=AuroraTwin::Free)AddMesh(Sphere,I.Position+FVector(0,0,I.Size.Z/2),FVector(.9f),AuroraTwin::Free);PlaceNames.Add(I.Label.Right(2));PlaceColors.Add(I.bHighlight?FLinearColor(.8f,.6f,1,1):AuroraTwin::Text);
             RowX=I.Position.X;RowTop=FMath::Max(RowTop,I.Position.Z+I.Size.Z/2);RowMin=FMath::Min(RowMin,I.Position.Y-I.Size.Y/2);RowMax=FMath::Max(RowMax,I.Position.Y+I.Size.Y/2);break;
         case EKind::Vehicle:AddMesh(Cube,I.Position,FVector(I.Size.X*.72f,I.Size.Y,I.Size.Z),I.Color);
             AddMesh(Cube,I.Position-FVector(I.Size.X*.48f,0,0),FVector(I.Size.X*.24f,I.Size.Y*.95f,I.Size.Z*.8f),FLinearColor(.9f,.93f,.97f,1));break;

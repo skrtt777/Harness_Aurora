@@ -34,13 +34,14 @@ struct FAuroraTwinItem
     FLinearColor Color=FLinearColor::White;
     FString Label;
     bool bHighlight=false;
+    bool bFree=false;
 };
 
 struct AURORAXR_API FAuroraTwinLayout
 {
     TArray<FAuroraTwinItem> Items;
     TArray<FString> Units, Numbers, Notes;
-    FString Title, Unit, Note;
+    FString Title, Unit, Note, Environment;
     int32 Drawn=0, Total=0;
     bool bOperation=false;
     // Pure: the twin's JSON and the unit chosen (empty: the first) -> what to draw and where.
