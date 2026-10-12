@@ -2,7 +2,8 @@
 // (sales, freight, tickets by state), and — with an origin and a destination state and a flow — every load
 // on its way drawn as a truck on its route, where it should be by now (pickup -> forecast). Faithful like
 // the other scenes: one truck per load in transit (up to 40, the rest written), and a live seal.
-import { D, HIGHLIGHT_VARS, auroraBanner, auroraRing, daxText, joinDax, safe } from "./powerbiScene.js";
+import { Canvas, D, HIGHLIGHT_VARS, auroraBanner, auroraRing, daxText, joinDax, safe } from "./powerbiScene.js";
+import { truck as truckModel } from "./powerbiModels.js";
 
 export const UFS = { AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará", DF: "Distrito Federal", ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul", MG: "Minas Gerais", PA: "Pará", PB: "Paraíba", PR: "Paraná", PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte", RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina", SP: "São Paulo", SE: "Sergipe", TO: "Tocantins" };
 // A tile grid close to the map: [column, row].
@@ -95,16 +96,22 @@ export function mapScene({ geo, measure, format = "#,0", flow = null, look = "no
       ...vehicleVars,
       "VAR Rota0 = ADDCOLUMNS(SELECTCOLUMNS(FILTER(Veiculos, [@where] = \"estrada\"), \"@key\", [@nome], \"@atraso\", [@atraso]), " +
         `"@o", ${lat(origin)}, "@d", ${lat(dest)}, "@p", ${lat(progress)})`,
-      `VAR Rota = ADDCOLUMNS(Rota0, "@j", VAR k = [@key] RETURN COUNTROWS(FILTER(Rota0, [@key] <= k)), "@x", INT(${centre(oc, 0)} + (${centre(dc, 0)} - ${centre(oc, 0)}) * [@p]), "@y", INT(${centre(oc, 1)} + (${centre(dc, 1)} - ${centre(oc, 1)}) * [@p]) - 30)`,
+      `VAR Rota = ADDCOLUMNS(Rota0, "@j", VAR k = [@key] RETURN COUNTROWS(FILTER(Rota0, [@key] <= k)), "@x", INT(${centre(oc, 0)} + (${centre(dc, 0)} - ${centre(oc, 0)}) * [@p]), "@y", INT(${centre(oc, 1)} + (${centre(dc, 1)} - ${centre(oc, 1)}) * [@p]) - 30, ` +
+        `"@dir", VAR dx = ${centre(dc, 0)} - ${centre(oc, 0)} VAR dy = ${centre(dc, 1)} - ${centre(oc, 1)} RETURN SWITCH(TRUE(), dx >= 0 && dy >= 0, "+X", dx < 0 && dy < 0, "-X", dx < 0, "+Y", "-Y"))`,
       "VAR nRota = COUNTROWS(Rota) + 0",
     ];
     // A small truck drawn at (0,0), moved to its place on the route.
-    const truck = `<polygon points='${pts([[-10, -26, 0], [10, -26, 0], [10, 26, 0], [-10, 26, 0]])}' fill='%23000000' opacity='0.15'/>` +
-      `<polygon points='${pts([[-9, -22, 22], [9, -22, 22], [9, 10, 22], [-9, 10, 22]])}' fill='`;
+    // A truck pointing along its route: the nearest of the four ground directions, cab first.
+    const model = (axis, front) => {
+      const c = new Canvas(); c.quiet = true;
+      const parts = [truckModel(c, axis === "y" ? -7 : -19, axis === "y" ? -19 : -7, { len: 38, wide: 14, tall: 15, axis, front, body: ["@B0@", "@B1@", "@B2@"], L: { chassis: "#0B1322", cab: ["#E8EDF5", "#B8C2D3", "#95A1B6"], glass: "#1E2A3F" } })].flat(Infinity).join("");
+      return daxText(parts).replace(/@B(\d)@/g, (_, i) => `" & B${i} & "`);
+    };
+    const facing = { "+X": model("x", 1), "-X": model("x", -1), "+Y": model("y", 1), "-Y": model("y", -1) };
     roads = [
       // The routes (origin -> destination) of the loads on their way, faint.
       D(`CONCATENATEX(Rota, "<line stroke='${L.route.replace("#", "%23")}' stroke-width='3' stroke-dasharray='6 6' x1='" & INT(${centre(oc, 0)}) & "' y1='" & INT(${centre(oc, 1)} - 30) & "' x2='" & INT(${centre(dc, 0)}) & "' y2='" & INT(${centre(dc, 1)} - 30) & "'/>", "")`),
-      D(`CONCATENATEX(FILTER(Rota, [@j] <= 40), "<g class='v estrada' transform='translate(" & [@x] & "," & [@y] & ")'>${truck.replace(/'/g, "'")}" & IF([@atraso] = 1, "%23D94B4B", "%238E66D9") & "'/><polygon points='${pts([[-9, 10, 0], [9, 10, 0], [9, 10, 22], [-9, 10, 22]])}' fill='%23E8EDF5'/></g>", "", [@j], ASC)`),
+      D(`CONCATENATEX(FILTER(Rota, [@j] <= 40), VAR B0 = IF([@atraso] = 1, "%23FF8A8A", "%23C3A6FA") VAR B1 = IF([@atraso] = 1, "%23D94B4B", "%238E66D9") VAR B2 = IF([@atraso] = 1, "%23B33636", "%236E48B8") RETURN "<g class='v estrada' transform='translate(" & [@x] & "," & [@y] & ")'>" & SWITCH([@dir], ${Object.entries(facing).map(([k, v]) => `"${k}", ${v}`).join(", ")}) & "</g>", "", [@j], ASC)`),
     ];
     seal = [
       `<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + vb.h - 18)}' text-anchor='end' ${FONT} font-size='18' font-weight='700' fill='`, D(`IF(nRota <= 40, ${daxText("#27AE60")}, ${daxText("#B98A22")})`), "'>", D(`IF(nRota <= 40, "✓ " & nRota & " de " & nRota, "◐ 40 de " & nRota) & " a caminho desenhados" & IF(nRota > 40, " (+" & (nRota - 40) & " fora do desenho)", "")`), "</text>",

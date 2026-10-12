@@ -27,6 +27,7 @@ export function joinDax(parts) {
 }
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 import { faces, roomKit } from "./powerbiPlaces.js";
+import { parcel, person as personModel, truck } from "./powerbiModels.js";
 // What the Aurora points at (the 'Destaque' table she writes when asked "mostra…"), and her note.
 export const HIGHLIGHT_VARS = ["VAR Destacados = VALUES('Destaque'[Valor])", "VAR NotaAurora = MAXX('Destaque', 'Destaque'[Nota]) & \"\""];
 /** A pulsing ring the Aurora draws around what she was asked to show. */
@@ -46,7 +47,7 @@ const r1 = (v) => String(Math.round(v * 10) / 10);
 export const iso = (X, Y, Z = 0) => [(X - Y) * COS, (X + Y) * 0.5 - Z];
 
 /** Collects the extent of everything drawn, for the viewBox. */
-class Canvas {
+export class Canvas {
   constructor() { this.minX = Infinity; this.minY = Infinity; this.maxX = -Infinity; this.maxY = -Infinity; }
   see(x, y) { if (this.quiet) return; this.minX = Math.min(this.minX, x); this.maxX = Math.max(this.maxX, x); this.minY = Math.min(this.minY, y); this.maxY = Math.max(this.maxY, y); }
   pts(list) { return list.map(([X, Y, Z]) => { const [x, y] = iso(X, Y, Z); this.see(x, y); return `${r1(x)},${r1(y)}`; }).join(" "); }
@@ -266,15 +267,15 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const byColour = flow.colorBy ? (i) => D(`SWITCH(LOWER([@cor]), ${flow.colorBy.values.map(([v, hex]) => `"${String(v).toLowerCase().replace(/"/g, "\"\"")}", ${daxText(faces(hex)[i])}`).join(", ")}, ${daxText(faces("#8EA0BC")[i])})`) : null;
   // With a colour column (risk, priority) the entity wears it; its stage is where it stands.
   const colours = (key) => (byColour && key !== `"fila"` ? [byColour(0), byColour(1), byColour(2)] : [shade(key, 0), shade(key, 1), shade(key, 2)]);
-  const vehicle = (x, y, tw, key, where) => [open(where), cv.box(x, y, 0, tw, 150, 9, [L.chassis, L.chassis, L.chassis]), cv.box(x, y, 9, tw, 118, 52, colours(key)), cv.box(x + 2, y + 122, 9, tw - 4, 30, 40, L.cab), "</g>"];
-  const person = (x, y, key, where, seat = false) => {
-    const z = seat ? 16 : 0; const body = seat ? 30 : 42;
-    const [hx, hy] = cv.at(x, y, z + body + 12);
+  const vehicle = (x, y, tw, key, where, front = 1) => [open(where), truck(cv, x, y, { len: 150, wide: tw, tall: 52, axis: "y", front, body: colours(key), L }), "</g>"];
+  const person = (x, y, key, where, seat = false, facing = "-Y") => {
+    const model = personModel(cv, x, y, { shirt: colours(key), facing, seat, skin: look === "dia" ? "#E9B98F" : "#C99A73" });
+    const [hx, hy] = model.head;
     // Past the limit with a colour column: a red mark over the head (the colour already says the risk).
     const late = byColour && key !== `"fila"` ? when("[@atraso] = 1", [`<circle cx='${hx}' cy='${r1(Number(hy) - 24)}' r='8' fill='#E53935'/><text x='${hx}' y='${r1(Number(hy) - 19)}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='12' font-weight='800'>!</text>`]) : "";
-    return [open(where), cv.box(x - 10, y - 10, z, 20, 20, body, colours(key)), `<ellipse cx='${hx}' cy='${hy}' rx='11' ry='12' fill='${look === "dia" ? "#E9B98F" : "#C99A73"}'/>`, late, "</g>"];
+    return [open(where), model.parts, late, "</g>"];
   };
-  const load = (x, y, key, where) => [open(where), cv.box(x - 18, y - 18, 0, 36, 36, 6, ["#D9B27C", "#C99A5B", "#A87E45"]), cv.box(x - 15, y - 15, 6, 30, 30, 28, colours(key)), "</g>"];
+  const load = (x, y, key, where) => [open(where), parcel(cv, x, y, { body: colours(key) }), "</g>"];
   const glyph = (x, y, key, where, tw = 34) => (G === "veiculo" ? vehicle(x - tw / 2, y, tw, key, where) : G === "pessoa" ? person(x, y + 20, key, where) : load(x, y + 20, key, where));
 
   // The places: up to 16 drawn; more is written.
@@ -293,8 +294,8 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       frag.push(cv.box(cx - cw / 2, DEPTH + 8, 0, cw, G === "pessoa" ? 22 : 40, G === "pessoa" ? 28 : 18, [free, L.walls[1], L.walls[2]]));
     }
     // Being served: up to three, side by side (vehicles one behind the other).
-    const at = (xy, key, where, seat) => (G === "pessoa" ? person(xy[0], xy[1], key, where, seat) : load(xy[0], xy[1], key, where));
-    const served = kit ? [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, at(kit.served(cx, i), keyOf, "doca"))) : [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, G === "veiculo"
+    const at = (xy, key, where, seat, facing = "-Y") => (G === "pessoa" ? person(xy[0], xy[1], key, where, seat, facing) : load(xy[0], xy[1], key, where));
+    const served = kit ? [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, at(kit.served(cx, i), keyOf, "doca", false, kit.facing || "-Y"))) : [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, G === "veiculo"
       ? (i === 0 ? glyph(cx, DEPTH + 10, keyOf, "doca", tw) : [open("doca"), cv.box(cx - tw / 2 + 4, DEPTH + 172 + (i - 1) * 70, 0, tw - 8, 60, 30, colours(keyOf)), cv.box(cx - tw / 2 + 6, DEPTH + 218 + (i - 1) * 70, 30, tw - 12, 14, 18, L.cab), "</g>"])
       : glyph(cx + (i - 1) * Math.min(18, w / 3), DEPTH + (G === "pessoa" ? 36 : 14), keyOf, "doca")));
     frag.push(served);
@@ -348,10 +349,10 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       const moving = `<animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`;
       // Loads and people go out by vehicle too: a van carrying them, coloured by their stage.
       const [mx, my] = cv.at(X + 17, Y - 60, 0);
-      roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada"), when("[@nome] IN Destacados", auroraRing(mx, my, 50, 30)), "</g>"])}`);
+      roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada", -1), when("[@nome] IN Destacados", auroraRing(mx, my, 50, 30)), "</g>"])}`);
     }
   }
-  const [qx, qy] = cv.at(0, G === "veiculo" ? 620 : 590, 0);
+  const [qx, qy] = G === "veiculo" ? cv.at(-40, 470, 0) : cv.at(0, 590, 0);
   cv.see(Number(qx) - 170, Number(qy));
   const [rx, ry] = cv.at(900, -40, 0);
   if (hasRoad) cv.see(Number(rx) + 250, Number(ry) + 60);

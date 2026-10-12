@@ -4,6 +4,8 @@
 // entities (one drawn object each, where they are) are the same; the world around them is the area's own.
 // The warehouse with dock doors stays in app/powerbiScene.js (yardScene), for docks and vehicles.
 
+import { person } from "./powerbiModels.js";
+
 const COS = Math.cos(Math.PI / 6);
 const r1 = (v) => String(Math.round(v * 10) / 10);
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -54,7 +56,8 @@ export function roomKit(env, ctx) {
       }
     }
     // The entrance (glass doors) where the line starts.
-    backdrop.push(cv.poly([[260, 806, 0], [460, 806, 0], [460, 806, 90], [260, 806, 90]], R.glass, " opacity='0.45'"));
+    backdrop.push(cv.poly([[300, 760, 0], [460, 760, 0], [460, 806, 0], [300, 806, 0]], R.fixture[1]));
+    { const [ex, ey] = cv.at(330, 790, 0); backdrop.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${ex},${ey})' fill='${R.wallText}' ${FONT} font-size='22' font-weight='800' letter-spacing='4'>ENTRADA</text>`); }
     const cw = Math.min(w * 0.42, 30);
     Object.assign(kit, {
       place: (cx, k, free) => [
@@ -68,6 +71,7 @@ export function roomKit(env, ctx) {
       line: (cx, i) => [cx + 12, DEPTH + 112 + i * 34],
       spot: chairsSpot,
       queueGround: [cv.poly([[10, 540, 0], [500, 540, 0], [500, 800, 0], [10, 800, 0]], "none", ` stroke='${R.safety}' stroke-width='2' stroke-dasharray='10 8' opacity='0.6'`)],
+      facing: "-X",
       label: (cx) => [cx - cw - 4, DEPTH - 10, 100],
       tag: (cx) => [cx + 12, DEPTH + 30, 96],
     });
@@ -90,6 +94,7 @@ export function roomKit(env, ctx) {
       line: (cx, i) => [cx, DEPTH + 52 + i * 36],
       spot: chairsSpot,
       queueGround: [...chairs(20), cv.box(530, 560, 0, 90, 40, 36, R.fixture), (() => { const [x, y] = cv.at(530, 600, 46); return `<text x='${x}' y='${y}' fill='${R.text}' ${FONT} font-size='15' font-weight='700'>Recepção</text>`; })()],
+      facing: "-X",
       label: (cx) => [cx - 12, DEPTH + 14, 2],
       tag: (cx) => [cx + 26, 70, 92],
       flatLabel: true,
@@ -107,13 +112,14 @@ export function roomKit(env, ctx) {
         cv.box(cx - w / 2 + 2, DEPTH - 60, 36, 4, 56, 40, [R.glass, R.glass, R.glass], " opacity='0.35'"),
         cv.box(cx - 8, DEPTH - 26, 36, 16, 6, 14, R.metal),
         // The clerk behind the counter, and the counter's light: green when free.
-        cv.box(cx - 9, DEPTH - 66, 0, 18, 18, 40, R.staff),
+        person(cv, cx, DEPTH - 56, { shirt: R.staff, facing: "+Y" }).parts,
         cv.box(cx - 6, DEPTH - 30, 76, 12, 12, 10, [free, free, free]),
       ],
       served: (cx, i) => [cx + (i - 1) * Math.min(16, w / 3), DEPTH + 26],
       line: (cx, i) => [cx, DEPTH + 74 + i * 36],
       spot: chairsSpot,
       queueGround: chairs(20),
+      facing: "-Y",
       label: (cx) => [cx - w / 2 + 4, DEPTH - 30, 100],
       tag: (cx) => [cx, DEPTH + 26, 92],
       seated,
