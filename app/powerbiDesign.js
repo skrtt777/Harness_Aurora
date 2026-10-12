@@ -9,6 +9,8 @@ import { flowDesign, momentTable, readFlow } from "./powerbiStory.js";
 import { moneyDesign, readMoney } from "./powerbiMoney.js";
 import { cityScene } from "./powerbiScene.js";
 import { plantaScene, readSpace } from "./powerbiSpace.js";
+import { mapScene, readGeo } from "./powerbiMap.js";
+import { vehicleVars } from "./powerbiScene.js";
 import { composePage } from "./powerbiLayout.js";
 import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
@@ -359,6 +361,26 @@ export function prepare(tables, { title, goal = "" } = {}) {
         }
         const p = plans.get(look);
         return { type: "image", scene: true, look, url: m(p.url), title: `Planta: ${lower(space.name)}s`, overlay: { category: p.made.points.category, x: m(p.x), y: m(p.y), w: p.made.points.w, h: p.made.points.h } };
+      },
+    };
+  }
+  // States (UF): Brazil as a tile map, the number by state; with origin, destination and a flow, every
+  // load on its way drawn on its route.
+  const geo = plainPages ? null : readGeo(fact);
+  if (geo) {
+    const maps = new Map();
+    const withRoutes = Boolean(flow && geo.origin && flow.stages.some((st) => st.key === "transito"));
+    scenes.mapa = {
+      covers: [geo.dest, geo.origin].filter(Boolean),
+      desc: `o Brasil em blocos por estado: a altura é ${headline} em cada UF${withRoutes ? "; cada carga a caminho é um caminhão na sua rota (origem → destino), onde deve estar agora" : ""}; clicar num estado filtra`,
+      make: ({ look = "noite" } = {}) => {
+        if (!maps.has(look)) {
+          const made = mapScene({ geo, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", flow: withRoutes ? flow : null, look, vehicleVars: withRoutes ? vehicleVars(flow, q(fact.name)) : null });
+          const suffix = look === "dia" ? " (dia)" : "";
+          maps.set(look, { made, url: add(`Mapa${suffix}`, made.dax, null, "Cenas", "O Brasil por estado, desenhado pelos dados", { category: "ImageUrl" }), x: add(`Mapa X${suffix}`, made.points.x, "0", "Cenas", "Posição do estado (para o clique)"), y: add(`Mapa Y${suffix}`, made.points.y, "0", "Cenas", "Posição do estado (para o clique)") });
+        }
+        const g = maps.get(look);
+        return { type: "image", scene: true, look, url: m(g.url), title: withRoutes ? "Cargas a caminho, por rota" : `${headline} por estado`, overlay: { category: g.made.points.category, x: m(g.x), y: m(g.y), w: g.made.points.w, h: g.made.points.h } };
       },
     };
   }

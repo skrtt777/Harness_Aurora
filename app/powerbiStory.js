@@ -9,7 +9,7 @@ const STAGE_RULES = [
   ["cancelado", 0, /cancel|devolv|perdid|recusad|estornad/i],
   ["concluido", 5, /entregue|conclu|fechad|resolvid|finaliz|encerrad|^pago$|baixad|recebido pelo/i],
   ["transito", 4, /tr[âa]nsito|enviado|despachad|em rota|saiu para|expedido|a caminho|em transporte/i],
-  ["carregando", 3, /carreg|expedi[çc][ãa]o|embal|produ[çc][ãa]o|em atendimento|em andamento|execu[çc]|em curso/i],
+  ["carregando", 3, /carreg|expedi[çc][ãa]o|embal|produ[çc][ãa]o|em atendimento|em andamento|execu[çc]|em curso|coletad|em processamento/i],
   ["separacao", 2, /separa|triagem|an[áa]lise|aprova|picking|confer|prepara/i],
   ["fila", 1, /recebid|aberto|novo|pendente|aguard|fila|solicit|criad|agendad|registrad/i],
 ];
@@ -161,7 +161,7 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
     // yard draws with, so a card and the scene never disagree.
     const V = (flow.vehicles || "itens").replace(/^./, (c) => c.toUpperCase());
     const vm = vehicleMeasures(flow, flow.timeline ? MOMENT : null);
-    kpis.push(add(flow.glyph === "veiculo" ? `${V} no pátio` : `${V} no local`, vm.patio, INT, "Operação", "Sendo atendidos ou na fila agora (cada um conta uma vez, onde está)"));
+    kpis.push(add(!flow.place ? `${V} aguardando` : flow.glyph === "veiculo" ? `${V} no pátio` : `${V} no local`, vm.patio, INT, "Operação", "Sendo atendidos ou na fila agora (cada um conta uma vez, onde está)"));
     if (flow.place) add(`${V} ${flow.placeMasc ? "nos" : "nas"} ${flow.placePlural}`, vm.docas, INT, "Operação", `Em atendimento num(a) ${flow.place.toLowerCase()} agora`);
     add(`${V} na fila`, vm.fila, INT, "Operação", "Esperando agora");
     if (flow.stages.some((st) => st.key === "transito")) add(`${V} em trânsito`, vm.estrada, INT, "Operação", "A caminho agora");
