@@ -5,7 +5,7 @@
 // the walk there (A* on the tiles) and the step of each frame. Pure: no React, no canvas (tests).
 
 export type OfficeActor = {
-  id: string; kind: "aurora" | "agente" | "copia" | "professor" | "chefe"; name: string; state: string; activity: string;
+  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "professor" | "chefe"; name: string; state: string; activity: string;
   since?: number | null; conversationId?: string | null; agentId?: string; task?: string; with?: string; teacher?: string; department?: string | null;
   plan?: { done: number; total: number } | null;
 };
@@ -13,10 +13,10 @@ export type OfficeActor = {
 export const COLS = 30, ROWS = 18;
 export type Tile = { x: number; y: number };
 export type Spot = Tile & { face: "up" | "down" | "left" | "right"; sit: boolean; kind: SpotKind; desk?: number };
-export type SpotKind = "desk" | "meeting" | "boss" | "visit" | "coffee" | "sofa" | "rest" | "door";
+export type SpotKind = "desk" | "meeting" | "boss" | "visit" | "coffee" | "sofa" | "rest" | "door" | "shelf" | "server" | "pace";
 
 /** The furniture: blocked tiles, drawn by the view. */
-export type Furniture = { kind: "desk" | "table" | "bossdesk" | "counter" | "machine" | "sofa" | "plant" | "roundtable" | "glass" | "shelf" | "whiteboard"; x: number; y: number; w: number; h: number; desk?: number };
+export type Furniture = { kind: "desk" | "table" | "bossdesk" | "counter" | "machine" | "sofa" | "plant" | "roundtable" | "glass" | "shelf" | "whiteboard" | "server"; x: number; y: number; w: number; h: number; desk?: number };
 
 function plan() {
   const furniture: Furniture[] = [];
@@ -31,6 +31,10 @@ function plan() {
   furniture.push({ kind: "bossdesk", x: 13, y: 2, w: 3, h: 1 }, { kind: "shelf", x: 11, y: 1, w: 2, h: 1 }, { kind: "plant", x: 17, y: 1, w: 1, h: 1 });
   spots.push({ x: 14, y: 1, face: "down", sit: true, kind: "boss" });
   spots.push({ x: 13, y: 3, face: "up", sit: false, kind: "visit" }, { x: 15, y: 3, face: "up", sit: false, kind: "visit" });
+  spots.push({ x: 11, y: 2, face: "up", sit: false, kind: "shelf" }, { x: 12, y: 2, face: "up", sit: false, kind: "shelf" });
+  // The server rack (right wall): where commands run.
+  furniture.push({ kind: "server", x: 27, y: 8, w: 1, h: 1 });
+  spots.push({ x: 27, y: 9, face: "up", sit: false, kind: "server" }, { x: 26, y: 8, face: "right", sit: false, kind: "server" });
   // Coffee corner (top right): the machine, the counter, a round table.
   furniture.push({ kind: "machine", x: 27, y: 1, w: 1, h: 1 }, { kind: "counter", x: 22, y: 1, w: 5, h: 1 }, { kind: "roundtable", x: 24, y: 4, w: 1, h: 1 }, { kind: "plant", x: 28, y: 1, w: 1, h: 1 });
   for (const x of [27, 22, 23, 24, 25, 26]) spots.push({ x, y: 2, face: "up", sit: false, kind: "coffee" });
@@ -90,6 +94,12 @@ const hash = (s: string) => { let h = 2166136261; for (const c of s) { h ^= c.ch
 /** Where a state sends someone: the kind of spot. */
 export function placeOf(a: OfficeActor): SpotKind | "beside" | "gone" {
   if (a.kind === "chefe") return a.state === "reuniao" ? "meeting" : a.state === "cobrando" || a.state === "conferindo" ? "beside" : "boss";
+  // Working, the tool decides where: reading files and documents at the shelves, commands at the
+  // server, the rest (writing, the web, the BI) at the computer.
+  if (a.state === "trabalhando" && a.tool) {
+    if (/^(read_file|list_dir|list_files|glob|search_files|grep|knowledge|memor)/.test(a.tool)) return "shelf";
+    if (/^(run_command|shell|powershell)/.test(a.tool)) return "server";
+  }
   switch (a.state) {
     case "revisao": case "reuniao": return "meeting";
     case "cafe": return "coffee";
@@ -144,15 +154,37 @@ export function assignSpots(actors: OfficeActor[], before: Map<string, Spot> = n
   return out;
 }
 
+/** An errand on the way to one's place: a spot, how long to stay, what one carries away from it. */
+export type Errand = { spot: Spot; wait: number; carry?: Carry };
+export type Carry = "paper" | "cup" | null;
 /** A person on the floor: where they are, where they go, how they look. */
-export type Walker = { id: string; actor: OfficeActor; x: number; y: number; path: Tile[]; spot: Spot | null; leaving: boolean; phase: number; facing: Spot["face"]; seat: boolean; strollAt: number };
+export type Walker = {
+  id: string; actor: OfficeActor; x: number; y: number; path: Tile[]; spot: Spot | null; leaving: boolean; phase: number; facing: Spot["face"]; seat: boolean; strollAt: number;
+  home?: Spot | null; homeAt?: number; queue?: Errand[]; dwell?: number; gives?: Carry; arrivedAt?: number | null; carry?: Carry; routineAt?: number; chatWith?: string | null;
+};
 const SPEED = 3.2;            // tiles per second
+const BUSY = new Set(["trabalhando", "pensando", "refazendo", "conferindo", "aguardando", "chegando", "revisao", "cobrado"]);
+const same = (a?: Spot | null, b?: Spot | null) => !!a && !!b && a.x === b.x && a.y === b.y;
+const go = (w: Walker, spot: Spot) => { w.spot = spot; w.path = findPath(w, spot); w.arrivedAt = null; };
 
-/** One frame: everyone walks their path; arrived, they sit or stand as their spot says. */
-export function step(walkers: Walker[], dt: number): Walker[] {
+/** One frame: everyone walks their path; arrived, they sit or stand, wait out an errand, go on. */
+export function step(walkers: Walker[], dt: number, now: number = Date.now()): Walker[] {
   for (const w of walkers) {
     const next = w.path[0];
-    if (!next) { w.seat = !!w.spot?.sit && !w.leaving; if (w.spot) w.facing = w.spot.face; continue; }
+    if (!next) {
+      w.seat = !!w.spot?.sit && !w.leaving; if (w.spot) w.facing = w.spot.face;
+      if (w.arrivedAt == null) w.arrivedAt = now;
+      // An errand done: the next one, or home.
+      if (w.queue?.length || (w.dwell != null && w.home && !same(w.spot, w.home))) {
+        if (now - w.arrivedAt >= (w.dwell ?? 0)) {
+          if (w.gives !== undefined) w.carry = w.gives;          // the paper handed over, the cup taken
+          const e = w.queue?.shift();
+          if (e) { w.dwell = e.wait; w.gives = e.carry ?? null; go(w, e.spot); }
+          else { w.dwell = undefined; w.gives = undefined; if (w.home) go(w, w.home); }
+        }
+      }
+      continue;
+    }
     w.seat = false;
     const dx = next.x - w.x, dy = next.y - w.y; const d = Math.hypot(dx, dy); const move = SPEED * dt;
     w.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
@@ -164,41 +196,83 @@ export function step(walkers: Walker[], dt: number): Walker[] {
 }
 
 /**
- * The floor after new data: newcomers come in through the door, those whose spot changed walk to the
- * new one, those no longer in the data walk out. Idle ones stroll to another rest spot now and then.
+ * The floor after new data: newcomers come in through the door, those whose place changed walk to the
+ * new one (a delivery first goes by the boss's desk with the paper, then by the coffee machine), those
+ * no longer in the data walk out. A tool that changes every few seconds does not send anyone running
+ * between the shelves and the desk: a place of work is kept at least 5 s.
  */
 export function sync(walkers: Walker[], actors: OfficeActor[], now: number): Walker[] {
-  const before = new Map(walkers.filter((w) => w.spot && !w.leaving).map((w) => [w.id, w.spot!]));
+  const before = new Map(walkers.filter((w) => (w.home || w.spot) && !w.leaving).map((w) => [w.id, (w.home || w.spot)!]));
   const spots = assignSpots(actors, before);
   const byId = new Map(walkers.map((w) => [w.id, w]));
   const out: Walker[] = [];
+  const machine = PLAN.spots.find((s) => s.kind === "coffee")!;
+  const bossVisit = PLAN.spots.find((s) => s.kind === "visit")!;
   for (const a of actors) {
-    const spot = spots.get(a.id) || null;
+    let spot = spots.get(a.id) || null;
     let w = byId.get(a.id);
     if (!w) {
       if (!spot) continue;
       // Who was already there when the office opened is at their place; who arrives comes in through the door.
       const fresh = walkers.length > 0;
-      w = { id: a.id, actor: a, x: fresh ? DOOR.x : spot.x, y: fresh ? DOOR.y : spot.y, path: [], spot: null, leaving: false, phase: hash(a.id) % 7, facing: "up", seat: false, strollAt: now + 15000 + (hash(a.id) % 20000) };
+      w = { id: a.id, actor: a, x: fresh ? DOOR.x : spot.x, y: fresh ? DOOR.y : spot.y, path: [], spot: null, leaving: false, phase: hash(a.id) % 7, facing: "up", seat: false, strollAt: now + 12000 + (hash(a.id) % 15000), home: null, homeAt: now, queue: [], carry: null };
     }
-    w.actor = a; w.leaving = false;
-    if (!spot) { w.leaving = true; w.spot = null; w.path = findPath(w, DOOR); out.push(w); continue; }
-    if (!w.spot || w.spot.x !== spot.x || w.spot.y !== spot.y) { w.spot = spot; w.path = findPath(w, spot); }
+    const was = w.actor.state; w.actor = a; w.leaving = false;
+    if (!spot) { w.leaving = true; w.spot = w.home = null; w.queue = []; w.path = findPath(w, DOOR); out.push(w); continue; }
+    const work = (k?: SpotKind) => k === "desk" || k === "shelf" || k === "server";
+    if (w.home && work(w.home.kind) && work(spot.kind) && a.state === was && now - (w.homeAt ?? 0) < 5000) spot = w.home;
+    if (!same(w.home, spot)) {
+      w.home = spot; w.homeAt = now; w.chatWith = null;
+      // Just delivered: the paper to the boss, a coffee from the machine, then a seat at the café.
+      if (a.state === "cafe" && BUSY.has(was) && a.kind !== "chefe") {
+        w.queue = [{ spot: machine, wait: 3000, carry: "cup" }]; w.dwell = 2500; w.gives = null; w.carry = "paper"; go(w, bossVisit);
+      } else { w.queue = []; w.dwell = undefined; w.gives = undefined; w.carry = a.state === "cafe" ? "cup" : null; go(w, spot); }
+    }
     out.push(w);
   }
-  for (const w of walkers) if (!actors.some((a) => a.id === w.id)) { if (!w.leaving) { w.leaving = true; w.spot = null; w.path = findPath(w, DOOR); } out.push(w); }
+  for (const w of walkers) if (!actors.some((a) => a.id === w.id)) { if (!w.leaving) { w.leaving = true; w.spot = w.home = null; w.queue = []; w.path = findPath(w, DOOR); } out.push(w); }
   return out;
 }
 
-/** Idle people stretch their legs: to another free rest spot (coffee, sofa, the window). */
-export function stroll(walkers: Walker[], now: number): void {
+/**
+ * Life between the facts (each still what the state is): idle people stroll and, meeting another idle
+ * one, stop to chat; who has been thinking a while gets up and paces beside the desk; the boss, with
+ * nobody to check, goes round the desks of who is working.
+ */
+export function routines(walkers: Walker[], now: number): void {
   const used = new Set(walkers.map((w) => w.spot).filter(Boolean));
+  const arrived = (w: Walker) => !w.path.length && !w.queue?.length && w.dwell == null;
+  const working = walkers.filter((w) => !w.leaving && arrived(w) && w.home?.kind === "desk" && ["trabalhando", "pensando", "refazendo", "conferindo"].includes(w.actor.state));
   for (const w of walkers) {
-    if (w.actor.state !== "descanso" || w.leaving || w.path.length || now < w.strollAt) continue;
-    const options = PLAN.spots.filter((s) => (s.kind === "sofa" || s.kind === "rest" || s.kind === "coffee") && !used.has(s));
-    w.strollAt = now + 20000 + (hash(w.id + now) % 25000);
-    if (!options.length) continue;
-    const s = options[hash(w.id + String(now)) % options.length];
-    used.delete(w.spot); used.add(s); w.spot = s; w.path = findPath(w, s);
+    if (w.leaving || !arrived(w) || now < (w.routineAt ?? 0)) continue;
+    const a = w.actor;
+    if (a.state === "descanso" && a.kind !== "chefe" && now >= w.strollAt) {
+      w.strollAt = now + 14000 + (hash(w.id + now) % 18000);
+      // Now and then next to another idle person, to chat; otherwise another rest spot.
+      const mate = walkers.find((o) => o !== w && o.actor.state === "descanso" && arrived(o) && !o.chatWith && o.spot);
+      if (mate && hash(w.id + String(now)) % 2 === 0) {
+        const near = [[1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: mate.spot!.x + dx, y: mate.spot!.y + dy })).find((t) => findPath(w, t).length || (w.x === t.x && w.y === t.y));
+        if (near) { const face: Spot["face"] = near.x > mate.spot!.x ? "left" : near.x < mate.spot!.x ? "right" : "up"; go(w, { ...near, face, sit: false, kind: "rest" }); w.home = w.spot; w.chatWith = mate.id; mate.chatWith = w.id; continue; }
+      }
+      const options = PLAN.spots.filter((s) => (s.kind === "sofa" || s.kind === "rest" || s.kind === "coffee") && !used.has(s));
+      if (options.length) { const s = options[hash(w.id + String(now)) % options.length]; used.delete(w.spot); used.add(s); if (w.chatWith) { const o = walkers.find((x) => x.id === w.chatWith); if (o) o.chatWith = null; } w.chatWith = null; go(w, s); w.home = s; }
+      continue;
+    }
+    // Thinking for a while: up and pacing beside the desk, back to the chair, again.
+    if (a.state === "pensando" && w.home?.kind === "desk" && a.since && now - a.since > 6000) {
+      w.routineAt = now + 3500;
+      if (same(w.spot, w.home)) go(w, { x: w.home.x + (hash(w.id) % 2 ? 1 : -1), y: w.home.y + 1, face: "down", sit: false, kind: "pace" });
+      else go(w, w.home);
+      continue;
+    }
+    // The boss going round: behind each one working, a few seconds each.
+    if (a.kind === "chefe" && a.state === "supervisionando") {
+      w.routineAt = now + 5500;
+      if (!working.length) { if (w.home && !same(w.spot, w.home)) go(w, w.home); continue; }
+      const target = working[Math.floor(now / 5500) % working.length];
+      go(w, { x: target.home!.x + 1, y: target.home!.y, face: "left", sit: false, kind: "visit" });
+    }
   }
 }
+/** Kept for callers of the first version: the routines include the strolls. */
+export const stroll = routines;

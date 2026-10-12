@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getOffice, type OfficeRoom } from "./api";
 import { PLAN, step, sync, stroll, type OfficeActor, type Walker } from "./officeSim";
-import { T, W, H, drawRoom, drawFurniture, drawClock, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks } from "./officePixel";
+import { T, W, H, drawRoom, drawFurniture, drawClock, drawWindows, drawLight, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks, type Sign } from "./officePixel";
 import "./office.css";
 
 /**
@@ -156,6 +156,7 @@ function poseOf(w: Walker): { pose: Pose; facing: Walker["facing"] } {
   return { pose: "stand", facing: w.spot?.face || w.facing };
 }
 
+const lookHash = (s: string) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 let low: HTMLCanvasElement | null = null, room: HTMLCanvasElement | null = null;
 function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers: Walker[], t: number, hover: string | null, selected: string | null) {
   if (!low) { low = document.createElement("canvas"); low.width = W; low.height = H; }
@@ -163,7 +164,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   const c = low.getContext("2d")!;
   c.imageSmoothingEnabled = false;
   c.drawImage(room, 0, 0);
-  drawClock(c, new Date());
+  const now = new Date(); drawWindows(c, now); drawClock(c, now);
   const working = workingDesks(walkers);
   // Furniture, empty chairs and people in depth order (lower on the floor is drawn later).
   const items: Array<{ y: number; draw: () => void }> = [];
@@ -172,11 +173,21 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   for (const s of PLAN.spots) if ((s.kind === "desk" || s.kind === "meeting") && !seated.has(`${s.x},${s.y}`)) items.push({ y: s.y * T + 10, draw: () => drawEmptySeat(c, s.x, s.y) });
   for (const w of walkers) {
     const p = feet(w); const { pose, facing } = poseOf(w);
-    items.push({ y: p.y + (w.seat && w.spot?.kind === "sofa" ? T : 0), draw: () => drawPerson(c, p.x, p.y, w.actor, lookOf(w.actor), pose, facing, Math.floor(w.phase), t) });
+    items.push({ y: p.y + (w.seat && w.spot?.kind === "sofa" ? T : 0), draw: () => drawPerson(c, p.x, p.y, w.actor, lookOf(w.actor), pose, facing, Math.floor(w.phase), t, w.carry ?? null) });
   }
   items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
-  // Signs over the heads of who has arrived.
-  for (const w of walkers) { const sgn = signOf(w.actor.state, w.actor.kind); if (sgn && !w.path.length) { const p = feet(w); drawBubble(c, p.x + 1, p.y - (w.seat ? 25 : 27), sgn, t); } }
+  // Evening and night: dimmer, the screens of who works glowing.
+  drawLight(c, now, PLAN.furniture.filter((f) => f.kind === "desk" && working.has(f.desk!)).map((f) => ({ x: f.x * T + 9, y: f.y * T - 6 })));
+  // Signs over the heads of who has arrived: at the shelves a book, at the server a terminal, a
+  // conversation in turns (one talks, then the other).
+  for (const w of walkers) {
+    if (w.path.length) continue;
+    let sgn: Sign | null = w.spot?.kind === "shelf" ? "book" : w.spot?.kind === "server" ? "term" : w.spot?.kind === "pace" ? "think" : w.carry === "paper" ? "paper" : signOf(w.actor.state, w.actor.kind);
+    const talking = w.chatWith ? walkers.find((o) => o.id === w.chatWith && !o.path.length) : null;
+    if (talking) sgn = "talk";
+    if (sgn === "talk" && Math.floor(t / 1.6 + (talking ? (w.id < talking.id ? 0 : 1) : (lookHash(w.id) % 2))) % 2) continue;
+    if (sgn) { const p = feet(w); drawBubble(c, p.x + 1, p.y - (w.seat ? 25 : 27), sgn, t); }
+  }
   // Enlarged without smoothing; the names sharp on top.
   const ratio = window.devicePixelRatio || 1; const shown = canvas.clientWidth || W * 3;
   const want = Math.max(W, Math.round(shown * ratio));

@@ -55,8 +55,6 @@ export function drawRoom(c: Ctx) {
   px(c, 0, 0, W, 3, P.wallCap); px(c, 0, 3, W, T - 3, P.wallFace);
   for (let x = 0; x < W; x += 32) px(c, x, 3, 1, T - 5, P.wallFace2);
   px(c, 0, T - 2, W, 2, P.wallBase);
-  // Windows (between the furniture against the wall).
-  for (const wx of [5.4, 8.6, 18.6, 19.8]) { const x = Math.round(wx * T); px(c, x - 1, 3, 14, 11, OUT); px(c, x, 4, 12, 9, P.glass); px(c, x + 5, 4, 2, 9, P.trim); px(c, x, 8, 12, 1, P.trim); px(c, x + 1, 5, 2, 2, P.glassHi); px(c, x + 8, 9, 1, 2, P.glassHi); }
   // Pictures.
   for (const [wx, col] of [[10.2, "#d9a23f"], [20.9, "#4b8fd1"]] as const) { const x = Math.round(wx * T); px(c, x - 1, 4, 12, 9, OUT); px(c, x, 5, 10, 7, "#8a6a40"); px(c, x + 1, 6, 8, 5, col); px(c, x + 2, 9, 3, 2, "#f2e6c8"); }
   // Side and front walls (seen from above: their dark top).
@@ -158,8 +156,48 @@ export function drawFurniture(c: Ctx, f: Furniture, working: Set<number>, t: num
       px(c, x + 30, y - 6, 12, 1, P.red); px(c, x + 30, y - 4, 8, 1, "#4fa35e");
       break;
     }
+    case "server": {
+      px(c, x + 1, y - 10, 14, 26, OUT); px(c, x + 2, y - 9, 12, 24, "#2b303b"); px(c, x + 2, y - 9, 12, 1, "#454c5c");
+      for (let r = 0; r < 5; r++) {
+        px(c, x + 3, y - 7 + r * 4, 10, 3, "#1b1f27");
+        for (let l = 0; l < 3; l++) { const on = Math.sin(t * (3 + l + r) + r * 2.1 + l) > 0.1; px(c, x + 4 + l * 2, y - 6 + r * 4, 1, 1, on ? (l === 2 ? "#e9b23c" : "#57d89a") : "#30363f"); }
+        px(c, x + 10, y - 6 + r * 4, 2, 1, "#5f6778");
+      }
+      break;
+    }
     case "glass": break;            // drawn as walls with the room
   }
+}
+/** The sky through the windows at this hour: day, sunset, night with stars. */
+function sky(now: Date) {
+  const h = now.getHours() + now.getMinutes() / 60;
+  if (h >= 7 && h < 17) return { glass: P.glass, hi: P.glassHi, night: false };
+  if (h >= 17 && h < 19) return { glass: "#f2a65a", hi: "#ffd9a0", night: false };
+  if (h >= 5.5 && h < 7) return { glass: "#e9b3c8", hi: "#fbe3ec", night: false };
+  return { glass: "#1b2448", hi: "#f6f1c7", night: true };
+}
+export function drawWindows(c: Ctx, now: Date) {
+  const k = sky(now);
+  for (const wx of [5.4, 8.6, 18.6, 19.8]) {
+    const x = Math.round(wx * T); px(c, x - 1, 3, 14, 11, OUT); px(c, x, 4, 12, 9, k.glass);
+    if (k.night) { px(c, x + 2, 5, 1, 1, k.hi); px(c, x + 9, 7, 1, 1, k.hi); px(c, x + 3, 10, 1, 1, "#9aa3c7"); }
+    else { px(c, x + 1, 5, 2, 2, k.hi); px(c, x + 8, 9, 1, 2, k.hi); }
+    px(c, x + 5, 4, 2, 9, P.trim); px(c, x, 8, 12, 1, P.trim);
+  }
+}
+/** Evening and night: the room dims and the screens of who works glow. */
+export function drawLight(c: Ctx, now: Date, glows: Array<{ x: number; y: number }>) {
+  const h = now.getHours() + now.getMinutes() / 60;
+  const dark = h >= 20 || h < 5.5 ? 0.42 : h >= 18.5 ? 0.22 : h < 7 ? 0.18 : 0;
+  if (!dark) return;
+  c.fillStyle = `rgba(14,18,46,${dark})`; c.fillRect(0, 0, W, H);
+  c.save(); c.globalCompositeOperation = "lighter";
+  // A soft halo round each lit screen (three rings, fainter outwards), on the desk and the face before it.
+  for (const g of glows) {
+    const cx = g.x + 7, cy = g.y + 5;
+    for (const [rx, ry, al] of [[11, 9, 0.07], [8, 6, 0.09], [5, 4, 0.12]] as const) { c.fillStyle = `rgba(90,210,150,${al})`; c.fillRect(cx - rx, cy - ry + 2, rx * 2, ry * 2); c.fillRect(cx - rx + 2, cy - ry, rx * 2 - 4, ry * 2 + 4); }
+  }
+  c.restore();
 }
 /** The wall clock, with the real time. */
 export function drawClock(c: Ctx, now: Date) {
@@ -187,8 +225,11 @@ type Rect = [number, number, number, number, string];
  * A person, the feet at (fx, fy) on the small canvas: pose "stand" | "walk" | "sit" (back to us, at a
  * desk) | "sitFront" (facing us: sofa, far side of the table); facing for stand/walk.
  */
-export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look: Look, pose: "stand" | "walk" | "sit" | "sitFront", facing: "up" | "down" | "left" | "right", frame: number, t: number) {
+export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look: Look, pose: "stand" | "walk" | "sit" | "sitFront", facing: "up" | "down" | "left" | "right", frame: number, t: number, carry: "paper" | "cup" | null = null) {
   const L = look; const x0 = Math.round(fx) - 8, y0 = Math.round(fy) - 24;
+  const seed = hash(a.id);
+  const blink = Math.floor(t * 1000 + seed) % 3900 < 120;                 // a blink every few seconds
+  const breathe = pose !== "walk" && Math.floor(t * 0.9 + (seed % 10) / 10) % 2 === 1 ? 1 : 0;
   const flip = facing === "left"; const side = facing === "left" || facing === "right";
   const back = pose === "sit" || (pose !== "sitFront" && facing === "up");
   const sitting = pose === "sit" || pose === "sitFront"; const dy = sitting ? 3 : 0;
@@ -196,17 +237,18 @@ export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look:
   const parts: Rect[] = []; const details: Rect[] = [];
   const P_ = (x: number, y: number, w: number, h: number, col: string, list = parts) => list.push([x, y, w, h, col]);
   // Head (big, chibi) and hair.
-  const hy = 1 + dy;
+  const hy = 1 + dy + breathe;
   if (side) {
     P_(3, hy, 11, 11, L.hair); P_(7, hy + 4, 7, 6, L.skin); P_(7, hy + 10, 6, 1, L.skinDark);
-    P_(12, hy + 6, 1, 2, OUT, details); P_(6, hy + 5, 2, 2, L.skin, details);              // eye; ear
+    P_(12, hy + 6 + (blink ? 1 : 0), 1, blink ? 1 : 2, OUT, details); P_(6, hy + 5, 2, 2, L.skin, details);              // eye; ear
     P_(4, hy + 1, 8, 1, L.hairHi, details);
   } else if (back) {
     P_(2, hy, 12, 11, L.hair); P_(6, hy + 10, 4, 1, L.skinDark);
     P_(4, hy + 1, 7, 1, L.hairHi, details); P_(3, hy + 3, 1, 4, L.hairHi, details);
   } else {
     P_(2, hy, 12, 11, L.hair); P_(3, hy + 4, 10, 6, L.skin); P_(4, hy + 10, 8, 1, L.skinDark);
-    P_(5, hy + 6, 1, 2, OUT, details); P_(10, hy + 6, 1, 2, OUT, details);
+    if (blink) { P_(5, hy + 7, 1, 1, OUT, details); P_(10, hy + 7, 1, 1, OUT, details); }
+    else { P_(5, hy + 6, 1, 2, OUT, details); P_(10, hy + 6, 1, 2, OUT, details); }
     P_(4, hy + 8, 1, 1, "#e89a8a", details); P_(11, hy + 8, 1, 1, "#e89a8a", details);
     P_(3, hy + 4, 4, 1, L.hair, details); P_(4, hy + 1, 8, 1, L.hairHi, details);           // fringe, shine
     if (a.kind === "professor") { P_(4, hy + 5, 3, 1, OUT, details); P_(9, hy + 5, 3, 1, OUT, details); P_(7, hy + 5, 2, 1, OUT, details); }
@@ -238,8 +280,10 @@ export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look:
   else if (pose === "sitFront") { P_(4, by + 6, 8, 2, L.pants); P_(4, by + 8, 3, 1, L.shoes); P_(9, by + 8, 3, 1, L.shoes); }
   else if (side) { P_(6 - step, 18, 2, 4 - Math.abs(step), L.pants); P_(8 + step, 18, 2, 4, L.pants); P_(6 - step, 22 - Math.abs(step), 3, 1, L.shoes); P_(8 + step, 22, 3, 1, L.shoes); }
   else { P_(5, 18, 2, 3 - (step > 0 ? 1 : 0), L.pants); P_(9, 18, 2, 3 - (step < 0 ? 1 : 0), L.pants); P_(4, 21 - (step > 0 ? 1 : 0), 3, 2, L.shoes); P_(9, 21 - (step < 0 ? 1 : 0), 3, 2, L.shoes); }
-  // A coffee in hand.
-  if (a.state === "cafe" && !back) { P_(13, by + 2, 3, 4, "#f2f2f2", details); P_(13, by + 2, 3, 1, "#6b3e1f", details); }
+  // In hand: a coffee, or the paper of a delivery.
+  const holds = carry ?? (a.state === "cafe" ? "cup" : null);
+  if (holds === "cup" && !back) { P_(side ? 9 + step : 13, by + 2, 3, 4, "#f2f2f2", details); P_(side ? 9 + step : 13, by + 2, 3, 1, "#6b3e1f", details); }
+  if (holds === "paper") { P_(side ? 9 + step : 12, by + 1, 4, 5, P.paper, details); P_(side ? 10 + step : 13, by + 2, 2, 1, "#9aa3b3", details); P_(side ? 10 + step : 13, by + 4, 2, 1, "#9aa3b3", details); }
 
   c.save();
   if (a.kind === "copia") c.globalAlpha = 0.7;
@@ -253,7 +297,7 @@ export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look:
 }
 
 // ---------------- Bubbles ----------------
-export type Sign = "dots" | "think" | "hand" | "talk" | "cup" | "zz" | "alert" | "check" | "clip";
+export type Sign = "dots" | "think" | "hand" | "talk" | "cup" | "zz" | "alert" | "check" | "clip" | "book" | "term" | "paper";
 export function signOf(state: string, kind: OfficeActor["kind"]): Sign | null {
   if (kind === "chefe") return state === "cobrando" ? "clip" : state === "conferindo" ? "check" : state === "reuniao" ? "talk" : null;
   return ({ trabalhando: "dots", refazendo: "dots", conferindo: "check", pensando: "think", chegando: "think", aguardando: "hand", revisao: "talk", reuniao: "talk", cafe: "cup", descanso: "zz", cobrado: "alert" } as Record<string, Sign>)[state] || null;
@@ -272,6 +316,9 @@ export function drawBubble(c: Ctx, x: number, y: number, s: Sign, t: number) {
     case "zz": px(c, ix, iy + 2, 3, 1, ink); px(c, ix + 1, iy + 3, 1, 1, ink); px(c, ix, iy + 4, 3, 1, ink); px(c, ix + 4, iy, 2, 1, ink); px(c, ix + 4, iy + 1, 1, 1, ink); px(c, ix + 4, iy + 2, 2, 1, ink); break;
     case "alert": px(c, ix + 3, iy, 2, 4, "#d6334f"); px(c, ix + 3, iy + 5, 2, 1, "#d6334f"); break;
     case "check": px(c, ix, iy + 3, 1, 1, "#2f9e6e"); px(c, ix + 1, iy + 4, 1, 1, "#2f9e6e"); px(c, ix + 2, iy + 5, 1, 1, "#2f9e6e"); px(c, ix + 3, iy + 4, 1, 1, "#2f9e6e"); px(c, ix + 4, iy + 3, 1, 1, "#2f9e6e"); px(c, ix + 5, iy + 2, 1, 1, "#2f9e6e"); px(c, ix + 6, iy + 1, 1, 1, "#2f9e6e"); break;
+    case "book": px(c, ix, iy + 1, 7, 5, "#3f7fd1"); px(c, ix + 3, iy + 1, 1, 5, "#1d3f73"); px(c, ix + 1, iy + 2, 1, 1, "#ffffff"); px(c, ix + 5, iy + 2, 1, 1, "#ffffff"); break;
+    case "term": px(c, ix, iy, 7, 6, "#1b1f27"); px(c, ix + 1, iy + 1, 1, 1, "#57d89a"); px(c, ix + 2, iy + 2, 1, 1, "#57d89a"); px(c, ix + 1, iy + 3, 1, 1, "#57d89a"); if (Math.floor(t * 2) % 2) px(c, ix + 3, iy + 4, 3, 1, "#57d89a"); break;
+    case "paper": px(c, ix + 1, iy, 5, 6, P.paper); px(c, ix + 2, iy + 1, 3, 1, "#9aa3b3"); px(c, ix + 2, iy + 3, 3, 1, "#9aa3b3"); break;
     case "clip": px(c, ix + 1, iy, 5, 6, "#c08a5a"); px(c, ix + 2, iy + 1, 3, 4, "#ffffff"); px(c, ix + 3, iy - 1, 1, 1, OUT); px(c, ix + 2, iy + 2, 3, 1, "#9aa0ad"); break;
   }
 }

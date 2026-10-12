@@ -50,6 +50,29 @@ Cada pessoa na sala é algo real do Harness, no estado em que está agora. Nada 
 
 Quem chega entra pela porta e anda até o seu lugar; quem sai do retrato anda até a porta.
 
+### Vivo, sem inventar
+
+O lugar e o gesto também seguem o que está acontecendo:
+- **Ferramenta em uso:**
+  - lendo arquivos ou buscando nos documentos: a pessoa vai à estante, com o sinal de livro;
+  - rodando um comando: vai ao rack de servidores, com o sinal de terminal;
+  - escrevendo, pesquisando na web ou montando o BI: digita no computador.
+
+  O lugar de trabalho se mantém por pelo menos 5 s, para ninguém ficar correndo a cada passo curto.
+- **Entrega:** leva o papel à mesa do chefe, pega um café na cafeteira e só então vai sentar no café.
+- **Pensando há mais de 6 s:** levanta e anda ao lado da mesa, depois volta à cadeira.
+- **Chefe sem nada para conferir:** faz ronda, parando um pouco atrás de cada um que trabalha.
+- **Quem está livre:** dá voltas pelo sofá, pela janela e pelo café. Dois livres que se encontram param para conversar, com balões de fala em turnos.
+- **Detalhes:**
+  - os bonequinhos piscam e respiram;
+  - os monitores mostram texto rolando;
+  - a cafeteira solta vapor e o servidor pisca;
+  - o relógio da parede marca a hora real;
+  - as janelas mudam com a hora (dia, entardecer, noite com estrelas);
+  - à noite a sala escurece e os monitores de quem trabalha brilham.
+
+![A sala de um projeto à noite](img/escritorio-noite.png)
+
 Clicar numa pessoa mostra:
 - o que ela está fazendo e há quanto tempo;
 - a tarefa e o andamento do plano;

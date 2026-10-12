@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PLAN, DOOR, findPath, walkable, placeOf, assignSpots, sync, step, stroll } from "../.test-build/officeSim.js";
+import { PLAN, DOOR, findPath, walkable, placeOf, assignSpots, sync, step, routines } from "../.test-build/officeSim.js";
 
 const actor = (id, state, extra = {}) => ({ id, kind: "agente", name: id, state, activity: "", ...extra });
 
@@ -35,22 +35,43 @@ test("office: each state sends a person to its place (desk, table, coffee, sofa;
 });
 
 test("office: newcomers come in through the door and walk to their place; who leaves walks out", () => {
-  let floor = sync([], [actor("a", "descanso")], 0);
+  let now = 0; const run = (floor, secs) => { for (let i = 0; i < secs * 20; i++) { now += 50; floor = step(floor, 0.05, now); routines(floor, now); } return floor; };
+  let floor = sync([], [actor("a", "descanso")], now);
   assert.equal(floor[0].path.length, 0);                    // already there when the office opened
-  floor = sync(floor, [actor("a", "descanso"), actor("b", "trabalhando")], 1000);
+  floor = sync(floor, [actor("a", "descanso"), actor("b", "trabalhando")], now);
   const b = floor.find((w) => w.id === "b");
   assert.deepEqual([b.x, b.y], [DOOR.x, DOOR.y]); assert.ok(b.path.length > 0);
-  for (let i = 0; i < 400; i++) floor = step(floor, 0.05);
+  floor = run(floor, 20);
   assert.equal(b.path.length, 0); assert.equal(b.seat, true); assert.equal(b.spot.kind, "desk");
-  // b's turn ends: b goes for coffee; a is gone from the data: a walks out and disappears.
-  floor = sync(floor, [{ ...actor("b", "cafe") }], 2000);
+  // b delivers: the paper to the boss's desk first, a coffee from the machine, then the café.
+  floor = sync(floor, [actor("b", "cafe")], now);
+  assert.equal(b.spot.kind, "visit"); assert.equal(b.carry, "paper");
   assert.ok(floor.find((w) => w.id === "a").leaving);
-  for (let i = 0; i < 600; i++) floor = step(floor, 0.05);
-  assert.ok(!floor.some((w) => w.id === "a")); assert.equal(floor.find((w) => w.id === "b").spot.kind, "coffee");
-  // Resting, now and then a stroll to another rest spot (kept by the next refresh).
-  floor = sync(floor, [actor("b", "descanso")], 3000);
-  const before = floor[0].spot; floor[0].strollAt = 0; stroll(floor, 10_000);
-  const after = floor[0].spot; assert.ok(["sofa", "rest", "coffee"].includes(after.kind));
-  floor = sync(floor, [actor("b", "descanso")], 11_000); assert.equal(floor[0].spot, after);
-  assert.ok(before);
+  floor = run(floor, 14); assert.equal(b.carry, null);        // handed over
+  floor = run(floor, 20);
+  assert.ok(!floor.some((w) => w.id === "a")); assert.equal(b.spot.kind, "coffee"); assert.equal(b.carry, "cup");
+});
+
+test("office: the tool decides the place of work (shelves to read, the server to run), kept a few seconds", () => {
+  assert.equal(placeOf(actor("a", "trabalhando", { tool: "read_file" })), "shelf");
+  assert.equal(placeOf(actor("a", "trabalhando", { tool: "run_command" })), "server");
+  assert.equal(placeOf(actor("a", "trabalhando", { tool: "write_document" })), "desk");
+  let floor = sync([], [actor("a", "trabalhando", { tool: "write_document" })], 0);
+  floor = sync(floor, [actor("a", "trabalhando", { tool: "read_file" })], 1000);
+  assert.equal(floor[0].home.kind, "desk");                  // a tool of one second does not move anyone
+  floor = sync(floor, [actor("a", "trabalhando", { tool: "read_file" })], 7000);
+  assert.equal(floor[0].home.kind, "shelf");
+});
+
+test("office: life between the facts: the boss goes round who works, idle people chat, long thinking paces", () => {
+  let now = 0;
+  let floor = sync([], [actor("w1", "trabalhando"), actor("w2", "trabalhando"), { ...actor("boss", "supervisionando"), kind: "chefe" }, actor("i1", "descanso"), actor("i2", "descanso")], now);
+  const seen = new Set(); let chatted = false;
+  for (let i = 0; i < 180 * 20; i++) { now += 50; floor = step(floor, 0.05, now); routines(floor, now); const boss = floor.find((w) => w.id === "boss"); if (boss.spot.kind === "visit" && !boss.path.length) seen.add(`${boss.spot.x},${boss.spot.y}`); chatted ||= floor.some((w) => w.chatWith); }
+  assert.ok(seen.size >= 2, "o chefe passou por mais de uma mesa");
+  assert.ok(chatted, "dois livres conversando");
+  // Thinking for long: up and pacing beside the desk.
+  floor = sync([], [actor("t", "pensando", { since: 1 })], 0); now = 0; let paced = false;
+  for (let i = 0; i < 20 * 20; i++) { now += 50; floor = step(floor, 0.05, now); routines(floor, now); paced ||= floor[0].spot.kind === "pace"; }
+  assert.ok(paced);
 });
