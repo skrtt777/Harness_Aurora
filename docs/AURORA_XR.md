@@ -58,14 +58,41 @@ Pedido de 12/10/2026: "poder segurar o caminhão… pegar com a mão e olhar de 
   Partes se mexem sozinhas: pás do moinho, hélice, asas, chama, fumaça do vulcão, facho do farol.
 - **No PC e no celular**: arraste uma coisa com o mouse ou o dedo. Ela empurra as outras e, ao soltar, volta. Um toque faz ela pular e mostra os detalhes.
 
-## Cenários feitos pela Aurora
+## Cenários feitos pela Aurora (só no XR)
 
-Na aba **Cenários**, ou só falando "Aurora, faz uma fazenda com vacas e um trator", a Aurora monta uma maquete de qualquer coisa:
+Os cenários são para imaginar e brincar e existem **só no Aurora XR**. O Power BI, no desktop e na aba Operação do XR, continua fiel aos dados: um objeto por registro, a mesma contagem dos cartões. Ele nunca usa a biblioteca de cenários nem a composição livre.
 
-1. **Na hora**, um rascunho sai das próprias palavras do pedido: o tema (fazenda, cidade, praia, sistema solar, dinossauros, floresta, zoológico, porto, aeroporto, inverno, acampamento, reino, parque, fundo do mar, vulcão, cidade do futuro) e as coisas contadas ("5 vacas", "dois tratores").
-2. **A Aurora do PC**, na mesma conversa, responde com uma frase e um bloco ` ```cena ` (JSON: título, chão e itens com tipo, quantidade, posição, cor, comportamento e nome). A maquete dela entra no lugar do rascunho. Uma resposta sem bloco deixa o rascunho.
+### A biblioteca de objetos (explicada para a Aurora)
 
-Há cerca de 60 tipos de modelos, feitos de formas simples (`app/xr/xr/models.js`): nada é baixado e tudo roda leve no óculos. Um tipo desconhecido vira uma caixa com o nome. Com o cenário na tela, "adiciona 3 cavalos", "coloca um foguete" e "tira os carros" mudam a maquete na hora, sem esperar a Aurora. Os cenários ficam salvos no aparelho (até 12): "outro cenário" troca, e a aba Operação volta para o Power BI.
+`scripts/xr-assets/library.mjs` lista **206 tipos** de coisa e cerca de **500 modelos 3D** (variantes), todos em domínio público (CC0):
+- **Kenney:** cidade, subúrbio, ruas, indústria, carros, natureza, castelo, vila medieval, piratas, barcos, trens, espaço, Natal, cemitério, móveis e outros pacotes.
+- **Quaternius:** animais **animados** (vaca, cavalo, ovelha, lobo, cervo, zebra…), dinossauros, peixes, tubarão, baleia e pessoas animadas.
+
+Cada tipo diz à Aurora:
+- o que é e o tamanho na maquete;
+- onde fica (chão, água, ar, estrada, trilho);
+- em que zona e em que temas;
+- como se mexe;
+- **uma descrição de onde ele vai e com o quê** (ex.: "Celeiro vermelho grande. Fica no centro da fazenda, com feno, trator e cercados em volta").
+
+`node scripts/xr-assets/build.mjs` baixa as fontes uma vez (cache em `%LOCALAPPDATA%/aurora-xr-assets`) e otimiza:
+- só as animações úteis (andar, correr, parado, comer, nadar);
+- texturas de até 256 px em WebP;
+- compressão meshopt.
+
+O resultado vai para `app/xr/assets/catalog.json` + `app/xr/assets/m/*.glb` (cerca de 26 MB), com os créditos em `app/xr/assets/CREDITS.md`. Para acrescentar objetos, basta uma linha na biblioteca e rodar o build (`--only id1,id2` refaz só esses).
+
+### Como a Aurora monta
+
+1. **Pedido:** na aba **Cenários**, ou falando ("Aurora, faz uma fazenda com 8 vacas"), sai na hora um **rascunho**: a receita do tema mais as coisas contadas. São 18 receitas ricas: fazenda, cidade, praia, sistema solar, base em Marte, dinossauros, floresta, zoológico, porto, inverno, acampamento, reino medieval, parque, fundo do mar, ilha pirata, cemitério, ferrovia e jardim japonês.
+2. **A Aurora do PC** recebe, na mesma conversa, o pedido, o formato e **só os tipos da biblioteca que importam para ele, cada um com a sua descrição** (`relevantTypes`). Ela responde com zonas e coisas num bloco ` ```cena `.
+3. **A resposta é conferida** (`mergeWithDraft`). Uma resposta que copia o exemplo ou foge do assunto fica com o rascunho, e uma maquete magra recebe as zonas do rascunho que faltaram.
+4. **O compositor** (`app/xr/lib/compose.js`) arruma tudo numa base de 90 × 60 cm, como um maquetista:
+   - **Grade e zonas:** uma grade de 4 × 3 recebe as zonas: pasto com cerca e porteira; lavoura em fileiras; mata densa com vegetação rasteira; lago com margem de pedras e plantas, barcos e peixes nadando em voltas; quadras com os prédios virados para a rua; praça com fonte, bancos e postes em roda; feira, acampamento, cemitério e porto.
+   - **Ruas, trilhos e céu:** ruas, estradas de terra e trilhos, com os veículos andando nelas; montanhas ao fundo; nuvens, pássaros e planetas no céu.
+   - **Detalhe:** por fim, capim, flores e pedrinhas no chão vazio.
+
+Com o cenário na tela, "adiciona 3 cavalos" e "tira os carros" mudam a maquete na hora. Os cenários ficam salvos no aparelho (até 12).
 
 ## Como usar
 
@@ -97,7 +124,8 @@ Por voz: "mostra a operação", "conversa", "memórias", "traz o painel", "coloc
 | `app/xr/xr/panel3d.js` | O painel no espaço: as mesmas páginas, desenhadas num canvas. |
 | `app/xr/xr/twin3d.js` | A maquete: caminhão, pessoa e volume; o lugar de cada área; anéis de destaque; selo "N de N". |
 | `app/xr/lib/*.js` | Partes puras, testadas em Node: `twinLayout` (o contrato do gêmeo → onde cada coisa fica), `gestures`, `voice`, `device` (que aparelho é e quais modos ele tem), `api` (cliente da ponte), `scene` (pedido e resposta da Aurora → cenário arrumado na base) e `dynamics` (comportamentos, empurrões, mola, a volta para casa). |
-| `app/xr/xr/models.js`, `scene3d.js` | Os modelos dos cenários e a maquete de um cenário (base no chão pedido, rodovia em anel quando algo roda). |
+| `app/xr/lib/compose.js`, `app/xr/xr/assets.js`, `scene3d.js` | O compositor (zonas, ruas, água, detalhe), o carregador da biblioteca (glTF + meshopt, animações por papel) e a maquete construída. `models.js`: os poucos desenhados pelo app (avião, balão, sol, vulcão, farol, pato). |
+| `scripts/xr-assets/` | A biblioteca de objetos (`library.mjs`) e o build (`build.mjs`). `scripts/xr-lab/scenes.mjs` fotografa receitas para conferir. |
 | `app/xrStatic.js` | Serve os arquivos do app (ponte e servidor do gêmeo). |
 | `test/xr-app.test.js` | 15 testes, inclusive cenários (bloco da Aurora, rascunho, arrumação, edições) e dinâmica (comportamentos, empurrão e volta, fila parada): maquete, gestos, voz, perfil do aparelho, arquivos do app, origem, pareamento e conversa contra a ponte real. |
 | `scripts/xr-lab/xr-lab.mjs` | Laboratório: ponte de teste isolada (PC falso), Chromium como PC, celular e **Quest 3 emulado (IWER)** em MR e VR. `--serve 8799` sobe só a ponte de teste para um óculos no USB. Com `?lab=1` na URL, o aparelho manda para o PC o que suporta, os erros e o rastreamento. |

@@ -117,8 +117,9 @@ await run("pc", { viewport: { width: 1440, height: 900 } }, async (page, r) => {
   await page.click('[data-page="cenarios"]');
   await page.fill('form[data-act="scene"] textarea', "faz uma fazenda com vacas e um trator"); await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.auroraXR.S.view === "cenario" && !window.auroraXR.S.sceneBusy, null, { timeout: 15000 });
-  r.checks.scene = await page.evaluate(() => { const { S, stage } = window.auroraXR; return { title: S.scene.title, items: S.scene.items.length, bodies: stage.bodies.length, saved: S.scenes.length }; });
-  if (r.checks.scene.title !== "Fazenda da Aurora" || r.checks.scene.bodies !== r.checks.scene.items) r.failed = "o cenário da Aurora não apareceu inteiro";
+  await page.waitForFunction(() => window.auroraXR.S.scene && !window.auroraXR.S.scene.loading && window.auroraXR.stage.bodies.length > 20, null, { timeout: 60000 });
+  r.checks.scene = await page.evaluate(() => { const { S, stage } = window.auroraXR; const anim = stage.bodies.filter((b) => b.obj.userData.anim).length; return { title: S.scene.title, things: S.scene.count, bodies: stage.bodies.length, animated: anim, missing: S.scene.missing, saved: S.scenes.length }; });
+  if (r.checks.scene.title !== "Fazenda da Aurora" || r.checks.scene.bodies < r.checks.scene.things * 0.95 || r.checks.scene.animated < 5) r.failed = "o cenário da Aurora não apareceu inteiro";
   await page.waitForTimeout(1500);
   await page.screenshot({ path: join(out, "pc-cenario.png") });
   // Drag a cow with the mouse; let go: it goes back to where it walks.

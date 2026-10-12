@@ -136,7 +136,7 @@ export class Panel3D {
   cenarios(s, b) {
     const g = this.g; const cur = s.view === "cenario" && s.scene;
     text(g, clip(g, cur ? s.scene.title : "Cenários", b.w, 36), b.x, b.y + 36, 36, C.fg, 700);
-    const say = s.sceneBusy ? `A Aurora está montando: ${s.scenePrompt}…` : cur ? `${s.scene.items.length} coisas. Pegue qualquer uma com a mão: ela cresce para você ver de perto e volta ao lugar quando você solta.${s.scene.note ? ` Aurora: ${s.scene.note}` : ""}`
+    const say = s.sceneBusy ? `A Aurora está montando: ${s.scenePrompt}…` : cur ? `${s.scene.count} coisas${s.scene.loading ? ` (carregando ${s.scene.loading})` : ""}. Pegue qualquer uma com a mão: ela cresce para você ver de perto e volta ao lugar quando você solta.${s.scene.note ? ` Aurora: ${s.scene.note}` : ""}`
       : "Toque em Falar e peça uma maquete: \"faz uma fazenda com vacas e um trator\". Ou escolha um exemplo.";
     this.paragraph(say, { x: b.x, y: b.y + 50, w: b.w, h: 150 }, 28, s.sceneBusy ? C.warn : C.muted);
     const ex = ["Uma fazenda com vacas, cavalos e um trator", "Uma cidade com carros andando", "O sistema solar", "Um parque de dinossauros"];

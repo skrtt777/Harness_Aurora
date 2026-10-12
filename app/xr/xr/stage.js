@@ -15,6 +15,7 @@ import { OrbitControls } from "../vendor/OrbitControls.js";
 import { Panel3D } from "./panel3d.js";
 import { buildTwin, label } from "./twin3d.js";
 import { buildScene } from "./scene3d.js";
+import { Assets, play } from "./assets.js";
 import { Pinch, Summon, HeadMotion, palmFacesHead, twoHand, lazyFollow, ease } from "../lib/gestures.js";
 import { makeBody, stepBodies, behave, returnArc } from "../lib/dynamics.js";
 
@@ -36,6 +37,7 @@ export class Stage {
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.xr.enabled = true;
+    this.assets = new Assets();
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 60);
     this.camera.position.set(0, 0.42, 0.62);
@@ -121,8 +123,16 @@ export class Stage {
 
   // ----- Data -----
   setTwin(layout) { this.setContent(buildTwin(layout), layout); }
-  /** A scene made by the Aurora (lib/scene.js normalizeScene) in place of the operation. */
-  setScene(scene) { this.setContent(buildScene(scene), { width: scene.width, depth: scene.depth }); }
+  /**
+   * A scene composed by lib/compose.js, built with the object library; onProgress(done, total) while
+   * its models load. A newer call wins over one still loading.
+   */
+  async setScene(layout, onProgress) {
+    const ticket = (this.sceneTicket = (this.sceneTicket || 0) + 1);
+    const group = await buildScene(layout, this.assets, onProgress);
+    if (ticket !== this.sceneTicket) { dispose(group); return false; }
+    this.setContent(group, { width: layout.width, depth: layout.depth }); return true;
+  }
   setContent(group, dims) {
     // Whatever was held or flying home belongs to the old miniature.
     for (const h of [...this.holds.values(), ...this.returning]) { this.scene.remove(h.obj); if (h.tag) this.scene.remove(h.tag); dispose(h.obj); }
@@ -134,7 +144,7 @@ export class Stage {
     const bounds = { w: dims.width || 0.5, d: dims.depth || 0.5 };
     this.bodies = group.children.filter((o) => o.userData.dyn).map((obj) => {
       const d = obj.userData.dyn;
-      const body = makeBody({ x: obj.position.x, y: obj.position.y, z: obj.position.z, rot: obj.rotation.y, radius: d.radius, height: d.height, behavior: d.behavior, seed: d.seed, fixed: d.fixed, bounds });
+      const body = makeBody({ x: obj.position.x, y: obj.position.y, z: obj.position.z, rot: obj.rotation.y, radius: d.radius, height: d.height, behavior: d.behavior, seed: d.seed, fixed: d.fixed, bounds, path: d.path, area: d.area });
       body.obj = obj; body.s0 = obj.scale.x; obj.userData.body = body;
       return body;
     });
@@ -347,6 +357,15 @@ export class Stage {
     for (const b of this.bodies) {
       if (!b.held) { b.obj.position.set(b.pose.x, b.pose.y, b.pose.z); b.obj.rotation.y = b.pose.rot; }
       b.obj.userData.tick?.(t);
+      // People and animals: walking while they move, at rest (or grazing) when they stop.
+      const A = b.obj.userData.anim;
+      if (A) {
+        const last = b.last || b.pose; const v = Math.hypot(b.pose.x - last.x, b.pose.z - last.z) / Math.max(dt, 1e-3); b.last = { ...b.pose };
+        b.speed = (b.speed || 0) * 0.85 + v * 0.15;
+        const swims = b.path && b.path.speed < 0.02;              // a swim loop (lib/compose.js lakes)
+        play(b.obj, b.held ? "idle" : b.speed > 0.03 ? "run" : b.speed > 0.002 ? (swims ? "swim" : "walk") : b.seed % 3 === 0 ? "eat" : "idle");
+        A.mixer.update(dt);
+      }
     }
   }
   showHover(obj) {

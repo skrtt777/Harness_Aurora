@@ -6,9 +6,23 @@
 export const RING = { ax: 0.24, az: 0.165 };     // the ring road of "rodar" (an ellipse on the 0.6 x 0.45 plate)
 const SPEED = 0.035;                              // m/s, walking and driving in the miniature
 
-export function makeBody({ x = 0, y = 0, z = 0, rot = 0, radius = 0.015, height = 0.03, behavior = "parado", seed = 1, bounds = null, fixed = false }) {
-  return { home: { x, y, z, rot }, radius, height, behavior, seed, bounds, fixed, ox: 0, oz: 0, vx: 0, vz: 0, held: false, hop: -1, pose: { x, y, z, rot } };
+// path: { pts, closed, len, s, speed } (roads, rails, swim loops: lib/compose.js); area: { x0, x1, z0, z1 } (a pasture).
+export function makeBody({ x = 0, y = 0, z = 0, rot = 0, radius = 0.015, height = 0.03, behavior = "parado", seed = 1, bounds = null, fixed = false, path = null, area = null }) {
+  return { home: { x, y, z, rot }, radius, height, behavior, seed, bounds, fixed, path, area, ox: 0, oz: 0, vx: 0, vz: 0, held: false, hop: -1, pose: { x, y, z, rot } };
 }
+
+export function pathLength(pts, closed) { let s = 0; for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += Math.hypot(b[0] - a[0], b[1] - a[1]); } return s; }
+/** The point and heading at u (0..1) along a path. */
+export function pointOnPath(pts, closed, u) {
+  const total = pathLength(pts, closed); let d = (((u % 1) + 1) % 1) * total;
+  for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length]; const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (d <= L || i === pts.length - 1) { const t = L ? d / L : 0; return { x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t, rot: Math.atan2(b[0] - a[0], b[1] - a[1]) }; }
+    d -= L;
+  }
+  return { x: pts[0][0], z: pts[0][1], rot: 0 };
+}
+
 
 // A smooth wander from a seed: a sum of slow sines, in -1..1.
 const wave = (t, s, k) => (Math.sin(t * (0.21 + 0.07 * k) + s * 1.7 + k) + 0.6 * Math.sin(t * (0.53 + 0.05 * k) + s * 3.1 + 2 * k)) / 1.6;
@@ -16,10 +30,17 @@ const wave = (t, s, k) => (Math.sin(t * (0.21 + 0.07 * k) + s * 1.7 + k) + 0.6 *
 /** Where the behaviour puts the body at time t (seconds), before pushes. */
 export function behave(b, t) {
   const h = b.home; const s = b.seed;
+  // Along a road, a rail or a swim loop, at its speed, from where it was put on it.
+  if (b.path && (b.behavior === "rota" || b.behavior === "rodar" || b.behavior === "nadar")) {
+    const P = b.path; const u = P.s + (t * P.speed) / Math.max(1e-6, P.len); const p = pointOnPath(P.pts, P.closed, u);
+    return { x: p.x, y: h.y, z: p.z, rot: p.rot };
+  }
   switch (b.behavior) {
     case "passear": case "nadar": {
       const R = b.behavior === "nadar" ? 0.03 : 0.045; const slow = b.behavior === "nadar" ? 0.7 : 1;
-      const at = (tt) => ({ x: h.x + R * wave(tt * slow, s, 0), z: h.z + R * wave(tt * slow, s, 1) });
+      // Inside its pasture, when it has one (the fence holds it).
+      const A = b.area; const lim = (v, lo, hi) => (A ? Math.max(lo + b.radius, Math.min(hi - b.radius, v)) : v);
+      const at = (tt) => ({ x: lim(h.x + R * wave(tt * slow, s, 0), A?.x0, A?.x1), z: lim(h.z + R * wave(tt * slow, s, 1), A?.z0, A?.z1) });
       const p = at(t), q = at(t + 0.25);
       const moving = Math.hypot(q.x - p.x, q.z - p.z) > 1e-4;
       return { x: p.x, y: h.y, z: p.z, rot: moving ? Math.atan2(q.x - p.x, q.z - p.z) : h.rot };

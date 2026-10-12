@@ -1,114 +1,15 @@
-// Scenes made by the Aurora on request ("faz uma fazenda com vacas e um trator"): a small JSON the
-// Aurora answers in a ```cena block, read here into a miniature the app draws (xr/scene3d.js). The
-// same request also makes a draft at once from its own words (sceneFromPrompt), so something appears
-// while the Aurora thinks, and a reply without a valid block still gives a scene.
-// Pure (no three.js): the same functions run in the browser, in the headset and in the tests.
-// Units: metres of the miniature, x to the right, y up, z toward the viewer; the plate is 0.6 x 0.45 m.
-
+// Scenes made by the Aurora on request ("faz uma fazenda com vacas e um trator"). Only for Aurora XR
+// (fun and imagination): the Power BI miniatures stay faithful to the data and never use this.
+// - The request goes to the Aurora with the part of the object library that matters for it (each type
+//   explained: lib/compose.js relevantTypes) and she answers with a ```cena block: zones and things.
+// - The same request also makes a draft at once from its own words and a recipe of its theme, so
+//   something appears while she thinks, and a reply without a valid block still gives a scene.
+// - lib/compose.js lays either out on the plate. Pure (no three.js).
 import { RING } from "./dynamics.js";
-
-export const PLATE = { width: 0.6, depth: 0.45 };
-export const BEHAVIORS = ["parado", "passear", "rodar", "girar", "flutuar", "voar", "nadar", "pular", "orbitar"];
-
-// type: [size in metres (largest side), colour, default behaviour, flags, synonyms]
-// flags: a = in the air (height), w = in the water, f = fixed (not grabbed: ground features), c = centre.
-const T = {
-  arvore: [0.07, "#2f9e44", "parado", "", "arvore arvores floresta mata bosque"],
-  pinheiro: [0.08, "#1f6f43", "parado", "", "pinheiro pinho abeto"],
-  palmeira: [0.08, "#3aa35b", "parado", "", "palmeira coqueiro"],
-  arbusto: [0.025, "#3c8d3f", "parado", "", "arbusto moita planta"],
-  flor: [0.015, "#e64980", "parado", "", "flor flores jardim"],
-  cogumelo: [0.02, "#d9480f", "parado", "", "cogumelo"],
-  pedra: [0.025, "#868e96", "parado", "", "pedra rocha"],
-  montanha: [0.16, "#6b7a8f", "parado", "f", "montanha morro serra"],
-  vulcao: [0.16, "#5c3d2e", "parado", "f", "vulcao"],
-  lago: [0.14, "#3b82c4", "parado", "f", "lago lagoa rio piscina"],
-  fogueira: [0.025, "#ff922b", "parado", "", "fogueira fogo"],
-  barraca: [0.045, "#f59f00", "parado", "", "barraca acampamento tenda"],
-  cerca: [0.06, "#a47148", "parado", "", "cerca"],
-  poste: [0.05, "#adb5bd", "parado", "", "poste luz lampiao"],
-  banco: [0.03, "#a47148", "parado", "", "banco"],
-  casa: [0.07, "#f1e3c6", "parado", "", "casa casinha residencia"],
-  predio: [0.14, "#7d8fa8", "parado", "", "predio edificio arranha-ceu"],
-  celeiro: [0.09, "#c0392b", "parado", "", "celeiro estabulo galpao"],
-  castelo: [0.16, "#b8b2a7", "parado", "", "castelo"],
-  torre: [0.12, "#9c8f80", "parado", "", "torre"],
-  moinho: [0.1, "#e9ecef", "parado", "", "moinho cata-vento"],
-  farol: [0.12, "#f8f9fa", "parado", "", "farol"],
-  ponte: [0.12, "#8d6e63", "parado", "f", "ponte"],
-  carro: [0.045, "#e03131", "rodar", "", "carro carros automovel"],
-  caminhao: [0.06, "#2f6fdb", "rodar", "", "caminhao carreta"],
-  onibus: [0.07, "#fab005", "rodar", "", "onibus"],
-  trator: [0.04, "#2b8a3e", "rodar", "", "trator"],
-  trem: [0.12, "#c92a2a", "rodar", "", "trem locomotiva"],
-  barco: [0.06, "#f8f9fa", "nadar", "w", "barco navio veleiro lancha"],
-  aviao: [0.08, "#e9ecef", "voar", "a", "aviao avioes jato"],
-  helicoptero: [0.06, "#e8590c", "voar", "a", "helicoptero"],
-  foguete: [0.1, "#f1f3f5", "parado", "", "foguete"],
-  nave: [0.06, "#91a7ff", "flutuar", "a", "nave disco ovni"],
-  balao: [0.05, "#f03e3e", "flutuar", "a", "balao"],
-  pessoa: [0.035, "#4c6ef5", "passear", "", "pessoa pessoas gente homem mulher crianca turista visitante"],
-  robo: [0.04, "#adb5bd", "passear", "", "robo"],
-  vaca: [0.045, "#f8f9fa", "passear", "", "vaca boi gado"],
-  cavalo: [0.05, "#8d5a3b", "passear", "", "cavalo egua"],
-  ovelha: [0.03, "#f1f3f5", "passear", "", "ovelha carneiro"],
-  porco: [0.03, "#f7a8b8", "passear", "", "porco"],
-  cachorro: [0.025, "#c08552", "passear", "", "cachorro cao"],
-  gato: [0.02, "#ff922b", "passear", "", "gato"],
-  galinha: [0.015, "#f8f9fa", "pular", "", "galinha pinto"],
-  pato: [0.015, "#ffd43b", "nadar", "", "pato"],
-  coelho: [0.015, "#e9ecef", "pular", "", "coelho"],
-  leao: [0.045, "#e8a33d", "passear", "", "leao"],
-  elefante: [0.07, "#868e96", "passear", "", "elefante"],
-  girafa: [0.09, "#f2c14e", "passear", "", "girafa"],
-  urso: [0.045, "#6f4e37", "passear", "", "urso"],
-  dinossauro: [0.09, "#5c940d", "passear", "", "dinossauro dino"],
-  pinguim: [0.02, "#212529", "passear", "", "pinguim"],
-  passaro: [0.015, "#4dabf7", "voar", "a", "passaro ave gaivota"],
-  peixe: [0.02, "#ff922b", "nadar", "w", "peixe"],
-  tubarao: [0.05, "#748ffc", "nadar", "w", "tubarao"],
-  baleia: [0.1, "#364fc7", "nadar", "w", "baleia"],
-  planeta: [0.06, "#4dabf7", "orbitar", "a", "planeta planetas terra marte jupiter saturno"],
-  estrela: [0.015, "#ffd43b", "flutuar", "a", "estrela"],
-  lua: [0.04, "#ced4da", "flutuar", "a", "lua"],
-  sol: [0.07, "#ffb703", "girar", "ac", "sol"],
-  nuvem: [0.06, "#f8f9fa", "flutuar", "a", "nuvem"],
-  bola: [0.015, "#fa5252", "pular", "", "bola"],
-  caixa: [0.025, "#c8a46e", "parado", "", "caixa pacote volume"],
-  objeto: [0.03, "#b04bff", "parado", "", ""],
-};
-export const CATALOG = Object.fromEntries(Object.entries(T).map(([type, [size, color, behavior, flags, words]]) => [type, {
-  type, size, color, behavior, air: flags.includes("a"), water: flags.includes("w"), fixed: flags.includes("f"), centre: flags.includes("c"), words: words.split(" ").filter(Boolean),
-}]));
-export const TYPES = Object.keys(CATALOG).filter((t) => t !== "objeto");
-
-export const GROUNDS = {
-  grama: "#3d7a3a", areia: "#d9c38f", agua: "#2a6fa8", neve: "#e8eef5", asfalto: "#3a3f47", terra: "#8a6a4a", espaco: "#0b0f24", lava: "#2b1410", madeira: "#8b6b4a",
-};
-
-// Themes: the words that name them, the ground and what a scene of the kind has when nothing else is said.
-const THEMES = [
-  { words: "fazenda sitio roca chacara curral", title: "Fazenda", ground: "grama", items: [["celeiro", 1], ["casa", 1], ["vaca", 4], ["cavalo", 2], ["ovelha", 3], ["galinha", 4], ["trator", 1], ["arvore", 4], ["cerca", 3], ["lago", 1]] },
-  { words: "cidade bairro rua urbano centro transito", title: "Cidade", ground: "asfalto", items: [["predio", 5], ["casa", 2], ["carro", 5], ["onibus", 1], ["pessoa", 6], ["poste", 4], ["arvore", 3]] },
-  { words: "praia mar litoral ilha oceano", title: "Praia", ground: "areia", items: [["lago", 1], ["palmeira", 4], ["barco", 2], ["pessoa", 4], ["barraca", 2], ["bola", 1], ["peixe", 3], ["farol", 1]] },
-  { words: "espaco sistema solar galaxia universo cosmos astronauta", title: "Sistema solar", ground: "espaco", items: [["sol", 1], ["planeta", 5], ["lua", 1], ["estrela", 10], ["foguete", 1], ["nave", 1]] },
-  { words: "dinossauro dinossauros jurassico pre-historico", title: "Parque dos dinossauros", ground: "grama", items: [["dinossauro", 4], ["palmeira", 4], ["vulcao", 1], ["arvore", 3], ["pedra", 4], ["lago", 1]] },
-  { words: "floresta selva mata bosque", title: "Floresta", ground: "grama", items: [["arvore", 8], ["pinheiro", 5], ["urso", 1], ["coelho", 3], ["passaro", 3], ["cogumelo", 4], ["lago", 1], ["pedra", 3]] },
-  { words: "zoologico safari savana", title: "Zoológico", ground: "terra", items: [["leao", 2], ["elefante", 2], ["girafa", 2], ["pessoa", 4], ["arvore", 4], ["cerca", 4], ["lago", 1]] },
-  { words: "porto cais doca navios", title: "Porto", ground: "terra", items: [["lago", 1], ["barco", 3], ["caminhao", 2], ["caixa", 6], ["farol", 1], ["peixe", 2], ["baleia", 1]] },
-  { words: "aeroporto pista", title: "Aeroporto", ground: "asfalto", items: [["aviao", 3], ["helicoptero", 1], ["predio", 2], ["onibus", 1], ["carro", 3], ["pessoa", 5]] },
-  { words: "neve natal inverno polo artico gelo", title: "Inverno", ground: "neve", items: [["pinheiro", 7], ["casa", 2], ["pinguim", 5], ["pessoa", 3], ["montanha", 1], ["nuvem", 2]] },
-  { words: "acampamento camping trilha", title: "Acampamento", ground: "grama", items: [["barraca", 3], ["fogueira", 1], ["pessoa", 4], ["pinheiro", 6], ["lago", 1], ["montanha", 1]] },
-  { words: "castelo reino medieval princesa", title: "Reino", ground: "grama", items: [["castelo", 1], ["torre", 2], ["cavalo", 3], ["pessoa", 5], ["arvore", 4], ["lago", 1], ["ponte", 1]] },
-  { words: "parque praca", title: "Parque", ground: "grama", items: [["arvore", 6], ["banco", 3], ["pessoa", 6], ["cachorro", 2], ["lago", 1], ["pato", 3], ["flor", 6], ["balao", 1]] },
-  { words: "fundo do mar aquario submarino recife", title: "Fundo do mar", ground: "agua", items: [["peixe", 10], ["tubarao", 2], ["baleia", 1], ["pedra", 5], ["arbusto", 4]] },
-  { words: "vulcao lava inferno", title: "Vulcão", ground: "lava", items: [["vulcao", 1], ["pedra", 6], ["dinossauro", 2], ["fogueira", 2]] },
-  { words: "robo robos futuro futurista", title: "Cidade do futuro", ground: "asfalto", items: [["predio", 5], ["robo", 5], ["nave", 3], ["carro", 3], ["poste", 4]] },
-];
 
 export const norm = (text) => String(text || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const words = (text) => norm(text).replace(/[^a-z0-9\- ]+/g, " ").split(/\s+/).filter(Boolean);
-/** Plural to singular, enough for the catalogue: "avioes" -> "aviao", "animais" -> "animal". */
+/** Plural to singular, enough for the library's words: "avioes" -> "aviao", "animais" -> "animal". */
 export function singular(w) {
   if (w.length < 4) return w;
   if (w.endsWith("oes") || w.endsWith("aes")) return `${w.slice(0, -3)}ao`;
@@ -119,24 +20,27 @@ export function singular(w) {
   if (w.endsWith("s")) return w.slice(0, -1);
   return w;
 }
-const SYN = new Map();
-for (const c of Object.values(CATALOG)) for (const w of [c.type, ...c.words]) { SYN.set(w, c.type); SYN.set(singular(w), c.type); }
-/** A word (or a name the Aurora wrote) to a type of the catalogue; null when unknown. */
-export function typeOf(name) {
-  const ws = words(name);
-  for (const w of ws) { const t = SYN.get(w) || SYN.get(singular(w)); if (t) return t; }
-  return null;
+/** A seeded random (the same request gives the same scene). */
+export function rng(seed) {
+  let h = 2166136261 >>> 0;
+  for (const c of String(seed)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return () => { h += 0x6d2b79f5; let x = h; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
 }
+export { RING };
 
-const NUMBERS = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, quinze: 15, vinte: 20, varios: 4, varias: 4, muitos: 8, muitas: 8, alguns: 3, algumas: 3, mais: 2 };
-/** The things named in a sentence with how many: "3 vacas e um trator" -> [["vaca",3],["trator",1]]. */
-export function mentioned(text) {
+const NUMBERS = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12, quinze: 15, vinte: 20, varios: 4, varias: 4, muitos: 8, muitas: 8, alguns: 3, algumas: 3 };
+const SKIP = new Set(["com", "uma", "que", "dos", "das", "nos", "nas", "mais", "tem", "faz", "cria", "para", "pra", "uns", "umas", "bem", "muito", "muita", "cenario", "maquete", "aurora", "monta", "quero"]);
+/**
+ * The library's things named in a sentence, with how many: "3 vacas e um trator" -> [["vaca",3],["trator",1]].
+ * resolve(word) -> type id or null (lib/compose.js resolveType with the catalog).
+ */
+export function mentioned(text, resolve) {
   const ws = words(text); const out = new Map();
   ws.forEach((w, i) => {
-    const t = SYN.get(w) || SYN.get(singular(w)); if (!t) return;
-    const prev = ws[i - 1]; const prev2 = ws[i - 2];
+    if (w.length < 3 || SKIP.has(w)) return;
+    const t = resolve(w) || resolve(singular(w)); if (!t) return;
     const count = (x) => (x == null ? null : /^\d+$/.test(x) ? Number(x) : NUMBERS[x] ?? null);
-    let n = count(prev) ?? count(prev2);
+    let n = count(ws[i - 1]) ?? count(ws[i - 2]);
     if (n == null) n = w !== singular(w) ? 3 : 1;
     out.set(t, Math.max(out.get(t) || 0, Math.min(30, n)));
   });
@@ -146,39 +50,51 @@ export function mentioned(text) {
 /** "cria uma fazenda", "faz um cenário de praia", "monta uma maquete do sistema solar". */
 export function isSceneRequest(text) {
   const t = norm(text);
-  if (/(power ?bi|operacao|\bdoca|\bcd\b)/.test(t)) return false;
-  const verb = /\b(cria|crie|criar|faz|faca|fazer|monta|monte|montar|gera|gere|gerar|desenha|desenhe|constroi|construa|construir|quero|bota|me mostra|mostra)\b/.test(t);
+  if (/(power ?bi|operacao|\bdoca|\bcd\b|dashboard|relatorio)/.test(t)) return false;
+  const verb = /\b(cria|crie|criar|faz|faca|fazer|monta|monte|montar|gera|gere|gerar|desenha|desenhe|constroi|construa|construir|quero|bota|me mostra|mostra|imagina|imagine)\b/.test(t);
   const noun = /\b(cenario|maquete|cena|mundo|diorama|miniatura|mini mundo)\b/.test(t);
   return (verb && noun) || /^(um |uma )?cenario (de|do|da|com)\b/.test(t);
 }
 
 /** While a scene is shown: "adiciona 3 vacas", "coloca um foguete", "tira os carros". */
-export function sceneEdit(text) {
+export function sceneEdit(text, resolve) {
   const t = norm(text);
   const add = /^(aurora )?(adiciona|adicione|acrescenta|acrescente|coloca|coloque|poe|ponha|bota|bote|mais)\b/.test(t);
   const remove = /^(aurora )?(tira|tire|remove|remova|apaga|apague|sem)\b/.test(t);
   if (!add && !remove) return null;
-  const things = mentioned(t.replace(/^(aurora )?\S+ /, ""));
+  const things = mentioned(t.replace(/^(aurora )?\S+ /, ""), resolve);
   if (!things.length) return null;
   return { op: add ? "add" : "remove", things };
 }
+/** A change said while the scene is shown, applied to its spec (loose things are added; any are removed). */
+export function editScene(spec, edit, resolve) {
+  const S = JSON.parse(JSON.stringify(spec || {})); S.itens = S.itens || [];
+  if (edit.op === "add") for (const [tipo, qtd] of edit.things) S.itens.push({ tipo, qtd });
+  else {
+    const gone = new Set(edit.things.map(([t]) => t));
+    const keep = (it) => !gone.has(resolve(typeof it === "string" ? it : it?.tipo || it?.nome || ""));
+    S.itens = S.itens.filter(keep);
+    for (const zz of S.zonas || []) zz.itens = (zz.itens || []).filter(keep);
+  }
+  return S;
+}
 
-/** The ```cena block of a reply (or the first JSON object with items), and the rest of the text. */
+/** The ```cena block of a reply (or the first JSON object with zones or items), and the rest of the text. */
 export function parseSceneReply(text) {
   // A reply that repeats the request (a small model, an echo) carries the instruction and its example:
   // that part is never the scene.
   let s = String(text || ""); const echo = s.indexOf(SCENE_MARK.trim()); if (echo >= 0) s = s.slice(0, echo);
   const fence = s.match(/```(?:cena|json|scene)?\s*([\s\S]*?)```/i);
   let raw = fence ? fence[1] : null;
-  if (!raw) { const i = s.search(/\{\s*"(titulo|title|chao|ground|itens|items)"/); if (i >= 0) raw = balanced(s, i); }
+  if (!raw) { const i = s.search(/\{\s*"(titulo|title|chao|ground|zonas|itens|items)"/); if (i >= 0) raw = balanced(s, i); }
   let spec = null;
   if (raw) {
     const cleaned = raw.trim().replace(/,\s*([}\]])/g, "$1").replace(/[“”]/g, '"');
     try { spec = JSON.parse(cleaned); } catch { try { spec = JSON.parse(balanced(cleaned, cleaned.indexOf("{")) || ""); } catch { spec = null; } }
   }
-  if (spec && !Array.isArray(spec.itens || spec.items)) spec = null;
-  // The example of the instruction copied as it is ("…", "grama|areia|…") is not a scene either.
-  if (spec && (/^\s*…?\s*$/.test(String(spec.titulo ?? spec.title ?? "x")) || String(spec.chao ?? "").includes("|") || JSON.stringify(spec).includes('"passear|'))) spec = null;
+  if (spec && !Array.isArray(spec.zonas) && !Array.isArray(spec.itens || spec.items)) spec = null;
+  // The example of an instruction copied as it is ("…", "grama|areia|…") is not a scene either.
+  if (spec && (/^\s*…?\s*$/.test(String(spec.titulo ?? spec.title ?? "x")) || String(spec.chao ?? "").includes("|") || /"[a-z]+\|[a-z]+/.test(JSON.stringify(spec)))) spec = null;
   const rest = (fence ? s.replace(fence[0], "") : raw ? s.replace(raw, "") : s).replace(/\n{3,}/g, "\n\n").trim();
   return { spec, rest };
 }
@@ -192,107 +108,127 @@ function balanced(s, start) {
   return null;
 }
 
-/** A scene from the request's own words: the theme it names and the things it counts. */
-export function sceneFromPrompt(prompt) {
+// ---------------- Recipes: what a scene of each kind has, laid out by zones ----------------
+const z = (tipo, onde, itens, tam = "") => ({ tipo, onde, tam, itens: itens.map(([t, q]) => ({ tipo: t, qtd: q })) });
+export const RECIPES = [
+  { words: "fazenda sitio roca chacara curral rancho", titulo: "Fazenda", chao: "grama", estrada: "anel", zonas: [
+    z("cercado", "esquerda", [["vaca", 5], ["touro", 1], ["cavalo", 2]], "g"), z("lavoura", "direita", [["milho", 1], ["trigo", 1], ["hortalica", 1]], "m"),
+    z("livre", "centro", [["celeiro", 1], ["silo", 1], ["moinho", 1], ["feno", 5], ["fazendeiro", 2], ["galinheiro", 1], ["galinha", 6], ["pintinho", 4], ["cachorro", 1], ["poco", 1], ["carroca", 1]]),
+    z("cercado", "frente", [["ovelha", 6], ["porco", 3]], "p"), z("lago", "", [["pato", 3], ["peixe", 4], ["vitoria_regia", 4], ["sapo", 2]], "p"), z("bosque", "fundo", [["arvore", 7], ["arvore_outono", 2]], "m")],
+    itens: [["trator", 1], ["picape", 1], ["montanha", 2], ["nuvem", 3], ["passaro", 3]] },
+  { words: "cidade bairro rua urbano centro transito metropole predios", titulo: "Cidade", chao: "asfalto", estrada: "grade", zonas: [
+    z("quadra", "noroeste", [["arranha_ceu", 2], ["predio", 3]], "p"), z("quadra", "nordeste", [["predio", 4], ["mercado", 1]], "p"), z("quadra", "sudoeste", [["casa", 5], ["arvore", 3]], "p"),
+    z("praca", "centro", [["praca_fonte", 1], ["banco", 4], ["poste", 4], ["pessoa", 6], ["cachorro", 1], ["arvore", 3]], "m"), z("quadra", "sudeste", [["sobrado", 3], ["executivo", 3]], "p"), z("estacionamento", "direita", [["carro", 6]], "p")],
+    itens: [["carro", 7], ["taxi", 2], ["onibus", 1], ["viatura", 1], ["caminhao", 1], ["poste", 6], ["semaforo", 4], ["hidrante", 3], ["pessoa", 5], ["helicoptero", 1], ["nuvem", 2]] },
+  { words: "praia mar litoral ilha oceano verao", titulo: "Praia", chao: "areia", zonas: [
+    z("porto", "fundo", [["veleiro", 2], ["barco", 2], ["golfinho", 2], ["peixe", 5], ["boia", 3], ["cais", 1]], "g"),
+    z("livre", "frente", [["banhista", 6], ["guarda_sol", 5], ["palmeira", 6], ["caranguejo", 3], ["barraca_comida", 2], ["cachorro", 1]], "g"), z("bosque", "direita", [["palmeira", 5], ["arbusto", 4]], "p")],
+    itens: [["farol", 1], ["nuvem", 3], ["passaro", 4], ["sol", 1]] },
+  { words: "espaco sistema solar galaxia universo cosmos planeta planetas", titulo: "Sistema solar", chao: "espaco", zonas: [], itens: [["sol", 1], ["planeta", 6], ["lua", 2], ["estrela", 12], ["nave", 3], ["disco_voador", 1]] },
+  { words: "lua marte base espacial astronauta colonia", titulo: "Base em Marte", chao: "terra", estrada: "anel", zonas: [
+    z("livre", "centro", [["cupula", 3], ["hangar", 1], ["antena", 2], ["painel_solar", 4], ["astronauta", 5], ["robo", 2]], "g"), z("livre", "esquerda", [["foguete", 2], ["cratera", 3]], "p"), z("livre", "direita", [["meteoro", 5], ["cratera", 4]], "p")],
+    itens: [["jipe_lunar", 3], ["nave", 2], ["planeta", 1], ["montanha", 2]] },
+  { words: "dinossauro dinossauros jurassico pre-historico dino", titulo: "Parque dos dinossauros", chao: "grama", zonas: [
+    z("bosque", "esquerda", [["palmeira", 6], ["samambaia", 8], ["arvore", 3]], "m"), z("livre", "centro", [["tiranossauro", 1], ["triceratops", 2], ["estegossauro", 1], ["velociraptor", 4]], "g"),
+    z("lago", "direita", [["parassaurolofo", 2], ["peixe", 3]], "m"), z("livre", "frente", [["apatossauro", 1], ["pedra", 5]], "m")],
+    itens: [["vulcao", 1], ["montanha", 1], ["nuvem", 2]] },
+  { words: "floresta selva mata bosque natureza trilha", titulo: "Floresta", chao: "grama", zonas: [
+    z("bosque", "esquerda", [["pinheiro", 8], ["arvore", 5], ["cervo", 2], ["raposa", 1]], "g"), z("bosque", "direita", [["arvore", 6], ["arvore_outono", 4], ["alce", 1], ["lobo", 2]], "g"),
+    z("lago", "centro", [["peixe", 4], ["vitoria_regia", 5], ["sapo", 3], ["castor", 1], ["canoa", 1], ["ponte", 1]], "m"), z("acampamento", "frente", [["barraca", 3], ["fogueira", 1], ["aventureiro", 3]], "p")],
+    itens: [["montanha", 3], ["passaro", 4], ["nuvem", 2]] },
+  { words: "zoologico zoo safari savana africa", titulo: "Zoológico", chao: "terra", estrada: "anel", zonas: [
+    z("cercado", "noroeste", [["leao", 2], ["arvore", 1]], "p"), z("cercado", "nordeste", [["girafa", 2], ["zebra", 3]], "m"), z("cercado", "sudoeste", [["elefante", 2]], "p"),
+    z("cercado", "sudeste", [["panda", 2], ["bambu", 3]], "p"), z("lago", "centro", [["pinguim", 4], ["urso_polar", 1]], "p"), z("praca", "frente", [["pessoa", 8], ["barraca_comida", 2], ["banco", 3]], "p")],
+    itens: [["macaco", 3], ["papagaio", 3], ["nuvem", 2]] },
+  { words: "porto cais navio navios container conteiner logistica", titulo: "Porto", chao: "pedra", estrada: "anel", zonas: [
+    z("porto", "fundo", [["navio", 2], ["cruzeiro", 1], ["barco", 3], ["boia", 3], ["cais", 2], ["baleia", 1]], "g"), z("livre", "frente", [["conteiner", 10], ["fabrica", 1], ["operario", 5], ["caixa", 10], ["barril", 6]], "g")],
+    itens: [["caminhao", 3], ["van", 1], ["farol", 1], ["passaro", 4]] },
+  { words: "inverno neve natal polo artico gelo frio", titulo: "Vila de inverno", chao: "neve", zonas: [
+    z("bosque", "esquerda", [["pinheiro_neve", 9], ["alce", 1], ["lobo", 2]], "g"), z("livre", "centro", [["casa", 3], ["arvore_natal", 1], ["presente", 6], ["boneco_neve", 3], ["pessoa", 5], ["treno", 2], ["rena", 3]], "g"),
+    z("lago", "direita", [["pinguim", 5], ["urso_polar", 1]], "m")],
+    itens: [["montanha", 3], ["husky", 3], ["nuvem", 3]] },
+  { words: "acampamento camping fogueira barraca", titulo: "Acampamento", chao: "grama", zonas: [
+    z("acampamento", "centro", [["barraca", 4], ["fogueira", 1], ["aventureiro", 4], ["cachorro", 1]], "m"), z("bosque", "esquerda", [["pinheiro", 8], ["cervo", 1]], "g"),
+    z("lago", "direita", [["canoa", 2], ["peixe", 4], ["cais", 1]], "m")],
+    itens: [["montanha", 3], ["nuvem", 2], ["passaro", 3]] },
+  { words: "castelo reino medieval princesa rei cavaleiro", titulo: "Reino", chao: "grama", estrada: "anel", zonas: [
+    z("livre", "fundo", [["castelo", 1], ["torre", 2], ["bandeira", 3]], "g"), z("quadra", "frente", [["casa_medieval", 5], ["estalagem", 1], ["ferreiro", 1]], "m"),
+    z("feira", "esquerda", [["barraca_feira", 5], ["pessoa", 6], ["carroca", 2]], "p"), z("cercado", "direita", [["cavalo_branco", 2], ["cavalo", 2]], "p"), z("lago", "", [["moinho_agua", 1], ["pato", 3]], "p")],
+    itens: [["rei", 1], ["dragao", 1], ["catapulta", 2], ["poco", 1], ["nuvem", 2]] },
+  { words: "parque praca jardim piquenique", titulo: "Parque", chao: "grama", zonas: [
+    z("praca", "centro", [["coreto", 1], ["banco", 6], ["poste", 4], ["pessoa", 6], ["pessoa_cadeirante", 1]], "m"), z("lago", "direita", [["pato", 4], ["peixe", 3], ["salgueiro", 2], ["ponte", 1]], "m"),
+    z("bosque", "esquerda", [["arvore", 6], ["arbusto_florido", 3], ["coelho", 3]], "m"), z("livre", "frente", [["flor", 12], ["cachorro", 2], ["barraca_comida", 1], ["balao", 1]], "m")],
+    itens: [["passaro", 4], ["nuvem", 2], ["abelha", 3]] },
+  { words: "fundo mar aquario submarino recife", titulo: "Fundo do mar", chao: "agua", zonas: [
+    z("livre", "centro", [["peixe", 14], ["tubarao", 2], ["arraia", 2], ["golfinho", 2], ["pedra", 8], ["bau", 1], ["navio_pirata", 1]], "g"), z("livre", "esquerda", [["baleia", 1], ["peixe", 6]], "m")], itens: [] },
+  { words: "pirata piratas tesouro", titulo: "Ilha pirata", chao: "areia", zonas: [
+    z("porto", "fundo", [["navio_pirata", 1], ["barco", 2], ["cais", 1], ["tubarao", 1]], "g"), z("livre", "frente", [["pirata", 4], ["bau", 2], ["barril", 5], ["canhao", 2], ["palmeira", 7], ["caranguejo", 3], ["fogueira", 1]], "g")],
+    itens: [["papagaio", 3], ["nuvem", 2]] },
+  { words: "cemiterio halloween terror assombrado fantasma", titulo: "Cemitério assombrado", chao: "terra", zonas: [
+    z("cemiterio", "centro", [["lapide", 18], ["cripta", 2], ["esqueleto", 2], ["zumbi", 2]], "g"), z("bosque", "esquerda", [["arvore_outono", 5]], "p"), z("livre", "direita", [["abobora", 8], ["fantasma", 3]], "p")],
+    itens: [["lua", 1]] },
+  { words: "trem ferrovia estacao trilho ferroviaria", titulo: "Ferrovia", chao: "grama", zonas: [
+    z("quadra", "centro", [["casa", 4], ["sobrado", 2]], "m"), z("bosque", "esquerda", [["pinheiro", 6]], "p"), z("lavoura", "direita", [["trigo", 1]], "p")],
+    itens: [["trem", 1], ["vagao", 3], ["carro", 3], ["montanha", 2], ["nuvem", 2]] },
+  { words: "japao japones templo oriental", titulo: "Jardim japonês", chao: "grama", zonas: [
+    z("lago", "centro", [["peixe", 6], ["vitoria_regia", 6], ["ponte", 1]], "m"), z("bosque", "esquerda", [["bambu", 6], ["arvore_outono", 3]], "m"), z("livre", "direita", [["torii", 2], ["igreja", 1], ["pessoa", 3], ["pedra", 6]], "m")],
+    itens: [["montanha", 2], ["passaro", 3]] },
+];
+
+/** A scene from the request's own words: the recipe of its theme plus the things it counts. */
+export function sceneFromPrompt(prompt, resolve) {
   const t = ` ${words(prompt).join(" ")} `;
-  const theme = THEMES.find((th) => th.words.split(" ").some((w) => t.includes(` ${w} `) || t.includes(` ${w}s `)));
-  const asked = mentioned(prompt);
-  const items = new Map(theme ? theme.items : []);
-  for (const [type, n] of asked) items.set(type, n);
-  if (!items.size) for (const [type, n] of THEMES.find((th) => th.title === "Parque").items) items.set(type, n);
-  const title = theme ? theme.title : asked.length ? asked.slice(0, 3).map(([type]) => type).join(", ") : "Parque";
-  return { titulo: title.charAt(0).toUpperCase() + title.slice(1), chao: theme?.ground || (asked.some(([ty]) => CATALOG[ty].water) ? "agua" : asked.some(([ty]) => ["planeta", "estrela", "nave"].includes(ty)) ? "espaco" : "grama"), itens: [...items].map(([tipo, qtd]) => ({ tipo, qtd })) };
-}
-
-/** A seeded random (the same request gives the same scene). */
-export function rng(seed) {
-  let h = 2166136261 >>> 0;
-  for (const c of String(seed)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return () => { h += 0x6d2b79f5; let x = h; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
-}
-const hex = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "")) ? String(c).toLowerCase() : null);
-const COLOR_WORDS = { vermelho: "#e03131", vermelha: "#e03131", azul: "#1c7ed6", verde: "#2f9e44", amarelo: "#fab005", amarela: "#fab005", rosa: "#e64980", roxo: "#7048e8", roxa: "#7048e8", laranja: "#fd7e14", preto: "#212529", preta: "#212529", branco: "#f8f9fa", branca: "#f8f9fa", cinza: "#868e96", marrom: "#8d5a3b", dourado: "#e8b923", dourada: "#e8b923" };
-const colorOf = (c) => hex(c) || COLOR_WORDS[norm(c).trim()] || null;
-
-/**
- * A scene (from the Aurora's JSON or from sceneFromPrompt) checked and laid out: known types, at most
- * 60 things, each with its place on the plate (x, z in metres; y above it), turn, size and behaviour.
- */
-export function normalizeScene(raw, seed = "") {
-  const W = PLATE.width, D = PLATE.depth;
-  const spec = raw && typeof raw === "object" ? raw : {};
-  const ground = GROUNDS[norm(spec.chao || spec.ground)] ? norm(spec.chao || spec.ground) : "grama";
-  const title = String(spec.titulo || spec.title || "Cenário").slice(0, 60);
-  const random = rng(`${seed}|${title}`);
-  const wanted = [];
-  for (const it of (spec.itens || spec.items || []).slice(0, 80)) {
-    if (!it || typeof it !== "object") continue;
-    const name = String(it.tipo || it.type || it.nome || it.name || "").slice(0, 40);
-    const type = (CATALOG[norm(name)] ? norm(name) : typeOf(name)) || typeOf(it.nome || it.name) || "objeto";
-    const n = Math.max(1, Math.min(20, Math.round(Number(it.qtd ?? it.quantidade ?? it.count ?? 1)) || 1));
-    for (let k = 0; k < n && wanted.length < 60; k++) wanted.push({ it, type, label: String(it.nome || it.name || (type === "objeto" ? name : "")).slice(0, 40), k });
-  }
-  // Something that swims and nowhere to swim: a lake comes with it.
-  if (ground !== "agua" && !wanted.some((w) => w.type === "lago") && wanted.some((w) => CATALOG[w.type].water)) wanted.unshift({ it: {}, type: "lago", label: "", k: 0 });
-  if (wanted.length > 60) wanted.length = 60;
-  const water = wanted.find((w) => w.type === "lago");
-  // A big swimmer gets a bigger lake.
-  const lakeScale = wanted.some((w) => w.type === "baleia" || w.type === "tubarao") ? 1.7 : 1;
-  const lake = water ? { x: (random() - 0.5) * W * 0.4, z: (random() - 0.5) * D * 0.3, r: (CATALOG.lago.size * (Number(water.it.tamanho) || lakeScale)) / 2 } : null;
-  const placed = [];
-  // When something drives, the ring road stays clear (dynamics.js RING): how far a point is from it.
-  const road = wanted.some((w) => (BEHAVIORS.includes(norm(w.it.comportamento || w.it.behavior)) ? norm(w.it.comportamento || w.it.behavior) : CATALOG[w.type].behavior) === "rodar");
-  const offRoad = (x, z) => Math.abs(Math.hypot(x / RING.ax, z / RING.az) - 1) * ((RING.ax + RING.az) / 2) - 0.022;
-  if (lake && road) { const e = Math.hypot(lake.x / RING.ax, lake.z / RING.az); const room = 1 - (lake.r + 0.03) / RING.az; if (e > room) { lake.x *= room / e; lake.z *= room / e; } }
-  const items = wanted.map(({ it, type, label, k }, idx) => {
-    const c = CATALOG[type];
-    const scale = Math.max(0.4, Math.min(3, Number(it.tamanho ?? it.escala ?? it.scale ?? (type === "lago" ? lakeScale : 1)) || 1));
-    const r = (c.size * scale) / 2;
-    let behavior = BEHAVIORS.includes(norm(it.comportamento || it.behavior)) ? norm(it.comportamento || it.behavior) : c.behavior;
-    if (behavior === "nadar" && !c.water && type !== "pato" && !lake && ground !== "agua") behavior = "passear";
-    if (behavior === "orbitar" && !wanted.some((w) => w.type === "sol")) behavior = "girar";
-    let x = Number(it.x), z = Number(it.z);
-    const given = Number.isFinite(x) && Number.isFinite(z) && k === 0;
-    if (given) { x = Math.max(-1, Math.min(1, x)) * (W / 2 - r); z = Math.max(-1, Math.min(1, z)) * (D / 2 - r); }
-    else if (type === "lago" && lake) { x = lake.x; z = lake.z; }
-    else if (c.centre && ground === "espaco") { x = 0; z = 0; }
-    else {
-      const inWater = (c.water || type === "pato") && lake && ground !== "agua";
-      let best = null;
-      for (let a = 0; a < 40; a++) {
-        const a = random() * Math.PI * 2, far = Math.sqrt(random()) * Math.max(0, lake?.r - r * 0.7 || 0);
-        const px = inWater ? lake.x + Math.cos(a) * far : (random() - 0.5) * (W - 2 * r);
-        const pz = inWater ? lake.z + Math.sin(a) * far : (random() - 0.5) * (D - 2 * r);
-        const clash = placed.reduce((m, p) => (p.air !== c.air ? m : Math.min(m, Math.hypot(p.x - px, p.z - pz) - p.r - r)), 1);
-        const wet = !inWater && !c.air && lake && type !== "lago" ? Math.hypot(lake.x - px, lake.z - pz) - lake.r - r : 1;
-        const clear = road && !c.air && behavior !== "rodar" && !inWater ? offRoad(px, pz) - r : 1;
-        const score = Math.min(clash, wet, clear);
-        if (!best || score > best.score) best = { x: px, z: pz, score };
-        if (score > 0.01) break;
-      }
-      x = best.x; z = best.z;
-    }
-    placed.push({ x, z, r, air: c.air });
-    const air = c.air ? (type === "nuvem" ? 0.22 : type === "sol" ? (ground === "espaco" ? 0.12 : 0.26) : type === "estrela" ? 0.1 + random() * 0.14 : type === "planeta" ? 0.1 : type === "balao" ? 0.16 : type === "lua" ? 0.18 : 0.12) : 0;
-    const y = Number.isFinite(Number(it.y)) && k === 0 ? Math.max(0, Math.min(0.4, Number(it.y))) : air;
-    const color = colorOf(it.cor || it.color) || (type === "planeta" ? ["#4dabf7", "#e8590c", "#fab005", "#82c91e", "#cc5de8", "#f783ac"][idx % 6] : c.color);
-    return { id: `${type}-${idx}`, type, label: label || NAME[type] || type.charAt(0).toUpperCase() + type.slice(1), x: round(x), y: round(y), z: round(z), rot: round(Number(it.rot) || random() * Math.PI * 2), scale: round(scale), size: c.size, color, behavior, fixed: c.fixed, seed: idx + 1 };
-  });
-  return { title, ground, width: W, depth: D, items };
-}
-const round = (v) => Math.round(v * 1000) / 1000;
-const NAME = { arvore: "Árvore", aviao: "Avião", balao: "Balão", caminhao: "Caminhão", helicoptero: "Helicóptero", leao: "Leão", onibus: "Ônibus", passaro: "Pássaro", predio: "Prédio", robo: "Robô", tubarao: "Tubarão", vulcao: "Vulcão", trator: "Trator", dinossauro: "Dinossauro", pinguim: "Pinguim" };
-
-/** A change said while the scene is shown (sceneEdit), applied to the Aurora's spec. */
-export function editScene(spec, edit) {
-  const items = [...(spec.itens || spec.items || [])];
-  if (edit.op === "add") for (const [tipo, qtd] of edit.things) items.push({ tipo, qtd });
-  else for (const [tipo] of edit.things) for (let i = items.length - 1; i >= 0; i--) if (((CATALOG[norm(items[i].tipo)] && norm(items[i].tipo)) || typeOf(items[i].tipo || items[i].nome)) === tipo) items.splice(i, 1);
-  return { ...spec, itens: items };
+  const recipe = RECIPES.find((r) => r.words.split(" ").some((w) => t.includes(` ${w} `) || t.includes(` ${w}s `)));
+  const asked = mentioned(prompt, resolve);
+  const spec = recipe ? JSON.parse(JSON.stringify({ titulo: recipe.titulo, chao: recipe.chao, estrada: recipe.estrada, zonas: recipe.zonas, itens: recipe.itens.map(([tipo, qtd]) => ({ tipo, qtd })) })) : { titulo: "", chao: "grama", zonas: [], itens: [] };
+  // What the person counts wins over the recipe ("fazenda com 10 vacas").
+  const inRecipe = (id) => spec.zonas.flatMap((zz) => zz.itens).concat(spec.itens).filter((i) => (resolve(i.tipo) || i.tipo) === id);
+  for (const [id, n] of asked) { const found = inRecipe(id); if (found.length) { found[0].qtd = n; for (const f of found.slice(1)) f.qtd = 0; } else spec.itens.push({ tipo: id, qtd: n }); }
+  for (const zz of spec.zonas) zz.itens = zz.itens.filter((i) => i.qtd > 0);
+  spec.itens = spec.itens.filter((i) => i.qtd > 0);
+  if (!recipe && !asked.length) return sceneFromPrompt("parque", resolve);
+  if (!spec.titulo) spec.titulo = asked.slice(0, 3).map(([id]) => id.replace(/_/g, " ")).join(", ").replace(/^./, (c) => c.toUpperCase());
+  return spec;
 }
 
 /** What the Aurora is asked (after the person's own words, so the conversation reads naturally). */
 export const SCENE_MARK = "\n\n[Aurora XR]";
-export const SCENE_PROMPT = `${SCENE_MARK} Monte isso como uma maquete 3D para o óculos. Responda com uma frase curta e um bloco \`\`\`cena com JSON: {"titulo":"…","chao":"${Object.keys(GROUNDS).join("|")}","itens":[{"tipo":"vaca","qtd":3,"x":-0.5,"z":0.2,"cor":"#hex","comportamento":"${BEHAVIORS.join("|")}","nome":"…"}]}. x e z vão de -1 a 1 e são opcionais. Tipos: ${TYPES.join(", ")}. Até 40 itens no total. Não use ferramentas.`;
+export const ZONE_HELP = "cercado (pasto com cerca e porteira), lavoura (fileiras de plantação), bosque (mata densa), lago (água com margem; barcos e peixes dentro), porto (mar com cais), quadra (casas/prédios virados para a rua), praca (centro + bancos e postes em roda), feira (barracas em fileira), acampamento (barracas em volta da fogueira), estacionamento, cemiterio, livre";
+/**
+ * The instruction for the Aurora: the format, the zones and the library's types that matter for this
+ * request (types: [{ id, desc, tam }] from lib/compose.js relevantTypes).
+ */
+export function scenePrompt(types) {
+  const lib = types.map((t) => `${t.id} (${Math.round(t.tam * 100)} cm): ${t.desc}`).join("\n");
+  return `${SCENE_MARK} Monte isso como uma maquete 3D rica em detalhes, sobre uma base de 90 x 60 cm. Pense como um maquetista: divida em zonas e ponha em cada uma o que combina com ela; prefira muitos itens (30 a 80 no total). Responda com UMA frase e um bloco \`\`\`cena com JSON assim:
+{"titulo":"Fazenda Boa Vista","chao":"grama","estrada":"anel","zonas":[{"tipo":"cercado","onde":"esquerda","tam":"g","itens":[{"tipo":"vaca","qtd":6}]},{"tipo":"lago","onde":"frente","itens":[{"tipo":"pato","qtd":3}]}],"itens":[{"tipo":"trator","qtd":1},{"tipo":"nuvem","qtd":3}]}
+chao: grama, areia, terra, neve, asfalto, pedra, agua, espaco ou lava. estrada: nenhuma, anel, grade (cidade) ou cruz. onde: esquerda, direita, fundo, frente, centro. tam: p, m ou g.
+Zonas: ${ZONE_HELP}. Veículos, coisas no céu e montanhas vão em "itens" (o motor põe na estrada, no céu e ao fundo).
+Use só estes tipos da biblioteca (id: descrição):
+${lib}
+Não use ferramentas.`;
+}
 /** The person's own words (the instruction added by the app is not shown back). */
 export const ownWords = (text) => { const s = String(text || ""); const i = s.indexOf(SCENE_MARK.trim()); return i >= 0 ? s.slice(0, i).trim() : s; };
+
+const typesOf = (spec, resolve) => new Set([...(spec?.zonas || []).flatMap((zz) => zz.itens || []), ...(spec?.itens || spec?.items || [])].map((i) => resolve(typeof i === "string" ? i : i?.tipo || i?.nome || "")).filter(Boolean));
+const count = (spec) => [...(spec?.zonas || []).flatMap((zz) => zz.itens || []), ...(spec?.itens || [])].reduce((n, i) => n + (Number(i?.qtd) || 1), 0);
+/**
+ * The Aurora's scene, checked against the request: it must share things with the draft (a copied
+ * example or another subject keeps the draft), and a thin one gets the draft's zones it lacks.
+ */
+export function mergeWithDraft(aurora, draft, resolve) {
+  if (!aurora) return { spec: draft, used: false };
+  const a = typesOf(aurora, resolve), d = typesOf(draft, resolve);
+  const shared = [...a].filter((t) => d.has(t)).length;
+  if (d.size && shared === 0) return { spec: draft, used: false };
+  const spec = JSON.parse(JSON.stringify(aurora)); spec.zonas = spec.zonas || []; spec.itens = spec.itens || spec.items || [];
+  if (count(spec) < 25) {
+    const have = new Set(spec.zonas.map((zz) => zz.tipo));
+    for (const zz of draft.zonas || []) if (!have.has(zz.tipo)) spec.zonas.push(zz);
+    for (const it of draft.itens || []) if (!a.has(resolve(it.tipo))) spec.itens.push(it);
+  }
+  if (!spec.chao && draft.chao) spec.chao = draft.chao;
+  if (!spec.estrada && draft.estrada) spec.estrada = draft.estrada;
+  return { spec, used: true };
+}

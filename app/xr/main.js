@@ -6,7 +6,8 @@ import { createBridgeClient, createTwinClient, createChat } from "./lib/api.js";
 import { twinLayout } from "./lib/twinLayout.js";
 import { deviceProfile, sessionInit, MODE_LABEL } from "./lib/device.js";
 import { voiceCommand, VOICE_HELP, downsample, encodeWav, toBase64, SilenceGate } from "./lib/voice.js";
-import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, normalizeScene, parseSceneReply, SCENE_PROMPT, ownWords } from "./lib/scene.js";
+import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, ownWords } from "./lib/scene.js";
+import { compose, relevantTypes, resolveType } from "./lib/compose.js";
 import { Stage } from "./xr/stage.js";
 import { legend } from "./xr/twin3d.js";
 
@@ -122,7 +123,7 @@ const PAGES = {
   },
   cenarios() {
     const cur = S.view === "cenario" && S.scene;
-    const head = cur ? `<h2 class="op-title">${esc(S.scene.title)}</h2><p class="muted">${esc(S.scene.items.length)} coisas na maquete. Segure qualquer uma com a mão (ou arraste com o dedo ou o mouse): ela cresce para você ver de perto e, ao soltar, volta para o lugar.</p>${S.scene.note ? `<div class="note">Aurora: ${esc(S.scene.note)}</div>` : ""}`
+    const head = cur ? `<h2 class="op-title">${esc(S.scene.title)}</h2><p class="muted">${esc(S.scene.count)} coisas na maquete${S.scene.loading ? ` (carregando ${esc(S.scene.loading)})` : ""}. Segure qualquer uma com a mão (ou arraste com o dedo ou o mouse): ela cresce para você ver de perto e, ao soltar, volta para o lugar.</p>${S.scene.note ? `<div class="note">Aurora: ${esc(S.scene.note)}</div>` : ""}`
       : `<h2 class="op-title">Cenários</h2><p class="muted">Peça à Aurora uma maquete de qualquer coisa: ela monta e põe na sua mesa. Os objetos se mexem, você pega com a mão, olha de perto e solta: eles voltam sozinhos.</p>`;
     const busy = S.sceneBusy ? `<div class="msg stage">A Aurora está montando: ${esc(S.scenePrompt)}…</div>` : "";
     const edit = cur ? `<p class="muted">Diga ou escreva: "adiciona 3 vacas", "coloca um foguete", "tira os carros".</p>` : "";
@@ -215,7 +216,7 @@ async function send(text) {
   const command = voiceCommand(text);
   if (command && command !== "help") return runCommand(command);
   // "faz uma fazenda…": a scene; "adiciona 3 vacas" while one is shown: changed here, at once.
-  const edit = S.view === "cenario" && sceneEdit(text);
+  const edit = S.view === "cenario" && CAT && sceneEdit(text, resolve);
   if (edit) return changeScene(edit, text);
   if (isSceneRequest(text) || (S.page === "cenarios" && !S.busy)) return makeScene(text);
   S.messages.push({ role: "user", content: text }); S.busy = true; S.stage = "Enviando ao PC…"; S.partial = ""; S.page = S.page === "operacao" && S.mode !== "3d" ? S.page : "conversa"; render();
@@ -238,44 +239,55 @@ function runCommand(c) {
   if (c === "scene:next") return act("scene:next");
 }
 
-// ---------- Scenes made by the Aurora ----------
+// ---------- Scenes made by the Aurora (only here, for fun: the Power BI stays faithful to its data) ----------
+// The object library: each type explained (assets/catalog.json); loaded at start, used by name.
+let CAT = null;
+const catalogReady = stage.assets.load().then((c) => (CAT = c)).catch((e) => { hint(`Biblioteca de objetos indisponível: ${e.message}`); return null; });
+const resolve = (w) => (CAT ? resolveType(CAT, w) : null);
 const sceneId = () => `cena-${Date.now().toString(36)}`;
-function showScene(x) {
-  S.scene = { ...normalizeScene(x.spec, x.prompt), id: x.id, note: x.note || "" }; S.view = "cenario"; S.picked = null;
-  stage.setScene(S.scene); if (S.mode !== "3d") stage.showTwin(true);
+async function showScene(x) {
+  const cat = await catalogReady; if (!cat) return;
+  const L = compose(x.spec, cat, x.id);
+  S.scene = { id: x.id, title: L.title, count: L.things.length, note: x.note || "", missing: L.missing, loading: "" }; S.view = "cenario"; S.picked = null;
   if (S.page !== "conversa") S.page = "cenarios";
   render();
+  const shown = await stage.setScene(L, (done, total) => { if (S.scene?.id !== x.id) return; S.scene.loading = done < total ? `${done}/${total} modelos` : ""; if (done === total || done % 4 === 0) render(); });
+  if (shown && S.mode !== "3d") stage.showTwin(true);
+  if (S.scene?.id === x.id) { S.scene.loading = ""; render(); }
 }
-function showOperation() { S.view = "operacao"; S.scene = null; S.picked = null; if (S.twin) stage.setTwin(S.twin); }
+function showOperation() { S.view = "operacao"; S.scene = null; S.picked = null; stage.sceneTicket = (stage.sceneTicket || 0) + 1; if (S.twin) stage.setTwin(S.twin); }
 function keepScene(x) { S.scenes = [x, ...S.scenes.filter((y) => y.id !== x.id)].slice(0, 12); saveScenes(); }
 /**
- * A scene from a request: a draft at once from its own words, then the Aurora's (same conversation as
- * everything else) in its place when she answers with a ```cena block.
+ * A scene from a request: a draft at once (the recipe of its theme and the things it names), then the
+ * Aurora's, in the same conversation as everything else, told about the library's types that matter.
  */
 async function makeScene(prompt) {
   prompt = String(prompt || "").trim(); if (!prompt || S.sceneBusy) return;
-  const x = { id: sceneId(), prompt, title: "", spec: sceneFromPrompt(prompt), note: "" };
-  x.title = x.spec.titulo; showScene(x); S.page = "cenarios"; hint(`Rascunho pronto. A Aurora está montando "${prompt}"…`);
+  const cat = await catalogReady; if (!cat) return;
+  const draft = sceneFromPrompt(prompt, resolve);
+  const x = { id: sceneId(), prompt, title: draft.titulo, spec: draft, note: "" };
+  S.page = "cenarios"; showScene(x); hint(`Rascunho pronto. A Aurora está montando "${prompt}"…`);
   if (!chat) { keepScene(x); return render(); }
   S.sceneBusy = true; S.scenePrompt = prompt; S.messages.push({ role: "user", content: prompt }); render();
   try {
-    const reply = await chat.send(prompt + SCENE_PROMPT, { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
+    const reply = await chat.send(prompt + scenePrompt(relevantTypes(cat, `${prompt} ${draft.titulo}`)), { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
     const content = reply.content || "";
     S.messages.push({ role: "assistant", content });
     const { spec, rest } = parseSceneReply(content);
-    if (spec) { x.spec = spec; x.title = String(spec.titulo || spec.title || x.title).slice(0, 60); }
+    const merged = mergeWithDraft(spec, draft, resolve);
+    x.spec = merged.spec; x.title = String(merged.spec.titulo || x.title).slice(0, 60);
     x.note = rest.split(/\n/)[0].slice(0, 200);
     keepScene(x);
-    if (S.view === "cenario" && S.scene?.id === x.id) showScene(x);
-    hint(spec ? `Cenário "${x.title}" pronto. Pegue qualquer coisa com a mão para ver de perto.` : "A Aurora respondeu sem a maquete: ficou o rascunho feito com as suas palavras.");
+    if (S.view === "cenario" && S.scene?.id === x.id && merged.used) await showScene(x);
+    hint(merged.used ? `Cenário "${x.title}" pronto. Pegue qualquer coisa com a mão para ver de perto.` : "A Aurora respondeu sem uma maquete que combine: ficou o rascunho feito com as suas palavras.");
     if (S.speakReplies && x.note) speak(x.note);
   } catch (e) {
     keepScene(x); hint(`A Aurora não respondeu (${e.message}); ficou o rascunho.`);
   } finally { S.sceneBusy = false; S.scenePrompt = ""; S.stage = ""; render(); }
 }
 function changeScene(edit, text) {
-  const x = S.scenes.find((y) => y.id === S.scene?.id) || { id: S.scene.id, prompt: S.scene.title, title: S.scene.title, spec: { titulo: S.scene.title, chao: S.scene.ground, itens: [] } };
-  x.spec = editScene(x.spec, edit); x.prompt = `${x.prompt} · ${text}`.slice(0, 200);
+  const x = S.scenes.find((y) => y.id === S.scene?.id); if (!x) return;
+  x.spec = editScene(x.spec, edit, resolve); x.prompt = `${x.prompt} · ${text}`.slice(0, 200);
   keepScene(x); showScene(x);
   hint(edit.op === "add" ? "Pronto, coloquei." : "Pronto, tirei.");
 }

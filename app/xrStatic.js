@@ -8,9 +8,11 @@ const ROOT = resolve(fileURLToPath(new URL("./xr/", import.meta.url)));
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png",
+  ".glb": "model/gltf-binary", ".md": "text/markdown; charset=utf-8",
 };
 // Everything from this origin; three.js is vendored (app/xr/vendor), so it works on a network without internet.
-const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+// 'wasm-unsafe-eval': the meshopt decoder of the 3D models is WebAssembly (no eval of scripts).
+const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /** Serves rel ("" = index.html) from app/xr. Returns false when there is no such file. */
 export async function serveXrFile(res, rel) {
@@ -23,7 +25,8 @@ export async function serveXrFile(res, rel) {
     "content-type": TYPES[extname(file)], "content-security-policy": CSP, "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer", "permissions-policy": "xr-spatial-tracking=(self), microphone=(self), camera=(self)",
     // The app changes with the Harness; the vendored library does not.
-    "cache-control": clean.startsWith("vendor/") ? "public, max-age=86400" : "no-cache",
+    // The models (assets/m) are named after their content's source and rebuilt rarely: cached a day.
+    "cache-control": clean.startsWith("vendor/") || clean.startsWith("assets/m/") ? "public, max-age=86400" : "no-cache",
   });
   res.end(body);
   return true;
