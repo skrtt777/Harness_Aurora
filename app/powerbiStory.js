@@ -30,6 +30,7 @@ const STAGE_TIME = [
   [5, /fim|entrega|conclus|fechamento|finaliz|t[ée]rmino|baixa/i],
 ];
 const DRIVER = /motorista|condutor/i;
+const pluralWord = (w) => (/s$/.test(w) ? w : /ão$/.test(w) ? w.replace(/ão$/, "ões") : /m$/.test(w) ? w.replace(/m$/, "ns") : /[rz]$/.test(w) ? `${w}es` : /l$/.test(w) ? w.replace(/l$/, "is") : `${w}s`);
 // The kind of place, which decides the room the scene draws (not a warehouse with another name):
 // a dock wall, a shop floor with checkouts, a clinic with rooms and a waiting room, a hall with counters,
 // a factory floor with machines, a forecourt with pumps.
@@ -125,6 +126,8 @@ export function readFlow(fact, tables = []) {
       return /paciente/i.test(names) ? "pacientes" : /aluno/i.test(names) ? "alunos" : /h[óo]spede/i.test(names) ? "hóspedes" : /visitante/i.test(names) ? "visitantes" : /cidad[ãa]o/i.test(names) ? "cidadãos" : "clientes";
     }
     const word = String(entity?.name || "item").toLowerCase().replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "item";
+    const compound = /^(\S+)(\s+(de|do|da|dos|das)\s+.+)$/.exec(word);
+    if (compound) return `${pluralWord(compound[1])}${compound[2]}`;
     return /s$/.test(word) ? word : /[aeiou]$/.test(word) ? `${word}s` : /m$/.test(word) ? word.replace(/m$/, "ns") : /[rz]$/.test(word) ? `${word}es` : /ão$/.test(word) ? word.replace(/ão$/, "ões") : `${word}s`;
   };
   const vehicles = entity ? nounOf() : null;
@@ -197,8 +200,10 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
     if (flow.stages.some((st) => st.key === "transito")) add(`${V} em trânsito`, vm.estrada, INT, "Operação", "A caminho agora");
   }
   if (flow.due && flow.doneAt) {
-    kpis.push(onTime = add(flow.logistics ? "Entregas no prazo %" : "No prazo %", `VAR Feitos = FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && NOT ISBLANK(${col(F, flow.due)}))\nRETURN DIVIDE(COUNTROWS(FILTER(Feitos, ${col(F, flow.doneAt)} <= ${col(F, flow.due)})), COUNTROWS(Feitos))`, PCT, "Operação", `${flow.doneAt} até ${flow.due}`));
-    lateDone = add(flow.logistics ? "Entregas atrasadas" : "Concluídos com atraso", `COUNTROWS(FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && ${col(F, flow.doneAt)} > ${col(F, flow.due)})) + 0`, INT, "Operação");
+    // Deliveries only where something is delivered (a vehicle, a way out); people are served on time.
+    const delivers = Boolean(flow.asset) || flow.stages.some((st) => st.key === "transito");
+    kpis.push(onTime = add(delivers ? "Entregas no prazo %" : flow.glyph === "pessoa" ? "Atendidos no prazo %" : "No prazo %", `VAR Feitos = FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && NOT ISBLANK(${col(F, flow.due)}))\nRETURN DIVIDE(COUNTROWS(FILTER(Feitos, ${col(F, flow.doneAt)} <= ${col(F, flow.due)})), COUNTROWS(Feitos))`, PCT, "Operação", `${flow.doneAt} até ${flow.due}`));
+    lateDone = add(delivers ? "Entregas atrasadas" : flow.glyph === "pessoa" ? "Atendidos com atraso" : "Concluídos com atraso", `COUNTROWS(FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && ${col(F, flow.doneAt)} > ${col(F, flow.due)})) + 0`, INT, "Operação");
   }
   if (flow.due) kpis.push(add("Atrasados agora", `COUNTROWS(FILTER(${active}, ${col(F, flow.due)} < TODAY())) + 0`, INT, "Operação", `Em andamento com ${flow.due} já vencida`));
   if (flow.stock) {
@@ -239,7 +244,8 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   // item and the table of what is in progress with its progress bars.
   const towers = scene ? null : picture("Cena das etapas", stageTowers(flow), "Quantos estão em cada etapa, os atrasados em vermelho");
   const rowsBy = key ? col(F, key) : status;
-  const things = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
+  // The table says who they are ("Pacientes em andamento", "Ordens de produção em andamento").
+  const things = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : flow.vehicles ? flow.vehicles.charAt(0).toUpperCase() + flow.vehicles.slice(1) : "Itens";
   const scenes = {};
   // The scene's name for the planner: "patio" for vehicles at docks, "operacao" for any other place.
   const sceneId = flow.glyph === "veiculo" ? "patio" : "operacao";

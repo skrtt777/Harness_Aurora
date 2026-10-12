@@ -339,7 +339,9 @@ export function prepare(tables, { title, goal = "" } = {}) {
         make: ({ look = "noite" } = {}) => {
           const key = `${d.name}|${look}`;
           if (!cities.has(key)) {
-            const made = cityScene({ column: d.ref, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", year: previousYear ? "'Calendário'[Ano]" : null, look });
+            // The risk or priority column: each building in its own colour (Vermelho is red).
+            const colors = flow?.colorBy?.column === d.name ? flow.colorBy.values : null;
+            const made = cityScene({ column: d.ref, measure: m(headline), format: measures.find((x) => x.name === headline)?.format || "#,0", year: previousYear && !colors ? "'Calendário'[Ano]" : null, look, colors });
             const suffix = look === "dia" ? " (dia)" : "";
             cities.set(key, { made, url: add(`Cena: ${d.name}${suffix}`, made.dax, null, "Cenas", `Os ${lower(d.name)}s como prédios`, { category: "ImageUrl" }), x: add(`${d.name} X${suffix}`, made.points.x, "0", "Cenas", "Posição na cena (para o clique)"), y: add(`${d.name} Y${suffix}`, made.points.y, "0", "Cenas", "Posição na cena (para o clique)") });
           }
@@ -435,7 +437,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
   const principal = [...new Set([...(keys.kpis || []), keys.income, keys.outgo, keys.balance, keys.margin, keys.execution, keys.onTime, keys.lateDone, headline].filter(Boolean))];
   const flowSlicers = flow ? [flow.details.find((x) => /transportadora|empresa|parceiro|equipe|respons/i.test(x.column))?.column, flow.asset, flow.place].filter(Boolean).map((c) => col(fact.name, c)) : [];
   const cat = {
-    title: reportTitle, sources, rows: fact.rows.length, kind, keys, months, statusColumn: flow?.status || null,
+    title: reportTitle, sources, rows: fact.rows.length, kind, keys, months, statusColumn: flow?.status || null, siteColumn: flow?.site || null,
     // Where each measure lives: one of another table (the stock) cannot be grouped by the fact's columns.
     foreign: new Set(measures.filter((x) => x.table && x.table !== fact.name).map((x) => x.name)),
     numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),

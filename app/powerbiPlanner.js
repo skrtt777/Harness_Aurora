@@ -112,7 +112,7 @@ export function humanTitle(text) {
 
 /** The model's plan made safe: known names only, limits kept, an empty page filled; null if unusable. */
 // The words of the yard example: in a page name only when the data or the request have them.
-const EXAMPLE_WORDS = [[/\b(d[oa]s?|n[oa]s?)\s+p[áa]tios?\b/gi, "da operação"], [/\bp[áa]tios?\b/gi, "operação"], [/\b(d[oa]s?|n[oa]s?)\s+docas?\b/gi, "dos atendimentos"], [/\bcaminh(ão|ões|oes|ao)\b/gi, "itens"]];
+const EXAMPLE_WORDS = [[/\b(d[oa]\s+)?(g[êe]m(e[oa]|a)|twin)(\s+digital)?\b/gi, "da operação ao vivo"], [/\b(d[oa]s?|n[oa]s?)\s+p[áa]tios?\b/gi, "da operação"], [/\bp[áa]tios?\b/gi, "operação"], [/\b(d[oa]s?|n[oa]s?)\s+docas?\b/gi, "dos atendimentos"], [/\bcaminh(ão|ões|oes|ao)\b/gi, "itens"]];
 function foreignWords(name, cat, goal) {
   const vocab = fold(`${goal} ${cat.sources || ""} ${(cat.stories || []).join(" ")} ${(cat.dims || []).map((d) => d.name).join(" ")} ${(cat.numbers || []).join(" ")}`);
   let out = name;
@@ -120,7 +120,7 @@ function foreignWords(name, cat, goal) {
     const word = fold(String(name.match(re)?.[0] || "").split(/\s+/).pop() || "");
     if (word && !vocab.includes(word.replace(/s$/, ""))) out = out.replace(re, plain);
   }
-  out = out.replace(/\s+/g, " ").trim();
+  out = out.replace(/\s+/g, " ").trim().replace(/^(d[ao]s?)\s+/i, "");
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
@@ -130,6 +130,21 @@ function foreignWords(name, cat, goal) {
  * empty or meaningless): otherwise bars of the same number.
  */
 function fitChart(b, cat) {
+  const fitted = fitType(b, cat);
+  // By the unit the page already filters to one (a single bar "Hospital Norte"): by another column.
+  if (fitted.por && cat.siteColumn && fitted.por === cat.siteColumn) fitted.por = cat.dims.find((d) => d.name !== cat.siteColumn && d.distinct >= 3 && d.distinct <= 30)?.name || "";
+  // The model's title only when it speaks of this chart ("Funil por risco" on bars, "Tempo médio de
+  // espera" on a count, 12/10): a title that names neither the number nor the column gives way to
+  // the plain one ("Qtd. de atendimentos por classificação de risco").
+  const words = (s) => fold(s).split(/[^a-z0-9%]+/).filter((w) => w.length > 3).map((w) => w.slice(0, 5));
+  const said = words(fitted.titulo);
+  const about = [...words(fitted.medida), ...words(fitted.por)];
+  if (fitted.titulo && (fitted.tipo !== b.tipo || !said.some((w) => about.includes(w)))) fitted.titulo = "";
+  return fitted;
+}
+
+function fitType(b, cat) {
+  if (/anterior|varia[çc][ãa]o %/i.test(b.medida) && (cat.months || 0) < 2) b = { ...b, medida: (cat.principal || cat.numbers).find((n) => !/anterior|varia/i.test(n)) || b.medida, titulo: "" };
   const time = cat.time.includes(b.por);
   if (b.tipo === "medidor" && !(/%/.test(b.medida) && !/anterior|varia|acumulad/i.test(b.medida))) return { ...b, tipo: "barras", por: b.por || cat.dims[0]?.name || "" };
   if (["linha", "area"].includes(b.tipo) && b.por && !time) return { ...b, tipo: "barras" };

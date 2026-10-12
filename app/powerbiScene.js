@@ -589,7 +589,7 @@ export function cityScene(spec) {
   const points = [];
   for (let k = 0; k < n; k += 1) {
     const [X, Y] = at(k);
-    const colour = (i) => D(year ? `IF(ISBLANK([@p]) || ISBLANK([@a]), ${daxText(PALETTE[0][i])}, IF([@a] >= [@p], ${daxText(UP[i])}, ${daxText(DOWN[i])}))` : `SWITCH(TRUE(), [@i] <= 1, ${daxText(PALETTE[0][i])}, [@i] <= 3, ${daxText(PALETTE[1][i])}, ${daxText(PALETTE[2][i])})`);
+    const colour = (i) => D(spec.colors ? `SWITCH(LOWER(${column} & ""), ${spec.colors.map(([v, hex]) => `"${String(v).toLowerCase().replace(/"/g, "\"\"")}", ${daxText(faces(hex)[i])}`).join(", ")}, ${daxText(PALETTE[0][i])})` : year ? `IF(ISBLANK([@p]) || ISBLANK([@a]), ${daxText(PALETTE[0][i])}, IF([@a] >= [@p], ${daxText(UP[i])}, ${daxText(DOWN[i])}))` : `SWITCH(TRUE(), [@i] <= 1, ${daxText(PALETTE[0][i])}, [@i] <= 3, ${daxText(PALETTE[1][i])}, ${daxText(PALETTE[2][i])})`);
     const h = `MAX(6, INT(${H} * DIVIDE([@v], Mx)))`;
     const frag = [cv.poly([[X - 14, Y - 14, 0], [X + FOOT + 14, Y - 14, 0], [X + FOOT + 14, Y + FOOT + 14, 0], [X - 14, Y + FOOT + 14, 0]], L.yard)];
     frag.push(when(`${column} IN Destacados`, auroraRing(...cv.at(X + FOOT / 2, Y + FOOT / 2, 0), 110, 64)));
