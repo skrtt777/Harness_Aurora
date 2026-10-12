@@ -209,6 +209,8 @@ export function autoPlan(cat, goal = "") {
     pages.push({ nome: pick(["Detalhe", "Item a item", "Composição"], seed >>> 2), pergunta: "Como cada parte contribui?", layout: pick(["grade", "comparacao", "narrativa"], seed >>> 3), cena: "nenhuma", numeros: [], blocos: [chart("tabela", k.headline, firstDim, ""), chart("arvore", k.headline, other, ""), byTime ? chart("colunas", k.headline, byTime, "") : null].filter(Boolean) });
     estilo = { tema: pick(["escuro", "claro"], seed), cor: pick(["azul", "roxo", "verde", "laranja", "teal"], seed >>> 1), tom: pick(["vibrante", "sobrio", "acolhedor"], seed >>> 2) };
   }
+  // The "what if" table on the second page (when there is room): the plan says what could change.
+  if (cat.specials.simulacao && pages[1] && pages[1].blocos.length < 4) pages[1].blocos.push({ tipo: "simulacao" });
   // "sem a tendência"/"só uma página": the request still has the last word.
   let kept = pages;
   if (/(?<!\p{L})(s[óo]|apenas|somente)(?!\p{L}).{0,20}(uma )?p[áa]gina|uma (s[óo] )?(p[áa]gina|tela)/iu.test(goal)) kept = pages.slice(0, 1);

@@ -384,6 +384,43 @@ export function prepare(tables, { title, goal = "" } = {}) {
       },
     };
   }
+  // "E se": a simulation that fits the subject — more or fewer places to serve (an operation), a cut in
+  // what goes out (money), a change in the main number (anything else). A table compares the scenarios
+  // side by side, its title says "Simulação", and nothing of it mixes with the real numbers.
+  const simTables = [];
+  let simSpecial = null;
+  if (!plainPages) {
+    if (story && flow.place) {
+      const V = (flow.vehicles || "itens").replace(/^./, (c) => c.toUpperCase());
+      const placeP = flow.placePlural || `${flow.place.toLowerCase()}s`;
+      const one = placeP.replace(/ões$/, "ão").replace(/s$/, "");
+      const queue = `${V} na fila`; const served = `${V} ${flow.placeMasc ? "nos" : "nas"} ${placeP}`;
+      simTables.push({ name: "Cenário", dax: `DATATABLE("Lugares a mais", INTEGER, "Cenário", STRING, {{-1, "−1 ${one}"}, {0, "Como está"}, {1, "+1 ${one}"}, {2, "+2 ${placeP}"}, {3, "+3 ${placeP}"}})`, columns: [{ name: "Lugares a mais", type: "inteiro", hidden: "True" }, { name: "Cenário", type: "texto", sortBy: "Lugares a mais" }] });
+      const extra = "SELECTEDVALUE('Cenário'[Lugares a mais], 0)";
+      const places = add(`${placeP.replace(/^./, (c) => c.toUpperCase())} no cenário`, `COUNTROWS(FILTER(VALUES(${col(fact.name, flow.place)}), NOT ISBLANK(${col(fact.name, flow.place)}) && ${col(fact.name, flow.place)} <> "")) + ${extra}`, INT, "Simulação", "Os lugares que existem, mais (ou menos) os do cenário");
+      // Each place added takes the next one waiting; each place closed sends its people to the line.
+      const simQueue = add("Fila no cenário", `VAR x = ${extra} VAR Lugares = COUNTROWS(FILTER(VALUES(${col(fact.name, flow.place)}), NOT ISBLANK(${col(fact.name, flow.place)}) && ${col(fact.name, flow.place)} <> "")) RETURN IF(x >= 0, MAX(0, [${queue}] - x), [${queue}] + ROUND(-x * DIVIDE([${served}], Lugares), 0))`, INT, "Simulação", "A fila se o número de lugares fosse o do cenário (cada lugar a mais atende o próximo da fila)");
+      const cols = ["'Cenário'[Cenário]", m(places), m(simQueue)];
+      if (flow.timeline && flow.timeline[3] && flow.timeline[5]) {
+        const t3 = col(fact.name, flow.timeline[3]); const t5 = col(fact.name, flow.timeline[5]);
+        const service = add("Atendimento médio (min)", `AVERAGEX(FILTER(ALL(${q(fact.name)}), NOT ISBLANK(${t3}) && NOT ISBLANK(${t5}) && ${t5} >= ${t3}), (${t5} - ${t3}) * 1440)`, "0.0", "Simulação", "Quanto dura um atendimento, em média, no histórico");
+        cols.push(m(add("Espera estimada no cenário (min)", `DIVIDE([Fila no cenário] * [Atendimento médio (min)], MAX(1, [${placeP.replace(/^./, (c) => c.toUpperCase())} no cenário]))`, "0", "Simulação", "Fila x atendimento médio / lugares: quanto o último da fila espera")));
+        void service;
+      }
+      simSpecial = { desc: `simulação: e se tivéssemos mais (ou menos) ${placeP}? a fila e a espera em cada cenário, lado a lado`, make: () => ({ type: "tableEx", title: `Simulação: e se tivéssemos mais ${placeP}?`, values: cols, totals: false, sort: { by: "'Cenário'[Cenário]", desc: false } }) };
+    } else if (fin) {
+      simTables.push({ name: "Corte", dax: `DATATABLE("Corte %", INTEGER, "Cenário", STRING, {{0, "Como está"}, {5, "Cortar 5%"}, {10, "Cortar 10%"}, {15, "Cortar 15%"}, {20, "Cortar 20%"}, {30, "Cortar 30%"}})`, columns: [{ name: "Corte %", type: "inteiro", hidden: "True" }, { name: "Cenário", type: "texto", sortBy: "Corte %" }] });
+      const cut = "SELECTEDVALUE('Corte'[Corte %], 0) / 100";
+      const out = add("Saídas no cenário", `${m(fin.outgo)} * (1 - ${cut})`, MONEY, "Simulação", "As saídas com o corte do cenário");
+      const bal = add("Saldo no cenário", `${m(fin.income)} - ${m(out)}`, MONEY, "Simulação", "Entradas menos as saídas do cenário");
+      const mar = add("Margem no cenário %", `DIVIDE(${m(bal)}, ${m(fin.income)})`, PCT, "Simulação");
+      simSpecial = { desc: "simulação: e se cortássemos as saídas (5% a 30%)? saídas, saldo e margem em cada cenário (com uma categoria escolhida, o corte vale só para ela)", make: () => ({ type: "tableEx", title: "Simulação: e se cortássemos as saídas?", values: ["'Corte'[Cenário]", m(out), m(bal), m(mar)], totals: false, sort: { by: "'Corte'[Cenário]", desc: false } }) };
+    } else if (headline) {
+      simTables.push({ name: "Variação", dax: `DATATABLE("Variação %", INTEGER, "Cenário", STRING, {{-20, "−20%"}, {-10, "−10%"}, {0, "Como está"}, {10, "+10%"}, {20, "+20%"}})`, columns: [{ name: "Variação %", type: "inteiro", hidden: "True" }, { name: "Cenário", type: "texto", sortBy: "Variação %" }] });
+      const sim = add(`${headline} no cenário`, `${m(headline)} * (1 + SELECTEDVALUE('Variação'[Variação %], 0) / 100)`, measures.find((x) => x.name === headline)?.format || DEC, "Simulação");
+      simSpecial = { desc: `simulação: e se ${lower(headline)} variasse de −20% a +20%?`, make: () => ({ type: "tableEx", title: `Simulação: e se ${lower(headline)} mudasse?`, values: ["'Variação'[Cenário]", m(sim)], totals: false, sort: { by: "'Variação'[Cenário]", desc: false } }) };
+    }
+  }
   const kind = flow?.logistics ? "logistica" : flow ? "fluxo" : fin ? "financas" : space ? "espacos" : "geral";
   const generic = [headline, count !== headline ? count : null, ticket || qtyMeasure, margin || ytd].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   const keys = fin ? { income: fin.income, outgo: fin.outgo, balance: fin.balance, margin: fin.margin, execution: fin.execution, headline }
@@ -403,6 +440,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
     time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
     scenes, specials: {
       ...(story?.specials || {}), ...(fin?.specials || {}),
+      ...(simSpecial ? { simulacao: simSpecial } : {}),
       notas_aurora: { desc: "o que mudou desde a última atualização (a Aurora escreve a cada atualização, no máximo a cada 10 min)", make: () => ({ type: "tableEx", float: true, title: "O que mudou (Aurora)", values: ["'Notas da Aurora'[Quando]", "'Notas da Aurora'[Texto]"], totals: false, sort: { by: "'Notas da Aurora'[Quando]", desc: true } }) },
     },
     // The unit switcher (CD, filial) comes first, like the switcher of a control room.
@@ -424,7 +462,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
     place: flow?.place || null,
     entities: flow && (flow.asset || flow.id) ? `EVALUATE\n${vehicleVars(flow, q(fact.name)).join("\n")}\nRETURN SELECTCOLUMNS(Veiculos, "n", [@nome], "w", [@where], "d", [@doca], "a", [@atraso])` : null,
   };
-  return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title, watch };
+  return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title, watch, simTables };
 }
 
 /** The pages from a plan (or the automatic one), and the model. */
@@ -457,6 +495,7 @@ export function finish(prep, rawPlan = null) {
   const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
   // The timeline: one moment chosen at a time (the cards and the scene follow it).
   if (flow?.timeline) modelTables.push({ name: "Momento", dax: momentTable(), columns: [{ name: "Minutos", type: "inteiro", hidden: "True" }, { name: "Quando", type: "texto", sortBy: "Minutos" }] });
+  for (const t of prep.simTables || []) modelTables.push(t);
   // What changed since the last refresh, written by the Aurora (app/powerbiChanges.js).
   modelTables.push({ name: "Notas da Aurora", dax: "DATATABLE(\"Quando\", STRING, \"Texto\", STRING, {{\"\", \"\"}})", columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
   // What the Aurora shows when asked ("mostra a doca 3"): she rewrites this table; the scenes ring it.
