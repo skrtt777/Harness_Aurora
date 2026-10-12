@@ -55,17 +55,32 @@ export function changedTable(names) {
 }
 
 /** The note from the facts: the local model writes 1-2 sentences with only them; without it, the facts. */
-export async function narrate(facts, ask, env = {}) {
+export async function narrate(facts, ask, env = {}, about = "o que mudou na operação desde a última atualização", maxChars = 220) {
   if (!facts.length) return "";
   const plain = facts.join(". ").slice(0, 240);
   if (!ask) return plain;
-  const prompt = `Escreva em português do Brasil, em 1 ou 2 frases curtas (no máximo 220 caracteres), o que mudou na operação desde a última atualização, usando SÓ estes fatos, sem inventar números nem causas:\n- ${facts.join("\n- ")}\nResponda só a frase.`;
+  const prompt = `Escreva em português do Brasil, em ${maxChars < 160 ? "1 frase curta" : "1 ou 2 frases curtas"} (no máximo ${maxChars} caracteres), ${about}, usando SÓ estes fatos, sem inventar números nem causas:\n- ${facts.join("\n- ")}\nResponda só a frase.`;
   const reply = await ask(prompt, { ...env, LOCAL_MAX_OUTPUT_TOKENS: "160" }).catch(() => null);
   const text = String(reply?.ok ? reply.text : "").replace(/\s+/g, " ").trim();
-  // A note with a number the facts do not have is not used (the model may round or invent).
-  const numbers = (text.match(/\d+(?:[.,]\d+)*/g) || []);
-  const known = facts.join(" ");
-  return text && text.length <= 260 && numbers.every((n) => known.includes(n)) ? text : plain;
+  // A note with a number the facts do not have is not used. A rounding is ("R$ 4,6 milhões" for
+  // 4.634.278,59; "94k"): within 5% of a number of the facts. An invented one is not.
+  const known = numbersIn(facts.join(" "));
+  const said = numbersIn(text);
+  const close = (v) => known.some((k) => Math.abs(v - k) <= Math.max(0.05 * Math.abs(k), 0.051));
+  return text && text.length <= Math.max(maxChars + 20, 120) && said.every(close) ? text : plain;
+}
+
+/** The numbers of a Brazilian text, with "mil"/"milhões"/"k" applied: "R$ 4,6 milhões" -> 4600000. */
+export function numbersIn(text) {
+  const out = [];
+  const re = /(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?)\s*(mil\b|milh(?:ão|ões|oes|ao)\b|mi\b|bilh(?:ão|ões|oes|ao)\b|bi\b|k\b)?/gi;
+  for (const [, n, unit] of String(text).matchAll(re)) {
+    let v = Number(n.replace(/\./g, "").replace(",", "."));
+    const u = String(unit || "").toLowerCase();
+    if (/^(mil|k)$/.test(u)) v *= 1e3; else if (/^(milh|mi$)/.test(u)) v *= 1e6; else if (/^(bilh|bi$)/.test(u)) v *= 1e9;
+    if (Number.isFinite(v)) out.push(v);
+  }
+  return out;
 }
 
 /** The 'Notas da Aurora' table with the last notes (newest first). */

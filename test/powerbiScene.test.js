@@ -328,3 +328,24 @@ test("the twin server: page and state behind a random code, read only, the state
     assert.equal((await fetch(`${info.local}state`, { method: "POST" })).status, 404);
   } finally { stopTwinServer(); }
 });
+
+test("each page's sentence comes from its own numbers; the header falls back to the question", async () => {
+  const { pageFacts, summaryTable, headerMeasure } = await import("../app/powerbiSummary.js");
+  const page = { displayName: "Panorama", visuals: [
+    { type: "slicer", values: "'V'[Loja]", select: ["Centro"] },
+    { type: "image", kpi: "[Faturamento]", from: { numero: "Faturamento" } },
+    { type: "clusteredBarChart", category: "'V'[Produto]", values: "[Faturamento]" },
+    { type: "lineChart", category: "'Calendário'[Mês]", values: "[Faturamento]" },
+  ] };
+  const plan = { measureList: [{ name: "Faturamento", format: "\"R$\" #,0" }] };
+  const asked = [];
+  const ask = async (cmd, { dax }) => { asked.push(dax); return /TOPN/.test(dax) ? { ok: true, text: "1 linha(s):\nProduto | v | f | p | n\nBolo | 35 | R$ 35 | 38% | 6\n" } : { ok: true, text: "1 linha(s):\nv\nR$ 94\n" }; };
+  const facts = await pageFacts(page, plan, ask);
+  assert.deepEqual(facts, ["Faturamento: R$ 94", "Faturamento: Bolo lidera com R$ 35 (38% do total)"]);
+  assert.ok(asked.every((d) => /TREATAS\(\{"Centro"\}, 'V'\[Loja\]\)/.test(d)), "with the page's unit");
+  assert.ok(!asked.some((d) => /Calendário/.test(d)), "a chart over time is not a ranking");
+  assert.match(summaryTable([["Panorama", "Vendas \"boas\""]]), /\{"Panorama", "Vendas ""boas"""\}/);
+  const header = headerMeasure({ page: "Panorama", fallback: "Vendas · Quais itens puxam?", dark: false, width: 640 });
+  assert.match(header, /'Resumo'\[Página\] = "Panorama"/);
+  assert.match(header, /IF\(R = "", "Vendas · Quais itens puxam\?", R\)/);
+});

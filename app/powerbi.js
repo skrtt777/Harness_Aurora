@@ -13,6 +13,7 @@ import { finish, prepare, profile, readSources } from "./powerbiDesign.js";
 import { localPlanAsk, planWithModel } from "./powerbiPlanner.js";
 import { biEvents, changedTable, diffSnapshots, narrate, notesTable } from "./powerbiChanges.js";
 import { auditReport, fixPlan } from "./powerbiAudit.js";
+import { writeSummaries } from "./powerbiSummary.js";
 import { writeProject, writeReport } from "./powerbiReport.js";
 
 const SOURCE = fileURLToPath(new URL("./powerbi/PbiHost.cs", import.meta.url));
@@ -108,9 +109,9 @@ const mtimeOf = (f) => { try { return statSync(f).mtimeMs; } catch { return 0; }
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 /** Keeps a report current: files = its source spreadsheets (empty: by the clock only). */
-export function watchReport(report, files = [], { everyMs = 60_000, watch = null } = {}) {
+export function watchReport(report, files = [], { everyMs = 60_000, watch = null, plan = null } = {}) {
   if (!report?.pid || !report?.port) return;
-  watched.set(report.pid, { pid: report.pid, port: report.port, title: report.title, files, mtimes: files.map(mtimeOf), lastRefresh: Date.now(), last: "aberto agora", watch, snapshot: null, notes: [] });
+  watched.set(report.pid, { pid: report.pid, port: report.port, title: report.title, files, mtimes: files.map(mtimeOf), lastRefresh: Date.now(), last: "aberto agora", watch, plan, snapshot: null, notes: [] });
   if (!watchTimer) { watchTimer = setInterval(() => { void refreshDue().catch(() => {}); }, everyMs); watchTimer.unref?.(); }
 }
 
@@ -173,6 +174,8 @@ export async function refreshDue(now = Date.now()) {
     w.lastRefresh = Date.now(); w.mtimes = mtimes; w.last = r.ok ? (changed ? "planilha mudou" : "relógio") : r.error;
     // What changed since the refresh before: a note in the report, an alert when it got worse.
     const note = r.ok && w.watch ? await noteChanges(w).catch(() => null) : null;
+    // The pages' sentences follow the new numbers.
+    if (r.ok && w.plan) await writeSummaries(w.plan, pbiRequest, await localPlanAsk(process.env).catch(() => null), process.env).catch(() => []);
     done.push({ title: w.title, why: changed ? "arquivo" : "tempo", ok: r.ok, note });
     // Back to the report a conversation was working on.
     if (back && back !== w.port) await pbiRequest("connect", { port: back });
@@ -300,8 +303,11 @@ export async function buildReport({ files, folder, name, goal, conversationId, o
       await loadOpened(result, plan, report, conversationId, onStage);
     }
     result.audit = fixed ? fixed.changes : [];
+    // The Aurora's sentence under each page's title, from the numbers it shows.
+    onStage("Escrevendo o resumo de cada página…");
+    result.summaries = await writeSummaries(plan, pbiRequest, await localPlanAsk(process.env).catch(() => null), process.env).catch(() => []);
     // From now on its data follows the spreadsheets (at most REFRESH_MINUTES late).
-    watchReport(report, files, { watch: plan.watch || null });
+    watchReport(report, files, { watch: plan.watch || null, plan });
     // The first look, to compare the next refreshes with.
     const w = watched.get(report.pid);
     if (w?.watch) w.snapshot = await snapshotOf(w.watch).catch(() => null);

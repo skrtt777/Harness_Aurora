@@ -32,6 +32,7 @@ try {
   opened = r.opened;
   console.log(`  ${r.refreshed}\n  ${r.plan.summary.split("\n").filter((l) => /^Plano|^Conferi/.test(l)).join("\n")}`);
   check("abriu e carregou", /Atualizei os dados/.test(r.refreshed), r.refreshed);
+  for (const [page, text] of r.summaries || []) console.log(`  resumo [${page}]: ${text}`);
   for (const c of flag("confere")) {
     const [, measure, want] = /^(.+?)=(.+)$/.exec(c);
     const v = await value(`ROUND(${measure}, 2)`);

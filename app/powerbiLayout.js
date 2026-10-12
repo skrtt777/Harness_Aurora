@@ -53,7 +53,8 @@ export function composePage(page, style, reportTitle) {
   const visuals = [];
   const slicers = page.slicers.slice(0, 3);
   const headW = RIGHT - M - slicers.length * 192 - 8;
-  visuals.push({ type: "textbox", x: M, y: 6, w: headW, h: 72, paragraphs: [
+  if (page.headerUrl) visuals.push({ type: "image", url: page.headerUrl, x: M, y: 6, w: headW, h: 72, bare: true });
+  else visuals.push({ type: "textbox", x: M, y: 6, w: headW, h: 72, paragraphs: [
     { textRuns: [{ value: page.name, textStyle: { fontWeight: "bold", fontSize: "20pt", color: style.text } }] },
     { textRuns: [{ value: [reportTitle, page.question].filter(Boolean).join(" · "), textStyle: { fontSize: "10pt", color: style.soft } }] },
   ] });

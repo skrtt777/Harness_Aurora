@@ -12,6 +12,7 @@ import { plantaScene, readSpace } from "./powerbiSpace.js";
 import { mapScene, readGeo } from "./powerbiMap.js";
 import { sceneColumn, vehicleVars } from "./powerbiScene.js";
 import { kpiTile } from "./powerbiKpi.js";
+import { headerMeasure } from "./powerbiSummary.js";
 import { composePage } from "./powerbiLayout.js";
 import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
@@ -573,7 +574,13 @@ export function finish(prep, rawPlan = null) {
   const style = { dark, text: dark ? "#FFFFFF" : "#1B2A4A", soft: dark ? "#8FA3BF" : "#5B6B85", pin: COLORS[plan.estilo.cor] || "#4F9BFF" };
   const pages = plan.paginas.map((p) => {
     // Light pages get the scenes by day; the night pictures (tracker, detail) keep a dark frame there.
-    const visuals = composePage(materialize(p, cat, dark ? "noite" : "dia"), style, reportTitle);
+    const made = materialize(p, cat, dark ? "noite" : "dia");
+    // The header: the page's title and, under it, the Aurora's sentence about it (its question until then).
+    const headW = 1256 - 24 - Math.min(3, made.slicers.length) * 192 - 8;
+    const header = `Cabeçalho: ${p.nome}${dark ? "" : " (dia)"}`;
+    if (!measures.some((x) => x.name === header)) measures.push({ name: header, folder: "Cartões", category: "ImageUrl", description: "Título da página e o resumo da Aurora", expression: headerMeasure({ page: p.nome, fallback: [reportTitle, p.pergunta].filter(Boolean).join(" · "), dark, width: headW }) });
+    made.headerUrl = `[${header}]`;
+    const visuals = composePage(made, style, reportTitle);
     // Every page ends with where the numbers come from and when they were last read.
     visuals.push({ type: "image", url: `[${footer(dark)}]`, x: 24, y: 698, w: 1232, h: 20, bare: true });
     if (!dark) for (const v of visuals) if (v.type === "image" && !v.kpi && !(v.scene && v.look === "dia")) { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
@@ -601,6 +608,8 @@ export function finish(prep, rawPlan = null) {
   // The timeline: one moment chosen at a time (the cards and the scene follow it).
   if (flow?.timeline) modelTables.push({ name: "Momento", dax: momentTable(), columns: [{ name: "Minutos", type: "inteiro", hidden: "True" }, { name: "Quando", type: "texto", sortBy: "Minutos" }] });
   for (const t of prep.simTables || []) modelTables.push(t);
+  // One sentence per page, by the Aurora, from the page's own numbers (app/powerbiSummary.js).
+  modelTables.push({ name: "Resumo", dax: "DATATABLE(\"Página\", STRING, \"Texto\", STRING, {{\"\", \"\"}})", hidden: "True", columns: [{ name: "Página", type: "texto" }, { name: "Texto", type: "texto" }] });
   // What changed since the last refresh, written by the Aurora (app/powerbiChanges.js).
   modelTables.push({ name: "Notas da Aurora", dax: `DATATABLE("Quando", STRING, "Texto", STRING, {{"${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}", "Painel aberto. A cada atualização (no máximo a cada 10 min) a Aurora escreve aqui o que mudou."}})`, columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
   // Who arrived or changed place at the last refresh (app/powerbiChanges.js): a dashed white ring.
