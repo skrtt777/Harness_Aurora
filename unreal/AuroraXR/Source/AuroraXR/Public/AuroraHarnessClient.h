@@ -26,8 +26,9 @@ public:
     void ObserveImage(const TArray<uint8>& Bytes);
     void HandleUtterance(const FString& Text);
     bool IsListening() const { return bListening&&!bWakeCapture; }
-    bool IsBusy() const { return bTeacherUpdating||!OperationId.IsEmpty(); }
+    bool IsBusy() const { return bBenchSaving||bTeacherUpdating||!OperationId.IsEmpty(); }
     bool IsSpeaking() const;
+    bool IsUsingPc() const { return bUsingPc; }
     bool IsConnected() const { return bBridgeConnected; }
     bool HasConnectionResult() const { return bConnectionChecked; }
     float GetInputLevel() const { return InputLevel; }
@@ -36,9 +37,20 @@ public:
     void SetVoiceOrigin(const FVector& Position);
     TFunction<void()> OnPosition;
     TFunction<void()> OnObserve;
+    TFunction<void()> OnContours;
     TFunction<void()> OnAnchor;
     TFunction<void()> OnSummon;
+    // The Power BI the Aurora keeps open on the PC, as a miniature (page 7): the layout to draw, and
+    // show/hide it.
+    TFunction<void(const struct FAuroraTwinLayout&)> OnTwin;
+    TFunction<void()> OnTwinToggle;
 private:
+    void ShowTwin(bool RefreshOnly=false);
+    void PresentTwin();
+    FAuroraJson TwinState;
+    FString TwinUnit;
+    float TwinRefreshDelay=0;
+    bool bTwinLoading=false;
     using FReplyJson=TFunction<void(bool,FAuroraJson)>;
     void Request(const FString& Path,const FString& Method,FAuroraJson Body,FReplyJson Reply);
     void Submit(const FString& Path,FAuroraJson Body,const FString& Kind);
@@ -59,6 +71,14 @@ private:
     bool LoadRouteConfig(const TCHAR* Name,FString& OutEndpoint,FString& OutToken) const;
     void ShowSources();
     void ShowArtifacts();
+    void ShowBench(bool RefreshOnly=false);
+    void PresentBench();
+    void ConfirmBenchDecision();
+    FAuroraJson BenchSnapshot, BenchPending;
+    FString BenchProject, BenchPendingProject, BenchDraft, BenchDraftProject;
+    int32 BenchIndex=0;
+    float BenchRefreshDelay=0;
+    bool bBenchLoading=false,bBenchSaving=false;
     void RefreshProjectName();
     FString ProjectName;
     FString TeacherProvider=TEXT("codex"),LastMessageId;

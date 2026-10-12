@@ -23,6 +23,9 @@ public:
     virtual const void* OnEndProjectionLayer_RHIThread(XrSession Session, int32 Index, const void* Next, XrCompositionLayerFlags& Flags) override;
     void SetRequested(bool Value) { bRequested.Store(Value); }
     bool IsReady() const { return bReady.Load(); }
+    void SetEdgesRequested(bool Value) { bEdgesRequested.Store(Value); }
+    bool AreEdgesRequested() const { return bEdgesRequested.Load(); }
+    bool AreEdgesActive() const { return bEdgesActive.Load(); }
     static FAuroraPassthroughModule& Get() { return FModuleManager::LoadModuleChecked<FAuroraPassthroughModule>("AuroraPassthrough"); }
 private:
     PFN_xrGetInstanceProcAddr GetProc = nullptr;
@@ -35,6 +38,8 @@ private:
     XrPassthroughLayerFB Layer = XR_NULL_HANDLE;
     XrCompositionLayerPassthroughFB Composition{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
     TAtomic<bool> bReady{false};
+    TAtomic<bool> bEdgesRequested{false},bEdgesActive{false};
+    bool bLastEdgesRequest=false;
     TAtomic<bool> bRequested{false};
     PFN_xrCreateSpatialAnchorFB CreateAnchor=nullptr;
     PFN_xrSetSpaceComponentStatusFB SetComponent=nullptr;

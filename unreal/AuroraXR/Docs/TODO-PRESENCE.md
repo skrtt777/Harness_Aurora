@@ -1,5 +1,30 @@
 # Aurora Presence — execução
 
+## Direção atual — Aurora Bancada, 10/10/2026
+
+Foco adotado: ideias e projetos criativos, PC executando tarefas e Telegram
+como entrada do celular. A lista abaixo descreve a primeira fatia técnica;
+não transforma as intenções ou validações históricas em recursos atuais.
+
+- [x] Persistir referências e decisões por projeto no PC, com vínculo às memórias.
+- [x] Usar confirmação explícita, identificador durável e verificação de revisão.
+- [x] Implementar captura por Telegram e verificar com serviço simulado local.
+- [x] Exibir referências e confirmar uma decisão na interface desktop de teste.
+- [x] Implementar página nativa da bancada, prévia de imagem e revisão da decisão.
+- [x] Preservar a rota PC durante indisponibilidade, sem trocar silenciosamente de banco.
+- [x] Compilar/instalar APK; concluir 101 testes Node e cinco testes Unreal.
+- [x] Conferir abertura e legibilidade com o usuário e imagem no passthrough do Quest.
+- [x] Conferir decisão confirmada no aparelho retornando ao desktop e à memória do PC.
+- [ ] Validar separadamente mãos/controles, voz e reconexão física.
+- [x] Restaurar a configuração original e encerrar os servidores da prévia isolada.
+- [ ] Atualizar desktop e ponte habituais antes de usar os comandos com dados reais.
+- [ ] Validar captura com o Telegram real e continuidade completa celular–PC–Quest.
+- [ ] Projetar cartões espaciais, enquadramento sentado e vínculo manual com a mesa.
+- [ ] Validar persistência espacial, falha de tracking, latência e conforto prolongado.
+
+Uso, evidências e limitações em [PRESENCE-USO.md](PRESENCE-USO.md).
+As seções MoE, Pocket TTS e SAO abaixo são histórico de outras revisões.
+
 ## Direção corrigida — Harness original e MoE no armazenamento
 
 - [x] Identificar o executor e os pesos exatos do experimento MoE do repositório.

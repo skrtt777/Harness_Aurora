@@ -130,6 +130,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       }
 
       if (pathname === '/api/central/status' && method === 'GET') return sendJson(response, 200, await centralStatus());
+      // The open Power BI as its digital twin (the Quest draws it in the room; app/powerbiTwin.js).
+      if (pathname === '/api/powerbi/twin' && method === 'GET') {
+        const { twinNow } = await import('./powerbi.js');
+        return sendJson(response, 200, (await twinNow().catch(() => null)) || { version: 1, kind: 'vazio', title: 'Nenhum Power BI aberto pela Aurora', units: [], entities: [], numbers: {}, notes: [], highlight: { values: [], note: '' } });
+      }
       // LGPD, art. 18: what is kept about a person or client, a copy of it, and its erasure.
       if (pathname === '/api/privacy/search' && method === 'GET') return sendJson(response, 200, await searchSubject(url.searchParams.get('q') || ''));
       if (pathname === '/api/privacy/export' && method === 'POST') return sendJson(response, 200, await exportSubject(String((await readJson(request)).term || '')));

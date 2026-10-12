@@ -1,4 +1,5 @@
 #include "AuroraMRPanel.h"
+#include "Engine/Texture2D.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Rendering/DrawElements.h"
@@ -13,7 +14,7 @@
 #endif
 namespace AuroraUI {
 const TCHAR* Names[]={TEXT("Conversar"),TEXT("Memórias"),TEXT("Projetos"),TEXT("Ambiente"),TEXT("Ajustes")};
-const FLinearColor White(.98,.98,.94,1),Muted(.86,.88,.85,1),Gold(1.f,.64f,.025f,.94f),Selection(.25f,.12f,.01f,.88f),Glass(.025f,.035f,.045f,.46f);
+const FLinearColor White(.98,.98,.94,1),Muted(.86,.88,.85,1),Gold(.25f,.78f,1.f,.94f),Selection(.08f,.3f,.42f,.48f),Glass(.015f,.04f,.065f,.24f);
 // Measure exactly the font used for painting; compensate when the menu is shrunk.
 FSlateFontInfo FontFor(int Size,float Scale,float MenuHeight){return FCoreStyle::GetDefaultFontStyle("Regular",FMath::Max(14,FMath::RoundToInt(FMath::Max(20,Size)*Scale/FMath::Clamp(MenuHeight,.7f,1.f))));}
 float TextWidth(const FString& Text,const FSlateFontInfo& Font){return FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text,Font).X;}
@@ -47,8 +48,8 @@ void WrapText(const FString& Text,const FSlateFontInfo& Font,float Width,TArray<
 }
 bool Hit(FVector2D P,float X,float Y,float W,float H){return P.X>=X&&P.X<=X+W&&P.Y>=Y&&P.Y<=Y+H;}
 bool Rail(FVector2D P,int I){return FVector2D::Distance(P,FVector2D(740,235+I*115))<=45;}
-int ActionFor(int Selected,bool Settings,int I){const int General[]={0,1,2,5,12,11},Projects[]={12,5,8,9,10,11},Environment[]={4,3,0,1,12,11},Options[]={6,7,8,9,10,1};return Settings?Options[I]:Selected==2?Projects[I]:Selected==3?Environment[I]:General[I];}
-FString ActionName(int I,bool Listening,bool Wake){switch(I){case 0:return Listening?TEXT("Enviar fala"):TEXT("Falar com Aurora");case 1:return TEXT("Parar conversa");case 2:return TEXT("Guardar resposta");case 3:return TEXT("Posicionar menu");case 4:return TEXT("Ler ambiente");case 5:return TEXT("Nova conversa");case 6:return TEXT("Ouvir a voz");case 7:return Wake?TEXT("Pausar chamada por nome"):TEXT("Ativar chamada por nome");case 8:return TEXT("Professor / Codex");case 9:return TEXT("Professor / Claude");case 10:return TEXT("Pedir revisão ao professor");case 11:return TEXT("Ver referências");case 12:return TEXT("Retomar contexto");default:return TEXT("");}}
+int ActionFor(int Selected,bool Settings,int I){const int Bench[]={19,18,15,16,17,3};if(Selected==6&&!Settings)return Bench[I];const int Twin[]={20,21,22,0,12,3};if(Selected==7&&!Settings)return Twin[I];const int General[]={2,5,12,11,13,3},Projects[]={12,5,8,9,10,11},Environment[]={4,3,0,1,12,11},Options[]={6,7,8,9,4,3};return Settings?Options[I]:Selected==2?Projects[I]:Selected==3?Environment[I]:General[I];}
+FString ActionName(int I,bool Listening,bool Wake){switch(I){case 0:return Listening?TEXT("Enviar fala"):TEXT("Falar com Aurora");case 1:return TEXT("Parar conversa");case 2:return TEXT("Guardar resposta");case 3:return TEXT("Posicionar menu");case 4:return TEXT("Ler ambiente");case 5:return TEXT("Nova conversa");case 6:return TEXT("Ouvir a voz");case 7:return Wake?TEXT("Pausar por nome"):TEXT("Chamar por nome");case 8:return TEXT("Professor / Codex");case 9:return TEXT("Professor / Claude");case 10:return TEXT("Pedir revisão ao professor");case 11:return TEXT("Ver referências");case 12:return TEXT("Retomar contexto");case 13:return TEXT("Ver entregas");case 15:return TEXT("Atualizar bancada");case 16:return TEXT("Referência anterior");case 17:return TEXT("Próxima referência");case 18:return TEXT("Confirmar decisão");case 19:return TEXT("Revisar resposta");case 20:return TEXT("Atualizar operação");case 21:return TEXT("Trocar unidade");case 22:return TEXT("Mostrar / ocultar maquete");default:return TEXT("");}}
 }
 void UAuroraMRPanel::SetSpatialPresentation(bool Positioning,bool Dragging,bool Following,bool Located,bool RightTracked,bool Desktop){
  bPositioning=Positioning;bDragging=Dragging;bFollowingAnchor=Following;bAnchorLocated=Located;bRightTracked=RightTracked;bDesktopInput=Desktop;
@@ -81,9 +82,9 @@ void UAuroraMRPanel::NativeOnInitialized(){Super::NativeOnInitialized();WidgetTr
 void UAuroraMRPanel::Advance(float Delta){
  const FVector2D Size=GetCachedGeometry().GetLocalSize();
  const float SX=Size.X>0?Size.X/1600.f:1.f,SY=Size.Y>0?Size.Y/1000.f:1.f;
- const auto Font=AuroraUI::FontFor(22,SY,HUDSize.Y);const float Width=510*SX;
+ const auto Font=AuroraUI::FontFor(22,SY,HUDSize.Y);const float Width=730*SX;
  if(WrappedBody!=BodyText||WrappedFontSize!=Font.Size||!FMath::IsNearlyEqual(WrappedWidth,Width)){
-  const bool Changed=WrappedBody!=BodyText;WrappedBody=BodyText;WrappedFontSize=Font.Size;WrappedWidth=Width;
+  const bool Changed=WrappedBody!=BodyText&&!BodyText.StartsWith(WrappedBody);WrappedBody=BodyText;WrappedFontSize=Font.Size;WrappedWidth=Width;
   AuroraUI::WrapText(BodyText,Font,Width,BodyLines);if(Changed)BodyPage=0;
  }
  const auto Measure=FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
@@ -95,22 +96,36 @@ void UAuroraMRPanel::Advance(float Delta){
 int32 UAuroraMRPanel::GetPageCount() const{return FMath::Max(1,FMath::DivideAndRoundUp(Rows.IsEmpty()?BodyLines.Num():Rows.Num(),Rows.IsEmpty()?BodyLinesPerPage:5));}
 void UAuroraMRPanel::TogglePanel(){bOpen=!bOpen;if(bOpen){Age=MenuReveal=0;bMenuOpen=true;bHUDSettings=false;Selected=-1;}else if(OnDismiss)OnDismiss();}
 void UAuroraMRPanel::ReplayEntrance(){bOpen=true;Reveal=MenuReveal=Age=0;bMenuOpen=true;bHUDSettings=false;Selected=-1;}
-FString UAuroraMRPanel::GetSelectedOption() const{return Selected>=0&&Selected<4?AuroraUI::Names[Selected]:TEXT("");}
+FString UAuroraMRPanel::GetSelectedOption() const{return Selected==7?TEXT("Operação ao vivo"):Selected==6?TEXT("Bancada criativa"):Selected==5?TEXT("Entregas"):Selected>=0&&Selected<4?AuroraUI::Names[Selected]:TEXT("");}
 void UAuroraMRPanel::ActivateAt(FVector2D P){
  using namespace AuroraUI;if(!bOpen||Reveal<.94f)return;
- if(Hit(P,600,165,60,65)){TogglePanel();return;}
- auto Choose=[&](int I){bHUDSettings=I==4;bMenuOpen=false;BodyPage=0;MenuReveal=0;if(I<4){Selected=I;if(OnChoose)OnChoose(I);}};
- for(int I=0;I<5;++I)if(Rail(P,I)){Choose(I);return;}
- if(bMenuOpen){for(int I=0;I<4;++I)if(Hit(P,875,255+I*85,625,72)){Choose(I);return;}return;}
- for(int I=0;I<6;++I)if(Hit(P,875,255+I*85,625,72)){if(OnAction)OnAction(ActionFor(Selected,bHUDSettings,I));return;}
+ if(Hit(P,50,730,245,65)){if(OnAction)OnAction(15);return;}
+ if(Hit(P,50,650,245,60)){if(OnAction)OnAction(20);return;}
+ if(Selected==6&&!bHUDSettings&&!bMenuOpen&&Hit(P,775,650,335,45)){++BenchTextPage;return;}
+ if(Hit(P,1190,915,340,56)){if(OnAction)OnAction(14);return;}
+ if(Hit(P,380,710,490,72)){if(OnAction)OnAction(0);return;}
+ if(Hit(P,890,710,220,72)){if(OnAction)OnAction(1);return;}
+ if(Hit(P,1060,165,60,60)){TogglePanel();return;}
+ for(int I=0;I<5;++I)if(Hit(P,350+I*158,830,150,72)){
+   if(I==3){if(OnAction)OnAction(13);return;}
+   const int Pages[]={0,2,1,5,4};const int Page=Pages[I];
+   bHUDSettings=Page==4;bMenuOpen=false;BodyPage=0;MenuReveal=0;
+   if(Page<4){Selected=Page;if(OnChoose)OnChoose(Page);}return;
+ }
+ for(int I=0;I<6;++I)if(Hit(P,1205,390+I*66,310,56)){
+   if(OnAction)OnAction(ActionFor(Selected,bHUDSettings,I));return;
+ }
+ if(bMenuOpen){if(Hit(P,380,555,730,64)){SetPage(0);if(OnChoose)OnChoose(0);}return;}
  if(bHUDSettings){
- if(Hit(P,100,310,245,55)){bHUDSizeTab=true;return;}if(Hit(P,365,310,245,55)){bHUDSizeTab=false;return;}
- auto Change=[&](float X,float Y){if(bHUDSizeTab){if(OnHUDResize)OnHUDResize(X*.05f,Y*.05f);}else if(OnHUDAdjust)OnHUDAdjust(X,Y);};
- if(Hit(P,100,430,130,65))Change(-1,0);else if(Hit(P,480,430,130,65))Change(1,0);else if(Hit(P,100,550,130,65))Change(0,-1);else if(Hit(P,480,550,130,65))Change(0,1);
- else if(Hit(P,100,690,510,60)&&OnHUDReset)OnHUDReset();return;}
- for(int I=0;I<5;++I)if(Hit(P,100,310+I*66,510,58)&&Rows.IsValidIndex(BodyPage*5+I)){if(OnRow)OnRow(BodyPage*5+I);return;}
- if(Hit(P,100,690,175,55)){BodyPage=FMath::Clamp(BodyPage-1,0,GetPageCount()-1);return;}
- if(Hit(P,435,690,175,55)){BodyPage=FMath::Clamp(BodyPage+1,0,GetPageCount()-1);return;}
+   if(Hit(P,380,310,350,55)){bHUDSizeTab=true;return;}if(Hit(P,760,310,350,55)){bHUDSizeTab=false;return;}
+   auto Change=[&](float X,float Y){if(bHUDSizeTab){if(OnHUDResize)OnHUDResize(X*.05f,Y*.05f);}else if(OnHUDAdjust)OnHUDAdjust(X,Y);};
+   if(Hit(P,380,415,210,65))Change(-1,0);else if(Hit(P,900,415,210,65))Change(1,0);
+   else if(Hit(P,380,515,210,65))Change(0,-1);else if(Hit(P,900,515,210,65))Change(0,1);
+   else if(Hit(P,380,620,730,55)&&OnHUDReset)OnHUDReset();return;
+ }
+ for(int I=0;I<5;++I)if(Hit(P,380,310+I*66,730,58)&&Rows.IsValidIndex(BodyPage*5+I)){if(OnRow)OnRow(BodyPage*5+I);return;}
+ if(Hit(P,380,650,200,45)){BodyPage=FMath::Clamp(BodyPage-1,0,GetPageCount()-1);return;}
+ if(Hit(P,910,650,200,45)){BodyPage=FMath::Clamp(BodyPage+1,0,GetPageCount()-1);return;}
 }
 FReply UAuroraMRPanel::NativeOnMouseButtonDown(const FGeometry& G,const FPointerEvent& E){if(E.GetEffectingButton()==EKeys::LeftMouseButton){ActivateAt(G.AbsoluteToLocal(E.GetScreenSpacePosition())*FVector2D(1600.f/G.GetLocalSize().X,1000.f/G.GetLocalSize().Y));return FReply::Handled();}return FReply::Unhandled();}
 FReply UAuroraMRPanel::NativeOnMouseMove(const FGeometry& G,const FPointerEvent& E){SetPointerPosition(G.AbsoluteToLocal(E.GetScreenSpacePosition())*FVector2D(1600.f/G.GetLocalSize().X,1000.f/G.GetLocalSize().Y));return FReply::Handled();}
@@ -124,53 +139,97 @@ int32 UAuroraMRPanel::NativePaint(const FPaintArgs& Args,const FGeometry& G,cons
  auto Disk=[&](float X,float Y,float R,FLinearColor C){FSlateRoundedBoxBrush Brush(FLinearColor::White,R*SY);C.A*=Ease;FSlateDrawElement::MakeBox(Out,Layer+2,G.ToPaintGeometry(FVector2D(R*2*SX,R*2*SY),FSlateLayoutTransform(FVector2D((X-R)*SX,(Y-R)*SY))),&Brush,ESlateDrawEffect::None,C);};
  FString FocusLabel;
  auto FocusFrame=[&](float X,float Y,float W,float H){Path({{X,Y},{X+W,Y},{X+W,Y+H},{X,Y+H},{X,Y}},Gold,3.f);};
- auto Button=[&](float X,float Y,float W,float H,const FString& S,int Size=20,bool Available=true){bool Hot=Available&&IsControlHovered(X,Y,W,H);if(Hot){FocusLabel=S;FocusFrame(X,Y,W,H);}Rect(X,Y,W,H,Hot?Selection:Glass,1);const auto Font=FontFor(Size,SY,HUDSize.Y);const float TextHeight=FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(S,Font).Y/SY;Label(X+12,Y+(H-TextHeight)*.5f,S,Size,Available?White:FLinearColor(.55,.58,.57,1),W-24);if(!Available)Rect(X,Y+H-2,W,2,FLinearColor(.45,.48,.47,.55),2);};
- // Three detached surfaces match the supplied references: profile/details, circular rail, cascading options.
- Rect(70,160,590,660,FLinearColor(.015,.025,.035,.64));Rect(70,160,590,75,Glass,1);
- Rect(865,770,650,222,FLinearColor(.015f,.025f,.035f,.64f));
- Label(105,180,bHUDSettings?TEXT("Ajustes"):bMenuOpen?TEXT("A U R O R A"):GetSelectedOption(),29,White);Button(600,165,60,65,TEXT("×"),26);
- Path({{90,237},{640,237}},Muted,1);Label(100,260,ConnectionStatus,15,White);
+ auto Button=[&](float X,float Y,float W,float H,const FString& S,int Size=20,bool Available=true,FLinearColor Tint=Glass){bool Hot=Available&&IsControlHovered(X,Y,W,H);if(Hot){FocusLabel=S;FocusFrame(X,Y,W,H);}FSlateRoundedBoxBrush ButtonBrush(FLinearColor::White,14.f*SY);FLinearColor Fill=Hot?Selection:Tint;Fill.A*=Ease;FSlateDrawElement::MakeBox(Out,Layer+1,G.ToPaintGeometry(FVector2D(W*SX,H*SY),FSlateLayoutTransform(FVector2D(X*SX,Y*SY))),&ButtonBrush,ESlateDrawEffect::None,Fill);const auto Font=FontFor(Size,SY,HUDSize.Y);const float TextHeight=FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(S,Font).Y/SY;Label(X+12,Y+(H-TextHeight)*.5f,S,Size,Available?White:FLinearColor(.55,.58,.57,1),W-24);if(!Available)Rect(X,Y+H-2,W,2,FLinearColor(.45,.48,.47,.55),2);};
+ // Transparent holographic surfaces; activity follows the actual Harness state.
+ auto Card=[&](float X,float Y,float W,float H){
+   FSlateRoundedBoxBrush Brush(FLinearColor::White,24.f*SY);
+   FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2D(W*SX,H*SY),FSlateLayoutTransform(FVector2D(X*SX,Y*SY))),&Brush,ESlateDrawEffect::None,FLinearColor(.008f,.025f,.045f,.28f*Ease));
+   Path({{X+24,Y+1},{X+W-24,Y+1}},FLinearColor(.2f,.85f,1.f,.65f),1.5f);
+   for(int I=0;I<2;++I){const float A=I?X+W:X,D=I?-1.f:1.f;
+     Path({{A+D*32,Y},{A,Y},{A,Y+32}},Gold,2.f);
+     Path({{A+D*32,Y+H},{A,Y+H},{A,Y+H-32}},Gold,2.f);}
+   Path({{X+28,Y+H-1},{X+W-28,Y+H-1}},FLinearColor(.25f,.65f,1.f,.28f),1.f);
+ };
+ const FString State=!bConnected?TEXT("Conectando"):bListening?TEXT("Ouvindo você"):bSpeaking?TEXT("Aurora falando"):bBusy?TEXT("Em andamento"):TEXT("Pronta para conversar");
+ const FLinearColor Accent=bListening?FLinearColor(.1f,1,.75f,1):bBusy?FLinearColor(.65f,.4f,1,1):Gold;
+ const float Pulse=1.f+.035f*FMath::Sin(Age*(bListening?6.f:1.8f));
+ for(int I=0;I<3;++I)Disk(170,435,(64+I*14)*Pulse,FLinearColor(.15f,.3f,.85f,.035f));
+ Disk(170,435,39*Pulse,FLinearColor(.34f,.44f,.86f,.95f));Disk(161,423,22*Pulse,FLinearColor(.6f,.85f,1,.8f));
+ for(int I=0;I<2;++I){TArray<FVector2D> Points;for(int J=0;J<=48;++J){const float A=J/48.f*PI*1.45f+Age*(I?.12f:-.10f)+I*PI;Points.Add(FVector2D(170+FMath::Cos(A)*(88+I*18),435+FMath::Sin(A)*(88+I*18)));}Path(Points,I?FLinearColor(.6f,.3f,1,1):Accent,5);}
+ Label(88,585,TEXT("A U R O R A"),25,White,240);
+ Button(50,730,245,65,TEXT("Bancada"),24);
+ Button(50,650,245,60,TEXT("Operação"),24);
+ Label(52,615,!bConnected?TEXT("Aguardando conexão"):bListening?TEXT("Estou ouvindo"):bSpeaking?TEXT("Respondendo"):bBusy?TEXT("Trabalhando"):TEXT("Aqui com você"),20,Muted,265);
+ Card(340,145,810,655);
+ const FString Title=bHUDSettings?TEXT("Seu espaço, seu jeito"):bMenuOpen?TEXT("Vamos continuar?"):GetSelectedOption();
+ Label(380,175,Title,36,White,660);Button(1060,165,60,60,TEXT("×"),26);
+ Label(380,238,ContextLabel.IsEmpty()?TEXT("Conversa geral"):ContextLabel,22,Muted,470);
+ Disk(912,252,5,bConnected?FLinearColor(.2f,.9f,.65f,1):FLinearColor(.9f,.55f,.2f,1));
+ Label(930,238,bConnected?(bUsingPc?TEXT("PC conectado"):TEXT("No Quest")):TEXT("Sem conexão"),20,Muted,195);
  if(bMenuOpen){
-   // Abstract assistant profile, not body tracking or simulated game statistics.
-   Disk(355,378,27,FLinearColor(.96,.97,.93,.65));Path({{335,420},{375,420},{391,515},{377,515},{371,596},{358,596},{355,526},{351,596},{338,596},{332,515},{320,515},{335,420}},White,4);
-   Path({{335,429},{302,488},{287,476}},White,4);Path({{375,429},{408,488},{423,476}},White,4);
-   for(int I=0;I<4;++I){float Y=368+I*74;Circle(180,Y,10,Muted);Circle(530,Y,10,Muted);Path({{192,Y},{315,465}},FLinearColor(.9,.94,.9,.32),1);Path({{518,Y},{395,465}},FLinearColor(.9,.94,.9,.32),1);}
-   Label(100,663,TEXT("Assistente pessoal"),24,White);Label(100,706,TEXT("Conversas · projetos · memórias"),17,Muted);Label(100,750,TEXT("Selecione uma categoria ao lado"),16,Muted);
+   Label(380,333,TEXT("O que vamos fazer agora?"),29,White,730);
+   Label(380,398,TEXT("Converse, retome um projeto ou peça uma tarefa."),23,Muted,730);
+   Label(380,446,TEXT("Acompanhe a execução e encontre suas entregas."),23,Muted,730);
+   Button(380,555,730,64,TEXT("Ver minhas conversas"),23);
  }else if(bHUDSettings){
-   Button(100,310,245,55,TEXT("Tamanho"));Button(365,310,245,55,TEXT("Posição"));Rect(bHUDSizeTab?100:365,362,245,3,Gold,3);
-   Label(100,386,TEXT("Menu flutuante / salvo automaticamente"),15,Muted);
-   Button(100,430,130,65,bHUDSizeTab?TEXT("Estreitar"):TEXT("Esquerda"),17);Button(480,430,130,65,bHUDSizeTab?TEXT("Alargar"):TEXT("Direita"),17);
-   Label(288,426,bHUDSizeTab?TEXT("LARGURA"):TEXT("EIXO X"),15,Muted);Label(320,458,bHUDSizeTab?FString::Printf(TEXT("%.0f%%"),HUDSize.X*100):FString::Printf(TEXT("%+.0f°"),HUDOffset.X),23,White);
-   Button(100,550,130,65,bHUDSizeTab?TEXT("Diminuir"):TEXT("Descer"),17);Button(480,550,130,65,bHUDSizeTab?TEXT("Aumentar"):TEXT("Subir"),17);
-   Label(288,546,bHUDSizeTab?TEXT("ALTURA"):TEXT("EIXO Y"),15,Muted);Label(320,578,bHUDSizeTab?FString::Printf(TEXT("%.0f%%"),HUDSize.Y*100):FString::Printf(TEXT("%+.0f°"),HUDOffset.Y),23,White);
-   Button(100,690,510,60,TEXT("Restaurar posição e tamanho"));Label(100,768,TEXT("Professor selecionado: ")+TeacherLabel,16,Muted);
+   Button(380,310,350,55,TEXT("Tamanho"));Button(760,310,350,55,TEXT("Posição"));Rect(bHUDSizeTab?380:760,362,350,3,Gold,3);
+   Button(380,415,210,65,bHUDSizeTab?TEXT("Estreitar"):TEXT("Esquerda"));Button(900,415,210,65,bHUDSizeTab?TEXT("Alargar"):TEXT("Direita"));
+   Label(675,423,bHUDSizeTab?FString::Printf(TEXT("%.0f%%"),HUDSize.X*100):FString::Printf(TEXT("%+.0f°"),HUDOffset.X),28,White,210);
+   Button(380,515,210,65,bHUDSizeTab?TEXT("Diminuir"):TEXT("Descer"));Button(900,515,210,65,bHUDSizeTab?TEXT("Aumentar"):TEXT("Subir"));
+   Label(675,523,bHUDSizeTab?FString::Printf(TEXT("%.0f%%"),HUDSize.Y*100):FString::Printf(TEXT("%+.0f°"),HUDOffset.Y),28,White,210);
+   Button(380,620,730,55,TEXT("Restaurar posição e tamanho"));
+ }else if(Selected==7){
+   // The Power BI the Aurora keeps open, read from the PC: its numbers here, its miniature in front.
+   Label(380,302,TwinUnit.IsEmpty()?TEXT("POWER BI NO PC"):TwinUnit.ToUpper(),20,Gold,350);
+   Label(380,339,TwinTitle,22,White,350);
+   for(int I=0;I<FMath::Min(5,TwinLines.Num());++I)Label(380,385+I*36,TwinLines[I],21,White,350);
+   Label(380,600,TwinSeal,21,TwinSeal.StartsWith(TEXT("✓"))?FLinearColor(.4f,1.f,.72f,1):Gold,350);
+   Label(775,302,TEXT("O QUE MUDOU"),20,Gold,335);
+   if(!TwinNote.IsEmpty())Label(775,335,TEXT("Aurora: ")+TwinNote,20,FLinearColor(.8f,.6f,1,1),335);
+   int Row=0;for(const FString& Note:TwinNotes){TArray<FString> Lines;WrapText(Note,FontFor(20,SY,HUDSize.Y),335*SX,Lines);for(const FString& Line:Lines){if(Row>=9)break;Label(775,372+Row*30,Line,20,Muted,335);++Row;}}
+   if(TwinNotes.IsEmpty())Label(775,372,TEXT("As mudanças aparecem a cada atualização do PC."),20,Muted,335);
+   Label(775,650,TwinUnitCount>1?FString::Printf(TEXT("%d unidades • Trocar unidade à direita"),TwinUnitCount):TEXT("Maquete à sua frente"),18,Muted,335);
+ }else if(Selected==6){
+   Label(380,302,BenchCount?FString::Printf(TEXT("REFERÊNCIA %d / %d"),BenchIndex+1,BenchCount):TEXT("RECEBIDOS"),20,Gold,350);
+   Label(380,339,BenchTitle.IsEmpty()?TEXT("Envie pelo Telegram"):BenchTitle,22,White,350);
+   if(BenchImage){
+     const float Fit=FMath::Min(350.f/BenchImage->GetSizeX(),210.f/BenchImage->GetSizeY());
+     const float W=BenchImage->GetSizeX()*Fit,H=BenchImage->GetSizeY()*Fit;
+     FSlateBrush ImageBrush;ImageBrush.SetResourceObject(BenchImage);ImageBrush.ImageSize=FVector2D(W,H);
+     FSlateDrawElement::MakeBox(Out,Layer+2,G.ToPaintGeometry(FVector2D(W*SX,H*SY),FSlateLayoutTransform(FVector2D((380+(350-W)/2)*SX,382*SY))),&ImageBrush,ESlateDrawEffect::None,FLinearColor(1,1,1,Ease));
+   }else{
+     TArray<FString> Lines;WrapText(BenchNote.IsEmpty()?TEXT("No celular: /bancada nome do projeto. Depois envie uma foto ou /referencia sua ideia."):BenchNote,FontFor(22,SY,HUDSize.Y),350*SX,Lines);
+     for(int I=0;I<FMath::Min(7,Lines.Num());++I)Label(380,385+I*32,Lines[I],22,White,350);
+   }
+   Label(380,615,TEXT("Origem: Telegram / PC"),20,Muted,350);
+   Label(775,302,bBenchDraft?TEXT("REVISE ANTES DE SALVAR"):bBenchSaved?TEXT("SALVA NO PC"):TEXT("SUA PRÓXIMA DECISÃO"),20,bBenchSaved?FLinearColor(.4f,1.f,.72f,1):Gold,335);
+   Label(775,335,bBenchSaved?TEXT("Memória do projeto"):TEXT("Confirme à direita"),18,Muted,335);
+   TArray<FString> DecisionLines;WrapText(BenchDecision.IsEmpty()?TEXT("Diga: registrar decisão, seguido da sua ideia. Depois use Confirmar decisão."):BenchDecision,FontFor(22,SY,HUDSize.Y),335*SX,DecisionLines);
+   const int Pages=FMath::Max(1,FMath::DivideAndRoundUp(DecisionLines.Num(),8));const int Page=BenchTextPage%Pages;
+   for(int I=0;I<8&&DecisionLines.IsValidIndex(Page*8+I);++I)Label(775,374+I*32,DecisionLines[Page*8+I],22,White,335);
+   Button(775,650,335,45,FString::Printf(TEXT("Ler %d / %d  ›"),Page+1,Pages),20);
  }else{
-   if(!Rows.IsEmpty()){for(int I=0;I<5;++I){int Index=BodyPage*5+I;if(!Rows.IsValidIndex(Index))break;Button(100,310+I*66,510,58,Rows[Index],17);}}
-   else{int Start=BodyPage*BodyLinesPerPage;for(int I=0;I<BodyLinesPerPage&&BodyLines.IsValidIndex(Start+I);++I)Label(100,310+I*BodyLineHeight/SY,BodyLines[Start+I],22,White);}
-   Button(100,690,175,55,TEXT("‹ Anterior"),20,BodyPage>0);Button(435,690,175,55,TEXT("Próxima ›"),20,BodyPage+1<GetPageCount());Label(290,702,FString::Printf(TEXT("%d/%d"),BodyPage+1,GetPageCount()),20,White,130);Label(100,778,TEXT("Professor: ")+TeacherLabel+TEXT(" / conexão remota"),14,Muted);
+   if(!Rows.IsEmpty()){for(int I=0;I<5;++I){const int Index=BodyPage*5+I;if(!Rows.IsValidIndex(Index))break;Button(380,310+I*66,730,58,Rows[Index],22);}}
+   else{const int Start=BodyPage*BodyLinesPerPage;for(int I=0;I<BodyLinesPerPage&&BodyLines.IsValidIndex(Start+I);++I)Label(380,310+I*BodyLineHeight/SY,BodyLines[Start+I],22,White,730);}
+   Button(380,650,200,45,TEXT("‹ Anterior"),20,BodyPage>0);Button(910,650,200,45,TEXT("Próxima ›"),20,BodyPage+1<GetPageCount());Label(704,658,FString::Printf(TEXT("%d / %d"),BodyPage+1,GetPageCount()),20,Muted,180);
  }
- for(int I=0;I<5;++I){float Y=235+I*115;bool Active=bHUDSettings?I==4:!bMenuOpen&&Selected==I;bool Hot=CanShowPointerFocus()&&Rail(Hover,I);if(Hot){FocusLabel=Names[I];Circle(740,Y,51,Gold,3.f);}Disk(740,Y,41,Active||Hot?Selection:Glass);Circle(740,Y,47,Active?Gold:Muted,1.5);Circle(740,Y,40,White,1.5);
-   if(I==0)Path({{721,Y-14},{759,Y-14},{759,Y+10},{742,Y+10},{730,Y+21},{730,Y+10},{721,Y+10},{721,Y-14}},White);
-   if(I==1){Path({{724,Y-20},{751,Y-20},{758,Y-12},{758,Y+20},{724,Y+20},{724,Y-20}},White);Path({{731,Y-5},{750,Y-5}},White);Path({{731,Y+5},{750,Y+5}},White);}
-   if(I==2)Path({{719,Y-11},{734,Y-11},{740,Y-19},{761,Y-19},{761,Y+17},{719,Y+17},{719,Y-11}},White);
-   if(I==3){Circle(740,Y-6,13,White);Path({{728,Y+2},{740,Y+25},{752,Y+2}},White);Circle(740,Y-6,4,White);}
-   if(I==4){Circle(740,Y,16,White);Circle(740,Y,6,White);for(int J=0;J<8;++J){float A=J*PI/4;Path({FVector2D(740+17*FMath::Cos(A),Y+17*FMath::Sin(A)),FVector2D(740+24*FMath::Cos(A),Y+24*FMath::Sin(A))},White,3);}}
-   if(Active){Path({{795,Y},{824,Y-12},{824,Y+12},{795,Y}},Gold,2);Path({{690,Y},{667,Y-12},{667,Y+12},{690,Y}},Gold,2);}
- }
- Label(890,195,bMenuOpen?TEXT("MENU"):bHUDSettings?TEXT("PREFERÊNCIAS"):TEXT("AÇÕES"),17,Muted);
- const int Count=bMenuOpen?4:6;
- for(int I=0;I<Count;++I){float A=FMath::Clamp(MenuReveal*1.7f-I*.12f,0.f,1.f),X=875+(1-A)*45,Y=255+I*85;
-   bool Hot=IsControlHovered(875,Y,625,72);Rect(X,Y,625,72,Hot?Selection:FLinearColor(.015f,.025f,.035f,.64f*A),1);
-   Disk(X+36,Y+36,20,Hot?FLinearColor(1,1,1,.25):FLinearColor(.05,.08,.06,.4));
-   Label(X+29,Y+21,bMenuOpen?FString::FromInt(I+1):TEXT("›"),20,White);
-   FString Text=bMenuOpen?Names[I]:ActionName(ActionFor(Selected,bHUDSettings,I),bListening,bWakeEnabled);if(Hot){FocusLabel=Text;FocusFrame(X,Y,625,72);}Label(X+76,Y+20,Text,21,FLinearColor(1,1,.95,A),529);
- }
- Label(875,778,GetPlacementLabel(),20,White,625);
- Label(875,820,GetInteractionHint(),20,White,625);
- Label(875,862,FocusLabel.IsEmpty()?(bPositioning?TEXT("Posicionamento em andamento"):TEXT("Mover: Ambiente > Posicionar menu")):TEXT("Foco: ")+FocusLabel,20,FocusLabel.IsEmpty()?Muted:Gold,625);
- Label(875,904,bWakeEnabled?TEXT("Diga Aurora para chamar / escuta ativada"):TEXT("Chamada por nome pausada"),20,Muted,625);
- Label(875,946,TEXT("Voz e professores usam a conexão com o PC"),20,Muted,625);
- if(CanShowPointerFocus()&&Hover.X>=0&&Hover.X<1600&&Hover.Y>=0&&Hover.Y<1000)Circle(Hover.X,Hover.Y,6,Gold,2);
+ Button(380,710,490,72,bListening?TEXT("Enviar fala"):TEXT("Falar com Aurora"),26,true,FLinearColor(.04f,.28f,.42f,.55f));
+ Button(890,710,220,72,TEXT("Parar"),24);
+ Card(340,815,810,100);
+ const TCHAR* Dock[]={TEXT("Chat"),TEXT("Projetos"),TEXT("Memórias"),TEXT("Entregas"),TEXT("Ajustes")};
+ const int DockPage[]={0,2,1,5,4};
+ for(int I=0;I<5;++I){Button(350+I*158,830,150,72,Dock[I],20);if((bHUDSettings&&I==4)||(!bHUDSettings&&!bMenuOpen&&Selected==DockPage[I]))Rect(366+I*158,897,118,3,Gold,3);}
+ Card(1190,175,340,615);
+ Label(1205,202,bUsingPc?TEXT("NO SEU PC"):TEXT("AURORA"),20,Muted,310);
+ Label(1205,247,State,25,Accent,310);
+ TArray<FString> StatusLines;WrapText(ConnectionStatus,FontFor(20,SY,HUDSize.Y),310*SX,StatusLines);
+ for(int I=0;I<FMath::Min(3,StatusLines.Num());++I)Label(1205,295+I*27,StatusLines[I],20,Muted,310);
+ for(int I=0;I<6;++I)Button(1205,390+I*66,310,56,ActionName(ActionFor(Selected,bHUDSettings,I),bListening,bWakeEnabled),20);
+ Label(350,940,FocusLabel.IsEmpty()?GetInteractionHint():TEXT("Selecionar: ")+FocusLabel,20,Muted,790);
+ Label(1190,825,bWakeEnabled?TEXT("Chamada por nome ativa"):TEXT("Chamada por nome pausada"),20,Muted,340);
+ Label(1190,870,TEXT("Palma esquerda: menu"),20,Muted,340);
+ Button(1190,915,340,56,bContours?TEXT("Contornos: ligados"):TEXT("Contornos: desligados"),20);
+ if(CanShowPointerFocus()&&Hover.X>=0&&Hover.X<1600&&Hover.Y>=0&&Hover.Y<1000)Circle(Hover.X,Hover.Y,7,Gold,2);
  return Layer+6;
 }
 
@@ -194,20 +253,20 @@ bool FAuroraPanelReadingTest::RunTest(const FString& Parameters){
  TestEqual(TEXT("Short names unchanged"),Ellipsize(TEXT("Ação"),Font,180),FString(TEXT("Ação")));
  auto Widget=NewObject<UAuroraMRPanel>();Widget->Advance(1.f);Widget->SetPage(0);
  for(int I=0;I<11;++I)Widget->Rows.Add(FString::FromInt(I));
- Widget->Advance(0);Widget->ActivateAt(FVector2D(500,710));TestEqual(TEXT("Second page"),Widget->BodyPage,1);
- Widget->ActivateAt(FVector2D(500,710));Widget->ActivateAt(FVector2D(500,710));TestEqual(TEXT("Last page clamps"),Widget->BodyPage,2);
+ Widget->Advance(0);Widget->ActivateAt(FVector2D(1000,670));TestEqual(TEXT("Second page"),Widget->BodyPage,1);
+ Widget->ActivateAt(FVector2D(1000,670));Widget->ActivateAt(FVector2D(1000,670));TestEqual(TEXT("Last page clamps"),Widget->BodyPage,2);
  Widget->Rows.SetNum(1);Widget->Advance(0);TestEqual(TEXT("Shrinking list clamps page"),Widget->BodyPage,0);
- Widget->ActivateAt(FVector2D(150,710));TestEqual(TEXT("First page clamps"),Widget->BodyPage,0);
+ Widget->ActivateAt(FVector2D(450,670));TestEqual(TEXT("First page clamps"),Widget->BodyPage,0);
  // Presentation consumes existing tracking/placement state, never changes the anchor.
  Widget->SetSpatialPresentation(false,false,true,true,true,false);
  Widget->SpatialStatus=TEXT("Posição salva localizada");
  TestEqual(TEXT("Located followed anchor"),Widget->GetPlacementLabel(),FString(TEXT("Âncora fixada")));
- Widget->SetPointerPosition(FVector2D(150,330));
- TestTrue(TEXT("Tracked pointer focuses a row"),Widget->IsControlHovered(100,310,510,58));
+ Widget->SetPointerPosition(FVector2D(450,330));
+ TestTrue(TEXT("Tracked pointer focuses a row"),Widget->IsControlHovered(380,310,730,58));
  Widget->SetSpatialPresentation(false,false,true,false,false,false);
  Widget->SpatialStatus=TEXT("Localização perdida • procurando posição salva");
  TestEqual(TEXT("Loss has priority over searching text"),Widget->GetPlacementLabel(),FString(TEXT("Âncora perdida / reposicione")));
- TestFalse(TEXT("Tracking loss clears focus"),Widget->IsControlHovered(100,310,510,58));
+ TestFalse(TEXT("Tracking loss clears focus"),Widget->IsControlHovered(380,310,730,58));
  TestEqual(TEXT("Only right hand enables interaction"),Widget->GetInteractionHint(),FString(TEXT("Mostre a mão direita para interagir")));
  Widget->SetSpatialPresentation(false,false,true,false,true,false);
  Widget->SpatialStatus=TEXT("Posição recuperada • aguardando localização");
@@ -220,21 +279,21 @@ bool FAuroraPanelReadingTest::RunTest(const FString& Parameters){
  Widget->SpatialStatus=TEXT("Âncora não salva • tente reposicionar");
  TestEqual(TEXT("Save failure remains visible when located"),Widget->GetPlacementLabel(),FString(TEXT("Âncora não salva / reposicione")));
  Widget->SetSpatialPresentation(true,false,false,true,true,false);
- Widget->SetPointerPosition(FVector2D(150,330));
- TestFalse(TEXT("No selection focus while positioning"),Widget->IsControlHovered(100,310,510,58));
+ Widget->SetPointerPosition(FVector2D(450,330));
+ TestFalse(TEXT("No selection focus while positioning"),Widget->IsControlHovered(380,310,730,58));
  TestEqual(TEXT("Ready to drag instruction"),Widget->GetInteractionHint(),FString(TEXT("Segure a pinça direita e arraste")));
  Widget->SetSpatialPresentation(true,true,false,false,true,false);
  TestEqual(TEXT("Dragging instruction"),Widget->GetInteractionHint(),FString(TEXT("Mova a mão / solte para fixar")));
  Widget->SetSpatialPresentation(false,false,false,false,false,true);
  TestEqual(TEXT("Desktop does not ask for hand tracking"),Widget->GetInteractionHint(),FString(TEXT("Clique para selecionar")));
- Widget->SetPointerPosition(FVector2D(150,330));TestTrue(TEXT("Desktop pointer focus"),Widget->IsControlHovered(100,310,510,58));
+ Widget->SetPointerPosition(FVector2D(450,330));TestTrue(TEXT("Desktop pointer focus"),Widget->IsControlHovered(380,310,730,58));
  Widget->SetSpatialPresentation(true,false,false,false,false,true);
- TestTrue(TEXT("Desktop controls remain usable in position mode"),Widget->IsControlHovered(100,310,510,58));
+ TestTrue(TEXT("Desktop controls remain usable in position mode"),Widget->IsControlHovered(380,310,730,58));
  Widget->SetSpatialPresentation(true,true,false,false,false,false);
  TestEqual(TEXT("Lost hand during drag asks to reacquire"),Widget->GetInteractionHint(),FString(TEXT("Mostre a mão direita para interagir")));
  Widget->SetSpatialPresentation(false,false,false,false,false,true);
- Widget->ClearPointer();TestFalse(TEXT("Leaving clears focus"),Widget->IsControlHovered(100,310,510,58));
- Widget->SetPointerPosition(FVector2D(150,330));Widget->TogglePanel();TestFalse(TEXT("Closed menu has no focus"),Widget->IsControlHovered(100,310,510,58));
+ Widget->ClearPointer();TestFalse(TEXT("Leaving clears focus"),Widget->IsControlHovered(380,310,730,58));
+ Widget->SetPointerPosition(FVector2D(450,330));Widget->TogglePanel();TestFalse(TEXT("Closed menu has no focus"),Widget->IsControlHovered(380,310,730,58));
  return true;
 }
 #endif

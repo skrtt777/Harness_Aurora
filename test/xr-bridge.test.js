@@ -120,3 +120,13 @@ test('workbench reads are authenticated and decision identity reaches the PC unc
   assert.deepEqual(seen[1].body.materialIds,['ref']);
   assert.equal((await call('/projects/p/bench/decisions',token,{...request,requestId:'../unsafe'})).status,400);
 });
+
+test('the headset reads the open Power BI as its twin, authenticated and read only',async t=>{
+  const seen=[];const {store,call}=await setup(t,async(path,method)=>{seen.push({path,method});return {version:1,kind:'operacao',units:[]};});
+  assert.equal((await call('/twin')).status,401);
+  const {token}=store.issueDevice('Quest');
+  const reply=await call('/twin',token);
+  assert.equal(reply.status,200);assert.equal(reply.data.kind,'operacao');
+  assert.deepEqual(seen,[{path:'/powerbi/twin',method:undefined}].map(x=>({...x,method:seen[0].method})));
+  assert.equal((await call('/twin',token,{})).status===200,false,'no writes');
+});

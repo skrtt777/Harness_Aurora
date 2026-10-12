@@ -11,6 +11,7 @@ class UAuroraHarnessClient;
 class UAuroraHelmetHUD;
 class UStaticMeshComponent;
 class UProceduralMeshComponent;
+class AAuroraTwinActor;
 
 // Centimeter thresholds with hysteresis; release immediately on loss of tracking.
 struct FAuroraPinch
@@ -78,6 +79,9 @@ protected:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UAuroraHarnessClient> Harness;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Presence;
     UPROPERTY() TArray<TObjectPtr<UProceduralMeshComponent>> Rings;
+    // The operation of the Power BI open on the PC, as a miniature at table height in front of the user.
+    UPROPERTY() TObjectPtr<AAuroraTwinActor> Twin;
+    void PlaceTwin();
 private:
     FVector2D HelmetOffset=FVector2D::ZeroVector;
     FVector2D HelmetSize=FVector2D(1,1);
@@ -91,6 +95,7 @@ private:
     FVector SmoothDirection=FVector::ForwardVector;
     bool bPositionMode=false;
     float PresenceAge=0;
+    int32 PreviewStage=0;
     bool bFollowAnchor=true;
     bool bPositionPinch=false;
     TArray<float> ActiveFrameTimes;

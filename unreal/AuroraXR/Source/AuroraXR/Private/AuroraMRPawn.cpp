@@ -1,7 +1,12 @@
 #include "AuroraMRPawn.h"
+#include "UnrealClient.h"
+#include "Misc/CommandLine.h"
+#include "Engine/Engine.h"
 #include "AuroraMRPanel.h"
 #include "AuroraHarnessClient.h"
 #include "AuroraHelmetHUD.h"
+#include "AuroraTwin.h"
+#include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -59,7 +64,7 @@ void AAuroraMRPawn::BeginPlay()
 {
     Super::BeginPlay();
     UMaterialInterface* Glow=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Aurora/Materials/M_AuroraPresence.M_AuroraPresence"));
-    if(Glow){auto Material=UMaterialInstanceDynamic::Create(Glow,this);Material->SetVectorParameterValue(TEXT("Tint"),FLinearColor(1,.55f,.16f));Presence->SetMaterial(0,Material);}
+    if(Glow){auto Material=UMaterialInstanceDynamic::Create(Glow,this);Material->SetVectorParameterValue(TEXT("Tint"),FLinearColor(.3f,.65f,1.f));Presence->SetMaterial(0,Material);}
     for(int RingIndex=0;RingIndex<Rings.Num();++RingIndex){
         TArray<FVector> Vertices,Normals;TArray<FVector2D> UV;TArray<int32> Triangles;TArray<FLinearColor> Colors;TArray<FProcMeshTangent> Tangents;
         constexpr int Segments=48,Sides=6;const float Radius=9.f+RingIndex*3.f;
@@ -68,7 +73,7 @@ void AAuroraMRPawn::BeginPlay()
             if(S<Segments){int X=S*Sides+T,Y=S*Sides+(T+1)%Sides;Triangles.Append({X,Y,X+Sides,Y,Y+Sides,X+Sides});}}
         Rings[RingIndex]->SetRelativeScale3D(FVector(.55f));
         Rings[RingIndex]->CreateMeshSection_LinearColor(0,Vertices,Triangles,Normals,UV,Colors,Tangents,false);
-        if(Glow){auto M=UMaterialInstanceDynamic::Create(Glow,this);M->SetVectorParameterValue(TEXT("Tint"),RingIndex?FLinearColor(.9f,.94f,1):FLinearColor(1,.43f,.065f));Rings[RingIndex]->SetMaterial(0,M);}
+        if(Glow){auto M=UMaterialInstanceDynamic::Create(Glow,this);M->SetVectorParameterValue(TEXT("Tint"),RingIndex?FLinearColor(.5f,.2f,1):FLinearColor(.08f,.7f,1));Rings[RingIndex]->SetMaterial(0,M);}
     }
     bDesktop=!UHeadMountedDisplayFunctionLibrary::IsHeadMountedDisplayEnabled();
     UHeadMountedDisplayFunctionLibrary::SetTrackingOrigin(EHMDTrackingOrigin::Stage);
@@ -114,6 +119,10 @@ void AAuroraMRPawn::BeginPlay()
     if(PanelWidget)PanelWidget->OnHUDResize=[this](float W,float H){ResizeHelmetHUD(W,H);};
     Harness->OnPosition=[this](){bPositionMode=!bPositionMode;bFollowAnchor=false;if(PanelWidget)PanelWidget->ConnectionStatus=bPositionMode?TEXT("Segure a pinça direita para posicionar; solte para fixar"):TEXT("Posição manual");};
     Harness->OnAnchor=[this](){FAuroraPassthroughModule::Get().SavePlacement(Panel->GetComponentTransform().GetRelativeTransform(UHeadMountedDisplayFunctionLibrary::GetTrackingToWorldTransform(this)),UHeadMountedDisplayFunctionLibrary::GetWorldToMetersScale(this));bFollowAnchor=true;};
+    Harness->OnContours=[this](){auto& Spatial=FAuroraPassthroughModule::Get();
+        if(!Spatial.IsReady()){PanelWidget->ConnectionStatus=TEXT("Contornos disponíveis no passthrough do Quest");return;}
+        Spatial.SetEdgesRequested(!Spatial.AreEdgesRequested());
+    };
     Harness->OnObserve=[this](){
 #if PLATFORM_ANDROID
         TArray<FString> Permissions={TEXT("android.permission.CAMERA"),TEXT("horizonos.permission.HEADSET_CAMERA")};
@@ -123,7 +132,26 @@ void AAuroraMRPawn::BeginPlay()
         PanelWidget->ConnectionStatus=TEXT("A câmera do ambiente está disponível no Quest");
 #endif
     };
+    Harness->OnTwin=[this](const FAuroraTwinLayout& Layout){
+        if(!Twin){FActorSpawnParameters Params;Params.Owner=this;Twin=GetWorld()->SpawnActor<AAuroraTwinActor>(AAuroraTwinActor::StaticClass(),FTransform::Identity,Params);PlaceTwin();}
+        if(Twin){Twin->Apply(Layout);Twin->SetActorHiddenInGame(false);}
+    };
+    Harness->OnTwinToggle=[this](){if(!Twin)return;const bool Hide=!Twin->IsHidden();Twin->SetActorHiddenInGame(Hide);if(!Hide)PlaceTwin();};
+    // Desktop preview of the miniature from a saved state (-AuroraTwinPreview): the same layout as on the Quest.
+    FString Preview;
+    if(FParse::Param(FCommandLine::Get(),TEXT("AuroraTwinPreview"))&&FFileHelper::LoadFileToString(Preview,*(FPaths::ProjectSavedDir()/TEXT("aurora-twin-preview.json")))){
+        TSharedPtr<FJsonObject> J;if(FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Preview),J)&&J&&Harness->OnTwin)Harness->OnTwin(FAuroraTwinLayout::Build(J,FString()));
+        if(bDesktop&&PanelWidget)PanelWidget->SetVisibility(ESlateVisibility::Collapsed); // the miniature alone, for a picture
+    }
     RecenterPanel();
+}
+void AAuroraMRPawn::PlaceTwin()
+{
+    if(!Twin)return;
+    // Half a metre ahead and below the eyes, turned so its rows face the user; the panel stays behind it.
+    const FRotator Facing(0,Camera->GetComponentRotation().Yaw,0);
+    Twin->SetActorLocation(Camera->GetComponentLocation()+Facing.RotateVector(FVector(bDesktop?70.f:55.f,0,bDesktop?-30.f:-45.f)));
+    Twin->SetActorRotation(Facing);
 }
 void AAuroraMRPawn::RecenterPanel()
 {
@@ -179,6 +207,8 @@ void AAuroraMRPawn::Tick(float Delta)
 {
     Super::Tick(Delta);
     if (!PanelWidget) return;
+    PanelWidget->bConnected=Harness->IsConnected();PanelWidget->bUsingPc=Harness->IsUsingPc();
+    PanelWidget->bBusy=Harness->IsBusy();PanelWidget->bSpeaking=Harness->IsSpeaking();PanelWidget->ContextLabel=Harness->GetContextLabel();
     PanelWidget->Advance(Delta);
     if(HelmetHUD){
         HelmetHUD->bConnected=Harness->IsConnected();HelmetHUD->bChecked=Harness->HasConnectionResult();
@@ -190,9 +220,20 @@ void AAuroraMRPawn::Tick(float Delta)
     auto UpdateSpatialPresentation=[this](bool RightTracked){
         auto& Spatial=FAuroraPassthroughModule::Get();FTransform LocatedPose;
         PanelWidget->SpatialStatus=Spatial.GetAnchorStatus();
+        PanelWidget->bContours=Spatial.AreEdgesActive();
         PanelWidget->SetSpatialPresentation(bPositionMode,bPositionPinch,bFollowAnchor,Spatial.GetPlacement(LocatedPose),RightTracked,bDesktop);
     };
     PresenceAge+=Delta;
+#if !UE_BUILD_SHIPPING
+    // Explicit desktop rendering diagnostic; never runs during normal headset use.
+    if(bDesktop&&FParse::Param(FCommandLine::Get(),TEXT("AuroraUIPreview"))){
+        if(PreviewStage==0&&PresenceAge>3){PanelWidget->ReplayEntrance();PreviewStage=1;}
+        if(PreviewStage==1&&PresenceAge>6){FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir()/TEXT("PresenceHome.png"),true,false);PreviewStage=2;}
+        if(PreviewStage==2&&PresenceAge>8){PanelWidget->ActivateAt(FVector2D(1050,865));PreviewStage=3;}
+        if(PreviewStage==3&&PresenceAge>10){FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir()/TEXT("PresenceSettings.png"),true,false);PreviewStage=4;}
+        if(PreviewStage==4&&PresenceAge>12){PreviewStage=5;if(GEngine)GEngine->Exec(GetWorld(),TEXT("QUIT"));}
+    }
+#endif
     Harness->SetVoiceOrigin(Presence->GetComponentLocation());
 #if PLATFORM_ANDROID
     if(JNIEnv* Env=FAndroidApplication::GetJavaEnv()){
@@ -204,9 +245,9 @@ void AAuroraMRPawn::Tick(float Delta)
         if(Error){const char* Chars=Env->GetStringUTFChars(Error,nullptr);if(Chars&&Chars[0])PanelWidget->ConnectionStatus=UTF8_TO_TCHAR(Chars);if(Chars)Env->ReleaseStringUTFChars(Error,Chars);Env->DeleteLocalRef(Error);}
     }
 #endif
-    Presence->SetVisibility(false);
+    Presence->SetVisibility(!bDesktop&&!PanelWidget->IsPanelOpen());
     Presence->SetRelativeScale3D(FVector(.055f*(1.f+.08f*FMath::Sin(PresenceAge*(Harness->IsListening()?7.f:2.f)))));
-    for(int I=0;I<Rings.Num();++I){Rings[I]->SetVisibility(false);Rings[I]->SetWorldLocation(Presence->GetComponentLocation());Rings[I]->SetWorldRotation(FRotator(35+I*70,PresenceAge*(I?13:-17),I*40));}
+    for(int I=0;I<Rings.Num();++I){Rings[I]->SetVisibility(!bDesktop&&!PanelWidget->IsPanelOpen());Rings[I]->SetWorldLocation(Presence->GetComponentLocation());Rings[I]->SetWorldRotation(FRotator(35+I*70,PresenceAge*(I?13:-17),I*40));}
     auto PC=Cast<APlayerController>(GetController());
     if (PC && PC->WasInputKeyJustPressed(EKeys::M)) ReplayPanel();
     if (PC && PC->WasInputKeyJustPressed(EKeys::V)) ToggleHelmetHUD();

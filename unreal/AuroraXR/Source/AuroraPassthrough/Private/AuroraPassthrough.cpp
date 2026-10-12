@@ -31,7 +31,7 @@ void FAuroraPassthroughModule::PostCreateInstance(XrInstance Instance)
 }
 void FAuroraPassthroughModule::PostCreateSession(XrSession Session)
 {
-    bReady.Store(false);
+    bReady.Store(false);bEdgesActive.Store(false);bEdgesRequested.Store(false);bLastEdgesRequest=false;
     if (!Create || !Destroy || !CreateLayer || !DestroyLayer || !SetStyle) return;
     XrPassthroughCreateInfoFB Info{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB};
     Info.flags = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
@@ -55,13 +55,25 @@ void FAuroraPassthroughModule::PostCreateSession(XrSession Session)
 void FAuroraPassthroughModule::OnDestroySession(XrSession Session)
 {
     if(Anchor&&DestroySpace)DestroySpace(Anchor);Anchor=XR_NULL_HANDLE;bAnchorLocated=false;bQueryStarted=false;bCreateQueued=false;bSavePending=false;bSaveIssued=false;
-    bReady.Store(false);
+    bReady.Store(false);bEdgesActive.Store(false);bEdgesRequested.Store(false);bLastEdgesRequest=false;
     if (Layer && DestroyLayer) DestroyLayer(Layer);
     if (Passthrough && Destroy) Destroy(Passthrough);
     Layer = XR_NULL_HANDLE; Passthrough = XR_NULL_HANDLE;
 }
 void FAuroraPassthroughModule::UpdateCompositionLayers_RHIThread(XrSession Session, TArray<XrCompositionLayerBaseHeader*>& Headers)
 {
+    if(bReady.Load()&&SetStyle){
+        const bool Wanted=bEdgesRequested.Load();
+        if(Wanted!=bLastEdgesRequest){
+            bLastEdgesRequest=Wanted;
+            XrPassthroughStyleFB Style{XR_TYPE_PASSTHROUGH_STYLE_FB};
+            Style.textureOpacityFactor=1.f;
+            Style.edgeColor={.05f,.8f,1.f,Wanted?.65f:0.f};
+            const XrResult Result=SetStyle(Layer,&Style);
+            if(XR_SUCCEEDED(Result)){bEdgesActive.Store(Wanted);UE_LOG(LogAuroraPassthrough,Display,TEXT("Environment contours %s"),Wanted?TEXT("on"):TEXT("off"));}
+            else UE_LOG(LogAuroraPassthrough,Warning,TEXT("Environment contours style rejected: %d"),Result);
+        }
+    }
     if (bReady.Load() && bRequested.Load()) Headers.Insert(reinterpret_cast<XrCompositionLayerBaseHeader*>(&Composition), 0);
 }
 const void* FAuroraPassthroughModule::OnEndProjectionLayer_RHIThread(XrSession Session, int32 Index, const void* Next, XrCompositionLayerFlags& Flags)

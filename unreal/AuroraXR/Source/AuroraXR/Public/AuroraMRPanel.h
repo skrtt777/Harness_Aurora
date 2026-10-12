@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "AuroraMRPanel.generated.h"
+class UTexture2D;
 
 UCLASS()
 class AURORAXR_API UAuroraMRPanel : public UUserWidget
@@ -22,9 +23,20 @@ public:
     TArray<FString> Rows;
     int32 BodyPage=0;
     bool bListening=false;
+    bool bContours=false;
+    UPROPERTY() TObjectPtr<UTexture2D> BenchImage;
+    FString BenchTitle, BenchNote, BenchDecision;
+    int32 BenchIndex=0, BenchCount=0, BenchTextPage=0;
+    bool bBenchDraft=false, bBenchSaved=false;
+    // Page 7: the operation of the Power BI open on the PC (its miniature stands in front of the panel).
+    FString TwinTitle, TwinUnit, TwinSeal, TwinNote;
+    TArray<FString> TwinLines, TwinNotes;
+    int32 TwinUnitCount=0;
+    bool bConnected=false,bBusy=false,bSpeaking=false,bUsingPc=false;
+    FString ContextLabel;
     bool bWakeEnabled=true;
     bool bShowClosedHint=true, bMinimalHUD=false;
-    void SetPage(int32 Page) { Selected=Page; bMenuOpen=false; }
+    void SetPage(int32 Page) { Selected=Page; bMenuOpen=false; bHUDSettings=false; }
     void Advance(float Delta);
     void TogglePanel();
     void SetSummonProgress(float Value) { SummonProgress=Value; }

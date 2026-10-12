@@ -1,5 +1,9 @@
 #include "AuroraHarnessClient.h"
+#include "ImageUtils.h"
+#include "Engine/Texture2D.h"
 #include "AuroraMRPanel.h"
+#include "AuroraVoiceCommands.h"
+#include "AuroraTwin.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -25,7 +29,12 @@ FString JsonString(FAuroraJson J){FString S;FJsonSerializer::Serialize(J.ToShare
 FString SessionFile(bool Pc){return FPaths::ProjectSavedDir()/(Pc?TEXT("aurora-session-pc.json"):TEXT("aurora-session-standalone.json"));}
 }
 UAuroraHarnessClient::UAuroraHarnessClient(){PrimaryComponentTick.bCanEverTick=true;}
-void UAuroraHarnessClient::BeginPlay(){Super::BeginPlay();}
+void UAuroraHarnessClient::BeginPlay(){Super::BeginPlay();
+    FString Saved;if(FFileHelper::LoadFileToString(Saved,*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-pending.json")))){
+      auto Root=ReadJson(Saved);const TSharedPtr<FJsonObject>* Body=nullptr;
+      if(Root&&Root->TryGetObjectField(TEXT("body"),Body)){BenchPending=*Body;BenchPendingProject=Field(Root,TEXT("projectId"));BenchDraft=Field(BenchPending,TEXT("content"));BenchDraftProject=BenchPendingProject;}
+    }
+}
 bool UAuroraHarnessClient::IsSpeaking() const { return Speaker&&Speaker->IsPlaying(); }
 void UAuroraHarnessClient::RefreshProjectName()
 {
@@ -47,7 +56,7 @@ void UAuroraHarnessClient::AttachPanel(UAuroraMRPanel* Value)
     const bool HasPc=LoadRouteConfig(TEXT("aurora-connection.json"),PcEndpoint,PcToken);
 #if PLATFORM_ANDROID
     SetStatus(TEXT("Procurando o PC…"));
-    ProbePc([this](bool Ok){if(Ok)UseRoute(true);else FallBackToQuest();});
+    if(HasPc)UseRoute(true);else FallBackToQuest();
 #else
     if(!HasPc){SetStatus(TEXT("Pareie o Quest no PC"));return;}
     UseRoute(true);
@@ -167,6 +176,7 @@ void UAuroraHarnessClient::Complete(const FString& Kind,FAuroraJson Result)
     SetStatus(TEXT("Harness conectado"));
     if(Kind==TEXT("conversation")){ConversationId=Field(Result,TEXT("id"));SaveSession();if(!QueuedText.IsEmpty()){FString Text=QueuedText;QueuedText.Empty();SendText(Text);}return;}
     if(Kind==TEXT("message")||Kind==TEXT("correction")){
+        CurrentPage=0;RowIds.Empty();if(Panel){Panel->SetPage(0);Panel->Rows.Empty();}
         const TSharedPtr<FJsonObject>* Message=nullptr;
         if(Result->TryGetObjectField(TEXT("message"),Message)){LastMessageId=Field(*Message,TEXT("id"));LastAnswer=Field(*Message,TEXT("content"));UsedMemoryIds.Empty();const TArray<TSharedPtr<FJsonValue>>* Access=nullptr;if((*Message)->TryGetArrayField(TEXT("memoryAccess"),Access))for(auto V:*Access)UsedMemoryIds.Add(V->AsString());Show(LastAnswer);if(!bSpeechSuppressed)Speak(LastAnswer);}
         else Show(Field(Result,TEXT("error")));return;
@@ -189,7 +199,7 @@ void UAuroraHarnessClient::Complete(const FString& Kind,FAuroraJson Result)
 void UAuroraHarnessClient::SendText(const FString& Text)
 {
     if(Text.TrimStartAndEnd().IsEmpty()||IsBusy())return;bSpeechSuppressed=false;bDiscardTurn=false;
-    if(Panel){Panel->Rows.Empty();Panel->BodyText=TEXT("Você: ")+Text;}
+    CurrentPage=0;RowIds.Empty();if(Panel){Panel->SetPage(0);Panel->Rows.Empty();Panel->BodyText=TEXT("Você: ")+Text;}
     if(ConversationId.IsEmpty()){
         QueuedText=Text;auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("title"),TEXT("Aurora Presence"));J->SetStringField(TEXT("provider"),TEXT("local"));J->SetStringField(TEXT("teacherProvider"),TeacherProvider);
         if(!ProjectId.IsEmpty())J->SetStringField(TEXT("projectId"),ProjectId);Submit(TEXT("/conversations"),J,TEXT("conversation"));return;
@@ -198,7 +208,27 @@ void UAuroraHarnessClient::SendText(const FString& Text)
 }
 void UAuroraHarnessClient::HandleUtterance(const FString& Text)
 {
+    switch(AuroraVoiceCommand(Text)){
+        case EAuroraVoiceCommand::Stop:Action(1);return;
+        case EAuroraVoiceCommand::Repeat:
+            if(LastAnswer.IsEmpty()){Show(TEXT("Ainda não há resposta para repetir."));return;}
+            if(IsBusy()){SetStatus(TEXT("Aguarde a resposta ou toque Parar"));return;}
+            bSpeechSuppressed=false;Speak(LastAnswer);return;
+        case EAuroraVoiceCommand::Help:
+            if(Panel){Panel->ReplayEntrance();Panel->SetPage(0);Panel->Rows.Empty();}
+            Show(TEXT("Abra a palma esquerda para trazer o menu. Aponte com a mão direita e junte polegar e indicador para selecionar.\n\nFalar abre o microfone. Faça uma pausa ou toque Enviar fala. Parar interrompe a conversa.\n\nComandos: nova conversa, repetir resposta, parar conversa e abra o menu. Com a chamada por nome ativa, diga Aurora antes do pedido."));return;
+        default:break;
+    }
     const FString Lower=Text.ToLower();
+    if(Lower.Contains(TEXT("abrir bancada"))||Lower.Contains(TEXT("abra a bancada"))){ShowBench();return;}
+    if(Lower.Contains(TEXT("operação"))&&(Lower.Contains(TEXT("mostr"))||Lower.Contains(TEXT("abr"))||Lower.Contains(TEXT("ver")))||Lower.Contains(TEXT("power bi"))||Lower.Contains(TEXT("painel do bi"))||Lower.Contains(TEXT("gêmeo"))){ShowTwin();return;}
+    if(Lower.StartsWith(TEXT("registrar decisão"))){
+      if(BenchPending){ShowBench();SetStatus(TEXT("Recupere a confirmação pendente antes de criar outra decisão"));return;}
+      if(ProjectId.IsEmpty()){SetStatus(TEXT("Escolha um projeto primeiro"));return;}
+      BenchDraftProject=ProjectId;BenchDraft=Text.Mid(FString(TEXT("registrar decisão")).Len()).TrimStartAndEnd();BenchDraft.RemoveFromStart(TEXT(","));BenchDraft=BenchDraft.TrimStartAndEnd();
+      if(BenchDraft.Len()>12000)BenchDraft=BenchDraft.Left(12000);
+      ShowBench();return;
+    }
     if(Lower.Contains(TEXT("fechar menu"))||Lower.Contains(TEXT("feche o menu"))||Lower.Contains(TEXT("silêncio"))){if(Panel&&Panel->IsPanelOpen())Panel->TogglePanel();else Action(1);return;}
     if((Lower.Contains(TEXT("abra"))||Lower.Contains(TEXT("abrir")))&&Lower.Contains(TEXT("menu"))){if(Panel)Panel->ReplayEntrance();Speak(TEXT("Seu menu está aberto."));return;}
     if(Lower.Contains(TEXT("guarde esta decisão"))||Lower.Contains(TEXT("salve esta decisão"))){Action(2);return;}
@@ -226,7 +256,8 @@ void UAuroraHarnessClient::ShowSources()
 }
 void UAuroraHarnessClient::ShowArtifacts()
 {
-    if(ConversationId.IsEmpty()){Show(TEXT("Abra uma conversa primeiro."));return;}
+    if(Panel){Panel->SetPage(5);Panel->Rows.Empty();}CurrentPage=4;
+    if(ConversationId.IsEmpty()){Show(TEXT("As entregas aparecerão aqui depois de uma tarefa. Abra uma conversa para começar."));return;}
     Request(TEXT("/conversations/")+ConversationId+TEXT("/artifacts"),TEXT("GET"),nullptr,[this](bool Ok,FAuroraJson J){if(!Ok)return;const TArray<TSharedPtr<FJsonValue>>* Values=nullptr;if(!J->TryGetArrayField(TEXT("artifacts"),Values))return;CurrentPage=4;RefreshRows(*Values,TEXT("name"));Show(Values->IsEmpty()?TEXT("Nenhum arquivo nesta conversa."):TEXT("Arquivos da conversa; visualização de texto."));});
 }
 void UAuroraHarnessClient::RefreshRows(const TArray<TSharedPtr<FJsonValue>>& Values,const FString& Key)
@@ -263,6 +294,15 @@ void UAuroraHarnessClient::SelectRow(int32 Index)
 }
 void UAuroraHarnessClient::Action(int32 Index)
 {
+    if(Index==20){ShowTwin();return;}
+    if(Index==21){if(TwinState){const auto L=FAuroraTwinLayout::Build(TwinState,TwinUnit);if(L.Units.Num()>1){TwinUnit=L.Units[(L.Units.IndexOfByKey(L.Unit)+1)%L.Units.Num()];PresentTwin();}else SetStatus(TEXT("Este painel tem uma unidade só"));}return;}
+    if(Index==22){if(OnTwinToggle)OnTwinToggle();return;}
+    if(Index==15){ShowBench();return;}
+    if(Index==16||Index==17){if(BenchPending){SetStatus(TEXT("Confirme o pedido pendente antes de trocar a referência"));return;}BenchIndex+=Index==16?-1:1;PresentBench();return;}
+    if(Index==18){ConfirmBenchDecision();return;}
+    if(Index==19){if(BenchPending){SetStatus(TEXT("Recupere a confirmação pendente"));return;}BenchDraftProject=ProjectId;BenchDraft=LastAnswer;ShowBench();return;}
+    if(Index==14){if(OnContours)OnContours();return;}
+    if(Index==13){ShowArtifacts();return;}
     if(Index==8||Index==9){
         if(IsBusy()){SetStatus(TEXT("Aguarde a operacao em andamento"));return;}
         const FString Selected=Index==8?TEXT("codex"):TEXT("claude");
@@ -280,7 +320,7 @@ void UAuroraHarnessClient::Action(int32 Index)
         Speak(TEXT("Oi, eu sou a Aurora. Estou aqui com você. Podemos conversar, retomar suas ideias ou explorar o ambiente. É só me chamar pelo nome."));return;
     }
     if(Index==0){WakeGeneration++;bConversationMode=true;if(bWakeCapture){StopListening(false);StartListening();}else if(bListening)StopListening(true);else StartListening();}
-    if(Index==1){WakeGeneration++;WakeDelay=2;bDiscardTurn=true;bConversationMode=false;bSpeechSuppressed=true;if(Speaker)Speaker->Stop();if(bListening)StopListening(false);if(!ConversationId.IsEmpty()&&OperationKind==TEXT("message"))Request(TEXT("/conversations/")+ConversationId+TEXT("/cancel"),TEXT("POST"),MakeShared<FJsonObject>(),[this](bool Ok,FAuroraJson J){if(Ok)SetStatus(TEXT("Cancelamento solicitado"));});}
+    if(Index==1){WakeGeneration++;WakeDelay=2;bDiscardTurn=true;bConversationMode=false;bSpeechSuppressed=true;QueuedText.Empty();if(Speaker)Speaker->Stop();if(bListening)StopListening(false);SetStatus(bWakeEnabled?TEXT("Conversa parada / chamada por nome ativa"):TEXT("Conversa parada / microfone desligado"));if(!ConversationId.IsEmpty()&&OperationKind==TEXT("message"))Request(TEXT("/conversations/")+ConversationId+TEXT("/cancel"),TEXT("POST"),MakeShared<FJsonObject>(),[this](bool Ok,FAuroraJson J){if(Ok)SetStatus(TEXT("Cancelamento solicitado"));});}
     if(Index==2){if(LastAnswer.IsEmpty()){Show(TEXT("Nenhuma resposta para guardar."));return;}auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("title"),TEXT("Decisão — Aurora Presence"));J->SetStringField(TEXT("content"),LastAnswer.Left(32000));
         J->SetStringField(TEXT("scope"),ProjectId.IsEmpty()?TEXT("conversation"):TEXT("project"));J->SetStringField(ProjectId.IsEmpty()?TEXT("conversationId"):TEXT("projectId"),ProjectId.IsEmpty()?ConversationId:ProjectId);Submit(TEXT("/memories"),J,TEXT("memory"));}
     if(Index==3&&OnPosition)OnPosition();
@@ -307,6 +347,7 @@ void UAuroraHarnessClient::StartListening(bool WakeOnly)
     bWakeCapture=WakeOnly;
     if(IsBusy()){SetStatus(TEXT("Aguarde ou cancele a resposta"));return;}
     bDiscardTurn=false;
+    if(!WakeOnly)bSpeechSuppressed=false;
 #if PLATFORM_ANDROID
     if(!UAndroidPermissionFunctionLibrary::CheckPermission(TEXT("android.permission.RECORD_AUDIO"))){UAndroidPermissionFunctionLibrary::AcquirePermissions({TEXT("android.permission.RECORD_AUDIO")});SetStatus(TEXT("Autorize o microfone e toque Falar novamente"));return;}
 #endif
@@ -352,7 +393,11 @@ void UAuroraHarnessClient::StopListening(bool SubmitAudio)
 }
 void UAuroraHarnessClient::TickComponent(float Delta,ELevelTick Type,FActorComponentTickFunction* Fn)
 {
-    Super::TickComponent(Delta,Type,Fn);PollDelay-=Delta;if(IsBusy()&&PollDelay<=0)Poll();
+    Super::TickComponent(Delta,Type,Fn);
+    BenchRefreshDelay-=Delta;if(CurrentPage==6&&bUsingPc&&BenchRefreshDelay<=0&&!bBenchLoading&&!bBenchSaving){BenchRefreshDelay=3;ShowBench(true);}
+    // The operation follows the PC every 15 s while its page is open (the PC refreshes the BI at most every 10 min).
+    TwinRefreshDelay-=Delta;if(CurrentPage==7&&bUsingPc&&TwinRefreshDelay<=0&&!bTwinLoading)ShowTwin(true);
+    PollDelay-=Delta;if(IsBusy()&&PollDelay<=0)Poll();
     ConfigRetryDelay-=Delta;if(Endpoint.IsEmpty()&&!bRouteProbe&&Panel&&ConfigRetryDelay<=0){ConfigRetryDelay=3;AttachPanel(Panel);}
     HeartbeatDelay-=Delta;
     if(HeartbeatDelay<=0&&!bHeartbeatActive&&!Endpoint.IsEmpty()&&!IsBusy()){
@@ -360,8 +405,8 @@ void UAuroraHarnessClient::TickComponent(float Delta,ELevelTick Type,FActorCompo
         Request(TEXT("/capabilities"),TEXT("GET"),nullptr,[this](bool Ok,FAuroraJson J){
             bHeartbeatActive=false;HeartbeatFailures=Ok?0:HeartbeatFailures+1;
 #if PLATFORM_ANDROID
-            // Two missed heartbeats from the PC: continue with the Harness embedded in the Quest.
-            if(bUsingPc&&HeartbeatFailures>=2&&!IsBusy())FallBackToQuest();
+            // A paired PC remains the source of truth; never switch databases on network loss.
+            if(bUsingPc&&HeartbeatFailures>=2)SetStatus(TEXT("PC desconectado • bancada preservada; aguardando reconexão"));
 #endif
         });
     }
@@ -390,6 +435,9 @@ void UAuroraHarnessClient::TickComponent(float Delta,ELevelTick Type,FActorCompo
             if(ActionName==TEXT("menu")){if(Panel)Panel->ReplayEntrance();}
             else if(ActionName==TEXT("text"))SendText(Field(J,TEXT("text")));
             else if(ActionName==TEXT("page"))SelectPage(J->GetIntegerField(TEXT("page")));
+            else if(ActionName==TEXT("bench")){BenchDraftProject=ProjectId;BenchDraft=Field(J,TEXT("draft"));ShowBench();}
+            else if(ActionName==TEXT("bench-next"))Action(17);
+            else if(ActionName==TEXT("bench-confirm"))ConfirmBenchDecision();
             else if(ActionName==TEXT("listen"))StartListening();
             else if(ActionName==TEXT("stop"))StopListening(true);
             else if(ActionName==TEXT("camera")){if(OnObserve)OnObserve();}
@@ -408,3 +456,103 @@ void UAuroraHarnessClient::TickComponent(float Delta,ELevelTick Type,FActorCompo
 }
 void UAuroraHarnessClient::SetVoiceOrigin(const FVector& Position){if(Speaker)Speaker->SetWorldLocation(Position);}
 void UAuroraHarnessClient::EndPlay(const EEndPlayReason::Type Reason){bShuttingDown=true;bConversationMode=false;if(bListening)StopListening(false);if(Speaker)Speaker->Stop();Super::EndPlay(Reason);}
+
+void UAuroraHarnessClient::ShowBench(bool RefreshOnly)
+{
+    if(RefreshOnly&&(!BenchDraft.IsEmpty()||BenchPending))return;
+    if(!bUsingPc){SetStatus(TEXT("Bancada compartilhada requer a conexão com o PC"));return;}
+    if(ProjectId.IsEmpty()){SelectPage(2);if(Panel)Panel->SetPage(2);SetStatus(TEXT("Escolha um projeto e abra Bancada"));return;}
+    if(!RefreshOnly){CurrentPage=6;if(Panel){Panel->SetPage(6);Panel->Rows.Empty();Panel->BenchTextPage=0;}}
+    if(BenchProject!=ProjectId){BenchSnapshot.Reset();BenchProject=ProjectId;BenchIndex=0;
+      if(!BenchPending&&BenchDraftProject!=ProjectId)BenchDraft.Empty();
+      FString Cache;if(FFileHelper::LoadFileToString(Cache,*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-cache.json")))){
+        auto J=ReadJson(Cache);const TSharedPtr<FJsonObject>* P=nullptr;if(J&&J->TryGetObjectField(TEXT("project"),P)&&Field(*P,TEXT("id"))==ProjectId)BenchSnapshot=J;
+      }
+      if(Panel){Panel->BenchImage=nullptr;Panel->BenchTitle.Empty();Panel->BenchNote.Empty();Panel->BenchDecision.Empty();Panel->BenchCount=0;}
+    }
+    if(!RefreshOnly)PresentBench();
+    if(bBenchLoading)return;bBenchLoading=true;BenchRefreshDelay=3;
+    const FString Id=ProjectId,Route=Endpoint;
+    Request(TEXT("/projects/")+Id+TEXT("/bench"),TEXT("GET"),nullptr,[this,Id,Route](bool Ok,FAuroraJson J){
+      bBenchLoading=false;if(Id!=ProjectId||Route!=Endpoint||CurrentPage!=6)return;
+      if(!Ok){SetStatus(TEXT("Bancada sem atualização • confira a conexão e a versão do PC"));return;}
+      const double Old=BenchSnapshot?BenchSnapshot->GetNumberField(TEXT("revision")):-1;
+      BenchSnapshot=J;FFileHelper::SaveStringToFile(JsonString(J),*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-cache.json")));
+      if(Old!=J->GetNumberField(TEXT("revision")))PresentBench();
+    });
+}
+void UAuroraHarnessClient::PresentBench()
+{
+    if(!Panel)return;
+    Panel->BenchDecision=BenchDraft;Panel->bBenchDraft=!BenchDraft.IsEmpty();Panel->bBenchSaved=false;
+    if(BenchPending&&BenchPendingProject!=ProjectId){Panel->BenchDecision=TEXT("Existe uma decisão pendente em outro projeto. Retorne ao projeto de origem para recuperar a confirmação.");Panel->bBenchDraft=false;}
+    if(!BenchSnapshot)return;
+    const TArray<TSharedPtr<FJsonValue>>* Materials=nullptr;
+    if(BenchSnapshot->TryGetArrayField(TEXT("materials"),Materials)){
+      BenchIndex=FMath::Clamp(BenchIndex,0,FMath::Max(0,Materials->Num()-1));Panel->BenchIndex=BenchIndex;Panel->BenchCount=Materials->Num();Panel->BenchImage=nullptr;
+      if(Materials->IsValidIndex(BenchIndex)){
+        auto M=(*Materials)[BenchIndex]->AsObject();Panel->BenchTitle=Field(M,TEXT("title"));Panel->BenchNote=Field(M,TEXT("note"));
+        bool HasImage=false;M->TryGetBoolField(TEXT("hasPreview"),HasImage);
+        if(HasImage){const FString Id=Field(M,TEXT("id")),Project=ProjectId;const int Index=BenchIndex;
+          Request(TEXT("/projects/")+Project+TEXT("/bench/materials/")+Id+TEXT("/preview"),TEXT("GET"),nullptr,[this,Project,Index,Id](bool Ok,FAuroraJson J){
+            if(!Ok||!Panel||ProjectId!=Project||BenchIndex!=Index||CurrentPage!=6)return;
+            const TArray<TSharedPtr<FJsonValue>>* Current=nullptr;if(!BenchSnapshot||!BenchSnapshot->TryGetArrayField(TEXT("materials"),Current)||!Current->IsValidIndex(Index)||Field((*Current)[Index]->AsObject(),TEXT("id"))!=Id)return;
+            TArray<uint8> Bytes;if(FBase64::Decode(Field(J,TEXT("image")),Bytes)&&Bytes.Num()<1000000)Panel->BenchImage=FImageUtils::ImportBufferAsTexture2D(Bytes);
+          });}
+      }
+    }
+    if(BenchDraft.IsEmpty()&&!BenchPending){
+      const TArray<TSharedPtr<FJsonValue>>* Decisions=nullptr;if(BenchSnapshot->TryGetArrayField(TEXT("decisions"),Decisions)&&Decisions->Num()){Panel->BenchDecision=Field((*Decisions)[0]->AsObject(),TEXT("content"));Panel->bBenchSaved=true;}
+    }
+}
+void UAuroraHarnessClient::ConfirmBenchDecision()
+{
+    if(!bUsingPc||!bBridgeConnected){SetStatus(TEXT("Reconecte ao PC para confirmar • rascunho preservado"));return;}
+    if(IsBusy()||!BenchSnapshot||ProjectId!=BenchProject)return;
+    if(BenchPending&&BenchPendingProject!=ProjectId){SetStatus(TEXT("Retorne ao projeto da decisão pendente"));return;}
+    if(!BenchPending){
+      if(BenchDraft.TrimStartAndEnd().IsEmpty()){SetStatus(Panel&&Panel->bBenchSaved?TEXT("Esta decisão já está salva no PC e nas memórias do projeto"):TEXT("Diga registrar decisão, seguido da ideia; depois confirme"));return;}
+      BenchPending=MakeShared<FJsonObject>();BenchPendingProject=ProjectId;
+      BenchPending->SetStringField(TEXT("requestId"),FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens));
+      BenchPending->SetStringField(TEXT("content"),BenchDraft);
+      BenchPending->SetNumberField(TEXT("expectedRevision"),BenchSnapshot->GetNumberField(TEXT("revision")));
+      TArray<TSharedPtr<FJsonValue>> Ids;const TArray<TSharedPtr<FJsonValue>>* Materials=nullptr;
+      if(BenchSnapshot->TryGetArrayField(TEXT("materials"),Materials)&&Materials->IsValidIndex(BenchIndex))Ids.Add(MakeShared<FJsonValueString>(Field((*Materials)[BenchIndex]->AsObject(),TEXT("id"))));
+      BenchPending->SetArrayField(TEXT("materialIds"),Ids);
+    }
+    auto Saved=MakeShared<FJsonObject>();Saved->SetStringField(TEXT("projectId"),ProjectId);Saved->SetObjectField(TEXT("body"),BenchPending);
+    if(!FFileHelper::SaveStringToFile(JsonString(Saved),*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-pending.json")))){SetStatus(TEXT("Não foi possível preservar o pedido • decisão não enviada"));return;}
+    bBenchSaving=true;SetStatus(TEXT("Confirmando decisão no PC…"));
+    Request(TEXT("/projects/")+ProjectId+TEXT("/bench/decisions"),TEXT("POST"),BenchPending,[this](bool Ok,FAuroraJson J){
+      bBenchSaving=false;
+      if(Ok){BenchPending.Reset();BenchDraft.Empty();IFileManager::Get().Delete(*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-pending.json")));SetStatus(TEXT("Decisão salva no PC e nas memórias do projeto"));ShowBench();}
+      else{double Code=0;if(J)J->TryGetNumberField(TEXT("httpStatus"),Code);
+        if(Code==409){BenchPending.Reset();IFileManager::Get().Delete(*(FPaths::ProjectSavedDir()/TEXT("aurora-bench-pending.json")));ShowBench();SetStatus(TEXT("A bancada mudou • revise e confirme novamente"));}
+        else SetStatus(TEXT("Confirmação pendente • toque Confirmar novamente para recuperar"));}
+    });
+}
+
+void UAuroraHarnessClient::ShowTwin(bool RefreshOnly)
+{
+    if(!bUsingPc){SetStatus(TEXT("A operação do Power BI vem do PC • conecte ao PC"));return;}
+    if(!RefreshOnly){CurrentPage=7;if(Panel){Panel->SetPage(7);Panel->Rows.Empty();}PresentTwin();}
+    if(bTwinLoading)return;bTwinLoading=true;TwinRefreshDelay=15;
+    const FString Route=Endpoint;
+    Request(TEXT("/twin"),TEXT("GET"),nullptr,[this,Route](bool Ok,FAuroraJson J){
+      bTwinLoading=false;if(Route!=Endpoint||CurrentPage!=7)return;
+      if(!Ok){SetStatus(TEXT("Operação sem atualização • confira a conexão e a versão do PC"));return;}
+      TwinState=J;PresentTwin();
+    });
+}
+void UAuroraHarnessClient::PresentTwin()
+{
+    if(!Panel)return;
+    if(!TwinState){Panel->TwinTitle=TEXT("Buscando o Power BI no PC…");Panel->TwinLines.Empty();Panel->TwinNotes.Empty();Panel->TwinSeal.Empty();return;}
+    const FAuroraTwinLayout L=FAuroraTwinLayout::Build(TwinState,TwinUnit);
+    TwinUnit=L.Unit;
+    Panel->TwinTitle=L.Title.IsEmpty()?TEXT("Nenhum Power BI aberto pela Aurora"):L.Title;
+    Panel->TwinUnit=L.Unit;Panel->TwinLines=L.Numbers;Panel->TwinNotes=L.Notes;Panel->TwinNote=L.Note;
+    Panel->TwinSeal=L.bOperation?FString::Printf(TEXT("%s %d de %d desenhados"),L.Drawn==L.Total?TEXT("✓"):TEXT("◐"),L.Drawn,L.Total):TEXT("Sem operação para desenhar");
+    Panel->TwinUnitCount=L.Units.Num();
+    if(OnTwin)OnTwin(L);
+}

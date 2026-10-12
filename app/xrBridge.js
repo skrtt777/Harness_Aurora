@@ -119,7 +119,7 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
         const body=await jsonBody(req,9000000);if(!['speak','transcribe','observe'].includes(body.kind)||!media[body.kind])fail(503,'Mídia indisponível.');
         return respond(res,200,await media[body.kind](body));
       }
-      if(p==='/xr/v1/capabilities'&&method==='GET')return respond(res,200,{protocol:1,chat:true,projects:true,memories:true,artifacts:true,
+      if(p==='/xr/v1/capabilities'&&method==='GET')return respond(res,200,{protocol:1,chat:true,projects:true,memories:true,artifacts:true,twin:true,
         voice:!!media.transcribe,speech:!!media.speak,vision:!!media.observe,tokenStreaming:false});
       if(p==='/xr/v1/device'&&method==='DELETE'){store.revoke(device);return respond(res,200,{revoked:true});}
       // Ephemeral name detection: never journal ambient audio or non-addressed speech.
@@ -143,6 +143,8 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
           return respond(res,200,await desktop(path+'/decisions','POST',data));
         }
       }
+      // The Power BI the Aurora keeps open, as the twin (the same state as its scene): read only.
+      if(p==='/xr/v1/twin'&&method==='GET')return respond(res,200,await desktop('/powerbi/twin'));
       if(p==='/xr/v1/projects'&&method==='GET')return respond(res,200,await desktop('/projects'));
       if(p==='/xr/v1/providers'&&method==='GET')return respond(res,200,await desktop('/providers'));
       if(p==='/xr/v1/conversations'&&method==='GET') {
