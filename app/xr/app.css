@@ -84,6 +84,10 @@ button { cursor: pointer; }
 .list li { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; }
 .list li button { all: unset; display: block; width: 100%; cursor: pointer; }
 .list li[aria-current="true"] { border-color: var(--accent); }
+.list li.row-del { display: flex; gap: 8px; align-items: center; }
+.list li.row-del > button:first-child { flex: 1; min-width: 0; }
+.list li .del { all: unset; cursor: pointer; color: var(--muted); font-size: 20px; padding: 0 6px; }
+.list li .del:hover { color: var(--fg); }
 .list small { color: var(--muted); display: block; }
 .search { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; width: 100%; }
 .section h3 { margin: 4px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }

@@ -43,7 +43,13 @@ const desktop = async (path, method = "GET", body) => {
   if (path.startsWith("/memories")) return { memories: [{ id: "m1", title: "Prefere respostas curtas", content: "O usuário pede respostas diretas, em pt-BR." }, { id: "m2", title: "Doca 03", content: "A doca 03 está em manutenção às segundas." }] };
   if (path === "/conversations" && method === "POST") { const id = `c${conversations.size + 1}`; conversations.set(id, []); return { id, title: body.title }; }
   let m = path.match(/^\/conversations\/(\w+)\/messages$/);
-  if (m) { const list = conversations.get(m[1]) || []; list.push({ role: "user", content: body.message }); await new Promise((r) => setTimeout(r, 600)); const a = { role: "assistant", content: `Hoje há 14 caminhões nas docas e 12 na fila; 4 atrasados. Você disse: “${body.message}”.` }; list.push(a); return { message: a }; }
+  if (m) {
+    const list = conversations.get(m[1]) || []; list.push({ role: "user", content: body.message }); await new Promise((r) => setTimeout(r, 600));
+    // A scene asked from the app: the answer the Aurora gives (a sentence and the ```cena block).
+    const scene = { titulo: "Fazenda da Aurora", chao: "grama", itens: [{ tipo: "vaca", qtd: 3 }, { tipo: "trator", comportamento: "rodar" }, { tipo: "celeiro", x: -0.6, z: -0.5 }, { tipo: "arvore", qtd: 4 }, { tipo: "carro", qtd: 2, cor: "azul" }, { tipo: "lago" }] };
+    const a = { role: "assistant", content: body.message.includes("[Aurora XR]") ? `Montei uma fazenda com vacas e um trator.\n\`\`\`cena\n${JSON.stringify(scene)}\n\`\`\`` : `Hoje há 14 caminhões nas docas e 12 na fila; 4 atrasados. Você disse: “${body.message}”.` };
+    list.push(a); return { message: a };
+  }
   m = path.match(/^\/conversations\/(\w+)\/pending$/); if (m) return { stage: "Lendo o Power BI…", partial: "" };
   m = path.match(/^\/conversations\/(\w+)$/); if (m) return { id: m[1], messages: conversations.get(m[1]) || [] };
   if (path.startsWith("/conversations")) return { conversations: [] };
@@ -107,6 +113,30 @@ await run("pc", { viewport: { width: 1440, height: 900 } }, async (page, r) => {
   r.checks.wanted = at.name;
   r.checks.picked = (await page.textContent(".picked h3").catch(() => null)) || "nenhum";
   await page.waitForTimeout(500);
+  // A scene asked to the Aurora: the draft at once, hers when she answers.
+  await page.click('[data-page="cenarios"]');
+  await page.fill('form[data-act="scene"] textarea', "faz uma fazenda com vacas e um trator"); await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.auroraXR.S.view === "cenario" && !window.auroraXR.S.sceneBusy, null, { timeout: 15000 });
+  r.checks.scene = await page.evaluate(() => { const { S, stage } = window.auroraXR; return { title: S.scene.title, items: S.scene.items.length, bodies: stage.bodies.length, saved: S.scenes.length }; });
+  if (r.checks.scene.title !== "Fazenda da Aurora" || r.checks.scene.bodies !== r.checks.scene.items) r.failed = "o cenário da Aurora não apareceu inteiro";
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: join(out, "pc-cenario.png") });
+  // Drag a cow with the mouse; let go: it goes back to where it walks.
+  const cow = await page.evaluate(() => {
+    const { stage } = window.auroraXR; const b = stage.bodies.find((x) => x.obj.userData.dyn.label === "Vaca");
+    const v = stage.twin.localToWorld(new b.obj.position.constructor(b.pose.x, b.pose.y + b.height / 2, b.pose.z)).project(stage.camera); const r = stage.canvas.getBoundingClientRect();
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  });
+  await page.mouse.move(cow.x, cow.y); await page.mouse.down();
+  for (let k = 1; k <= 8; k++) { await page.mouse.move(cow.x + k * 12, cow.y - k * 6); await page.waitForTimeout(30); }
+  r.checks.dragged = await page.evaluate(() => { const { stage } = window.auroraXR; const m = stage.mouse; return m ? { moved: m.moved, away: +Math.hypot(m.obj.position.x - m.body.pose.x, m.obj.position.z - m.body.pose.z).toFixed(3) } : null; });
+  await page.mouse.up(); await page.waitForTimeout(1100);
+  r.checks.cowBack = await page.evaluate(() => { const { stage } = window.auroraXR; const b = stage.bodies.find((x) => x.obj.userData.dyn.label === "Vaca"); return { onPlate: b.obj.parent === stage.twin, off: +Math.hypot(b.obj.position.x - b.pose.x, b.obj.position.z - b.pose.z).toFixed(4), held: b.held }; });
+  if (!r.checks.dragged?.moved || r.checks.dragged.away < 0.01) r.failed = "a vaca não foi arrastada";
+  else if (!r.checks.cowBack.onPlate || r.checks.cowBack.off > 0.003) r.failed = "a vaca não voltou para o lugar";
+  // Back to the operation.
+  await page.evaluate(() => window.auroraXR.act("view:operacao")); await page.waitForTimeout(300);
+  r.checks.backToOperation = await page.evaluate(() => window.auroraXR.stage.bodies.length);
 });
 await run("celular", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36" }, async (page, r) => {
   await pairHere(page);
@@ -149,12 +179,49 @@ if (iwer) {
       return last;
     };
     const press = async () => { await page.evaluate(() => window.__xrDevice.controllers.right.updateButtonValue("trigger", 1)); await page.waitForTimeout(250); await page.evaluate(() => window.__xrDevice.controllers.right.updateButtonValue("trigger", 0)); await page.waitForTimeout(300); };
-    const tw = (1280 - 96) / 5;
+    const tw = (1280 - 96) / 6;
     r.checks.aimedAt = await aim(48 + tw + tw / 2, 136); await page.waitForTimeout(300); await press();
     r.checks.pageAfterPanelClick = await page.evaluate(() => window.auroraXR.S.page);
     r.checks.debugHit = await page.evaluate(() => { const { stage } = window.auroraXR; const input = stage.inputs.find((i) => i.source?.handedness === "right"); const { origin, dir } = stage.rayOf(input);
       return { origin: origin.toArray().map((x) => +x.toFixed(2)), dir: dir.toArray().map((x) => +x.toFixed(2)), hits: stage.hits(origin, dir).slice(0, 3).map((h) => [h.object.type, h.object === stage.panel.mesh ? "painel" : h.object.userData.grab ? "base" : "outro", +h.distance.toFixed(2)]), panelAt: stage.panel.object.position.toArray().map((x) => +x.toFixed(2)) }; });
     r.checks.rays = await page.evaluate(() => window.auroraXR.stage.inputs.map((i) => ({ src: i.source ? `${i.source.handedness}/${i.source.targetRayMode}` : null, dot: i.dot.visible, at: i.dot.position.toArray().map((x) => +x.toFixed(2)), from: i.ctrl.position.toArray().map((x) => +x.toFixed(2)) })));
+    // Hold a truck: the controller right at it, grip pressed; it grows; brought up to the eyes; let go: back home.
+    const thing = await page.evaluate(() => {
+      const { stage } = window.auroraXR; const b = stage.bodies.find((x) => !x.fixed && x.obj.userData.entity?.place);
+      window.__thing = b; const p = stage.twin.localToWorld(new b.obj.position.constructor(b.pose.x, b.pose.y + b.height / 2, b.pose.z));
+      return { at: p.toArray(), name: b.obj.userData.dyn.label, s: b.obj.getWorldScale(p.clone()).x };
+    });
+    // The grip (where a controller holds) is not where the device puts the controller: move, read, correct.
+    const gripAt = async (at) => {
+      await page.evaluate((at) => window.__xrDevice.controllers.right.position.set(at[0], at[1], at[2]), at);
+      for (let k = 0; k < 3; k++) {
+        await page.waitForTimeout(120);
+        await page.evaluate((at) => { const { stage } = window.auroraXR; const i = stage.inputs.find((x) => x.source?.handedness === "right"); const g = stage.handPoint(i); const c = window.__xrDevice.controllers.right; c.position.set(c.position.x + at[0] - g.x, c.position.y + at[1] - g.y, c.position.z + at[2] - g.z); }, at);
+      }
+      await page.waitForTimeout(120);
+    };
+    await gripAt(thing.at);
+    r.checks.reach = await page.evaluate(() => { const { stage } = window.auroraXR; const i = stage.inputs.find((x) => x.source?.handedness === "right"); return { near: stage.nearest(stage.handPoint(i))?.userData.dyn.label || null, hover: !!stage.hoverRing.visible, grip: stage.handPoint(i).toArray().map((x) => +x.toFixed(3)) }; });
+    await page.evaluate(() => window.__xrDevice.controllers.right.updateButtonValue("squeeze", 1)); await page.waitForTimeout(500);
+    const held = await page.evaluate(() => { const { stage, S } = window.auroraXR; const o = window.__thing.obj; return { inHand: o.parent === stage.scene, scale: o.getWorldScale(o.position.clone()).x, picked: S.picked?.name || null }; });
+    r.checks.held = { ...held, grew: +(held.scale / thing.s).toFixed(1) };
+    for (let k = 1; k <= 6; k++) { await page.evaluate(([at, k]) => window.__xrDevice.controllers.right.position.set(at[0], at[1] + k * 0.05, at[2] + k * 0.04), [thing.at, k]); await page.waitForTimeout(80); }
+    await page.waitForTimeout(200);
+    r.checks.follows = await page.evaluate(() => { const { stage } = window.auroraXR; const i = stage.inputs.find((x) => x.source?.handedness === "right"); const o = window.__thing.obj; const h = [...stage.holds.values()][0]; return h ? +stage.handPoint(i).distanceTo(o.localToWorld(h.centre.clone())).toFixed(3) : -1; });
+    if (process.env.XR_LAB_DEBUG) await page.screenshot({ path: join(out, "quest-segurando.png") });
+    await page.evaluate(() => window.__xrDevice.controllers.right.updateButtonValue("squeeze", 0)); await page.waitForTimeout(1100);
+    r.checks.back = await page.evaluate(() => { const { stage } = window.auroraXR; const b = window.__thing; return { onPlate: b.obj.parent === stage.twin, off: +Math.hypot(b.obj.position.x - b.home.x, b.obj.position.z - b.home.z).toFixed(4), scale: +(b.obj.scale.x / b.s0).toFixed(3), held: b.held }; });
+    if (!r.checks.held.inHand || r.checks.held.grew < 2) r.failed = `o caminhão não veio para a mão (${JSON.stringify(r.checks.held)})`;
+    else if (!(r.checks.follows >= 0 && r.checks.follows < 0.05)) r.failed = `o caminhão não acompanhou a mão (${r.checks.follows} m)`;
+    else if (!r.checks.back.onPlate || r.checks.back.off > 0.002 || Math.abs(r.checks.back.scale - 1) > 0.01) r.failed = `o caminhão não voltou para a doca (${JSON.stringify(r.checks.back)})`;
+    // Push one with the controller (no button): it moves aside, then the spring brings it back.
+    const other = await page.evaluate(() => { const { stage } = window.auroraXR; const b = stage.bodies.find((x) => !x.fixed && x !== window.__thing && !x.obj.userData.entity?.place); window.__other = b; const p = stage.twin.localToWorld(new b.obj.position.constructor(b.pose.x + 0.01, b.pose.y + b.height / 2, b.pose.z)); return p.toArray(); });
+    await gripAt(other); await page.waitForTimeout(300);
+    r.checks.pushed = await page.evaluate(() => +Math.hypot(window.__other.ox, window.__other.oz).toFixed(4));
+    if (process.env.XR_LAB_DEBUG) r.checks.pushDebug = await page.evaluate(() => { const { stage } = window.auroraXR; const i = stage.inputs.find((x) => x.source?.handedness === "right"); const b = window.__other; const W = stage.twin.getWorldScale(b.obj.position.clone()).x; const l = stage.twin.worldToLocal(stage.handPoint(i)); return { gripVisible: i.grip.visible, hand: !!i.source.hand, W, local: l.toArray().map((x) => +x.toFixed(3)), pose: [b.pose.x, b.pose.y, b.pose.z].map((x) => +x.toFixed(3)), r: b.radius, h: b.height, held: b.held, fixed: b.fixed, n: stage.bodies.length }; });
+    await page.evaluate(() => window.__xrDevice.controllers.right.position.set(0.15, 1.35, -0.1)); await page.waitForTimeout(1500);
+    r.checks.settled = await page.evaluate(() => +Math.hypot(window.__other.ox, window.__other.oz).toFixed(4));
+    if (!r.failed && !(r.checks.pushed > 0.003 && r.checks.settled < 0.001)) r.failed = `empurrar não funcionou (${r.checks.pushed} → ${r.checks.settled})`;
     // Hands: IWER's hands; the motion tracking report sees them.
     await page.evaluate(() => { window.__xrDevice.primaryInputMode = "hand"; });
     await page.waitForTimeout(1200);

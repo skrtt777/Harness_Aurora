@@ -10,6 +10,8 @@ const COMMANDS = [
   ["help", ["ajuda", "como usar", "comandos de voz"]],
   ["page:operacao", ["mostra a operacao", "mostre a operacao", "operacao", "power bi", "abre o power bi", "mostra o power bi", "maquete", "mostra a maquete"]],
   ["page:conversa", ["conversa", "volta pra conversa", "volta para a conversa"]],
+  ["page:cenarios", ["cenarios", "mostra os cenarios", "meus cenarios", "maquetes"]],
+  ["scene:next", ["proximo cenario", "outro cenario", "troca o cenario"]],
   ["page:memorias", ["memorias", "mostra as memorias", "minhas memorias"]],
   ["page:projetos", ["projetos", "mostra os projetos", "trocar projeto"]],
   ["recenter", ["recentralizar", "recentraliza", "traz o painel", "vem aqui", "painel aqui", "centralizar"]],
@@ -25,7 +27,7 @@ export function voiceCommand(text) {
   return null;
 }
 
-export const VOICE_HELP = "Diga: \"mostra a operação\", \"conversa\", \"memórias\", \"traz o painel\", \"coloca na mesa\", \"atualizar\", \"repita\" ou \"pare\". Qualquer outra frase vai para a Aurora.";
+export const VOICE_HELP = "Diga: \"faz uma fazenda com vacas\" (a Aurora monta a maquete), \"adiciona 3 cavalos\", \"mostra a operação\", \"conversa\", \"memórias\", \"traz o painel\", \"coloca na mesa\", \"atualizar\", \"repita\" ou \"pare\". Qualquer outra frase vai para a Aurora.";
 
 /** Mono float samples -> 16 kHz (the transcriber's rate), by averaging. */
 export function downsample(samples, from, to = 16000) {

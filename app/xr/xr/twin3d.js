@@ -1,6 +1,7 @@
 // The miniature of the open Power BI, built from twinLayout (lib/twinLayout.js): a plate the size of a
 // table top with each place in the shape of its area and each entity where it is. Every entity mesh
-// carries userData.entity (for picking); the plate carries userData.grab (to move, turn and scale it).
+// carries userData.entity (for picking) and its root userData.dyn (to hold it and let it be pushed); the
+// plate carries userData.grab (to move, turn and scale it).
 import * as THREE from "../vendor/three.module.js";
 import { COLORS, waitText } from "../lib/twinLayout.js";
 
@@ -76,6 +77,8 @@ export function buildTwin(L) {
     const m = e.kind === "veiculo" ? truck(e.color, e.size) : e.kind === "pessoa" ? person(e.color, e.size) : parcel(e.color, e.size);
     m.position.set(e.x, 0, e.z); m.rotation.y = e.rot || 0;
     m.traverse((o) => { o.userData.entity = e; });
+    // Its body: it can be held, pushed and comes back to where the data puts it (stage.js).
+    m.userData.dyn = { radius: Math.max(e.size[0], e.size[2]) * 0.45, height: e.size[1], behavior: e.kind === "pessoa" ? "idle" : "parado", seed: L.drawn ? L.items.indexOf(e) + 1 : 1, label: e.name };
     root.add(m);
     if (e.highlight) root.add(ring(e.x, e.z, 0.02));
     if (e.waited != null && e.kind === "pessoa") { const t = label(waitText(e.waited), { height: 0.008, bold: false }); t.position.set(e.x, e.size[1] + 0.012, e.z); root.add(t); }

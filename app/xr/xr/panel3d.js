@@ -6,7 +6,7 @@ import * as THREE from "../vendor/three.module.js";
 
 const W = 1280, H = 960;
 const C = { bg: "rgba(14,19,40,0.94)", surface: "#1a2244", line: "#2a3561", fg: "#e8ecff", muted: "#9aa5cf", accent: "#b04bff", accent2: "#4bd9c4", warn: "#f6b93b", bad: "#ff6b6b", ok: "#3ddc97" };
-const PAGES = [["conversa", "Conversa"], ["operacao", "Operação"], ["memorias", "Memórias"], ["projetos", "Projetos"], ["ajustes", "Ajustes"]];
+const PAGES = [["conversa", "Conversa"], ["operacao", "Operação"], ["cenarios", "Cenários"], ["memorias", "Memórias"], ["projetos", "Projetos"], ["ajustes", "Ajustes"]];
 const FONT = '"Segoe UI", system-ui, sans-serif';
 
 export class Panel3D {
@@ -56,7 +56,7 @@ export class Panel3D {
       this.button(x, 104, tw - 10, 64, name, `page:${key}`, { on, size: 30 });
     });
     const body = { x: 48, y: 196, w: W - 96, h: H - 196 - 40 };
-    const page = { conversa: this.conversa, operacao: this.operacao, memorias: this.memorias, projetos: this.projetos, ajustes: this.ajustes }[s.page] || this.conversa;
+    const page = { conversa: this.conversa, operacao: this.operacao, cenarios: this.cenarios, memorias: this.memorias, projetos: this.projetos, ajustes: this.ajustes }[s.page] || this.conversa;
     page.call(this, s, body);
     this.texture.needsUpdate = true;
   }
@@ -131,6 +131,22 @@ export class Panel3D {
     this.button(b.x + bw + 10, by, bw, 80, units.length > 1 ? `Unidade ${units.indexOf(L.unit) + 1}/${units.length}` : "Unidade única", "unit");
     this.button(b.x + 2 * (bw + 10), by, bw, 80, s.mode === "mr" ? "Pôr na mesa" : "Trazer maquete", "place");
     this.button(b.x + 3 * (bw + 10), by, bw, 80, s.twinVisible === false ? "Mostrar" : "Ocultar", "twin:toggle");
+  }
+
+  cenarios(s, b) {
+    const g = this.g; const cur = s.view === "cenario" && s.scene;
+    text(g, clip(g, cur ? s.scene.title : "Cenários", b.w, 36), b.x, b.y + 36, 36, C.fg, 700);
+    const say = s.sceneBusy ? `A Aurora está montando: ${s.scenePrompt}…` : cur ? `${s.scene.items.length} coisas. Pegue qualquer uma com a mão: ela cresce para você ver de perto e volta ao lugar quando você solta.${s.scene.note ? ` Aurora: ${s.scene.note}` : ""}`
+      : "Toque em Falar e peça uma maquete: \"faz uma fazenda com vacas e um trator\". Ou escolha um exemplo.";
+    this.paragraph(say, { x: b.x, y: b.y + 50, w: b.w, h: 150 }, 28, s.sceneBusy ? C.warn : C.muted);
+    const ex = ["Uma fazenda com vacas, cavalos e um trator", "Uma cidade com carros andando", "O sistema solar", "Um parque de dinossauros"];
+    const bw = (b.w - 10) / 2;
+    ex.forEach((x, i) => this.button(b.x + (i % 2) * (bw + 10), b.y + 220 + Math.floor(i / 2) * 90, bw, 80, x, "scene:make", { arg: x, size: 26 }));
+    const by = b.y + b.h - 90; const cw = (b.w - 30) / 4;
+    this.button(b.x, by, cw, 80, s.listening ? "Ouvindo… parar" : "Falar", "mic", { on: s.listening });
+    this.button(b.x + cw + 10, by, cw, 80, "Operação", "view:operacao", { on: s.view === "operacao" });
+    this.button(b.x + 2 * (cw + 10), by, cw, 80, s.scenes?.length ? `Outra (${s.scenes.length})` : "Nenhuma salva", "scene:next");
+    this.button(b.x + 3 * (cw + 10), by, cw, 80, s.mode === "mr" ? "Pôr na mesa" : "Trazer maquete", "place");
   }
 
   list(items, b, action, current) {

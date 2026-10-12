@@ -201,3 +201,73 @@ test('XR chat creates the conversation once, follows the stage and returns the a
   assert.equal(seen.filter((s) => s === 'POST /conversations').length, 1);
   assert.ok(polls >= 1 && stages.includes('Pensando'));
 });
+
+test('XR scenes: the Aurora block read leniently, a draft from the words, laid out on the plate', async () => {
+  const { parseSceneReply, sceneFromPrompt, normalizeScene, isSceneRequest, sceneEdit, editScene, mentioned, ownWords, SCENE_PROMPT, PLATE, CATALOG } = await import('../app/xr/lib/scene.js');
+  // The block, with a trailing comma and curly quotes as small models write it.
+  const r = parseSceneReply('Montei! ```cena\n{"titulo":"Lua","chao":"espaco","itens":[{"tipo":"foguetes","qtd":2},{"tipo":"unicórnio"},]}\n```');
+  assert.equal(r.spec.titulo, 'Lua'); assert.equal(r.rest, 'Montei!');
+  const s = normalizeScene(r.spec, 'x');
+  assert.equal(s.ground, 'espaco'); assert.deepEqual(s.items.map((i) => i.type), ['foguete', 'foguete', 'objeto']);
+  assert.equal(s.items[2].label, 'unicórnio');                       // unknown: a box with its name
+  // Without a fence, the JSON object in the text; without any, nothing.
+  assert.equal(parseSceneReply('ok {"titulo":"X","itens":[{"tipo":"vaca"}]} fim').spec.itens.length, 1);
+  assert.equal(parseSceneReply('Não sei montar isso.').spec, null);
+  // The draft from the request: its theme and the things it counts.
+  assert.deepEqual(mentioned('faz 5 vacas, dois tratores e uma árvore'), [['vaca', 5], ['trator', 2], ['arvore', 1]]);
+  const farm = normalizeScene(sceneFromPrompt('Aurora, faz uma fazenda com 6 vacas'), 'seed');
+  assert.equal(farm.title, 'Fazenda'); assert.equal(farm.ground, 'grama');
+  assert.equal(farm.items.filter((i) => i.type === 'vaca').length, 6);
+  // Everything on the plate, the same request the same scene, at most 60 things.
+  for (const i of farm.items) { assert.ok(Math.abs(i.x) <= PLATE.width / 2 && Math.abs(i.z) <= PLATE.depth / 2, i.id); assert.ok(CATALOG[i.type]); }
+  assert.deepEqual(normalizeScene(sceneFromPrompt('fazenda com 6 vacas'), 'seed'), normalizeScene(sceneFromPrompt('fazenda com 6 vacas'), 'seed'));
+  assert.equal(normalizeScene({ itens: [{ tipo: 'peixe', qtd: 20 }, { tipo: 'pato', qtd: 20 }, { tipo: 'vaca', qtd: 20 }, { tipo: 'arvore', qtd: 20 }] }).items.length, 60);
+  // Vehicles drive the ring road, a fish brings its lake, things in the air stay up.
+  const city = normalizeScene({ itens: [{ tipo: 'carro' }, { tipo: 'peixe' }, { tipo: 'aviao' }] });
+  assert.deepEqual(city.items.map((i) => [i.type, i.behavior]), [['lago', 'parado'], ['carro', 'rodar'], ['peixe', 'nadar'], ['aviao', 'voar']]);
+  assert.ok(city.items[3].y > 0.05);
+  const fish = city.items[2], lake = city.items[0]; assert.ok(Math.hypot(fish.x - lake.x, fish.z - lake.z) < 0.07);
+  // Asking and changing.
+  assert.ok(isSceneRequest('Aurora, cria um cenário de praia')); assert.ok(isSceneRequest('monta uma maquete de um castelo'));
+  assert.ok(!isSceneRequest('monta o power bi da operação')); assert.ok(!isSceneRequest('o que mudou na operação?'));
+  assert.deepEqual(sceneEdit('adiciona 3 cavalos'), { op: 'add', things: [['cavalo', 3]] });
+  assert.equal(sceneEdit('qual é a capital da França?'), null);
+  const less = editScene({ itens: [{ tipo: 'carro', qtd: 3 }, { tipo: 'vaca' }] }, sceneEdit('tira os carros'));
+  assert.deepEqual(less.itens, [{ tipo: 'vaca' }]);
+  // The app's instruction is not shown back as the person's words.
+  assert.equal(ownWords(`faz uma praia${SCENE_PROMPT}`), 'faz uma praia');
+});
+
+test('XR dynamics: behaviours, a push and the spring back, neighbours in line stay put', async () => {
+  const { makeBody, stepBodies, behave, returnArc, RING } = await import('../app/xr/lib/dynamics.js');
+  const bounds = { w: 0.6, d: 0.45 };
+  // A car on the ring road moves along it and faces where it goes.
+  const car = makeBody({ x: RING.ax, z: 0, behavior: 'rodar', bounds });
+  const a = behave(car, 0), b = behave(car, 1);
+  assert.ok(Math.abs(a.x - RING.ax) < 1e-9 && b.z > 0.02);
+  assert.ok(Math.abs((b.x / RING.ax) ** 2 + (b.z / RING.az) ** 2 - 1) < 1e-9);
+  // A cow wanders around its place, never far.
+  const cow = makeBody({ x: 0.1, z: 0.05, behavior: 'passear', seed: 3 });
+  for (let t = 0; t < 60; t += 1.7) { const p = behave(cow, t); assert.ok(Math.hypot(p.x - 0.1, p.z - 0.05) < 0.08); }
+  // Two trucks in line, closer than their sizes by design: nothing moves them until a finger does.
+  const t1 = makeBody({ x: 0, z: 0, radius: 0.0225, height: 0.022, bounds }), t2 = makeBody({ x: 0.03, z: 0, radius: 0.0225, height: 0.022, bounds });
+  const bodies = [t1, t2]; let t = 0;
+  for (let i = 0; i < 30; i++) stepBodies(bodies, { t: (t += 1 / 60), dt: 1 / 60 });
+  assert.equal(t1.pose.x, 0); assert.equal(t2.pose.x, 0.03);
+  // A fingertip 1 cm from the first: it moves out of the way...
+  for (let i = 0; i < 10; i++) stepBodies(bodies, { t: (t += 1 / 60), dt: 1 / 60, pushers: [{ x: -0.01, y: 0.01, z: 0, r: 0.01 }] });
+  assert.ok(Math.hypot(t1.ox, t1.oz) > 0.015);
+  // ...a finger high above touches nothing...
+  const free = makeBody({ x: 0.2, z: 0.1, radius: 0.02, height: 0.02 });
+  stepBodies([free], { t, dt: 1 / 60, pushers: [{ x: 0.2, y: 0.2, z: 0.1, r: 0.02 }] }); assert.equal(free.ox, 0);
+  // ...and once the finger leaves, both are back in their places.
+  for (let i = 0; i < 120; i++) stepBodies(bodies, { t: (t += 1 / 60), dt: 1 / 60 });
+  assert.ok(Math.hypot(t1.pose.x - 0, t1.pose.z) < 0.001 && Math.hypot(t2.pose.x - 0.03, t2.pose.z) < 0.001);
+  // Held bodies are left to the hand; the plate's edge holds the others.
+  const held = makeBody({ x: 0, z: 0 }); held.held = true; held.pose = { x: 9, y: 9, z: 9, rot: 0 };
+  stepBodies([held], { t, dt: 1 / 60 }); assert.equal(held.pose.x, 9);
+  const edge = makeBody({ x: 0.28, z: 0, radius: 0.02, bounds });
+  stepBodies([edge], { t, dt: 1 / 60, pushers: [{ x: 0.25, z: 0, r: 0.04 }] }); assert.ok(edge.pose.x <= 0.28 + 1e-9);
+  // The way home: eased, lifted in the middle, exactly there at the end.
+  assert.deepEqual(returnArc(0), { mix: 0, lift: 0 }); assert.equal(returnArc(1).mix, 1); assert.ok(returnArc(0.5).lift > 0.99);
+});
