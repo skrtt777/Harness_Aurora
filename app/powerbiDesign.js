@@ -460,6 +460,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
     numbers: cardable.filter((n) => principal.includes(n)).slice(0, 8),
     badUp: cardable.filter((n) => /atras|fila|aguard|sa[íi]das|custo|despesa|estour/i.test(n)),
     place: flow?.place || null,
+    flow: flow || null,
     entities: flow && (flow.asset || flow.id) ? `EVALUATE\n${vehicleVars(flow, q(fact.name)).join("\n")}\nRETURN SELECTCOLUMNS(Veiculos, "n", [@nome], "w", [@where], "d", [@doca], "a", [@atraso])` : null,
   };
   return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title, watch, simTables };

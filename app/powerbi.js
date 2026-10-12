@@ -147,6 +147,14 @@ async function noteChanges(w) {
   return { when, text, alerts };
 }
 
+/** The twin's state (app/powerbiTwin.js) of the report the Aurora opened last, or null. */
+export async function twinNow() {
+  const w = [...watched.values()].at(-1);
+  if (!w) return null;
+  const { twinState } = await import("./powerbiTwin.js");
+  return twinState(w, pbiRequest);
+}
+
 /** One round: each watched report whose files changed (or whose time came) is refreshed. */
 export async function refreshDue(now = Date.now()) {
   const done = [];

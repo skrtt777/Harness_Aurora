@@ -29,6 +29,9 @@ export const GUIDES = [
       "Escolha a medida pelo sentido da pergunta: gastamos, gasto, despesa, pagamos → Saídas; recebemos, entrou, receita → Entradas ou Faturamento; quantos → a contagem (Qtd., Em andamento, no pátio); orçamento estourado → Execução do orçamento %. Um item citado (\"com marketing\", \"na loja Centro\") vai no filter (Categoria=Marketing), não numa lista de todos.",
       "3. Se a ferramenta disser que um valor de filtro não existe, use o valor ou a medida que ela indicar (ex.: atrasos são a medida [Entregas atrasadas], não Status=Atrasado).",
       "4. Responda com o número exatamente como veio (R$ 1.714.063,98, 86,2%), sem arredondar e sem inventar outros.",
+      "5. \"Mostra\" / \"onde está\" / \"aponta\": primeiro consulte (action=query) para achar o nome exato; depois powerbi action=show com values (os nomes exatos: [\"Doca 03\"], [\"ABC-3P34\"], [\"Caixa 04\"], [\"MG\"]) e note (uma frase curta com o número da consulta). A cena acende um anel roxo e mostra a nota. Para apagar: show com values vazio.",
+      "6. \"O que mudou?\": a cada atualização a Aurora escreve as notas na tabela 'Notas da Aurora' (consulte com dax EVALUATE 'Notas da Aurora') e avisa no Windows e no celular quando piora (mais atrasados, fila maior).",
+      "7. \"E se…?\": o painel tem uma tabela de simulação (Cenário, Corte ou Variação). Responda com a linha do cenário pedido, dizendo que é simulação (ex.: measure \"Fila no cenário\", filter \"Cenário=+2 caixas\").",
     ].join("\n"),
   },
   {
