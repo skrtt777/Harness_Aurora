@@ -213,6 +213,10 @@ test('XR scenes: the Aurora block read leniently, a draft from the words, laid o
   // Without a fence, the JSON object in the text; without any, nothing.
   assert.equal(parseSceneReply('ok {"titulo":"X","itens":[{"tipo":"vaca"}]} fim').spec.itens.length, 1);
   assert.equal(parseSceneReply('Não sei montar isso.').spec, null);
+  // An echo of the request (with the instruction's example) never becomes the scene: that was the
+  // "always the farm" bug.
+  assert.equal(parseSceneReply(`Você disse: “O sistema solar${SCENE_PROMPT}”.`).spec, null);
+  assert.equal(parseSceneReply('```cena\n{"titulo":"…","chao":"grama|areia","itens":[{"tipo":"vaca"}]}\n```').spec, null);
   // The draft from the request: its theme and the things it counts.
   assert.deepEqual(mentioned('faz 5 vacas, dois tratores e uma árvore'), [['vaca', 5], ['trator', 2], ['arvore', 1]]);
   const farm = normalizeScene(sceneFromPrompt('Aurora, faz uma fazenda com 6 vacas'), 'seed');

@@ -165,7 +165,9 @@ export function sceneEdit(text) {
 
 /** The ```cena block of a reply (or the first JSON object with items), and the rest of the text. */
 export function parseSceneReply(text) {
-  const s = String(text || "");
+  // A reply that repeats the request (a small model, an echo) carries the instruction and its example:
+  // that part is never the scene.
+  let s = String(text || ""); const echo = s.indexOf(SCENE_MARK.trim()); if (echo >= 0) s = s.slice(0, echo);
   const fence = s.match(/```(?:cena|json|scene)?\s*([\s\S]*?)```/i);
   let raw = fence ? fence[1] : null;
   if (!raw) { const i = s.search(/\{\s*"(titulo|title|chao|ground|itens|items)"/); if (i >= 0) raw = balanced(s, i); }
@@ -175,6 +177,8 @@ export function parseSceneReply(text) {
     try { spec = JSON.parse(cleaned); } catch { try { spec = JSON.parse(balanced(cleaned, cleaned.indexOf("{")) || ""); } catch { spec = null; } }
   }
   if (spec && !Array.isArray(spec.itens || spec.items)) spec = null;
+  // The example of the instruction copied as it is ("…", "grama|areia|…") is not a scene either.
+  if (spec && (/^\s*…?\s*$/.test(String(spec.titulo ?? spec.title ?? "x")) || String(spec.chao ?? "").includes("|") || JSON.stringify(spec).includes('"passear|'))) spec = null;
   const rest = (fence ? s.replace(fence[0], "") : raw ? s.replace(raw, "") : s).replace(/\n{3,}/g, "\n\n").trim();
   return { spec, rest };
 }
