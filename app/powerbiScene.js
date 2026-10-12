@@ -29,7 +29,7 @@ const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 import { faces, roomKit } from "./powerbiPlaces.js";
 import { parcel, person as personModel, truck } from "./powerbiModels.js";
 // What the Aurora points at (the 'Destaque' table she writes when asked "mostra…"), and her note.
-export const HIGHLIGHT_VARS = ["VAR Destacados = VALUES('Destaque'[Valor])", "VAR NotaAurora = MAXX('Destaque', 'Destaque'[Nota]) & \"\""];
+export const HIGHLIGHT_VARS = ["VAR Destacados = VALUES('Destaque'[Valor])", "VAR NotaAurora = MAXX('Destaque', 'Destaque'[Nota]) & \"\"", "VAR Mudados = VALUES('Mudanças'[Nome])"];
 /** A pulsing ring the Aurora draws around what she was asked to show. */
 export const auroraRing = (x, y, rx, ry) => `<ellipse cx='${x}' cy='${y}' rx='${rx}' ry='${ry}' fill='none' stroke='${'#B04BFF'}' stroke-width='5'><animate attributeName='stroke-opacity' values='1;0.25;1' dur='1.1s' repeatCount='indefinite'/></ellipse>`;
 /** Her note across the top of a scene ("Aurora: a Doca 03 está parada há 40 min"). */
@@ -145,6 +145,14 @@ export function liveBadge(stamp, x, y, L, minutes = 10) {
  * a replay of the past, or the next hours — a stage not reached yet comes from the average time between
  * stages in the history, marked "@prev" = 1, drawn as a ghost). The scene and the cards use this same DAX.
  */
+/** The column with when each one arrived (the first stage's time, or the start), or null. */
+const arrival = (flow) => (flow.timeline ? flow.timeline[Math.min(...Object.keys(flow.timeline).map(Number))] : flow.date) || null;
+/** Minutes waited as text: "18 min", "2 h 10", "3 d". */
+// With dates only (no hour), less than a day is not known: "hoje", "2 d".
+const waitText = (m, hours = true) => (hours
+  ? `IF(ISBLANK(${m}), "", IF(${m} < 60, ${m} & " min", IF(${m} < 1440, INT(${m} / 60) & " h " & FORMAT(MOD(${m}, 60), "00"), INT(${m} / 1440) & " d")))`
+  : `IF(ISBLANK(${m}), "", IF(${m} < 1440, "hoje", INT(${m} / 1440) & " d"))`);
+
 export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   const h = helpers(flow);
   const F = flow.fact;
@@ -183,7 +191,7 @@ export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   return [
     `VAR T = ${T}`,
     `VAR Ativos = ${active}`,
-    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0${flow.colorBy ? `, "@cor", ${latest(col(F, flow.colorBy.column))} & ""` : ""})`,
+    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0${flow.colorBy ? `, "@cor", ${latest(col(F, flow.colorBy.column))} & ""` : ""}${arrival(flow) ? `, "@espera", VAR c = ${latest(col(F, arrival(flow)))} RETURN IF(ISBLANK(c) || c > T, BLANK(), INT((T - c) * 1440))` : ""})`,
     `VAR Veiculos = ADDCOLUMNS(Veiculos0, "@where", SWITCH(TRUE(), [@st] IN ${list(roadStages)}, "estrada", ${hasService ? `[@st] IN ${list(serviceStages)} && [@doca] <> "", "doca", [@st] IN ${list(queueStages)} && [@doca] <> "", "filalocal", ` : `[@st] IN ${list(queueStages)} && [@doca] <> "", "doca", `}[@st] IN ${list([...serviceStages, ...queueStages])}, "fila", "outro"))`,
   ];
 }
@@ -326,6 +334,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     ]));
     const [gx, gy] = cv.at(cx, DEPTH + 90, 0);
     frag.push(when(`${place} IN Destacados || [@nome] IN Destacados`, auroraRing(gx, gy, G === "veiculo" ? 84 : 56, G === "veiculo" ? 48 : 32)));
+    frag.push(when("[@nome] IN Mudados", [`<ellipse cx='${gx}' cy='${gy}' rx='${G === "veiculo" ? 76 : 50}' ry='${G === "veiculo" ? 44 : 29}' fill='none' stroke='#FFFFFF' stroke-width='3' stroke-dasharray='6 4'><animate attributeName='stroke-opacity' values='1;0.2;1' dur='1.8s' repeatCount='indefinite'/></ellipse>`]));
     frag.push(when("Filtrado && [@n] > 0 && [@id] IN Visiveis", [`<ellipse cx='${gx}' cy='${gy}' rx='${G === "veiculo" ? 70 : 46}' ry='${G === "veiculo" ? 40 : 26}' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
     const [nx, ny] = kit ? cv.at(...kit.label(cx)) : cv.at(cx - tw / 2 - 4, DEPTH, G === "veiculo" ? 76 : 98);
     // In a room the place's number is painted on the floor at its door (the legend says what it is).
@@ -350,7 +359,9 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     const [mx, my] = cv.at(x + (G === "veiculo" ? 32 : 0), y + (G === "veiculo" ? 60 : 0), 0);
     ent.queue.push([j + 1, ...(G === "veiculo" ? cv.at(x + 32, y + 81, 30) : cv.at(x, y, 30)).map(Number)]);
     const drawn = G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : kit && G === "pessoa" ? person(x, y, keyOf, "fila", Boolean(kit.seated)) : kit ? load(x, y, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila");
-    queueSlots.push(`${j + 1}, ${joinDax([drawn, when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24))])}`);
+    const [wx, wy] = G === "veiculo" ? cv.at(x + 32, y + 40, 78) : cv.at(x, y, kit?.seated ? 92 : 104);
+    const waited = arrival(flow) ? when("NOT ISBLANK([@espera])", [`<text x='${wx}' y='${wy}' text-anchor='middle' ${FONT} font-size='13' font-weight='700' fill='`, D(flow.timeline || flow.dateHasTime ? `IF([@espera] >= 120, ${daxText("#FF8A8A")}, IF([@espera] >= 30, ${daxText("#F6D365")}, ${daxText(L.text)}))` : `IF([@espera] >= 2880, ${daxText("#FF8A8A")}, IF([@espera] >= 1440, ${daxText("#F6D365")}, ${daxText(L.text)}))`), "'>", D(waitText("[@espera]", Boolean(flow.timeline || flow.dateHasTime))), "</text>"]) : "";
+    queueSlots.push(`${j + 1}, ${joinDax([drawn, waited, when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24)), when("[@nome] IN Mudados", [`<ellipse cx='${mx}' cy='${my}' rx='34' ry='20' fill='none' stroke='#FFFFFF' stroke-width='3' stroke-dasharray='6 4'><animate attributeName='stroke-opacity' values='1;0.2;1' dur='1.8s' repeatCount='indefinite'/></ellipse>`])])}`);
   }
   const roadSlots = [];
   if (hasRoad) {

@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { finish, prepare, profile, readSources } from "./powerbiDesign.js";
 import { localPlanAsk, planWithModel } from "./powerbiPlanner.js";
-import { biEvents, diffSnapshots, narrate, notesTable } from "./powerbiChanges.js";
+import { biEvents, changedTable, diffSnapshots, narrate, notesTable } from "./powerbiChanges.js";
 import { auditReport, fixPlan } from "./powerbiAudit.js";
 import { writeProject, writeReport } from "./powerbiReport.js";
 
@@ -137,8 +137,10 @@ export async function snapshotOf(watch) {
 
 async function noteChanges(w) {
   const snap = await snapshotOf(w.watch);
-  const { facts, alerts } = diffSnapshots(w.snapshot, snap, { badUp: w.watch.badUp, place: w.watch.place });
+  const { facts, alerts, changed } = diffSnapshots(w.snapshot, snap, { badUp: w.watch.badUp, place: w.watch.place });
   w.snapshot = snap;
+  // The scene rings who just arrived or moved (until the next refresh).
+  if (w.watch.entities) await pbiRequest("apply", { ops: [{ op: "tableExpression", name: "Mudanças", expression: changedTable(changed) }] }).catch(() => {});
   if (!facts.length) return null;
   const text = await narrate(facts, await localPlanAsk(process.env).catch(() => null), process.env);
   const when = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });

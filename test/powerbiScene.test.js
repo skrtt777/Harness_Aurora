@@ -271,3 +271,22 @@ test("the BI is checked before delivery: a chart with one bar takes another colu
   assert.deepEqual(fixed.plan.paginas[0].numeros, ["Qtd."]);
   assert.equal(fixed.changes.length, 3);
 });
+
+test("the local model plans up to three times and the best plan wins; the main picture goes on the first page", async () => {
+  const { planWithModel, scorePlan } = await import("../app/powerbiPlanner.js");
+  const { cat } = prepare([shipments()], { title: "CD" });
+  const weak = { titulo: "CD", estilo: { tema: "escuro", cor: "azul", tom: "sobrio" }, paginas: [{ nome: "Números", pergunta: "Quanto?", layout: "grade", cena: "nenhuma", numeros: [cat.cardable[0]], blocos: [] }] };
+  const good = { titulo: "CD", estilo: { tema: "escuro", cor: "azul", tom: "sobrio" }, paginas: [
+    { nome: "Pátio agora", pergunta: "Quem está em cada doca e o que atrasou?", layout: "gemeo_digital", cena: "patio", numeros: cat.cardable.slice(0, 2), blocos: [{ tipo: "rastreamento" }] },
+    { nome: "Transportadoras", pergunta: "Qual atrasa mais?", layout: "grade", cena: "nenhuma", numeros: [], blocos: [{ tipo: "barras", medida: cat.numbers[0], por: "Transportadora" }, { tipo: "rosca", medida: cat.numbers[0], por: "Cidade destino" }] },
+  ] };
+  const answers = [weak, good, weak];
+  let calls = 0;
+  const plan = await planWithModel(cat, "ver o pátio, as docas e os atrasos", async () => ({ ok: true, text: JSON.stringify(answers[calls++]) }));
+  assert.equal(plan.paginas[0].nome, "Pátio agora");
+  assert.ok(plan.tentativas.length >= 2 && calls <= 3);
+  // Even the weak plan gets the yard on its first page (the main picture of the data).
+  const { normalizePlan } = await import("../app/powerbiPlanner.js");
+  assert.equal(normalizePlan(weak, cat, "").paginas[0].cena, "patio");
+  assert.ok(scorePlan(normalizePlan(good, cat, "ver o pátio, as docas e os atrasos"), cat, "ver o pátio, as docas e os atrasos") > scorePlan(normalizePlan(weak, cat, "ver o pátio, as docas e os atrasos"), cat, "ver o pátio, as docas e os atrasos"));
+});

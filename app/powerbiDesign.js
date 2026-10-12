@@ -506,6 +506,8 @@ export function finish(prep, rawPlan = null) {
   for (const t of prep.simTables || []) modelTables.push(t);
   // What changed since the last refresh, written by the Aurora (app/powerbiChanges.js).
   modelTables.push({ name: "Notas da Aurora", dax: `DATATABLE("Quando", STRING, "Texto", STRING, {{"${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}", "Painel aberto. A cada atualização (no máximo a cada 10 min) a Aurora escreve aqui o que mudou."}})`, columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
+  // Who arrived or changed place at the last refresh (app/powerbiChanges.js): a dashed white ring.
+  modelTables.push({ name: "Mudanças", dax: "DATATABLE(\"Nome\", STRING, {{\"\"}})", hidden: "True", columns: [{ name: "Nome", type: "texto" }] });
   // What the Aurora shows when asked ("mostra a doca 3"): she rewrites this table; the scenes ring it.
   modelTables.push({ name: "Destaque", dax: "DATATABLE(\"Valor\", STRING, \"Nota\", STRING, {{\"\", \"\"}})", hidden: "True", columns: [{ name: "Valor", type: "texto" }, { name: "Nota", type: "texto" }] });
   modelTables.push({ name: "Atualização", dax: "ROW(\"Atualizado em\", NOW())", hidden: "True", columns: [{ name: "Atualizado em", type: "data", format: "dd/mm/yyyy HH:mm" }] });
@@ -522,7 +524,7 @@ export function finish(prep, rawPlan = null) {
     `Medidas: ${measures.map((x) => x.name).join(", ")}.`,
     fin ? `Dinheiro: ${fin.income} e ${fin.outgo}${ledger.category ? ` por ${ledger.category.column}` : ""}${ledger.budget ? `; orçamento em ${ledger.budget.table}[${ledger.budget.column}]` : ""}; cena do fluxo do dinheiro.` : "",
     flow ? `Fluxo: ${flow.status} (${flow.stages.map((x) => x.values[0]).join(" → ")})${flow.place ? `; cena com as ${flow.place.toLowerCase()}s` : ""}${flow.asset ? `; ${flow.vehicles} por ${flow.asset}` : ""}.` : "",
-    `Plano (${plan.planner}): ${plan.paginas.map((p) => `${p.nome} [${p.layout}${p.cena !== "nenhuma" ? `, cena ${p.cena}` : ""}] — ${p.pergunta}`).join("; ")}. Estilo: ${plan.estilo.tema}, ${plan.estilo.cor}, ${plan.estilo.tom}.`,
+    `Plano (${plan.planner}): ${plan.paginas.map((p) => `${p.nome} [${p.layout}${p.cena !== "nenhuma" ? `, cena ${p.cena}` : ""}] — ${p.pergunta}`).join("; ")}. Estilo: ${plan.estilo.tema}, ${plan.estilo.cor}, ${plan.estilo.tom}.${plan.tentativas?.length > 1 ? ` Melhor de ${plan.tentativas.length} planos (notas ${plan.tentativas.join(", ")}).` : ""}`,
     `Páginas: ${pages.map((p) => `${p.displayName} (${p.visuals.length} visuais)`).join(", ")}.`,
   ].filter(Boolean).join("\n");
   return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark, accent: COLORS[plan.estilo.cor], tone: plan.estilo.tom }, flow, ledger: fin ? ledger : null, plan, watch: prep.watch };

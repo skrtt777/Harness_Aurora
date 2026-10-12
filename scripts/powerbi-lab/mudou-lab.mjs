@@ -49,6 +49,13 @@ try {
   const table = await pbiRequest("query", { dax: "EVALUATE 'Notas da Aurora'", max: 10 });
   check("a nota está no relatório (Notas da Aurora)", table.ok && table.text.includes(note?.when || "???"), (table.text || table.error || "").split("\n").slice(2, 4).join(" / "));
   check("o alerta saiu (novo atrasado)", alerts.some((a) => /atrasad/i.test(`${a.title} ${a.body}`)), alerts.map((a) => a.title).join(" | "));
+  // The scene: the one who moved has the dashed white ring; the queue shows how long each one waits.
+  const scene = r.plan.measureList.find((m) => /^Cena do pátio/.test(m.name)).name;
+  const svg = await pbiRequest("query", { dax: `EVALUATE ROW("v", CALCULATE([${scene}], 'Embarques'[CD] = "CD Contagem"))`, max: 2 });
+  const text = String(svg.text || "");
+  writeFileSync(join(shots, "cena-depois.svg"), decodeURIComponent(text.split("\n").slice(2).join("\n").replace(/^data:image\/svg\+xml;utf8,/, "").replace(/%(?![0-9A-F]{2})/gi, "%25")));
+  check("a cena marca quem acabou de mudar (anel tracejado)", /stroke-dasharray='6 4'/.test(text), `${(text.match(/stroke-dasharray='6 4'/g) || []).length} marcados`);
+  check("a fila mostra quanto cada um espera", /\d+ (min|h \d\d|d)</.test(text), (text.match(/>(\d+ (min|h \d\d|d))</g) || []).slice(0, 4).join(" "));
   await new Promise((res) => setTimeout(res, 8000));
   execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(import.meta.dirname, "window-shot.ps1"), String(opened.pid), join(shots, "pagina-notas.png")]);
 } finally {

@@ -104,7 +104,7 @@ export function humanTitle(text) {
   const t = String(text || "").replace(/[_]+/g, " ").replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2").replace(/\s+/g, " ").trim();
   if (!t) return "";
   // Sentence case, except the names that keep their capital ("Brasil", "Aurora").
-  const words = t.split(" ").map((w, i) => (i > 0 && /^\p{Lu}\p{Ll}+$/u.test(w) && !PROPER.has(w.toLowerCase()) ? w.toLowerCase() : w)).map((w) => (PROPER.has(w.toLowerCase()) ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w));
+  const words = t.split(" ").map((w, i) => (i > 0 && (/^\p{Lu}\p{Ll}+$/u.test(w) || /^[EAOÀ]$/.test(w)) && !PROPER.has(w.toLowerCase()) ? w.toLowerCase() : w)).map((w) => (PROPER.has(w.toLowerCase()) ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w));
   const titled = words.join(" ").replace(/^./, (c) => c.toUpperCase()).replace(/\s*\(([^)]*)\)\s*$/, " ($1)");
   // The accents a small model drops in the words of a BI ("Visao geral", "Evoluçao mensal").
   return titled.replace(/\p{L}+/gu, (w) => { const fixed = ACCENTS[w.toLowerCase()]; return fixed ? (w[0] === w[0].toUpperCase() ? fixed[0].toUpperCase() + fixed.slice(1) : fixed) : w; });
@@ -156,6 +156,31 @@ function fitType(b, cat) {
   return b;
 }
 
+// The richest picture of each kind of data, in order.
+const MAIN_SCENES = ["patio", "operacao", "mapa", "planta", "dinheiro"];
+
+/**
+ * How good a plan is, by what can be checked: the main picture on the first page, the request's words
+ * answered, pages that are not only cards, nothing repeated, kinds of chart, little that had to be fixed.
+ */
+export function scorePlan(plan, cat, goal = "") {
+  if (!plan) return -Infinity;
+  let score = 0;
+  const main = MAIN_SCENES.find((id) => cat.scenes[id]);
+  if (main && plan.paginas[0]?.cena === main) score += 3;
+  const said = `${plan.paginas.map((p) => `${p.nome} ${p.pergunta} ${p.numeros.join(" ")} ${p.blocos.map((b) => `${b.medida} ${b.por}`).join(" ")}`).join(" ")}`;
+  const stems = [...new Set(fold(goal).split(/[^a-z0-9]+/).filter((w) => w.length > 4).map((w) => w.slice(0, 5)))];
+  if (stems.length) score += 3 * stems.filter((w) => fold(said).includes(w)).length / stems.length;
+  score -= plan.paginas.filter((p) => p.cena === "nenhuma" && !p.blocos.length).length;
+  const seen = new Map();
+  for (const b of plan.paginas.flatMap((p) => p.blocos)) { const k = `${b.medida}|${b.por}`; seen.set(k, (seen.get(k) || 0) + 1); }
+  score -= 0.5 * [...seen.values()].filter((n) => n > 1).length;
+  score += 0.3 * Math.min(4, new Set(plan.paginas.flatMap((p) => p.blocos.map((b) => b.tipo))).size);
+  score -= 0.5 * (plan.ajustes || 0);
+  if (plan.paginas.length >= 2 && plan.paginas.length <= 4) score += 1;
+  return Math.round(score * 10) / 10;
+}
+
 export function normalizePlan(raw, cat, goal = "") {
   let plan = raw;
   if (typeof plan === "string") { try { plan = JSON.parse(plan.match(/\{[\s\S]*\}/)?.[0] || ""); } catch { return null; } }
@@ -170,6 +195,7 @@ export function normalizePlan(raw, cat, goal = "") {
   // A ready block (the tracking table, the selected item's card…) once per BI: the same table on three
   // pages was filler (showcase 11/10).
   const specialsUsed = new Set();
+  let fixes = 0;
   for (const p of plan.paginas.slice(0, 4)) {
     // Words of another area (a "pátio" in a hospital, 11/10): the page is about the operation.
     const nome = foreignWords(humanTitle(p?.nome), cat, goal).slice(0, 40) || `Página ${pages.length + 1}`;
@@ -182,7 +208,7 @@ export function normalizePlan(raw, cat, goal = "") {
       // A ready block keeps its own title (the model named a table of plates "Distribuição de Frete por Estado").
       .map((b) => (cat.specials[b.tipo] ? { ...b, titulo: "" } : b))
       // A waterfall needs the parts of a total in order (months); by a category it drew an empty chart.
-      .map((b) => fitChart(b, cat))
+      .map((b) => { const f = fitChart(b, cat); if (f.tipo !== b.tipo || f.por !== b.por || f.medida !== b.medida) fixes += 1; return f; })
       .slice(0, 4);
     const page = {
       nome, pergunta: String(p.pergunta || "").trim().slice(0, 120),
@@ -225,7 +251,18 @@ export function normalizePlan(raw, cat, goal = "") {
     pages.push(page);
   }
   if (!pages.length) return null;
+  // The area's main picture (the operation, the map, the plan, the money) on the first page when no page
+  // has it: the model chose a city of a column over the money flow (showcase 11/10).
+  const main = MAIN_SCENES.find((id) => cat.scenes[id]);
+  if (main && !pages.some((x) => x.cena === main)) {
+    pages[0].cena = main;
+    if (!/^(gemeo_digital|cena_)/.test(pages[0].layout)) pages[0].layout = pages[0].blocos.length > 1 ? "cena_e_lateral" : "gemeo_digital";
+    fixes += 1;
+  }
+  const rawBlocks = plan.paginas.slice(0, 4).reduce((n, p) => n + (Array.isArray(p?.blocos) ? p.blocos.length : 0), 0);
+  const kept = pages.reduce((n, p) => n + p.blocos.length, 0);
   return {
+    ajustes: fixes + Math.max(0, rawBlocks - kept),
     // The model's title keeps only words that were said; the design's own title is kept as it is.
     titulo: plan.titulo === cat.title ? cat.title : groundedName(plan.titulo, `${goal} ${cat.sources} ${cat.stories.join(" ")}`) || cat.title,
     estilo: { tema: estilo.tema === "claro" ? "claro" : "escuro", cor: COLORS[estilo.cor] ? estilo.cor : "azul", tom: TONES[estilo.tom] ? estilo.tom : "sobrio" },
@@ -345,11 +382,21 @@ export async function localPlanAsk(env = process.env) {
  * Plans with the local model (ask = runLocal-like, with a JSON schema); null when it gives nothing usable
  * (the caller then uses autoPlan).
  */
-export async function planWithModel(cat, goal, ask, env = {}, onError = () => {}) {
+export async function planWithModel(cat, goal, ask, env = {}, onError = () => {}, { tries = 3, good = 6 } = {}) {
   if (!ask) return null;
-  const answer = await ask(planPrompt(cat, goal), { ...env, LOCAL_OUTPUT_SCHEMA: JSON.stringify(planSchema(cat)), LOCAL_MAX_OUTPUT_TOKENS: "2048" }).catch((error) => ({ ok: false, error: error.message }));
-  if (!answer?.ok) { onError(answer?.error || "sem resposta"); return null; }
-  const plan = normalizePlan(answer.text, cat, goal);
-  if (!plan) onError("plano inválido");
-  return plan;
+  // Up to three plans (the model samples, so each differs); the best by scorePlan, early when one is good.
+  let best = null; let error = null; const scores = [];
+  for (let t = 0; t < tries; t += 1) {
+    const answer = await ask(planPrompt(cat, goal), { ...env, LOCAL_OUTPUT_SCHEMA: JSON.stringify(planSchema(cat)), LOCAL_MAX_OUTPUT_TOKENS: "2048" }).catch((e) => ({ ok: false, error: e.message }));
+    if (!answer?.ok) { error = answer?.error || "sem resposta"; break; }
+    const plan = normalizePlan(answer.text, cat, goal);
+    if (!plan) { error = "plano inválido"; continue; }
+    plan.nota = scorePlan(plan, cat, goal);
+    scores.push(plan.nota);
+    if (!best || plan.nota > best.nota) best = plan;
+    if (plan.nota >= good) break;
+  }
+  if (!best) { onError(error || "plano inválido"); return null; }
+  best.tentativas = scores;
+  return best;
 }

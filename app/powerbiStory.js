@@ -150,7 +150,7 @@ export function readFlow(fact, tables = []) {
   return {
     fact: fact.name, status: best.column.name, stages, done,
     place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, siteValues, asset: asset?.name || null, driver: driver?.name || null,
-    id: id?.name || null, date: startCol?.name || null, due: due?.name || null, doneAt: endCol?.name || null,
+    id: id?.name || null, date: startCol?.name || null, dateHasTime: startCol?.type === "datahora", due: due?.name || null, doneAt: endCol?.name || null,
     details, vehicles, stock, glyph, timeline, placePlural, placeMasc, environment, colorBy,
     queueLabel: (stages.find((st) => st.key === "fila")?.values[0] || "na fila").toLowerCase().replace(/^(pedido |chamado )/, "").replace(/^recebid[oa]$/, "na fila"),
     transitLabel: (stages.find((st) => st.key === "transito")?.values[0] || "em trânsito").toLowerCase(),

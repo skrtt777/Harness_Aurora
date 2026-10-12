@@ -14,7 +14,7 @@ const fmtNum = (v) => (Number.isFinite(v) ? v.toLocaleString("pt-BR", { maximumF
  */
 export function diffSnapshots(prev, cur, meta = {}) {
   const facts = []; const alerts = [];
-  if (!prev) return { facts, alerts };
+  if (!prev) return { facts, alerts, changed: [] };
   for (const [name, now] of Object.entries(cur.numbers || {})) {
     const before = prev.numbers?.[name];
     if (!Number.isFinite(now) || !Number.isFinite(before) || now === before) continue;
@@ -43,7 +43,15 @@ export function diffSnapshots(prev, cur, meta = {}) {
     facts.push(`Novos atrasados: ${newLate.join(", ")}`);
     alerts.push(`${newLate.length} ${newLate.length === 1 ? "novo atrasado" : "novos atrasados"}: ${newLate.slice(0, 5).join(", ")}`);
   }
-  return { facts, alerts };
+  // Who to ring in the scene: those who arrived and those who changed place.
+  const changed = Object.keys(curE).filter((name) => !prevE[name] || prevE[name].where !== curE[name].where || prevE[name].place !== curE[name].place);
+  return { facts, alerts, changed };
+}
+
+/** The 'Mudanças' table: the names to ring (one empty row: nobody). */
+export function changedTable(names) {
+  const esc = (v) => String(v).replace(/"/g, "\"\"");
+  return `DATATABLE("Nome", STRING, {${(names.length ? names.slice(0, 200) : [""]).map((n) => `{"${esc(n)}"}`).join(", ")}})`;
 }
 
 /** The note from the facts: the local model writes 1-2 sentences with only them; without it, the facts. */
