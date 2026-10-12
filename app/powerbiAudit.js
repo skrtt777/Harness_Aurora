@@ -21,8 +21,8 @@ export async function auditReport(plan, ask) {
     for (const v of page.visuals) {
       if (!v.from) continue;
       const label = v.title || v.values;
-      if (v.type === "card" || v.type === "gauge") {
-        const r = await ask("query", { dax: `EVALUATE ROW("v", CALCULATE(${v.values}${filters.length ? `, ${filters.join(", ")}` : ""}))`, max: 2 });
+      if (v.type === "card" || v.type === "gauge" || v.kpi) {
+        const r = await ask("query", { dax: `EVALUATE ROW("v", CALCULATE(${v.kpi || v.values}${filters.length ? `, ${filters.join(", ")}` : ""}))`, max: 2 });
         const value = r.ok ? String(r.text).split("\n")[2]?.trim() : "";
         if (r.ok && !value) issues.push({ page: page.displayName, title: label, why: "fica em branco", from: v.from });
         continue;

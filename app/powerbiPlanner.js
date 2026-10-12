@@ -360,7 +360,12 @@ export function materialize(page, cat, look = "noite") {
   // The moment and the unit (the filters with a default) come first: they decide what the page shows.
   const first = cat.slicerRefs.filter((r) => cat.slicerDefaults?.[r]);
   const slicers = [...new Set([...first, ...slicerRefs])].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true, ...(cat.slicerDefaults?.[values] ? { select: [cat.slicerDefaults[values]], single: true } : {}) }));
-  const cards = page.numeros.map((name) => ({ type: "card", values: m(name), title: name, from: { numero: name }, ...(cat.money.has(name) ? { precision: 0 } : {}) }));
+  // Each number as a KPI tile (value, last month, the year's line); the plain card stays for the narrow
+  // strip of the twin page.
+  const cards = page.numeros.map((name) => {
+    const classic = { type: "card", values: m(name), title: name, from: { numero: name }, ...(cat.money.has(name) ? { precision: 0 } : {}) };
+    return cat.kpi ? { type: "image", url: m(cat.kpi(name, look === "noite")), kpi: m(name), from: { numero: name }, classic } : classic;
+  });
   return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks: shown, slicers };
 }
 

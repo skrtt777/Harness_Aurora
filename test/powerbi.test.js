@@ -43,10 +43,12 @@ test("the design: no measure named like a column, a calendar, the main numbers o
   // No fixed pages: the automatic plan (no model here) opens on the results, with the main numbers.
   assert.equal(plan.plan.planner, "automático");
   assert.ok(plan.pages.length >= 1 && plan.pages.length <= 4);
-  const cards = plan.pages[0].visuals.filter((v) => v.type === "card").map((v) => v.title);
+  const cards = plan.pages[0].visuals.filter((v) => v.type === "card" || v.kpi).map((v) => v.from?.numero || v.title);
   assert.ok(cards.includes("Faturamento"));
   // Every field of every visual exists in the model.
-  for (const page of plan.pages) for (const v of page.visuals) if (v.type !== "textbox") assert.ok(visual(v, plan.measures).visual.query);
+  for (const page of plan.pages) for (const v of page.visuals) if (v.type !== "textbox" && v.type !== "image") assert.ok(visual(v, plan.measures).visual.query);
+  // The KPI tiles: an image bound to its measure, which exists.
+  for (const v of plan.pages[0].visuals.filter((x) => x.kpi)) assert.ok(plan.measureList.some((m) => `[${m.name}]` === v.url));
 });
 
 test("visual JSON: fields, sort, card without a second label", () => {

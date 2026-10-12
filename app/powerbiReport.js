@@ -66,7 +66,9 @@ export function visual(spec, measures, z = 0) {
       visualContainerObjects: {
         ...(spec.title ? { title: [{ properties: { show: literal(true), text: literal(spec.title), ...(spec.titleColor ? { fontColor: color(spec.titleColor) } : {}) } }] } : { title: [{ properties: { show: literal(false) } }] }),
         ...(spec.background ? { background: [{ properties: { show: literal(true), color: color(spec.background) } }] } : {}),
-        ...(spec.border === false ? { border: [{ properties: { show: literal(false) } }] } : {}),
+        ...(spec.border === false || spec.bare ? { border: [{ properties: { show: literal(false) } }] } : {}),
+        // A bare picture (the footer): no card behind it.
+        ...(spec.bare ? { background: [{ properties: { show: literal(false) } }], padding: [{ properties: { top: literal(0), bottom: literal(0), left: literal(0), right: literal(0) } }], dropShadow: [{ properties: { show: literal(false) } }], visualHeader: [{ properties: { show: literal(false) } }] } : {}),
       },
       drillFilterOtherVisuals: true,
     };

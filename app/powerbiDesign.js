@@ -11,6 +11,7 @@ import { cityScene } from "./powerbiScene.js";
 import { plantaScene, readSpace } from "./powerbiSpace.js";
 import { mapScene, readGeo } from "./powerbiMap.js";
 import { sceneColumn, vehicleVars } from "./powerbiScene.js";
+import { kpiTile } from "./powerbiKpi.js";
 import { composePage } from "./powerbiLayout.js";
 import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
@@ -511,6 +512,17 @@ export function prepare(tables, { title, goal = "" } = {}) {
     // Where each measure lives: one of another table (the stock) cannot be grouped by the fact's columns.
     foreign: new Set(measures.filter((x) => x.table && x.table !== fact.name).map((x) => x.name)),
     numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),
+    // A KPI tile for a number (made once per look, when a page uses it): name, value, last month, 12-month line.
+    kpi: (name, dark) => {
+      const tile = `KPI: ${name}${dark ? "" : " (dia)"}`;
+      if (!measures.some((x) => x.name === tile)) {
+        const source = measures.find((x) => x.name === name);
+        // A number of "now" (in progress, in line, late now) has no month to compare: the value alone.
+        const now = (story?.kpis || []).includes(name) || /agora|em andamento|na fila|nas docas|nos caixas|no p[áa]tio|no local|em tr[âa]nsito|aguardando/i.test(name);
+        add(tile, kpiTile({ measure: m(name), name, format: source?.format === MONEY ? MONEY_ROUND : source?.format, calendar: date && !now ? "'Calendário'" : null, dark }), null, "Cartões", `O cartão de ${name}`, { category: "ImageUrl" });
+      }
+      return tile;
+    },
     dims: dims.slice(0, 14).map(({ name, ref, distinct }) => ({ name, ref, distinct })),
     time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
     scenes, specials: {
@@ -544,6 +556,17 @@ export function prepare(tables, { title, goal = "" } = {}) {
 /** The pages from a plan (or the automatic one), and the model. */
 export function finish(prep, rawPlan = null) {
   const { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline } = prep;
+  // The footer of the pages: the sources, the last refresh (amber past 10 minutes), the promise of refresh.
+  const footer = (dark) => {
+    const name = `Rodapé${dark ? "" : " (dia)"}`;
+    if (!measures.some((x) => x.name === name)) {
+      const soft = dark ? "%238FA3BF" : "%235B6B85"; const late = dark ? "%23F6D365" : "%23B98A22";
+      const sources = cat.sources.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "\"\"").replace(/%/g, "%25").replace(/#/g, "%23").slice(0, 90);
+      measures.push({ name, folder: "Cartões", category: "ImageUrl", description: "Fonte e última atualização, no rodapé das páginas",
+        expression: `VAR U = MAX('Atualização'[Atualizado em])\nVAR Atrasado = ISBLANK(U) || NOW() - U > 10 / 1440\nRETURN "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1232 20' preserveAspectRatio='xMinYMid meet'><text x='2' y='14' font-family='Segoe UI, sans-serif' font-size='11.5' fill='${soft}'>Fonte: ${sources} · <tspan fill='" & IF(Atrasado, "${late}", "${soft}") & "'>atualizado em " & IF(ISBLANK(U), "—", FORMAT(U, "dd/mm/yyyy HH:nn")) & "</tspan> · o painel se atualiza sozinho quando a planilha muda (no máximo a cada 10 min)</text><text x='1230' y='14' text-anchor='end' font-family='Segoe UI, sans-serif' font-size='11.5' font-weight='600' fill='${soft}'>Aurora</text></svg>"` });
+    }
+    return name;
+  };
   const plan = (rawPlan && (rawPlan.planner ? rawPlan : normalizePlan(rawPlan, cat, goal))) || autoPlan(cat, goal);
   const reportTitle = prep.userTitle || plan.titulo || prep.reportTitle;
   const dark = plan.estilo.tema === "escuro";
@@ -551,7 +574,9 @@ export function finish(prep, rawPlan = null) {
   const pages = plan.paginas.map((p) => {
     // Light pages get the scenes by day; the night pictures (tracker, detail) keep a dark frame there.
     const visuals = composePage(materialize(p, cat, dark ? "noite" : "dia"), style, reportTitle);
-    if (!dark) for (const v of visuals) if (v.type === "image" && !(v.scene && v.look === "dia")) { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
+    // Every page ends with where the numbers come from and when they were last read.
+    visuals.push({ type: "image", url: `[${footer(dark)}]`, x: 24, y: 698, w: 1232, h: 20, bare: true });
+    if (!dark) for (const v of visuals) if (v.type === "image" && !v.kpi && !(v.scene && v.look === "dia")) { v.background = "#0B1220"; v.titleColor = "#E8EDF5"; }
     return { displayName: p.nome, visuals };
   });
 

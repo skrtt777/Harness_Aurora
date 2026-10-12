@@ -326,7 +326,7 @@ async function loadOpened(result, plan, report, conversationId, onStage) {
   onStage("Carregando os dados…");
   result.refreshed = ok(await pbiRequest("refresh", {}, 300_000)).text;
   // The headline numbers, as the cards will show them.
-  const kpis = plan.pages[0].visuals.filter((v) => v.type === "card").map((v) => v.values);
+  const kpis = plan.pages[0].visuals.filter((v) => v.type === "card" || v.kpi).map((v) => v.kpi || v.values);
   if (kpis.length) {
     // Formatted as the cards show them ("66,0%", not 0,66 — read as 0,66% by the model, 11/10).
     const formatOf = (k) => plan.measureList.find((x) => `[${x.name}]` === k)?.format;

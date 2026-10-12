@@ -14,7 +14,8 @@ export const LAYOUTS = {
   foco_unico: "um número grande e um destaque grande; o resto pequeno",
 };
 
-const M = 24; const G = 12; const RIGHT = 1256; const BOTTOM = 704; const HEAD = 84; const CARD_H = 88;
+// The bottom leaves a line for the footer (source, last refresh), drawn on every page.
+const M = 24; const G = 12; const RIGHT = 1256; const BOTTOM = 694; const HEAD = 84; const CARD_H = 100;
 const rect = (x, y, w, h) => ({ x, y, w, h });
 
 /** n rectangles across (horizontal) or down a rectangle, with gaps; weights optional. */
@@ -107,7 +108,7 @@ export function composePage(page, style, reportTitle) {
   if (layout === "gemeo_digital") {
     // WareTrack-like: a thin strip of numbers, the scene as the page, the chosen item's card floating on it.
     const strip = rect(M, HEAD, RIGHT - M, 64);
-    if (cards.length) split(strip, cards.length, true).forEach((c, i) => visuals.push(place({ ...cards[i], fontSize: 18 }, c)));
+    if (cards.length) split(strip, cards.length, true).forEach((c, i) => visuals.push(place({ ...(cards[i].classic || cards[i]), fontSize: 18 }, c)));
     const top = cards.length ? HEAD + 64 + G : HEAD;
     const [first, ...rest] = main;
     const bottom = rest.filter((b) => !b.float);
