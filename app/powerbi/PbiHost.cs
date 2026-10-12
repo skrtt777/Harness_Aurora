@@ -252,6 +252,14 @@ static class Pbi {
         t.Partitions.Add(new Microsoft.AnalysisServices.Tabular.Partition { Name = name, Source = new Microsoft.AnalysisServices.Tabular.CalculatedPartitionSource { Expression = Str(op, "expression") } });
         m.Tables.Add(t);
         done.Add("criei a tabela calculada " + name);
+      } else if (kind == "tableExpression") {
+        // A calculated table's contents rewritten (what the Aurora highlights, its notes) and refreshed.
+        var t = T(Str(op, "name"));
+        var src = t.Partitions[0].Source as Microsoft.AnalysisServices.Tabular.CalculatedPartitionSource;
+        if (src == null) throw new Exception("A tabela " + t.Name + " não é calculada.");
+        src.Expression = Str(op, "expression");
+        t.RequestRefresh(Microsoft.AnalysisServices.Tabular.RefreshType.Full);
+        done.Add("atualizei a tabela " + t.Name);
       } else if (kind == "relationship") {
         var from = Ref(Str(op, "from")); var to = Ref(Str(op, "to"));
         var r = new Microsoft.AnalysisServices.Tabular.SingleColumnRelationship {

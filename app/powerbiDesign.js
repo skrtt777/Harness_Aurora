@@ -401,7 +401,10 @@ export function prepare(tables, { title, goal = "" } = {}) {
     numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),
     dims: dims.slice(0, 14).map(({ name, ref, distinct }) => ({ name, ref, distinct })),
     time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
-    scenes, specials: { ...(story?.specials || {}), ...(fin?.specials || {}) },
+    scenes, specials: {
+      ...(story?.specials || {}), ...(fin?.specials || {}),
+      notas_aurora: { desc: "o que mudou desde a última atualização (a Aurora escreve a cada atualização, no máximo a cada 10 min)", make: () => ({ type: "tableEx", float: true, title: "O que mudou (Aurora)", values: ["'Notas da Aurora'[Quando]", "'Notas da Aurora'[Texto]"], totals: false, sort: { by: "'Notas da Aurora'[Quando]", desc: true } }) },
+    },
     // The unit switcher (CD, filial) comes first, like the switcher of a control room.
     slicerRefs: [flow?.timeline ? "'Momento'[Quando]" : null, story?.site, ...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
     // The unit switcher opens on one unit (single choice): the cards and the yard look at the same one.
@@ -414,7 +417,14 @@ export function prepare(tables, { title, goal = "" } = {}) {
     ].filter(Boolean),
     related: (a, b) => [headline, count, ticket, "% do total"].includes(b),
   };
-  return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title };
+  // What the Aurora compares after each refresh: the main numbers and, for an operation, each entity.
+  const watch = {
+    numbers: cardable.filter((n) => principal.includes(n)).slice(0, 8),
+    badUp: cardable.filter((n) => /atras|fila|aguard|sa[íi]das|custo|despesa|estour/i.test(n)),
+    place: flow?.place || null,
+    entities: flow && (flow.asset || flow.id) ? `EVALUATE\n${vehicleVars(flow, q(fact.name)).join("\n")}\nRETURN SELECTCOLUMNS(Veiculos, "n", [@nome], "w", [@where], "d", [@doca], "a", [@atraso])` : null,
+  };
+  return { cat, goal, tables, fact, relationships, date, measures, flow, fin, ledger, headline, reportTitle, userTitle: title, watch };
 }
 
 /** The pages from a plan (or the automatic one), and the model. */
@@ -447,6 +457,10 @@ export function finish(prep, rawPlan = null) {
   const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
   // The timeline: one moment chosen at a time (the cards and the scene follow it).
   if (flow?.timeline) modelTables.push({ name: "Momento", dax: momentTable(), columns: [{ name: "Minutos", type: "inteiro", hidden: "True" }, { name: "Quando", type: "texto", sortBy: "Minutos" }] });
+  // What changed since the last refresh, written by the Aurora (app/powerbiChanges.js).
+  modelTables.push({ name: "Notas da Aurora", dax: "DATATABLE(\"Quando\", STRING, \"Texto\", STRING, {{\"\", \"\"}})", columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
+  // What the Aurora shows when asked ("mostra a doca 3"): she rewrites this table; the scenes ring it.
+  modelTables.push({ name: "Destaque", dax: "DATATABLE(\"Valor\", STRING, \"Nota\", STRING, {{\"\", \"\"}})", hidden: "True", columns: [{ name: "Valor", type: "texto" }, { name: "Nota", type: "texto" }] });
   modelTables.push({ name: "Atualização", dax: "ROW(\"Atualizado em\", NOW())", hidden: "True", columns: [{ name: "Atualizado em", type: "data", format: "dd/mm/yyyy HH:mm" }] });
   if (date) {
     modelTables.push({ name: "Calendário", dax: calendarDax(fact.name, date.name), dateTable: "True", columns: CALENDAR_COLUMNS });
@@ -464,5 +478,5 @@ export function finish(prep, rawPlan = null) {
     `Plano (${plan.planner}): ${plan.paginas.map((p) => `${p.nome} [${p.layout}${p.cena !== "nenhuma" ? `, cena ${p.cena}` : ""}] — ${p.pergunta}`).join("; ")}. Estilo: ${plan.estilo.tema}, ${plan.estilo.cor}, ${plan.estilo.tom}.`,
     `Páginas: ${pages.map((p) => `${p.displayName} (${p.visuals.length} visuais)`).join(", ")}.`,
   ].filter(Boolean).join("\n");
-  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark, accent: COLORS[plan.estilo.cor], tone: plan.estilo.tom }, flow, ledger: fin ? ledger : null, plan };
+  return { name: reportTitle, fact: fact.name, headline, model: { name: reportTitle, culture: "pt-BR", tables: modelTables, relationships: modelRelationships }, measures: measureTable, pages, summary, measureList: measures, palette: { dark, accent: COLORS[plan.estilo.cor], tone: plan.estilo.tom }, flow, ledger: fin ? ledger : null, plan, watch: prep.watch };
 }

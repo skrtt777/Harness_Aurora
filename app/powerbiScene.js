@@ -26,6 +26,14 @@ export function joinDax(parts) {
   return out.length ? out.join(" & ") : "\"\"";
 }
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+// What the Aurora points at (the 'Destaque' table she writes when asked "mostra…"), and her note.
+export const HIGHLIGHT_VARS = ["VAR Destacados = VALUES('Destaque'[Valor])", "VAR NotaAurora = MAXX('Destaque', 'Destaque'[Nota]) & \"\""];
+/** A pulsing ring the Aurora draws around what she was asked to show. */
+export const auroraRing = (x, y, rx, ry) => `<ellipse cx='${x}' cy='${y}' rx='${rx}' ry='${ry}' fill='none' stroke='${'#B04BFF'}' stroke-width='5'><animate attributeName='stroke-opacity' values='1;0.25;1' dur='1.1s' repeatCount='indefinite'/></ellipse>`;
+/** Her note across the top of a scene ("Aurora: a Doca 03 está parada há 40 min"). */
+export function auroraBanner(vb) {
+  return [`<g ${"font-family='Segoe UI, sans-serif'"}>`, D(`IF(NotaAurora = "", "", "<rect x='${Math.round(vb.x + vb.w * 0.2)}' y='${Math.round(vb.y + 8)}' width='${Math.round(vb.w * 0.6)}' height='40' rx='20' fill='%23B04BFF' opacity='0.92'/><text x='${Math.round(vb.x + vb.w / 2)}' y='${Math.round(vb.y + 35)}' text-anchor='middle' font-size='20' font-weight='700' fill='%23FFFFFF'>" & ${safe("\"Aurora: \" & LEFT(NotaAurora, 80)")} & "</text>")`), "</g>"];
+}
 const when = (condition, parts) => D(`IF(${condition}, ${joinDax(parts)}, "")`);
 const URL_HEAD = "data:image/svg+xml;utf8,";
 const FONT = "font-family='Segoe UI, sans-serif'";
@@ -290,6 +298,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       `<text x='${px}' y='${r1(Number(py) - 15 - lift)}' text-anchor='middle' fill='${L.plateText}' ${FONT} font-size='${n > 10 ? 13 : 15}' font-weight='700'>`, D(safe(`LEFT([@nome], 9) & IF([@n] > 1, " +" & ([@n] - 1), "")`)), "</text>",
     ]));
     const [gx, gy] = cv.at(cx, DEPTH + 90, 0);
+    frag.push(when(`${place} IN Destacados || [@nome] IN Destacados`, auroraRing(gx, gy, G === "veiculo" ? 84 : 56, G === "veiculo" ? 48 : 32)));
     frag.push(when("Filtrado && [@n] > 0 && [@id] IN Visiveis", [`<ellipse cx='${gx}' cy='${gy}' rx='${G === "veiculo" ? 70 : 46}' ry='${G === "veiculo" ? 40 : 26}' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
     const [nx, ny] = cv.at(cx - tw / 2 - 4, DEPTH, G === "veiculo" ? 76 : 98);
     frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 12 : 15}' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
@@ -301,7 +310,8 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const queueSlots = [];
   for (let j = 0; j < QUEUE; j += 1) {
     const [x, y] = spot(j);
-    queueSlots.push(`${j + 1}, ${joinDax([G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila")])}`);
+    const [mx, my] = cv.at(x + (G === "veiculo" ? 32 : 0), y + (G === "veiculo" ? 60 : 0), 0);
+    queueSlots.push(`${j + 1}, ${joinDax([G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila"), when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24))])}`);
   }
   const roadSlots = [];
   if (hasRoad) {
@@ -311,7 +321,8 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       const [a0x, a0y] = cv.at(X, Y, 0); const [a1x, a1y] = cv.at(X, Y - 40, 0);
       const moving = `<animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`;
       // Loads and people go out by vehicle too: a van carrying them, coloured by their stage.
-      roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada"), "</g>"])}`);
+      const [mx, my] = cv.at(X + 17, Y - 60, 0);
+      roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada"), when("[@nome] IN Destacados", auroraRing(mx, my, 50, 30)), "</g>"])}`);
     }
   }
   const [qx, qy] = cv.at(0, G === "veiculo" ? 620 : 590, 0);
@@ -337,6 +348,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     legend.push(`<text x='${r1(lx + 30)}' y='${r1(ly + 1)}' fill='${L.text}' ${FONT} font-size='20'>${xml(text)}</text>`);
   });
   if (stamp) legend.push(liveBadge(stamp, vb.x + vb.w - 320, vb.y + 14, L));
+  legend.push(auroraBanner(vb));
   if (flow.timeline) legend.push(`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 100)}' text-anchor='end' ${FONT} font-size='24' font-weight='800' fill='`, D(`IF(T > NOW() + 1 / 1440, ${daxText(L.transit)}, ${daxText(L.queue)})`), "'>", D(`IF(T < NOW() - 1 / 1440, "REPRISE · " & FORMAT(T, "dd/mm HH:nn"), IF(T > NOW() + 1 / 1440, "PREVISÃO · " & FORMAT(T, "dd/mm HH:nn") & " (fantasmas)", ""))`), "</text>");
   legend.push(when(`nDocas > ${n}`, [`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 76)}' text-anchor='end' fill='${L.text}' ${FONT} font-size='17'>`, D(`"+" & (nDocas - ${n}) & " ${xml(flow.placePlural || `${flow.place.toLowerCase()}s`)} fora do desenho"`), "</text>"]));
   // The fidelity seal: what is drawn against what the data has, counted live ("✓ 22 de 22").
@@ -355,6 +367,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const dax = [
     ...unitVars,
     ...vehicleVars(flow, "Base", at),
+    ...HIGHLIGHT_VARS,
     `VAR Visiveis = ${selected ? `VALUES(${col(F, selected)})` : "{ BLANK() }"}`,
     `VAR Filtrado = ${selected ? "COUNTROWS(FILTER(Veiculos, NOT [@id] IN Visiveis)) > 0" : "FALSE()"}`,
     "VAR NaDoca = FILTER(Veiculos, [@where] = \"doca\")",
@@ -549,6 +562,7 @@ export function cityScene(spec) {
     const colour = (i) => D(year ? `IF(ISBLANK([@p]) || ISBLANK([@a]), ${daxText(PALETTE[0][i])}, IF([@a] >= [@p], ${daxText(UP[i])}, ${daxText(DOWN[i])}))` : `SWITCH(TRUE(), [@i] <= 1, ${daxText(PALETTE[0][i])}, [@i] <= 3, ${daxText(PALETTE[1][i])}, ${daxText(PALETTE[2][i])})`);
     const h = `MAX(6, INT(${H} * DIVIDE([@v], Mx)))`;
     const frag = [cv.poly([[X - 14, Y - 14, 0], [X + FOOT + 14, Y - 14, 0], [X + FOOT + 14, Y + FOOT + 14, 0], [X - 14, Y + FOOT + 14, 0]], L.yard)];
+    frag.push(when(`${column} IN Destacados`, auroraRing(...cv.at(X + FOOT / 2, Y + FOOT / 2, 0), 110, 64)));
     frag.push("<g opacity='", D("IF([@sel] = 1, \"1\", \"0.22\")"), "'>");
     frag.push(rising(cv, X, Y, FOOT, FOOT, h, H, [colour(0), colour(1), colour(2)]));
     // Windows: a few lit rows on the front faces, as high as the building goes.
@@ -576,6 +590,7 @@ export function cityScene(spec) {
     // Faithful: what does not fit is said, never left out silently.
     "VAR nFora = COUNTROWS(FILTER(Base, NOT ISBLANK([@v]) && [@v] > 0)) - COUNTROWS(Itens)",
     `VAR Visiveis = VALUES(${column})`,
+    ...HIGHLIGHT_VARS,
     `VAR Filtrado = ISFILTERED(${column})`,
     `VAR S0 = ADDCOLUMNS(Itens, "@i", VAR v = [@v] VAR c = ${column} RETURN COUNTROWS(FILTER(Itens, [@v] > v || ([@v] = v && ${column} < c))) + 1, "@sel", IF(NOT Filtrado || ${column} IN Visiveis, 1, 0))`,
     year
@@ -583,6 +598,7 @@ export function cityScene(spec) {
       : "VAR S = S0",
     `RETURN ${daxText(URL_HEAD)} & ${daxText(svgOpen(vb).replace("'>", "' preserveAspectRatio='none'>"))} & ${joinDax(parts)}`,
     `  & CONCATENATEX(S, SWITCH([@i], ${slots.join(",\n    ")}, ""), "", [@i], ASC)`,
+    `  & ${joinDax(auroraBanner(vb))}`,
     `  & IF(nFora > 0, "<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 30)}' text-anchor='end' font-family='Segoe UI' font-size='20' fill='${L.text.replace("#", "%23")}'>+" & nFora & " fora do desenho (os ${n} maiores aparecem)</text>", "")`,
     "  & \"</svg>\"",
   ].join("\n");

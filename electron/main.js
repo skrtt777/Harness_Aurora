@@ -9,6 +9,7 @@ import { createMemory } from "../app/store.js";
 import { closeBrowserContext } from "../app/browserAgent.js";
 import { terminateOcr } from "../app/ocr.js";
 import { onAutomaticRun } from "../app/agentScheduler.js";
+import { biEvents } from "../app/powerbiChanges.js";
 import { stopMcpServers } from "../app/mcp.js";
 import { approvalEvents } from "../app/pendingTurns.js";
 import { setMapPauseCheck } from "../app/computerMap.js";
@@ -285,6 +286,13 @@ if (hasSingleInstanceLock) {
       if (!Notification.isSupported() || (mainWindow?.isVisible() && mainWindow.isFocused())) return;
       const note = new Notification({ title: "A Aurora precisa da sua autorização", body: String(summary || "").slice(0, 120) });
       note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:open-conversation", conversationId); });
+      note.show();
+    });
+    // A BI the Aurora keeps current got worse (more late, a number past its limit): say so.
+    biEvents.on("alert", ({ title, body }) => {
+      if (!Notification.isSupported()) return;
+      const note = new Notification({ title: String(title || "Power BI").slice(0, 90), body: String(body || "").slice(0, 160) });
+      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
       note.show();
     });
     onAutomaticRun((agent, run) => {

@@ -2,7 +2,7 @@
 // position (X, Y), a size (width, depth) and maybe a floor becomes a 3D plan — each row a box where it is,
 // coloured by its type, the chosen ones lit and the rest as wireframe. The coordinates are computed in DAX
 // from each row's own columns, so a new row in the spreadsheet is a new box after the next refresh.
-import { D, daxText, joinDax, safe } from "./powerbiScene.js";
+import { D, HIGHLIGHT_VARS, auroraBanner, daxText, joinDax, safe } from "./powerbiScene.js";
 
 const X_NAME = /^(x|pos(i[çc][ãa]o)? ?x|coord(enada)? ?x|x \(m\))$/i;
 const Y_NAME = /^(y|pos(i[çc][ãa]o)? ?y|coord(enada)? ?y|y \(m\))$/i;
@@ -86,7 +86,8 @@ export function plantaScene(space, { look = "noite", label = null } = {}) {
   ].join(" & ");
   const [tx, ty] = [sx(`${X0} + ${W} / 2`, `${Y0} + ${Dd} / 2`), sy(`${X0} + ${W} / 2`, `${Y0} + ${Dd} / 2`, zTop)];
   const text = `IF(${c(space.w)} * ${c(space.d)} * ${K * K} > 2600, "<text text-anchor='middle' font-family='Segoe UI' font-size='13' font-weight='600' fill='" & IF(Aceso, ${daxText("#FFFFFF")}, ${daxText(L.soft)}) & "' x='" & ${tx} & "' y='" & (${ty} + 5) & "'>" & ${safe(`LEFT(${c(space.name)}, 16)`)} & "</text>", "")`;
-  const each = `VAR Cor = ${kindIndex}\nVAR Aceso = NOT Filtrado || ${c(space.name)} IN Escolhidos\nRETURN ${box} & ${text}`;
+  const ring = `IF(${c(space.name)} IN Destacados, "<ellipse fill='none' stroke='%23B04BFF' stroke-width='5' rx='60' ry='34' cx='" & ${tx} & "' cy='" & (${ty} + 4) & "'><animate attributeName='stroke-opacity' values='1;0.25;1' dur='1.1s' repeatCount='indefinite'/></ellipse>", "")`;
+  const each = `VAR Cor = ${kindIndex}\nVAR Aceso = NOT Filtrado || ${c(space.name)} IN Escolhidos || ${c(space.name)} IN Destacados\nRETURN ${box} & ${text} & ${ring}`;
   const legend = space.kind ? `CONCATENATEX(ADDCOLUMNS(ALL(${c(space.kind)}), "@i", COUNTROWS(FILTER(ALL(${c(space.kind)}), ${c(space.kind)} < EARLIER(${c(space.kind)}))) + 0), "<rect x='${Math.round(vb.x + 20)}' y='" & INT(${Math.round(vb.y + 18)} + [@i] * 28) & "' width='18' height='18' rx='9' fill='" & SWITCH(MOD([@i], ${KIND_COLORS.length}), ${KIND_COLORS.map((s, n) => `${n}, ${daxText(s[1])}`).join(", ")}) & "'/><text font-family='Segoe UI' font-size='17' fill='${L.text.replace("#", "%23")}' x='${Math.round(vb.x + 46)}' y='" & INT(${Math.round(vb.y + 33)} + [@i] * 28) & "'>" & ${safe(c(space.kind))} & "</text>", "", [@i], ASC)` : "\"\"";
   const floorsLabel = space.floor ? `"<text font-family='Segoe UI' font-size='15' fill='${L.soft.replace("#", "%23")}' x='${Math.round(vb.x + vb.w - 20)}' y='${Math.round(vb.y + 30)}' text-anchor='end'>" & ${safe(`"${space.floor}s: " & CONCATENATEX(VALUES(${c(space.floor)}), ${c(space.floor)}, ", ", ${c(space.floor)}, ASC)`)} & "</text>"` : "\"\"";
   const dax = [
@@ -94,9 +95,10 @@ export function plantaScene(space, { look = "noite", label = null } = {}) {
     `VAR Filtrado = ISCROSSFILTERED(${c(space.name)})`,
     // Painter's order: lower floors first, then from the back (small X + Y) to the front.
     `VAR Salas = ALL(${q(F)})`,
+    ...HIGHLIGHT_VARS,
     `RETURN ${daxText("data:image/svg+xml;utf8,")} & ${daxText(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${Math.round(vb.x)} ${Math.round(vb.y)} ${Math.round(vb.w)} ${Math.round(vb.h)}' preserveAspectRatio='none'><rect x='${Math.round(vb.x)}' y='${Math.round(vb.y)}' width='${Math.round(vb.w)}' height='${Math.round(vb.h)}' fill='${L.ground}'/>`)}`,
     `  & CONCATENATEX(Salas, ${each.split("\n").join(" ")}, "", ${space.floor ? `${c(space.floor)}, ASC, ` : ""}${c(space.x)} + ${c(space.y)}, ASC)`,
-    `  & ${legend} & ${floorsLabel}`,
+    `  & ${legend} & ${floorsLabel} & ${joinDax(auroraBanner(vb))}`,
     "  & \"</svg>\"",
   ].join("\n");
   // Each room's centre, for the scatter laid over the plan (a click on a room filters the page).

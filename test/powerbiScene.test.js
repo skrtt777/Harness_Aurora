@@ -188,3 +188,19 @@ test("the digital twin page: the scene is the page, a scatter over it for the cl
   assert.ok(card.x + card.w <= 1256 && card.y >= scene.y);
   assert.ok(!visuals.some((v) => "fitted" in v));
 });
+
+test("what changed between two refreshes: numbers, who moved, who is newly late, and an alert when it got worse", async () => {
+  const { diffSnapshots, narrate, notesTable } = await import("../app/powerbiChanges.js");
+  const prev = { numbers: { "Atrasados agora": 1, "Caminhões na fila": 3 }, entities: { "ABC-1": { where: "fila", place: "", late: false }, "DEF-2": { where: "doca", place: "Doca 01", late: false }, "GHI-3": { where: "estrada", place: "", late: false } } };
+  const cur = { numbers: { "Atrasados agora": 3, "Caminhões na fila": 3 }, entities: { "ABC-1": { where: "doca", place: "Doca 02", late: false }, "GHI-3": { where: "estrada", place: "", late: true }, "JKL-4": { where: "fila", place: "", late: false } } };
+  const { facts, alerts } = diffSnapshots(prev, cur, { badUp: ["Atrasados agora"], place: "Doca" });
+  assert.ok(facts.includes("Atrasados agora: 1 → 3"));
+  assert.ok(!facts.some((f) => /Caminhões na fila/.test(f)), "an unchanged number is not news");
+  assert.ok(facts.some((f) => /ABC-1: na fila → em doca Doca 02/.test(f)));
+  assert.ok(facts.some((f) => /Chegaram: JKL-4/.test(f)) && facts.some((f) => /Concluídos: DEF-2/.test(f)));
+  assert.ok(alerts.some((a) => /novo atrasado: GHI-3/.test(a)) && alerts.some((a) => /Atrasados agora subiu de 1 para 3/.test(a)));
+  // A note with a number the facts do not have is not used.
+  assert.equal(await narrate(["Atrasados agora: 1 → 3"], async () => ({ ok: true, text: "Os atrasados subiram para 5." })), "Atrasados agora: 1 → 3");
+  assert.equal(await narrate(["Atrasados agora: 1 → 3"], async () => ({ ok: true, text: "Os atrasados foram de 1 para 3." })), "Os atrasados foram de 1 para 3.");
+  assert.match(notesTable([{ when: "14:10", text: "Doca \"03\" livre" }]), /DATATABLE\("Quando", STRING, "Texto", STRING, \{\{"14:10", "Doca ""03"" livre"\}\}\)/);
+});

@@ -138,9 +138,11 @@ const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b
 export const powerBiTools = [
   {
     name: "powerbi",
-    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; a medida pelo sentido (gasto/despesa = Saídas; receita = Entradas; quantos = contagem) e o item citado no filter (\"quanto gastamos com marketing\" = measure \"Saídas no período\", filter \"Categoria=Marketing\"); dax só se isso não bastar; action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
+    description: "Power BI. action=build cria um BI completo a partir de planilhas (files: [\"Documentos/vendas.xlsx\"], .xlsx ou .csv; name: o título do painel; goal: o que a pessoa quer ver, nas palavras dela): modelo semântico (tabelas, calendário, relações, medidas em R$) e as páginas que o pedido e os dados pedem — com etapas/status (pedidos, entregas, chamados) vem a página de operação com a cena desenhada pelos dados (docas e caminhões, rastreamento, item selecionado); \"só a operação\" ou \"sem a tendência\" no goal mudam as páginas — e abre no Power BI Desktop já atualizado. Num Power BI aberto: action=connect (window: parte do título, se houver vários), action=model mostra tabelas, colunas, medidas e relações; action=query responde com números — use measure + by (+ top, filter): ex. \"qual produto vendeu mais em 2026\" = measure \"Faturamento\", by \"Produto\", top 1, filter \"Ano=2026\"; a medida pelo sentido (gasto/despesa = Saídas; receita = Entradas; quantos = contagem) e o item citado no filter (\"quanto gastamos com marketing\" = measure \"Saídas no período\", filter \"Categoria=Marketing\"); dax só se isso não bastar; action=show acende no painel o que a pessoa pediu para ver (values com os nomes exatos, note com a frase curta; ex. \"mostra a doca parada\" = consulte, depois show values [\"Doca 03\"]); action=change altera o modelo (ops: [{op:\"measure\", name, expression, format}], a expressão reaproveitando as medidas que existem, ex. DIVIDE([Lucro], [Qtd. de pedidos]); também column, relationship {from:\"Vendas[Produto]\", to:\"Produtos[Produto]\"}, format, hide, rename, delete) — cada medida é conferida e desfeita se der erro; action=refresh atualiza os dados; action=save salva o arquivo aberto.",
     parameters: { type: "object", properties: {
-      action: { type: "string", enum: ["build", "connect", "model", "query", "change", "refresh", "save"] },
+      action: { type: "string", enum: ["build", "connect", "model", "query", "show", "change", "refresh", "save"] },
+      values: { type: "array", items: { type: "string" }, description: "show: o que acender no painel, com o nome exato como está nos dados (ex.: [\"Doca 03\"], [\"ABC-3P34\"], [\"Caixa 04\"], [\"MG\"]); vazio apaga" },
+      note: { type: "string", description: "show: a frase curta que aparece na cena (ex.: \"Doca 03 parada há 40 min\")" },
       files: { type: "array", items: { type: "string" }, description: "planilhas .xlsx/.csv (build)" },
       name: { type: "string", description: "título do painel (build)" },
       goal: { type: "string", description: "o que o painel deve mostrar, nas palavras da pessoa (build)" },
@@ -150,13 +152,14 @@ export const powerBiTools = [
       dax: { type: "string", description: "consulta DAX que começa com EVALUATE" },
       ops: { type: "array", items: { type: "object" }, description: "mudanças no modelo (change)" },
     }, required: ["action"] },
-    stage: (a) => ({ build: "Montando o Power BI…", connect: "Conectando ao Power BI…", model: "Lendo o modelo semântico…", query: "Consultando o Power BI…", change: "Alterando o modelo semântico…", refresh: "Atualizando os dados do Power BI…", save: "Salvando o Power BI…" }[a.action] || "Usando o Power BI…"),
+    stage: (a) => ({ build: "Montando o Power BI…", connect: "Conectando ao Power BI…", model: "Lendo o modelo semântico…", query: "Consultando o Power BI…", show: "Mostrando no Power BI…", change: "Alterando o modelo semântico…", refresh: "Atualizando os dados do Power BI…", save: "Salvando o Power BI…" }[a.action] || "Usando o Power BI…"),
     describe: (a, ctx) => {
       if (a.action === "build") {
         const folder = expandPath(a.folder || "Documentos/Power BI", ctx.knownFolders, ctx.workspace);
         return { kind: "write", paths: [folder], summary: `Criar o painel do Power BI em ${folder}` };
       }
       // Changing or saving the person's open report: their authorization, once per turn.
+      if (a.action === "show") return { kind: "desktop", program: "PBIDesktop", summary: `Destacar no Power BI: ${[a.values].flat().filter(Boolean).join(", ") || "(apagar o destaque)"}` };
       if (a.action === "change" || a.action === "save" || a.action === "refresh") return { kind: "desktop", program: "PBIDesktop", summary: a.action === "change" ? `Alterar o modelo do Power BI: ${(a.ops || []).map((o) => `${o.op} ${o.name || o.column || o.from || ""}`).join(", ")}` : a.action === "save" ? "Salvar o arquivo do Power BI" : "Atualizar os dados do Power BI" };
       return { kind: "meta" };
     },
@@ -234,6 +237,16 @@ export const powerBiTools = [
         const done = ok(await pbiRequest("apply", { ops }));
         rememberModel(conversation, ok(await pbiRequest("model", {})));
         return `${done}Confira se o valor faz sentido para o nome (ex.: algo "por pedido" é bem menor que o total); se não fizer, corrija com outra action=change.${NEXT}`;
+      }
+      if (action === "show") {
+        // The Aurora points at something in the report: the scenes ring it and show her note.
+        const values = [args.values || args.value].flat().filter((v) => String(v || "").trim()).map((v) => String(v).trim()).slice(0, 20);
+        const note = String(args.note || "").replace(/\s+/g, " ").trim().slice(0, 120);
+        const esc = (v) => v.replace(/"/g, "\"\"");
+        const rows = values.length ? values.map((v) => `{"${esc(v)}", "${esc(note)}"}`) : [`{"", "${esc(note)}"}`];
+        const reply = await pbiRequest("apply", { ops: [{ op: "tableExpression", name: "Destaque", expression: `DATATABLE("Valor", STRING, "Nota", STRING, {${rows.join(", ")}})` }] });
+        if (!reply.ok) throw new Error(/Destaque/.test(reply.error) ? "Este painel não tem a tabela Destaque (foi feito antes desta versão da Aurora): monte de novo com action=build." : reply.error);
+        return values.length ? `Destaquei ${values.join(", ")} no Power BI aberto (anel roxo na cena${note ? ` e a nota "${note}"` : ""}). Diga à pessoa o que destacou e por quê, com os números da consulta.` : "Apaguei o destaque do Power BI.";
       }
       if (action === "refresh") return ok(await pbiRequest("refresh", {}, 600_000));
       if (action === "save") {

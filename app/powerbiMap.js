@@ -2,7 +2,7 @@
 // (sales, freight, tickets by state), and — with an origin and a destination state and a flow — every load
 // on its way drawn as a truck on its route, where it should be by now (pickup -> forecast). Faithful like
 // the other scenes: one truck per load in transit (up to 40, the rest written), and a live seal.
-import { D, daxText, joinDax, safe } from "./powerbiScene.js";
+import { D, HIGHLIGHT_VARS, auroraBanner, auroraRing, daxText, joinDax, safe } from "./powerbiScene.js";
 
 export const UFS = { AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará", DF: "Distrito Federal", ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul", MG: "Minas Gerais", PA: "Pará", PB: "Paraíba", PR: "Paraná", PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte", RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina", SP: "São Paulo", SE: "Sergipe", TO: "Tocantins" };
 // A tile grid close to the map: [column, row].
@@ -72,6 +72,7 @@ export function mapScene({ geo, measure, format = "#,0", flow = null, look = "no
     const lit = (k) => D(`IF(V${i} > 0, ${daxText(L.hi[k])}, ${daxText(L.tile[k])})`);
     const [tx, ty] = iso(X + w / 2, Y + w / 2, 0);
     return [
+      D(`IF(${geo.names ? `"${code}" IN Destacados || "${UFS[code]}" IN Destacados` : `"${code}" IN Destacados`}, ${daxText(auroraRing(r1(tx), r1(ty), 70, 40))}, "")`),
       poly([flat(X, Y + w), flat(X + w, Y + w), up(X + w, Y + w), up(X, Y + w)], lit(1)),
       poly([flat(X + w, Y), flat(X + w, Y + w), up(X + w, Y + w), up(X + w, Y)], lit(2)),
       poly([up(X, Y), up(X + w, Y), up(X + w, Y + w), up(X, Y + w)], lit(0)),
@@ -112,11 +113,13 @@ export function mapScene({ geo, measure, format = "#,0", flow = null, look = "no
   const dax = [
     ...tileVars,
     `VAR Mx = MAX(1, ${order.map((_, i) => `V${i}`).reduce((a, b) => `MAX(${a}, ${b})`)})`,
+    ...HIGHLIGHT_VARS,
     ...roadVars,
     `RETURN ${daxText("data:image/svg+xml;utf8,")} & ${daxText(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}' preserveAspectRatio='none'><rect x='${r1(vb.x)}' y='${r1(vb.y)}' width='${r1(vb.w)}' height='${r1(vb.h)}' fill='${L.ground}'/>`)}`,
     `  & ${joinDax(tiles)}`,
     roads.length ? `  & ${joinDax(roads)}` : "",
     seal.length ? `  & ${joinDax(seal)}` : "",
+    `  & ${joinDax(auroraBanner(vb))}`,
     "  & \"</svg>\"",
   ].filter(Boolean).join("\n");
   // Each state's centre, for the scatter over the map (a click on a state filters the page).

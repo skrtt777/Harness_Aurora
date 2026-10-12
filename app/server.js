@@ -978,6 +978,9 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     // Celular (Telegram), when the person linked a bot: messages in, answers and agent results out.
     server.on("listening", () => { void startTelegram({ handleChatTurn }).catch(() => {}); });
     const offPhone = onAutomaticRun((agent, run) => { void notifyRunOnPhone(agent, run).catch(() => {}); });
+    // A BI alert on the phone too (when Telegram is linked).
+    const onBiAlert = ({ title, body }) => { void sendToPhone(`${title}\n${body || ""}`).catch(() => {}); };
+    void import("./powerbiChanges.js").then(({ biEvents }) => { biEvents.on("alert", onBiAlert); server.on("close", () => biEvents.off("alert", onBiAlert)); }).catch(() => {});
     server.on("close", () => { stopTelegram(); offPhone(); });
     // The Aurora's step-by-step guides (app/guides.js) as memories: written once, rewritten when changed.
     server.on("listening", () => { void import("./guides.js").then(({ seedGuides }) => seedGuides()).catch(() => {}); });
