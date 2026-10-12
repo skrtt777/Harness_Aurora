@@ -44,7 +44,7 @@ function plan() {
   }
   // Lounge (bottom right): the sofa, plants; rest spots around.
   furniture.push({ kind: "sofa", x: 23, y: 16, w: 4, h: 1 }, { kind: "plant", x: 28, y: 16, w: 1, h: 1 }, { kind: "plant", x: 22, y: 16, w: 1, h: 1 }, { kind: "plant", x: 1, y: 9, w: 1, h: 1 }, { kind: "plant", x: 28, y: 9, w: 1, h: 1 });
-  for (const x of [23, 24, 25, 26]) spots.push({ x, y: 16, face: "up", sit: true, kind: "sofa" });
+  for (const x of [23, 24, 25, 26]) spots.push({ x, y: 16, face: "down", sit: true, kind: "sofa" });
   for (const [x, y] of [[20, 6], [11, 6], [27, 12], [2, 12], [18, 16], [9, 16]]) spots.push({ x, y, face: "down", sit: false, kind: "rest" });
   spots.push({ x: 3, y: 16, face: "up", sit: false, kind: "door" });
   return { furniture, spots };

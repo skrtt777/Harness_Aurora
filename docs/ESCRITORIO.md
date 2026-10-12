@@ -1,6 +1,19 @@
 # Escritório dos agentes
 
-A tela **Escritório**, na barra lateral, mostra o trabalho da Aurora como uma sala de escritório vista de cima. Ela transforma sessões, agentes e subagentes numa camada visual de observabilidade.
+A tela **Escritório**, na barra lateral, mostra o trabalho da Aurora como uma sala de escritório vista de cima, em pixel art. Ela transforma sessões, agentes e subagentes numa camada visual de observabilidade.
+
+A arte é nossa, sem sprites de terceiros, e é desenhada pixel a pixel em `frontend/src/officePixel.ts`:
+- sala de 480 × 288 px, com ladrilhos de 16 px, ampliada sem suavização;
+- parede do fundo com prateleiras, janelas e um relógio com a hora real;
+- piso de tábuas, tapetes e piso xadrez por área;
+- paredes em volta da sala de reunião;
+- pessoinhas com contorno escuro que andam nas quatro direções e se sentam de costas no computador, digitando.
+
+O estilo é o do [Pixel Agents](https://github.com/pixel-agents-hq/pixel-agents).
+
+![A sala da equipe: revisão com o Claude na reunião, o chefe cobrando o RH, um agente digitando, outro no café e outro no sofá](img/escritorio-equipe.png)
+
+![A sala de um projeto: a Aurora e as cópias conferindo, uma esperando autorização, outra no café com o chefe](img/escritorio-projeto.png)
 
 ## Fiel aos dados
 
@@ -49,7 +62,8 @@ Clicar numa pessoa mostra:
   - `officeSnapshot`: reúne os dados;
   - rota `GET /api/office`.
 - `frontend/src/officeSim.ts`: a planta da sala, os lugares de cada estado, o caminho (A*) e o passo de cada quadro (sem React; testado em `frontend/test/office.test.mjs`).
-- `frontend/src/OfficeView.tsx`: desenha a sala num canvas, a lista e o cartão. Lê o escritório a cada 1,5 s com a janela visível; com "menos movimento" ligado no sistema, as pessoas vão direto ao lugar.
+- `frontend/src/officePixel.ts`: a pixel art (sala, móveis, pessoas, balões).
+- `frontend/src/OfficeView.tsx`: monta a cena por profundidade, amplia sem suavização e escreve os nomes nítidos por cima; mostra a lista e o cartão. Lê o escritório a cada 1,5 s com a janela visível; com "menos movimento" ligado no sistema, as pessoas vão direto ao lugar.
 - Testes:
   - `test/office.test.js`: estados e salas;
   - `test/office-ui.test.js`: a tela aberta num servidor de teste.
