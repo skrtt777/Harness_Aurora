@@ -153,6 +153,21 @@ const waitText = (m, hours = true) => (hours
   ? `IF(ISBLANK(${m}), "", IF(${m} < 60, ${m} & " min", IF(${m} < 1440, INT(${m} / 60) & " h " & FORMAT(MOD(${m}, 60), "00"), INT(${m} / 1440) & " d")))`
   : `IF(ISBLANK(${m}), "", IF(${m} < 1440, "hoje", INT(${m} / 1440) & " d"))`);
 
+/**
+ * The column 'Na cena' of the fact: the key of whoever can be in the scene (in progress, or arrived in the
+ * last 12 hours: the replay's reach), blank for the rest of the history. The click points are asked only
+ * for these (for each of 57 thousand passwords they took 75 s, 12/10). Recomputed at every refresh.
+ */
+export function sceneColumn(flow) {
+  const F = flow.fact;
+  const key = col(F, flow.asset || flow.id);
+  if (flow.timeline) {
+    const tl = flow.timeline; const first = col(F, tl[Math.min(...Object.keys(tl).map(Number))]); const end = tl[5] ? col(F, tl[5]) : null;
+    return `IF(${first} >= NOW() - 0.5${end ? ` || ISBLANK(${end}) || ${end} >= NOW() - 0.5` : ""}, ${key})`;
+  }
+  return `IF(NOT ISBLANK(${col(F, flow.status)}) && NOT ${col(F, flow.status)} IN ${list(flow.done)}, ${key})`;
+}
+
 export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   const h = helpers(flow);
   const F = flow.fact;
@@ -165,7 +180,7 @@ export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   const roadStages = h.valuesOf(["transito"]);
   const times = flow.timeline;
   const T = at || "NOW()";
-  let active; let statusExpr; let lateExpr; let prevExpr;
+  let active; let statusExpr; let lateExpr; let prevExpr; let durations = [];
   if (times) {
     // The stage in force at T, from the stage times; the next one forecast from the history's averages.
     const ranks = Object.keys(times).map(Number).sort((a, b) => a - b);
@@ -173,8 +188,13 @@ export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
     const label = (r) => `"${String(flow.stages.find((st) => st.rank === r)?.values[0] || "").replace(/"/g, "\"\"")}"`;
     const rankAt = (moment) => `SWITCH(TRUE(), ${[...ranks].reverse().map((r) => `NOT ISBLANK(${t(r)}) && ${t(r)} <= ${moment}, ${r}`).join(", ")}, 0)`;
     const avg = (r, r2) => `AVERAGEX(FILTER(ALL(${q(F)}), NOT ISBLANK(${t(r)}) && NOT ISBLANK(${t(r2)}) && ${t(r2)} >= ${t(r)}), ${t(r2)} - ${t(r)})`;
-    const forecast = ranks.slice(0, -1).map((r, i) => `RAgora = ${r} && T > NOW() && ISBLANK(${t(ranks[i + 1])}) && ${t(r)} + ${avg(r, ranks[i + 1])} <= T, ${ranks[i + 1]}`).join(", ");
-    active = `FILTER(ADDCOLUMNS(${base}, "@r", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), ${rankAt("T")}), "@p", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW() && ${rankAt("MIN(T, NOW())")} <> IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), RAgora), 1, 0)), [@r] >= ${ranks[0]} && [@r] < 5)`;
+    // The average time of each stage, once (inside each row it was computed over the whole history again).
+    durations = ranks.slice(0, -1).map((r, i) => `VAR Dur${r}a${ranks[i + 1]} = ${avg(r, ranks[i + 1])}`);
+    const forecast = ranks.slice(0, -1).map((r, i) => `RAgora = ${r} && T > NOW() && ISBLANK(${t(ranks[i + 1])}) && ${t(r)} + Dur${r}a${ranks[i + 1]} <= T, ${ranks[i + 1]}`).join(", ");
+    // Only who can be there at T (arrived by then, not finished before it): the same answer as ranking every
+    // row of the history, with a few dozen rows instead of 57 thousand (the market of 90 days, 12/10).
+    const inside = `FILTER(${base}, ${t(ranks[0])} <= T${times[5] ? ` && (ISBLANK(${t(5)}) || ${t(5)} > T)` : ""})`;
+    active = `FILTER(ADDCOLUMNS(${inside}, "@r", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), ${rankAt("T")}), "@p", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW() && ${rankAt("MIN(T, NOW())")} <> IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), RAgora), 1, 0)), [@r] >= ${ranks[0]} && [@r] < 5)`;
     statusExpr = `SWITCH([@r], ${ranks.filter((r) => r < 5).map((r) => `${r}, ${label(r)}`).join(", ")}, "")`;
     lateExpr = flow.due ? `IF(${col(F, flow.due)} < T, 1, 0)` : "0";
     prevExpr = "[@p]";
@@ -190,6 +210,7 @@ export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   const hasService = serviceStages.length > 0;
   return [
     `VAR T = ${T}`,
+    ...durations,
     `VAR Ativos = ${active}`,
     `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0${flow.colorBy ? `, "@cor", ${latest(col(F, flow.colorBy.column))} & ""` : ""}${arrival(flow) ? `, "@espera", VAR c = ${latest(col(F, arrival(flow)))} RETURN IF(ISBLANK(c) || c > T, BLANK(), INT((T - c) * 1440))` : ""})`,
     `VAR Veiculos = ADDCOLUMNS(Veiculos0, "@where", SWITCH(TRUE(), [@st] IN ${list(roadStages)}, "estrada", ${hasService ? `[@st] IN ${list(serviceStages)} && [@doca] <> "", "doca", [@st] IN ${list(queueStages)} && [@doca] <> "", "filalocal", ` : `[@st] IN ${list(queueStages)} && [@doca] <> "", "doca", `}[@st] IN ${list([...serviceStages, ...queueStages])}, "fila", "outro"))`,
@@ -275,15 +296,29 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const byColour = flow.colorBy ? (i) => D(`SWITCH(LOWER([@cor]), ${flow.colorBy.values.map(([v, hex]) => `"${String(v).toLowerCase().replace(/"/g, "\"\"")}", ${daxText(faces(hex)[i])}`).join(", ")}, ${daxText(faces("#8EA0BC")[i])})`) : null;
   // With a colour column (risk, priority) the entity wears it; its stage is where it stands.
   const colours = (key) => (byColour && key !== `"fila"` ? [byColour(0), byColour(1), byColour(2)] : [shade(key, 0), shade(key, 1), shade(key, 2)]);
-  const vehicle = (x, y, tw, key, where, front = 1) => [open(where), truck(cv, x, y, { len: 150, wide: tw, tall: 52, axis: "y", front, body: colours(key), L }), "</g>"];
+  // Each model drawn once (in <defs>, at the origin, in the colour of the one using it) and placed by
+  // <use>: the scene's DAX was 334 KB with every person drawn in full, and slow (12/10).
+  const symCv = new Canvas(); symCv.quiet = true;
+  const tint = ["currentColor", "currentColor' style='filter:brightness(.82)", "currentColor' style='filter:brightness(.66)"];
+  const symbols = new Map();
+  const sym = (id, make) => { if (!symbols.has(id)) { const made = make(); symbols.set(id, { markup: `<g id='${id}'>${[made.parts || made].flat(Infinity).join("")}</g>`, head: made.head }); } return symbols.get(id); };
+  const place2 = (id, x, y, top, ext) => { const [sx, sy] = cv.at(x, y, 0); for (const [dx, dy, dz] of ext) cv.at(x + dx, y + dy, dz); return [`<use href='#${id}' x='${sx}' y='${sy}' color='`, top, "'/>"]; };
+  const vehicle = (x, y, tw, key, where, front = 1) => {
+    const id = `t${Math.round(tw)}${front > 0 ? "f" : "b"}`;
+    sym(id, () => truck(symCv, 0, 0, { len: 150, wide: Math.round(tw), tall: 52, axis: "y", front, body: tint, L }));
+    return [open(where), place2(id, x, y, colours(key)[0], [[0, 0, 70], [tw, 150, 70], [tw, 150, 0]]), "</g>"];
+  };
   const person = (x, y, key, where, seat = false, facing = "-Y") => {
-    const model = personModel(cv, x, y, { shirt: colours(key), facing, seat, skin: look === "dia" ? "#E9B98F" : "#C99A73" });
-    const [hx, hy] = model.head;
+    const id = `p${facing.replace("+", "a").replace("-", "b")}${seat ? 1 : 0}`;
+    const model = sym(id, () => personModel(symCv, 0, 0, { shirt: tint, facing, seat, skin: look === "dia" ? "#E9B98F" : "#C99A73" }));
+    const [ox, oy] = cv.at(x, y, 0);
+    const [hx, hy] = [r1(Number(ox) + Number(model.head[0])), r1(Number(oy) + Number(model.head[1]))];
+    const used = place2(id, x, y, colours(key)[0], [[-12, -12, 80], [12, 12, 0]]);
     // Past the limit with a colour column: a red mark over the head (the colour already says the risk).
     const late = byColour && key !== `"fila"` ? when("[@atraso] = 1", [`<circle cx='${hx}' cy='${r1(Number(hy) - 24)}' r='8' fill='#E53935'/><text x='${hx}' y='${r1(Number(hy) - 19)}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='12' font-weight='800'>!</text>`]) : "";
-    return [open(where), model.parts, late, "</g>"];
+    return [open(where), used, late, "</g>"];
   };
-  const load = (x, y, key, where) => [open(where), parcel(cv, x, y, { body: colours(key) }), "</g>"];
+  const load = (x, y, key, where) => { sym("l0", () => parcel(symCv, 0, 0, { body: tint })); return [open(where), place2("l0", x, y, colours(key)[0], [[-18, -18, 40], [18, 18, 0]]), "</g>"]; };
   const glyph = (x, y, key, where, tw = 34) => (G === "veiculo" ? vehicle(x - tw / 2, y, tw, key, where) : G === "pessoa" ? person(x, y + 20, key, where) : load(x, y + 20, key, where));
 
   // The places: up to 16 drawn; more is written.
@@ -444,7 +479,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     `VAR nTotal = COUNTROWS(FILTER(Veiculos, [@where] IN {"doca", "filalocal", "fila", "estrada"})) + 0`,
     `VAR nDesenhados = SUMX(TOPN(${n}, Slots0, [@i], ASC), MIN([@n], ${capServed}) + MIN([@f], ${capLine})) + MIN(nFila, ${QUEUE}) + ${hasRoad ? `MIN(nEstrada, ${ROAD})` : "0"}`,
     `RETURN ${askUnit.length ? askUnit.join("\n") : ""}`,
-    `  ${daxText(URL_HEAD)} & ${daxText(svgHead)}`,
+    `  ${daxText(URL_HEAD)} & ${daxText(svgHead)} & ${daxText(`<defs>${[...symbols.values()].map((x) => x.markup).join("")}</defs>`)}`,
     `  & ${joinDax(parts)}`,
     `  & CONCATENATEX(DocaVeic, SWITCH([@i], ${fragments.join(",\n    ")}, ""), "", [@i], ASC)`,
     `  & CONCATENATEX(FilaN, SWITCH([@j], ${queueSlots.join(",\n    ")}, ""), "", [@j], ASC)`,
@@ -471,7 +506,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       ...unitVars,
       ...vehicleVars(flow, "Base", at),
       // (Names of its own: vehicleVars already uses short ones.)
-      `VAR EuSou = SELECTEDVALUE(${col(F, who)})`,
+      `VAR EuSou = SELECTEDVALUE(${col(F, "Na cena")})`,
       "VAR Eu = FILTER(Veiculos, [@nome] = EuSou)",
       "VAR Onde = MAXX(Eu, [@where]) VAR MeuLugar = MAXX(Eu, [@doca]) VAR MeuId = MAXX(Eu, [@id])",
       `VAR Docas = TOPN(${n}, FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,
@@ -480,7 +515,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       "VAR Jx = COUNTROWS(FILTER(Veiculos, [@where] = Onde && [@nome] & \"|\" & [@id] <= EuSou & \"|\" & MeuId))",
       `RETURN IF(ISBLANK(EuSou) || ISBLANK(Onde), BLANK(), SWITCH(Onde, "doca", SWITCH(Ix * 10 + Rk, ${sw(ent.served, axis)}, BLANK()), "filalocal", SWITCH(Ix * 10 + Rk, ${sw(ent.line, axis)}, BLANK()), "fila", SWITCH(Jx, ${sw(ent.queue, axis)}, BLANK())${ent.road.length ? `, "estrada", SWITCH(Jx, ${sw(ent.road, axis)}, BLANK())` : ""}, BLANK()))`,
     ].join("\n");
-    entities = { category: col(F, who), x: entityDax("x"), y: entityDax("y") };
+    entities = { category: col(F, "Na cena"), x: entityDax("x"), y: entityDax("y") };
   }
   return { dax, points: { category: place, x: pointX, y: pointY, w: r1(vb.w), h: r1(vb.h) }, entities };
 }

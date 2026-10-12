@@ -61,12 +61,20 @@ const valuesOf = (table, column) => table.rows.map((r) => String(r[table.columns
 /** The flow in the fact table, or null when it has none. */
 export function readFlow(fact, tables = []) {
   let best = null;
+  // The columns with a stage's date and hour ("Hora de chegada", "Início do atendimento", "Fim…").
+  const stageClock = new Map();
+  for (const c of fact.columns.filter((x) => x.type === "datahora" && !DUE.test(x.name))) {
+    const rule = STAGE_TIME.find(([rank, re]) => re.test(c.name) && !stageClock.has(rank));
+    if (rule) stageClock.set(rule[0], c.name);
+  }
   for (const c of fact.columns) {
-    if (c.type !== "texto" || c.distinct < 3 || c.distinct > 14) continue;
+    if (c.type !== "texto" || c.distinct < (stageClock.size >= 3 ? 2 : 3) || c.distinct > 14) continue;
     const distinct = [...new Set(valuesOf(fact, c))];
     const matched = distinct.map((v) => [v, stageOf(v)]).filter(([, s]) => s);
     const ranks = new Set(matched.map(([, s]) => s[1]).filter((r) => r > 0));
-    if (matched.length < distinct.length * 0.8 || ranks.size < 3 || ![...ranks].some((r) => r < 5)) continue;
+    // With the time of each stage in columns, two statuses now are enough (nobody in line right now does
+    // not make it less of an operation).
+    if (matched.length < distinct.length * 0.8 || ranks.size < (stageClock.size >= 3 ? 2 : 3) || ![...ranks].some((r) => r < 5)) continue;
     const score = ranks.size * 10 + (/status|situa|etapa|fase|est[áa]gio/i.test(c.name) ? 5 : 0);
     if (!best || score > best.score) best = { column: c, matched, score };
   }
@@ -78,7 +86,14 @@ export function readFlow(fact, tables = []) {
     const values = best.matched.filter(([, s]) => s[1] === rank).map(([v]) => v).sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0));
     if (values.length) stages.push({ key, rank, values });
   }
+  // A stage nobody is in right now, known from its time column: it still exists (a replay shows it).
+  const NAMES = { 1: ["fila", "Na fila"], 2: ["separacao", "Em preparação"], 3: ["carregando", "Em atendimento"], 4: ["transito", "Em trânsito"], 5: ["concluido", "Concluído"] };
+  if (stages.length < 3) {
+    for (const rank of stageClock.keys()) if (!stages.some((st) => st.rank === rank)) stages.push({ key: NAMES[rank][0], rank, values: [NAMES[rank][1]] });
+    stages.sort((a, b) => a.rank - b.rank);
+  }
   const done = best.matched.filter(([, s]) => s[1] === 5 || s[1] === 0).map(([v]) => v);
+  if (!done.length && stages.some((st) => st.rank === 5)) done.push(...stages.find((st) => st.rank === 5).values);
   const find = (re, test = () => true) => fact.columns.find((c) => re.test(c.name) && c !== best.column && test(c));
   const place = find(PLACE, (c) => c.type === "texto" && c.distinct >= 2 && c.distinct <= 40);
   // A unit (CD, filial): the yard shows one at a time, chosen in a switcher.

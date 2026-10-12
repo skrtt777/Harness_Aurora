@@ -10,7 +10,7 @@ import { moneyDesign, readMoney } from "./powerbiMoney.js";
 import { cityScene } from "./powerbiScene.js";
 import { plantaScene, readSpace } from "./powerbiSpace.js";
 import { mapScene, readGeo } from "./powerbiMap.js";
-import { vehicleVars } from "./powerbiScene.js";
+import { sceneColumn, vehicleVars } from "./powerbiScene.js";
 import { composePage } from "./powerbiLayout.js";
 import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
@@ -565,7 +565,11 @@ export function finish(prep, rawPlan = null) {
       summarize: "none",
       ...(c.role === "date" && t === fact ? { hidden: "True" } : {}),
     })),
-    ...(t === fact && date?.fromMoment ? { extraColumns: [{ name: "Dia", type: "data", expression: `DATE(YEAR(${col(fact.name, date.fromMoment)}), MONTH(${col(fact.name, date.fromMoment)}), DAY(${col(fact.name, date.fromMoment)}))`, format: "dd/mm/yyyy", hidden: "True" }] } : {}),
+    ...(t === fact ? { extraColumns: [
+      ...(date?.fromMoment ? [{ name: "Dia", type: "data", expression: `DATE(YEAR(${col(fact.name, date.fromMoment)}), MONTH(${col(fact.name, date.fromMoment)}), DAY(${col(fact.name, date.fromMoment)}))`, format: "dd/mm/yyyy", hidden: "True" }] : []),
+      // Who can be in the scene (the click points ask only for these).
+      ...(flow?.place && (flow.asset || flow.id) ? [{ name: "Na cena", type: "texto", expression: sceneColumn({ ...flow, fact: fact.name }), hidden: "True" }] : []),
+    ] } : {}),
     measures: measures.filter((x) => (x.table || fact.name) === t.name).map(({ table, ...x }) => Object.fromEntries(Object.entries(x).filter(([, v]) => v !== null && v !== undefined && v !== ""))),
   }));
   const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));

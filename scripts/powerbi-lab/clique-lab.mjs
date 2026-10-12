@@ -21,7 +21,7 @@ let opened = null;
 try {
   const r = await buildReport({ files: [join(data, "operacao_cd.xlsx")], folder: mkdtempSync(join(tmpdir(), "aurora-clique-")), goal: "", conversationId: "clique", planner: { ask: async () => ({ ok: true, text: JSON.stringify(plan) }), env: {} } }).catch((e) => { opened = e.opened; throw e; });
   opened = r.opened;
-  const pts = await rows(`EVALUATE CALCULATETABLE(FILTER(ADDCOLUMNS(VALUES('Embarques'[Placa]), "x", [Posição X na cena], "y", [Posição Y na cena]), NOT ISBLANK([x])), 'Embarques'[CD] = "CD Betim")`);
+  const pts = await rows(`EVALUATE CALCULATETABLE(FILTER(ADDCOLUMNS(VALUES('Embarques'[Na cena]), "x", [Posição X na cena], "y", [Posição Y na cena]), NOT ISBLANK([x])), 'Embarques'[CD] = "CD Betim")`);
   const drawn = await rows(`EVALUATE ROW("n", CALCULATE([Caminhões nas docas] + [Caminhões na fila] + [Caminhões em trânsito], 'Embarques'[CD] = "CD Betim"))`);
   check("um ponto em cada caminhão desenhado", pts.length === Number(drawn[0]?.[0]), `${pts.length} pontos, ${drawn[0]?.[0]} caminhões`);
   check("cada ponto num lugar diferente", new Set(pts.map(([, x, y]) => `${x},${y}`)).size === pts.length);
