@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { xlsxText } from "./docText.js";
-import { flowDesign, readFlow } from "./powerbiStory.js";
+import { flowDesign, momentTable, readFlow } from "./powerbiStory.js";
 import { moneyDesign, readMoney } from "./powerbiMoney.js";
 import { cityScene } from "./powerbiScene.js";
 import { plantaScene, readSpace } from "./powerbiSpace.js";
@@ -64,10 +64,12 @@ const tableName = (text) => String(text).replace(/[_-]+/g, " ").replace(/[^\p{L}
 
 const DATE_BR = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
 const DATE_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[ T].*)?$/;
+// A moment: "11/10/2026 14:32", "2026-10-11T14:32" (the timeline of an operation needs the hour).
+const TIME_PART = /[ T]\d{1,2}:\d{2}(:\d{2})?$/;
 const MONEY_NAME = /valor|pre[çc]o|receita|faturamento|custo|lucro|total|venda|desconto|frete|sal[áa]rio|comiss|ticket|montante|pago|saldo|despesa|gasto|or[çc]amento|imposto|tarifa|mensalidade|r\$/i;
 const UNIT_NAME = /unit[áa]rio|unit\b|p\.?\s?unit|pre[çc]o (de )?venda|pre[çc]o m[ée]dio|valor unit/i;
 const QTY_NAME = /qtd|quant|unidades|itens|volume|peso|kg|litros|horas|dias/i;
-const ID_NAME = /^(id|c[óo]d(igo)?|n[ºo°]|n[uú]mero|pedido|nf|nota|matr[íi]cula|cpf|cnpj|protocolo|ticket id|chamado)\b|(^|\s)id$|c[óo]digo/i;
+const ID_NAME = /^(id|c[óo]d(igo)?|n[ºo°]|n[uú]mero|pedido|nf|nota|matr[íi]cula|cpf|cnpj|protocolo|ticket id|chamado|senha|ct-?e|os)\b|(^|\s)id$|c[óo]digo/i;
 const DIM_RANK = /produto|categoria|regi[ãa]o|cliente|vendedor|loja|canal|cidade|estado|uf|segmento|departamento|setor|status|tipo|marca|fornecedor|filial|equipe|forma de pagamento|origem|plano/i;
 const COST_NAME = /custo|despesa|gasto/i;
 const REVENUE_NAME = /receita|faturamento|venda|valor total|^valor$|^total$/i;
@@ -95,12 +97,13 @@ export function profile(table) {
     const values = rows.map((r) => String(r[i] ?? "").trim()).filter(Boolean);
     const distinct = new Set(values).size;
     let type = "texto";
-    if (values.length && values.every((v) => DATE_BR.test(v) || DATE_ISO.test(v))) type = "data";
+    if (values.length && values.every((v) => DATE_BR.test(v) || DATE_ISO.test(v) || (TIME_PART.test(v) && (DATE_BR.test(v.replace(TIME_PART, "")) || DATE_ISO.test(v))))) type = values.some((v) => TIME_PART.test(v)) ? "datahora" : "data";
     else if (values.length && values.every((v) => Number.isFinite(parseNumber(v, decimalComma)))) type = values.every((v) => Number.isInteger(parseNumber(v, decimalComma)) && !/[,.]\d/.test(v)) ? "inteiro" : "numero";
     else if (values.length && values.every((v) => /^(sim|n[ãa]o|true|false|verdadeiro|falso)$/i.test(v))) type = "sim/não";
     const percent = type === "numero" && values.some((v) => v.endsWith("%"));
     let role = "attribute";
     if (type === "data") role = "date";
+    else if (type === "datahora") role = "datetime";
     else if ((type === "inteiro" || type === "texto") && ID_NAME.test(name) && distinct > rows.length * 0.5) role = "id";
     else if (type === "numero" || type === "inteiro") {
       if (percent) role = "percent";
@@ -119,7 +122,7 @@ export function profile(table) {
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const col = (table, column) => `${q(table)}[${String(column).replace(/]/g, "]]")}]`;
 const mString = (s) => `"${String(s).replace(/"/g, "\"\"")}"`;
-const M_TYPE = { data: "type date", inteiro: "Int64.Type", numero: "type number", "sim/não": "type logical", texto: "type text" };
+const M_TYPE = { datahora: "type datetime", data: "type date", inteiro: "Int64.Type", numero: "type number", "sim/não": "type logical", texto: "type text" };
 const MONEY = "\"R$\" #,0.00";
 const MONEY_ROUND = "\"R$\" #,0";
 const INT = "#,0";
@@ -224,7 +227,10 @@ export function prepare(tables, { title, goal = "" } = {}) {
   // Rows with a place (X, Y, size): the geometry columns are not summed, they draw the plan.
   const space = readSpace(fact);
   const factCol = (role) => fact.columns.filter((c) => c.role === role);
-  const date = factCol("date")[0];
+  // No day column but a moment one ("Hora de chegada"): the calendar goes by its day, a column made here.
+  const moment = factCol("datetime")[0];
+  const date = factCol("date")[0] || (moment ? { name: "Dia", type: "data", role: "date", fromMoment: moment.name } : null);
+  const dateAt = date ? fact.columns.indexOf(date.fromMoment ? moment : date) : -1;
   const money = factCol("money");
   const main = money.find((c) => REVENUE_NAME.test(c.name)) || money.find((c) => !COST_NAME.test(c.name)) || money[0];
   const cost = money.find((c) => COST_NAME.test(c.name) && c !== main);
@@ -285,7 +291,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
   add("% do total", `DIVIDE(${m(headline)}, CALCULATE(${m(headline)}, ALLSELECTED()))`, PCT, "Comparações", `Participação de cada item em ${headline}`);
   // Time: needs the calendar.
   let momChange = null; let yoyChange = null; let ytd = null; let previousMonth = null; let previousYear = null;
-  const years = date ? new Set(fact.rows.map((r) => (String(r[fact.columns.indexOf(date)] || "").match(/\d{4}/) || [""])[0]).filter(Boolean)) : new Set();
+  const years = date ? new Set(fact.rows.map((r) => (String(r[dateAt] || "").match(/\d{4}/) || [""])[0]).filter(Boolean)) : new Set();
   if (date) {
     const cal = "'Calendário'[Data]";
     // Month comparisons only where one month is in view (in a total row they meant nothing).
@@ -310,7 +316,7 @@ export function prepare(tables, { title, goal = "" } = {}) {
   const barDim = dims.find((d) => d.distinct > 2) || dims[0];
   const donutDim = small.find((d) => d !== barDim) || dims.find((d) => d !== barDim);
   const thirdDim = dims.find((d) => d !== barDim && d !== donutDim);
-  const months = date ? new Set(fact.rows.map((r) => String(r[fact.columns.indexOf(date)] || "").replace(/^\d{1,2}\//, "").slice(0, 7))).size : 0;
+  const months = date ? new Set(fact.rows.map((r) => String(r[dateAt] || "").replace(/^\d{1,2}\//, "").slice(0, 7))).size : 0;
 
   // ---- The catalog: every number, scene and block a page can have. The plan (the local model's, or
   // the automatic one) chooses among them; nothing is placed here.
@@ -375,9 +381,9 @@ export function prepare(tables, { title, goal = "" } = {}) {
     time: date ? ["mês", "trimestre", "ano", "dia da semana"] : [],
     scenes, specials: { ...(story?.specials || {}), ...(fin?.specials || {}) },
     // The unit switcher (CD, filial) comes first, like the switcher of a control room.
-    slicerRefs: [story?.site, ...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
+    slicerRefs: [flow?.timeline ? "'Momento'[Quando]" : null, story?.site, ...flowSlicers, ...(fin?.slicers || []), barDim?.ref, donutDim?.ref].filter(Boolean),
     // The unit switcher opens on one unit (single choice): the cards and the yard look at the same one.
-    slicerDefaults: story?.site && story.siteFirst ? { [story.site]: story.siteFirst } : {},
+    slicerDefaults: { ...(story?.site && story.siteFirst ? { [story.site]: story.siteFirst } : {}), ...(flow?.timeline ? { "'Momento'[Quando]": "Agora" } : {}) },
     stories: [
       flow ? `Há um fluxo de etapas em ${flow.status}: ${flow.stages.map((x) => x.values[0]).join(" → ")}${flow.place ? `, com ${lower(flow.place)}s` : ""}${flow.asset ? ` e ${flow.vehicles} (${flow.asset})` : ""}.` : "",
       fin ? `É dinheiro entrando e saindo${ledger.category ? ` por ${lower(ledger.category.column)}` : ""}${ledger.budget ? ", com orçamento" : ""}.` : "",
@@ -409,13 +415,16 @@ export function finish(prep, rawPlan = null) {
     m: mExpression(t),
     columns: t.columns.map((c) => ({
       name: c.name, type: c.type,
-      ...(c.type === "data" ? { format: "dd/mm/yyyy" } : c.role === "money" || c.role === "unitPrice" ? { format: MONEY } : c.role === "percent" ? { format: PCT } : c.type === "inteiro" && c.role !== "id" ? { format: INT } : c.type === "numero" ? { format: DEC } : {}),
+      ...(c.type === "datahora" ? { format: "dd/mm/yyyy HH:mm" } : c.type === "data" ? { format: "dd/mm/yyyy" } : c.role === "money" || c.role === "unitPrice" ? { format: MONEY } : c.role === "percent" ? { format: PCT } : c.type === "inteiro" && c.role !== "id" ? { format: INT } : c.type === "numero" ? { format: DEC } : {}),
       summarize: "none",
       ...(c.role === "date" && t === fact ? { hidden: "True" } : {}),
     })),
+    ...(t === fact && date?.fromMoment ? { extraColumns: [{ name: "Dia", type: "data", expression: `DATE(YEAR(${col(fact.name, date.fromMoment)}), MONTH(${col(fact.name, date.fromMoment)}), DAY(${col(fact.name, date.fromMoment)}))`, format: "dd/mm/yyyy", hidden: "True" }] } : {}),
     measures: measures.filter((x) => (x.table || fact.name) === t.name).map(({ table, ...x }) => Object.fromEntries(Object.entries(x).filter(([, v]) => v !== null && v !== undefined && v !== ""))),
   }));
   const modelRelationships = relationships.map(({ from, to }) => ({ from, to }));
+  // The timeline: one moment chosen at a time (the cards and the scene follow it).
+  if (flow?.timeline) modelTables.push({ name: "Momento", dax: momentTable(), columns: [{ name: "Minutos", type: "inteiro", hidden: "True" }, { name: "Quando", type: "texto", sortBy: "Minutos" }] });
   modelTables.push({ name: "Atualização", dax: "ROW(\"Atualizado em\", NOW())", hidden: "True", columns: [{ name: "Atualizado em", type: "data", format: "dd/mm/yyyy HH:mm" }] });
   if (date) {
     modelTables.push({ name: "Calendário", dax: calendarDax(fact.name, date.name), dateTable: "True", columns: CALENDAR_COLUMNS });

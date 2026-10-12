@@ -28,7 +28,7 @@ try {
     const f = `${unit} = "${u}"`;
     const svg = await value(`CALCULATE([${scene}], ${f})`);
     writeFileSync(join(shots, `${u.replace(/\W+/g, "-")}.svg`), svg);
-    const drawn = (where) => (svg.match(new RegExp(`class='v ${where}`, "g")) || []).length;
+    const drawn = (where) => (svg.match(new RegExp(`class='v ${where}'`, "g")) || []).length;
     const docksDrawn = Object.values(want.perDock).reduce((n, k) => n + Math.min(k, 3), 0);
     const cards = {};
     for (const [k, m] of [["doca", "Caminhões nas docas"], ["fila", "Caminhões na fila"], ["estrada", "Caminhões em trânsito"], ["patio", "Caminhões no pátio"]]) cards[k] = Number(await value(`CALCULATE([${m}], ${f})`));

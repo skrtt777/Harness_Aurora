@@ -69,7 +69,8 @@ const shade = (keyExpr, i) => D(`SWITCH(${keyExpr}, ${Object.entries(STATE).map(
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const col = (table, column) => `${q(table)}[${String(column).replace(/]/g, "]]")}]`;
-const list = (values) => `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}`;
+// An empty list is not DAX ("IN {}"): a value no status has stands in.
+const list = (values) => (values.length ? `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}` : "{\"(nenhum)\"}");
 
 /**
  * The flow of a story as DAX helpers. flow: { fact, status, stages: [{ rank, key, values: [...] }],
@@ -127,87 +128,126 @@ export function liveBadge(stamp, x, y, L, minutes = 10) {
 // ---- The distribution centre ----------------------------------------------------------------------
 
 /**
- * The vehicles as they are now, one row each, from the active records in `base`: a vehicle (plate) is in
- * one place only — the place of its latest active record. "@where": "doca" (at a bay, with "@doca"),
- * "fila" (waiting, or at a bay stage with no bay given) or "estrada" (in transit). Without a vehicle
- * column each active record is one object. The scene and the cards use this same DAX, so the number on
- * a card and the vehicles drawn are always the same (11/10: "if there are 5 trucks at the docks, 5 trucks
- * must be at the docks").
+ * The entities as they are at a moment, one row each, from `base`: an entity (a plate, a ticket) is in
+ * one place only — the place of its latest active record. "@where": "doca" (being served at a place, with
+ * "@doca"), "filalocal" (waiting in a place's own line), "fila" (waiting, no place yet), "estrada" (on its
+ * way). With the time each stage began (flow.timeline) the stage is the one in force at `at` (any moment:
+ * a replay of the past, or the next hours — a stage not reached yet comes from the average time between
+ * stages in the history, marked "@prev" = 1, drawn as a ghost). The scene and the cards use this same DAX.
  */
-export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`) {
+export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   const h = helpers(flow);
   const F = flow.fact;
   const place = flow.place ? col(F, flow.place) : "BLANK()";
   const order = [flow.date ? `${col(F, flow.date)}, DESC` : null, flow.id ? `${col(F, flow.id)}, DESC` : null].filter(Boolean).join(", ");
   const top1 = (t) => (order ? `TOPN(1, ${t}, ${order})` : `TOPN(1, ${t}, 1, ASC)`);
   const key = flow.asset ? col(F, flow.asset) : flow.id ? col(F, flow.id) : null;
-  const dockStages = h.atDock; const queueStages = h.valuesOf(["fila"]); const roadStages = h.valuesOf(["transito"]);
-  const sameAsQueue = dockStages.join("|") === queueStages.join("|");
+  const serviceStages = h.valuesOf(["separacao", "carregando"]);
+  const queueStages = h.valuesOf(["fila"]);
+  const roadStages = h.valuesOf(["transito"]);
+  const times = flow.timeline;
+  const T = at || "NOW()";
+  let active; let statusExpr; let lateExpr; let prevExpr;
+  if (times) {
+    // The stage in force at T, from the stage times; the next one forecast from the history's averages.
+    const ranks = Object.keys(times).map(Number).sort((a, b) => a - b);
+    const t = (r) => col(F, times[r]);
+    const label = (r) => `"${String(flow.stages.find((st) => st.rank === r)?.values[0] || "").replace(/"/g, "\"\"")}"`;
+    const rankAt = (moment) => `SWITCH(TRUE(), ${[...ranks].reverse().map((r) => `NOT ISBLANK(${t(r)}) && ${t(r)} <= ${moment}, ${r}`).join(", ")}, 0)`;
+    const avg = (r, r2) => `AVERAGEX(FILTER(ALL(${q(F)}), NOT ISBLANK(${t(r)}) && NOT ISBLANK(${t(r2)}) && ${t(r2)} >= ${t(r)}), ${t(r2)} - ${t(r)})`;
+    const forecast = ranks.slice(0, -1).map((r, i) => `RAgora = ${r} && T > NOW() && ISBLANK(${t(ranks[i + 1])}) && ${t(r)} + ${avg(r, ranks[i + 1])} <= T, ${ranks[i + 1]}`).join(", ");
+    active = `FILTER(ADDCOLUMNS(${base}, "@r", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), ${rankAt("T")}), "@p", VAR RAgora = ${rankAt("MIN(T, NOW())")} RETURN IF(T > NOW() && ${rankAt("MIN(T, NOW())")} <> IF(T > NOW(), SWITCH(TRUE(), ${forecast ? `${forecast}, ` : ""}RAgora), RAgora), 1, 0)), [@r] >= ${ranks[0]} && [@r] < 5)`;
+    statusExpr = `SWITCH([@r], ${ranks.filter((r) => r < 5).map((r) => `${r}, ${label(r)}`).join(", ")}, "")`;
+    lateExpr = flow.due ? `IF(${col(F, flow.due)} < T, 1, 0)` : "0";
+    prevExpr = "[@p]";
+  } else {
+    active = `FILTER(${base}, NOT ISBLANK(${h.status}) && NOT ${h.status} IN ${list(flow.done)})`;
+    statusExpr = h.status;
+    lateExpr = `IF(${h.late}, 1, 0)`;
+    prevExpr = "0";
+  }
   const latest = (expr) => (key ? `VAR v = ${key} RETURN MAXX(${top1(`FILTER(Ativos, ${key} = v)`)}, ${expr})` : expr);
   const rows = key ? `SUMMARIZE(Ativos, ${key})` : "Ativos";
+  // Waiting with a place (the checkout's own line) is "filalocal" when there are serving stages too.
+  const hasService = serviceStages.length > 0;
   return [
-    `VAR Ativos = FILTER(${base}, NOT ISBLANK(${h.status}) && NOT ${h.status} IN ${list(flow.done)})`,
-    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(h.status)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(`IF(${h.late}, 1, 0)`)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "")`,
-    `VAR Veiculos = ADDCOLUMNS(Veiculos0, "@where", SWITCH(TRUE(), [@st] IN ${list(roadStages)}, "estrada", ${sameAsQueue ? "" : `[@st] IN ${list(dockStages)} && [@doca] <> "", "doca", `}[@st] IN ${list(queueStages)} && ${sameAsQueue ? "[@doca] <> \"\"" : "FALSE()"}, "doca", [@st] IN ${list([...dockStages, ...queueStages])}, "fila", "outro"))`,
+    `VAR T = ${T}`,
+    `VAR Ativos = ${active}`,
+    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0)`,
+    `VAR Veiculos = ADDCOLUMNS(Veiculos0, "@where", SWITCH(TRUE(), [@st] IN ${list(roadStages)}, "estrada", ${hasService ? `[@st] IN ${list(serviceStages)} && [@doca] <> "", "doca", [@st] IN ${list(queueStages)} && [@doca] <> "", "filalocal", ` : `[@st] IN ${list(queueStages)} && [@doca] <> "", "doca", `}[@st] IN ${list([...serviceStages, ...queueStages])}, "fila", "outro"))`,
   ];
 }
 
-/** The cards that count the vehicles exactly as the scene draws them. */
-export function vehicleMeasures(flow) {
-  const head = vehicleVars(flow, q(flow.fact)).join("\n");
+/** The cards that count the entities exactly as the scene draws them (at the same moment). */
+export function vehicleMeasures(flow, at = null) {
+  const head = vehicleVars(flow, q(flow.fact), at).join("\n");
   const count = (where) => `${head}\nRETURN COUNTROWS(FILTER(Veiculos, [@where] IN ${list(where)})) + 0`;
-  return { patio: count(["doca", "fila"]), docas: count(["doca"]), fila: count(["fila"]), estrada: count(["estrada"]) };
+  return { patio: count(["doca", "filalocal", "fila"]), docas: count(["doca"]), fila: count(["filalocal", "fila"]), estrada: count(["estrada"]) };
 }
 
 /**
- * The yard of a distribution centre (or any place with bays and vehicles), isometric and faithful to the
- * data: every vehicle at a bay is drawn at its bay (two at one bay: the second as "+1"), every one waiting
- * is drawn in the parking (up to 10, then "+N" written), every one in transit is on the road (up to 8,
- * then "+N"), each coloured by its own stage, red when late, and always visible (the movement never hides
- * one). With a unit column (CD, filial) the scene shows the unit chosen; with none chosen it asks for one
- * instead of drawing a unit the cards are not counting. Each drawn vehicle carries a class (v doca, v fila,
- * v estrada) so a test counts them. Returns { dax, points }.
+ * Any operation where things are served at places, isometric and faithful to the data — a distribution
+ * centre (trucks at docks), a supermarket (customers at checkouts), a clinic (patients at rooms), a
+ * factory (orders at machines). What is drawn follows the data's own words: vehicles (a plate), people
+ * (a ticket, a customer) or loads (an order, a cargo); docks get doors, checkouts and counters get a
+ * counter, machines a workstation. Every one is drawn where it is now (its latest active record) and
+ * always visible: up to 3 being served at each place and 4 waiting in that place's own line (more is
+ * written as "+N"), the general queue (10 vehicles, 20 people or 15 loads), the way out (8). With a unit
+ * column the scene shows the unit chosen and asks for one when all are in view. Each drawn object
+ * carries a class (v doca, v filalocal, v fila, v estrada) so a test counts them. Returns { dax, points }.
  */
-export function yardScene(flow, { title = "Centro de distribuição", look = "noite", stamp = null } = {}) {
+export function yardScene(flow, { title = "Operação", look = "noite", stamp = null, at = null } = {}) {
   const L = lookOf(look);
   const h = helpers(flow);
   const F = flow.fact;
   const place = col(F, flow.place);
   const site = flow.site ? col(F, flow.site) : null;
+  const G = flow.glyph || "veiculo";
   const cv = new Canvas();
   const LEN = 640; const DEPTH = 200; const HEIGHT = 112;
-  const QUEUE = 10; const ROAD = 8;
+  const QUEUE = { veiculo: 10, pessoa: 20, volume: 15 }[G];
+  const ROAD = 8;
+  const hasRoad = flow.stages.some((st) => st.key === "transito");
   const parts = [];
   cv.quiet = true;
   parts.push(cv.poly([[-120, -60, 0], [920, -60, 0], [920, 800, 0], [-120, 800, 0]], L.ground));
   for (let g = 40; g <= 880; g += 95) parts.push(`<polyline points='${cv.pts([[g, -60, 0], [g, 800, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
   for (let g = 50; g <= 760; g += 90) parts.push(`<polyline points='${cv.pts([[-120, g, 0], [920, g, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
-  parts.push(cv.poly([[0, DEPTH, 0], [LEN, DEPTH, 0], [LEN, 410, 0], [0, 410, 0]], L.yard));
-  // The road: two lanes.
-  parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
-  parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
-  // Parking for the queue: two rows of five spots.
-  const spot = (j) => [20 + (j % 5) * 82, 520 + Math.floor(j / 5) * 140];
-  for (let j = 0; j < QUEUE; j += 1) { const [x, y] = spot(j); parts.push(cv.poly([[x, y, 0], [x + 64, y, 0], [x + 64, y + 130, 0], [x, y + 130, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5'`)); }
+  parts.push(cv.poly([[0, DEPTH, 0], [LEN, DEPTH, 0], [LEN, 470, 0], [0, 470, 0]], L.yard));
+  if (hasRoad) {
+    parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
+    parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
+  }
+  // The general queue's ground: parking spots for vehicles, a marked line for people, a bay for loads.
+  const spot = {
+    veiculo: (j) => [20 + (j % 5) * 82, 520 + Math.floor(j / 5) * 140],
+    pessoa: (j) => [40 + (j % 10) * 46, 560 + Math.floor(j / 10) * 70],
+    volume: (j) => [40 + (j % 5) * 70, 540 + Math.floor(j / 5) * 70],
+  }[G];
+  if (G === "veiculo") for (let j = 0; j < QUEUE; j += 1) { const [x, y] = spot(j); parts.push(cv.poly([[x, y, 0], [x + 64, y, 0], [x + 64, y + 130, 0], [x, y + 130, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5'`)); }
+  else { const [x0, y0] = spot(0); const [x1, y1] = spot(QUEUE - 1); parts.push(cv.poly([[x0 - 30, y0 - 30, 0], [x1 + 30, y0 - 30, 0], [x1 + 30, y1 + 30, 0], [x0 - 30, y1 + 30, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5' stroke-dasharray='8 6'`)); }
   parts.push(`<polyline points='${cv.pts([[-90, -40, 0], [-90, 790, 0], [690, 790, 0]])}' stroke='${L.fence}' stroke-width='2.5' fill='none'/>`);
   cv.quiet = false;
-  for (const [X, Y] of [[-60, 40], [-60, 220], [-60, 420], [-60, 640], [480, 760], [660, 740], [690, -20], [905, 160], [905, 520]]) parts.push(tree(cv, X, Y, L, 0.9));
+  for (const [X, Y] of [[-60, 40], [-60, 220], [-60, 420], [-60, 640], [480, 760], [660, 740], [690, -20], ...(hasRoad ? [[905, 160], [905, 520]] : [])]) parts.push(tree(cv, X, Y, L, 0.9));
   parts.push(cv.box(0, 0, 0, LEN, DEPTH, HEIGHT, L.walls));
   for (let r = 26; r < 100; r += 30) parts.push(`<polyline points='${cv.pts([[16, r, HEIGHT], [LEN - 16, r, HEIGHT]])}' stroke='${L.stripe}' stroke-width='5' fill='none' opacity='${look === "dia" ? 0.35 : 1}'/>`);
   const [wx, wy] = cv.at(30, 168, HEIGHT);
   parts.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${wx},${wy})' fill='${L.roofText}' ${FONT} font-size='34' font-weight='700' letter-spacing='3'>`, site ? D(safe("UPPER(LEFT(Unidade, 30))")) : xml(title.toUpperCase().slice(0, 30)), "</text>");
 
-  // A vehicle drawn along Y (towards the viewer), coloured by its key; class for the count.
-  const truckY = (x, y, tw, key, where) => [
-    `<g class='v ${where}' opacity='`, D(`IF(NOT Filtrado || [@id] IN Visiveis, "1", "0.22")`), "'>",
-    cv.box(x, y, 0, tw, 150, 9, [L.chassis, L.chassis, L.chassis]),
-    cv.box(x, y, 9, tw, 118, 52, [shade(key, 0), shade(key, 1), shade(key, 2)]),
-    cv.box(x + 2, y + 122, 9, tw - 4, 30, 40, L.cab),
-    "</g>",
-  ];
+  // The glyphs: each drawn object in its own colour (the stage, red when late), dimmed when a selection
+  // hides it, ghostly when it is a forecast.
   const keyOf = `IF([@atraso] = 1, "atraso", ${h.keyOf("[@st]")})`;
+  const open = (where) => [`<g class='v ${where}' opacity='`, D(`IF(NOT Filtrado || [@id] IN Visiveis, IF([@prev] = 1, "0.5", "1"), "0.22")`), "'>"];
+  const colours = (key) => [shade(key, 0), shade(key, 1), shade(key, 2)];
+  const vehicle = (x, y, tw, key, where) => [open(where), cv.box(x, y, 0, tw, 150, 9, [L.chassis, L.chassis, L.chassis]), cv.box(x, y, 9, tw, 118, 52, colours(key)), cv.box(x + 2, y + 122, 9, tw - 4, 30, 40, L.cab), "</g>"];
+  const person = (x, y, key, where) => {
+    const [hx, hy] = cv.at(x, y, 54);
+    return [open(where), cv.box(x - 10, y - 10, 0, 20, 20, 42, colours(key)), `<ellipse cx='${hx}' cy='${hy}' rx='11' ry='12' fill='${look === "dia" ? "#E9B98F" : "#C99A73"}'/>`, "</g>"];
+  };
+  const load = (x, y, key, where) => [open(where), cv.box(x - 18, y - 18, 0, 36, 36, 6, ["#D9B27C", "#C99A5B", "#A87E45"]), cv.box(x - 15, y - 15, 6, 30, 30, 28, colours(key)), "</g>"];
+  const glyph = (x, y, key, where, tw = 34) => (G === "veiculo" ? vehicle(x - tw / 2, y, tw, key, where) : G === "pessoa" ? person(x, y + 20, key, where) : load(x, y + 20, key, where));
 
-  // Bays: up to 16 drawn; more than that is written.
+  // The places: up to 16 drawn; more is written.
   const n = Math.max(1, Math.min(16, flow.placeCount || 10));
   const w = (LEN - 40) / n;
   const tw = Math.min(w * 0.62, 46);
@@ -216,51 +256,76 @@ export function yardScene(flow, { title = "Centro de distribuição", look = "no
   for (let k = 0; k < n; k += 1) {
     const cx = 20 + k * w + w / 2;
     const frag = [];
-    frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], D(`IF([@n] = 0, ${daxText("#27AE60")}, ${daxText(L.door)})`)));
-    const [p0x, p0y] = cv.at(cx, DEPTH - 6, 12); const [p1x, p1y] = cv.at(cx, DEPTH + 40, 12);
-    const dur = (2.4 + (k % 3) * 0.5).toFixed(1);
-    const pallet = `<g><rect x='${r1(Number(p0x) - 9)}' y='${r1(Number(p0y) - 9)}' width='18' height='14' rx='2' fill='#C99A5B'/><animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(p1x) - Number(p0x))} ${r1(Number(p1y) - Number(p0y))}' dur='${dur}s' repeatCount='indefinite'/><animate attributeName='opacity' values='0;1;1;0' dur='${dur}s' repeatCount='indefinite'/></g>`;
-    const [px, py] = cv.at(cx, DEPTH + 60, 61 + (n > 10 && k % 2 ? 34 : 0));
-    const pw = n > 10 ? 70 : 92;
-    const plate = [
-      `<rect x='${r1(Number(px) - pw / 2)}' y='${r1(Number(py) - 34)}' width='${pw}' height='26' rx='13' fill='${L.plate}' stroke='`, shade(keyOf, 0), "' stroke-width='2'/>",
-      `<text x='${px}' y='${r1(Number(py) - 15)}' text-anchor='middle' fill='${L.plateText}' ${FONT} font-size='${n > 10 ? 13 : 16}' font-weight='700'>`, D(safe(`LEFT([@nome], 9) & IF([@n] > 3, " +" & ([@n] - 1), IF([@n] > 1, " +" & ([@n] - 1), ""))`)), "</text>",
-    ];
-    frag.push(when("[@n] > 0", [truckY(cx - tw / 2, DEPTH + 10, tw, keyOf, "doca"), when(`[@st] IN ${list(h.atDock)}`, pallet), plate]));
-    // A second and a third vehicle at the same bay: drawn too, waiting behind the first; more is written.
-    for (const extra of [2, 3]) frag.push(when(`[@n] >= ${extra}`, [`<g class='v doca extra'>`, cv.box(cx - tw / 2 + 4, DEPTH + 172 + (extra - 2) * 70, 0, tw - 8, 60, 30, [shade(keyOf, 0), shade(keyOf, 1), shade(keyOf, 2)]), cv.box(cx - tw / 2 + 6, DEPTH + 172 + (extra - 2) * 70 + 46, 30, tw - 12, 14, 18, L.cab), "</g>"]));
+    const free = D(`IF([@n] + [@f] = 0, ${daxText("#27AE60")}, ${daxText(L.door)})`);
+    if (G === "veiculo") frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], free));
+    else {
+      // A counter (checkout, desk) or a workstation in front of the wall; its top green when free.
+      const cw = Math.min(w * 0.7, 54);
+      frag.push(cv.box(cx - cw / 2, DEPTH + 8, 0, cw, G === "pessoa" ? 22 : 40, G === "pessoa" ? 28 : 18, [free, L.walls[1], L.walls[2]]));
+    }
+    // Being served: up to three, side by side (vehicles one behind the other).
+    const served = [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, G === "veiculo"
+      ? (i === 0 ? glyph(cx, DEPTH + 10, keyOf, "doca", tw) : [open("doca"), cv.box(cx - tw / 2 + 4, DEPTH + 172 + (i - 1) * 70, 0, tw - 8, 60, 30, colours(keyOf)), cv.box(cx - tw / 2 + 6, DEPTH + 218 + (i - 1) * 70, 30, tw - 12, 14, 18, L.cab), "</g>"])
+      : glyph(cx + (i - 1) * Math.min(18, w / 3), DEPTH + (G === "pessoa" ? 36 : 14), keyOf, "doca")));
+    frag.push(served);
+    // That place's own line: up to four waiting behind, the rest written.
+    const lineStep = G === "veiculo" ? 0 : G === "pessoa" ? 36 : 42;
+    if (G !== "veiculo") frag.push([0, 1, 2, 3].map((i) => when(`[@f] >= ${i + 1}`, glyph(cx, DEPTH + 70 + i * lineStep, `"fila"`, "filalocal"))));
+    else frag.push([0, 1].map((i) => when(`[@f] >= ${i + 1}`, [open("filalocal"), cv.box(cx - tw / 2 + 4, DEPTH + 330 + i * 64, 0, tw - 8, 56, 30, STATE.fila.shades), "</g>"])));
+    const shown = G === "veiculo" ? 2 : 4;
+    const [ox, oy] = cv.at(cx, DEPTH + (G === "veiculo" ? 470 : 70 + shown * lineStep + 14), 0);
+    frag.push(when(`[@f] > ${shown}`, [`<text x='${ox}' y='${oy}' text-anchor='middle' fill='${L.queue}' ${FONT} font-size='15' font-weight='700'>+`, D(`[@f] - ${shown}`), "</text>"]));
+    if (G === "veiculo") {
+      const [p0x, p0y] = cv.at(cx, DEPTH - 6, 12); const [p1x, p1y] = cv.at(cx, DEPTH + 40, 12);
+      const dur = (2.4 + (k % 3) * 0.5).toFixed(1);
+      frag.push(when(`[@n] > 0 && [@st] IN ${list(h.atDock)}`, `<g><rect x='${r1(Number(p0x) - 9)}' y='${r1(Number(p0y) - 9)}' width='18' height='14' rx='2' fill='#C99A5B'/><animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(p1x) - Number(p0x))} ${r1(Number(p1y) - Number(p0y))}' dur='${dur}s' repeatCount='indefinite'/><animate attributeName='opacity' values='0;1;1;0' dur='${dur}s' repeatCount='indefinite'/></g>`));
+    }
+    // The name of the one being served, over it ("+2" when there are more).
+    // The tag: over the vehicle, or over the head of the one being served.
+    const [px, py] = cv.at(cx, DEPTH + (G === "veiculo" ? 60 : 56), G === "veiculo" ? 61 : 92);
+    const pw = G === "veiculo" ? (n > 10 ? 70 : 92) : 70;
+    const lift = n > 10 && k % 2 ? 30 : 0;
+    frag.push(when("[@n] > 0", [
+      `<rect x='${r1(Number(px) - pw / 2)}' y='${r1(Number(py) - 34 - lift)}' width='${pw}' height='26' rx='13' fill='${L.plate}' stroke='`, shade(keyOf, 0), "' stroke-width='2'/>",
+      `<text x='${px}' y='${r1(Number(py) - 15 - lift)}' text-anchor='middle' fill='${L.plateText}' ${FONT} font-size='${n > 10 ? 13 : 15}' font-weight='700'>`, D(safe(`LEFT([@nome], 9) & IF([@n] > 1, " +" & ([@n] - 1), "")`)), "</text>",
+    ]));
     const [gx, gy] = cv.at(cx, DEPTH + 90, 0);
-    frag.push(when("Filtrado && [@n] > 0 && [@id] IN Visiveis", [`<ellipse cx='${gx}' cy='${gy}' rx='70' ry='40' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
-    const [nx, ny] = cv.at(cx - tw / 2 - 4, DEPTH, 76);
+    frag.push(when("Filtrado && [@n] > 0 && [@id] IN Visiveis", [`<ellipse cx='${gx}' cy='${gy}' rx='${G === "veiculo" ? 70 : 46}' ry='${G === "veiculo" ? 40 : 26}' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
+    const [nx, ny] = cv.at(cx - tw / 2 - 4, DEPTH, G === "veiculo" ? 76 : 98);
     frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 12 : 15}' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
     fragments.push(`${k + 1}, ${joinDax(frag)}`);
     points.push([k + 1, Number(gx), Number(gy)]);
   }
 
-  // The queue: each waiting vehicle in its own spot, in its own colour (red when late).
+  // The general queue (waiting with no place yet) and the way out.
   const queueSlots = [];
   for (let j = 0; j < QUEUE; j += 1) {
     const [x, y] = spot(j);
-    queueSlots.push(`${j + 1}, ${joinDax([truckY(x + 16, y + 6, 32, keyOf, "fila")])}`);
+    queueSlots.push(`${j + 1}, ${joinDax([G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila")])}`);
   }
-  // The road: each vehicle in transit in its own place on a lane, moving a little (never out of sight).
   const roadSlots = [];
-  for (let j = 0; j < ROAD; j += 1) {
-    const lane = j % 2; const pos = Math.floor(j / 2);
-    const X = 735 + lane * 80; const Y = 560 - pos * 165;
-    const [a0x, a0y] = cv.at(X, Y, 0); const [a1x, a1y] = cv.at(X, Y - 40, 0);
-    roadSlots.push(`${j + 1}, ${joinDax([`<g><animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`, truckY(X, Y - 120, 34, keyOf, "estrada"), "</g>"])}`);
+  if (hasRoad) {
+    for (let j = 0; j < ROAD; j += 1) {
+      const lane = j % 2; const pos = Math.floor(j / 2);
+      const X = 735 + lane * 80; const Y = 560 - pos * 165;
+      const [a0x, a0y] = cv.at(X, Y, 0); const [a1x, a1y] = cv.at(X, Y - 40, 0);
+      const moving = `<animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`;
+      // Loads and people go out by vehicle too: a van carrying them, coloured by their stage.
+      roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada"), "</g>"])}`);
+    }
   }
-  const [qx, qy] = cv.at(0, 620, 0);
+  const [qx, qy] = cv.at(0, G === "veiculo" ? 620 : 590, 0);
   cv.see(Number(qx) - 170, Number(qy));
   const [rx, ry] = cv.at(900, -40, 0);
-  cv.see(Number(rx) + 250, Number(ry) + 60);
+  if (hasRoad) cv.see(Number(rx) + 250, Number(ry) + 60);
   const counts = [
-    `<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 8)}' text-anchor='end' fill='${L.queue}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nFila, \"0\")"), ` ${flow.queueLabel || "na fila"}</text>`,
+    `<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 8)}' text-anchor='end' fill='${L.queue}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nFila + nFilaLocal, \"0\")"), ` ${xml(flow.queueLabel || "na fila")}</text>`,
     when(`nFila > ${QUEUE}`, [`<text x='${r1(Number(qx) - 16)}' y='${r1(Number(qy) + 34)}' text-anchor='end' fill='${L.queue}' ${FONT} font-size='18'>`, D(`"+" & (nFila - ${QUEUE}) & " fora do desenho"`), "</text>"]),
-    `<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 6)}' fill='${L.transit}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nEstrada, \"0\")"), ` ${flow.transitLabel || "em trânsito"}</text>`,
-    when("nAtrasoEstrada > 0", [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 36)}' fill='${L.late}' ${FONT} font-size='21'>`, D("FORMAT(nAtrasoEstrada, \"0\")"), " com atraso</text>"]),
-    when(`nEstrada > ${ROAD}`, [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 62)}' fill='${L.transit}' ${FONT} font-size='18'>`, D(`"+" & (nEstrada - ${ROAD}) & " fora do desenho"`), "</text>"]),
+    hasRoad ? [
+      `<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 6)}' fill='${L.transit}' ${FONT} font-size='26' font-weight='700'>`, D("FORMAT(nEstrada, \"0\")"), ` ${xml(flow.transitLabel || "em trânsito")}</text>`,
+      when("nAtrasoEstrada > 0", [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 36)}' fill='${L.late}' ${FONT} font-size='21'>`, D("FORMAT(nAtrasoEstrada, \"0\")"), " com atraso</text>"]),
+      when(`nEstrada > ${ROAD}`, [`<text x='${r1(Number(rx) + 10)}' y='${r1(Number(ry) + 62)}' fill='${L.transit}' ${FONT} font-size='18'>`, D(`"+" & (nEstrada - ${ROAD}) & " fora do desenho"`), "</text>"]),
+    ] : "",
   ];
 
   const vb = { x: cv.minX - 16, y: cv.minY - 16, w: cv.maxX - cv.minX + 32, h: cv.maxY - cv.minY + 32 };
@@ -272,47 +337,55 @@ export function yardScene(flow, { title = "Centro de distribuição", look = "no
     legend.push(`<text x='${r1(lx + 30)}' y='${r1(ly + 1)}' fill='${L.text}' ${FONT} font-size='20'>${xml(text)}</text>`);
   });
   if (stamp) legend.push(liveBadge(stamp, vb.x + vb.w - 320, vb.y + 14, L));
-  legend.push(when(`nDocas > ${n}`, [`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 76)}' text-anchor='end' fill='${L.text}' ${FONT} font-size='17'>`, D(`"+" & (nDocas - ${n}) & " ${xml(flow.place.toLowerCase())}s fora do desenho"`), "</text>"]));
+  if (flow.timeline) legend.push(`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 100)}' text-anchor='end' ${FONT} font-size='24' font-weight='800' fill='`, D(`IF(T > NOW() + 1 / 1440, ${daxText(L.transit)}, ${daxText(L.queue)})`), "'>", D(`IF(T < NOW() - 1 / 1440, "REPRISE · " & FORMAT(T, "dd/mm HH:nn"), IF(T > NOW() + 1 / 1440, "PREVISÃO · " & FORMAT(T, "dd/mm HH:nn") & " (fantasmas)", ""))`), "</text>");
+  legend.push(when(`nDocas > ${n}`, [`<text x='${r1(vb.x + vb.w - 20)}' y='${r1(vb.y + 76)}' text-anchor='end' fill='${L.text}' ${FONT} font-size='17'>`, D(`"+" & (nDocas - ${n}) & " ${xml(flow.placePlural || `${flow.place.toLowerCase()}s`)} fora do desenho"`), "</text>"]));
+  // The fidelity seal: what is drawn against what the data has, counted live ("✓ 22 de 22").
+  const sealX = vb.x + vb.w - 20; const sealY = vb.y + vb.h - 18;
+  legend.push(`<text x='${r1(sealX)}' y='${r1(sealY)}' text-anchor='end' ${FONT} font-size='18' font-weight='700' fill='`, D(`IF(nDesenhados = nTotal, ${daxText("#27AE60")}, ${daxText(L.queue)})`), "'>", D(`IF(nDesenhados = nTotal, "✓ ", "◐ ") & nDesenhados & " de " & nTotal & " desenhados" & IF(nDesenhados = nTotal, "", " (o resto está escrito)")`), "</text>");
 
   const selected = flow.id || flow.asset;
-  // The unit: the one chosen; with all of them in view, no yard is drawn (it would not match the cards).
   const unitVars = site ? [`VAR Unidade = IF(HASONEVALUE(${site}), VALUES(${site}), BLANK())`, `VAR Base = FILTER(ALL(${q(F)}), ${site} = Unidade)`] : [`VAR Base = ALL(${q(F)})`];
   const docks = site ? `CALCULATETABLE(VALUES(${place}), ${site} = Unidade, REMOVEFILTERS(${q(F)}))` : `ALL(${place})`;
   const svgHead = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='${r1(vb.x)} ${r1(vb.y)} ${r1(vb.w)} ${r1(vb.h)}' preserveAspectRatio='none'>`;
   const askUnit = site ? [
-    `IF(ISBLANK(Unidade), ${daxText(URL_HEAD)} & ${daxText(svgHead)} & ${joinDax([cv.poly([[-120, -60, 0], [920, -60, 0], [920, 700, 0], [-120, 700, 0]], L.ground)])}`,
-    `  & ${daxText(`<text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 - 10)}' text-anchor='middle' fill='${L.strong}' ${FONT} font-size='34' font-weight='700'>Escolha uma ${xml(flow.site)} no filtro</text><text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 + 30)}' text-anchor='middle' fill='${L.text}' ${FONT} font-size='22'>`)} & ${safe(`"O pátio desenha uma unidade por vez (há " & COUNTROWS(ALL(${site})) & "); os números acima somam todas."`)} & "</text></svg>",`,
+    `IF(ISBLANK(Unidade), ${daxText(URL_HEAD)} & ${daxText(svgHead)} & ${joinDax([cv.poly([[-120, -60, 0], [920, -60, 0], [920, 800, 0], [-120, 800, 0]], L.ground)])}`,
+    `  & ${daxText(`<text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 - 10)}' text-anchor='middle' fill='${L.strong}' ${FONT} font-size='34' font-weight='700'>Escolha uma ${xml(flow.site)} no filtro</text><text x='${r1(vb.x + vb.w / 2)}' y='${r1(vb.y + vb.h / 2 + 30)}' text-anchor='middle' fill='${L.text}' ${FONT} font-size='22'>`)} & ${safe(`"A cena desenha uma unidade por vez (há " & COUNTROWS(ALL(${site})) & "); os números acima somam todas."`)} & "</text></svg>",`,
   ] : [];
+  const capServed = 3; const capLine = G === "veiculo" ? 2 : 4;
   const dax = [
     ...unitVars,
-    ...vehicleVars(flow, "Base"),
+    ...vehicleVars(flow, "Base", at),
     `VAR Visiveis = ${selected ? `VALUES(${col(F, selected)})` : "{ BLANK() }"}`,
     `VAR Filtrado = ${selected ? "COUNTROWS(FILTER(Veiculos, NOT [@id] IN Visiveis)) > 0" : "FALSE()"}`,
     "VAR NaDoca = FILTER(Veiculos, [@where] = \"doca\")",
+    "VAR NaFilaLocal = FILTER(Veiculos, [@where] = \"filalocal\")",
     "VAR Fila = FILTER(Veiculos, [@where] = \"fila\")",
     "VAR Estrada = FILTER(Veiculos, [@where] = \"estrada\")",
     "VAR nFila = COUNTROWS(Fila) + 0",
+    "VAR nFilaLocal = COUNTROWS(NaFilaLocal) + 0",
     "VAR nEstrada = COUNTROWS(Estrada) + 0",
     "VAR nAtrasoEstrada = COUNTROWS(FILTER(Estrada, [@atraso] = 1)) + 0",
     `VAR TodasDocas = FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> "")`,
     "VAR nDocas = COUNTROWS(TodasDocas) + 0",
     `VAR Docas = TOPN(${n}, TodasDocas, ${place}, ASC)`,
-    // Each bay: how many vehicles are at it, and the first of them (by name) for its colour and plate.
-    `VAR Slots0 = ADDCOLUMNS(Docas, "@i", VAR d = ${place} RETURN COUNTROWS(FILTER(Docas, ${place} <= d)), "@n", VAR d = ${place} & "" RETURN COUNTROWS(FILTER(NaDoca, [@doca] = d)) + 0)`,
+    `VAR Slots0 = ADDCOLUMNS(Docas, "@i", VAR d = ${place} RETURN COUNTROWS(FILTER(Docas, ${place} <= d)), "@n", VAR d = ${place} & "" RETURN COUNTROWS(FILTER(NaDoca, [@doca] = d)) + 0, "@f", VAR d = ${place} & "" RETURN COUNTROWS(FILTER(NaFilaLocal, [@doca] = d)) + 0)`,
     `VAR Slots1 = ADDCOLUMNS(Slots0, "@nome", VAR d = ${place} & "" RETURN MINX(FILTER(NaDoca, [@doca] = d), [@nome]))`,
-    `VAR DocaVeic = ADDCOLUMNS(Slots1, "@st", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@st]), "@atraso", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@atraso]) + 0, "@id", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@id]))`,
+    `VAR DocaVeic = ADDCOLUMNS(Slots1, "@st", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@st]), "@atraso", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@atraso]) + 0, "@id", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@id]), "@prev", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@prev]) + 0)`,
     `VAR FilaN = ADDCOLUMNS(Fila, "@j", VAR v = [@nome] RETURN COUNTROWS(FILTER(Fila, [@nome] <= v)))`,
     `VAR EstradaN = ADDCOLUMNS(Estrada, "@j", VAR v = [@nome] RETURN COUNTROWS(FILTER(Estrada, [@nome] <= v)))`,
+    // What is drawn (capped per place, per line, per queue, per road) against everything there is.
+    `VAR nTotal = COUNTROWS(FILTER(Veiculos, [@where] IN {"doca", "filalocal", "fila", "estrada"})) + 0`,
+    `VAR nDesenhados = SUMX(TOPN(${n}, Slots0, [@i], ASC), MIN([@n], ${capServed}) + MIN([@f], ${capLine})) + MIN(nFila, ${QUEUE}) + ${hasRoad ? `MIN(nEstrada, ${ROAD})` : "0"}`,
     `RETURN ${askUnit.length ? askUnit.join("\n") : ""}`,
     `  ${daxText(URL_HEAD)} & ${daxText(svgHead)}`,
     `  & ${joinDax(parts)}`,
     `  & CONCATENATEX(DocaVeic, SWITCH([@i], ${fragments.join(",\n    ")}, ""), "", [@i], ASC)`,
     `  & CONCATENATEX(FilaN, SWITCH([@j], ${queueSlots.join(",\n    ")}, ""), "", [@j], ASC)`,
-    `  & CONCATENATEX(EstradaN, SWITCH([@j], ${roadSlots.join(",\n    ")}, ""), "", [@j], DESC)`,
+    hasRoad ? `  & CONCATENATEX(EstradaN, SWITCH([@j], ${roadSlots.join(",\n    ")}, ""), "", [@j], DESC)` : "",
     `  & ${joinDax(counts)}`,
     `  & ${joinDax(legend)}`,
     `  & "</svg>"${askUnit.length ? ")" : ""}`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   const index = [
     ...unitVars.slice(0, 1),
     `VAR Docas = TOPN(${n}, FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,

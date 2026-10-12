@@ -13,7 +13,8 @@ const BUDGET = /or[çc]ad|or[çc]amento|meta|previst|planejad/i;
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const col = (table, column) => `${q(table)}[${String(column).replace(/]/g, "]]")}]`;
-const list = (values) => `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}`;
+// An empty list is not DAX ("IN {}"): a value no status has stands in.
+const list = (values) => (values.length ? `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}` : "{\"(nenhum)\"}");
 const valuesOf = (table, column) => table.rows.map((r) => String(r[table.columns.indexOf(column)] ?? "").trim()).filter(Boolean);
 const MONEY = "\"R$\" #,0.00";
 const PCT = "0.0%";

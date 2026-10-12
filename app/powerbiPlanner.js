@@ -187,8 +187,8 @@ export function autoPlan(cat, goal = "") {
     estilo = { tema: pick(["claro", "escuro"], seed >>> 4), cor: pick(["teal", "dourado", "azul", "verde"], seed >>> 1), tom: "executivo" };
   } else if (cat.kind === "logistica" || cat.kind === "fluxo") {
     const k = cat.keys;
-    const scene = cat.scenes.patio ? "patio" : "etapas";
-    pages.push({ nome: cat.kind === "logistica" ? pick(["Pátio agora", "Operação ao vivo", "Docas e caminhões"], seed) : pick(["Onde está cada um", "Andamento agora", "Fila de trabalho"], seed), pergunta: "O que está acontecendo agora e onde está cada um?", layout: scene === "patio" ? pick(["gemeo_digital", "gemeo_digital", "cena_e_lateral"], seed) : pick(["cena_e_lateral", "cena_inteira", "cartoes_laterais"], seed), cena: scene, numeros: k.kpis.slice(0, 5), blocos: [has("detalhe_selecionado") ? { tipo: "detalhe_selecionado" } : null, has("tabela_andamento") ? { tipo: "tabela_andamento" } : null, has("rastreamento") ? { tipo: "rastreamento" } : null].filter(Boolean).slice(0, 3) });
+    const scene = cat.scenes.patio ? "patio" : cat.scenes.operacao ? "operacao" : "etapas";
+    pages.push({ nome: cat.kind === "logistica" ? pick(["Pátio agora", "Operação ao vivo", "Docas e caminhões"], seed) : pick(["Onde está cada um", "Andamento agora", "Fila de trabalho"], seed), pergunta: "O que está acontecendo agora e onde está cada um?", layout: scene !== "etapas" ? pick(["gemeo_digital", "gemeo_digital", "cena_e_lateral"], seed) : pick(["cena_e_lateral", "cena_inteira", "cartoes_laterais"], seed), cena: scene, numeros: k.kpis.slice(0, 5), blocos: [has("detalhe_selecionado") ? { tipo: "detalhe_selecionado" } : null, has("tabela_andamento") ? { tipo: "tabela_andamento" } : null, has("rastreamento") ? { tipo: "rastreamento" } : null].filter(Boolean).slice(0, 3) });
     const second = [chart("barras", k.onTime || k.count, dim(/transportadora|empresa|parceiro|equipe|respons|t[ée]cnico/i) || firstDim, ""), chart("barras", k.lateDone || k.count, dim(/cidade|destino|cliente|categoria|prioridade/i) || firstDim, ""), byTime ? chart("colunas", k.count, byTime, "") : null].filter(Boolean);
     if (second.length) pages.push({ nome: cat.kind === "logistica" ? pick(["Prazos e atrasos", "Quem entrega no prazo", "Entregas"], seed >>> 2) : pick(["Volume e prazos", "Quem resolve", "Ritmo"], seed >>> 2), pergunta: "Quem cumpre o prazo e onde estão os atrasos?", layout: pick(["grade", "narrativa", "comparacao"], seed >>> 3), cena: "nenhuma", numeros: [k.count, k.onTime, k.lateDone].filter(Boolean), blocos: second });
     estilo = { tema: "escuro", cor: pick(["azul", "teal", "laranja"], seed), tom: "tecnico" };
@@ -248,7 +248,9 @@ export function materialize(page, cat, look = "noite") {
   // The filters of the page: the year, and what its charts group by.
   const used = page.blocos.map((b) => b.por).filter((p) => p && !timeRef[p]);
   const slicerRefs = [cat.time.length ? "'Calendário'[Ano]" : null, ...used.map(refOf), ...cat.slicerRefs].filter(Boolean);
-  const slicers = [...new Set(slicerRefs)].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true, ...(cat.slicerDefaults?.[values] ? { select: [cat.slicerDefaults[values]], single: true } : {}) }));
+  // The moment and the unit (the filters with a default) come first: they decide what the page shows.
+  const first = cat.slicerRefs.filter((r) => cat.slicerDefaults?.[r]);
+  const slicers = [...new Set([...first, ...slicerRefs])].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true, ...(cat.slicerDefaults?.[values] ? { select: [cat.slicerDefaults[values]], single: true } : {}) }));
   const cards = page.numeros.map((name) => ({ type: "card", values: m(name), title: name, ...(cat.money.has(name) ? { precision: 0 } : {}) }));
   return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks, slicers };
 }

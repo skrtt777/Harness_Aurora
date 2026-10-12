@@ -15,13 +15,25 @@ const STAGE_RULES = [
 ];
 const stageOf = (value) => STAGE_RULES.find(([, , re]) => re.test(String(value))) || null;
 
-const PLACE = /doca|^box\b|port[ãa]o|baia|plataforma|\bdock/i;
-const ASSET = /placa|caminh[ãa]o|ve[íi]culo|carreta|frota|cavalo/i;
+// Where something is served: a dock, a checkout, a counter, a bed, a machine…
+const PLACE = /doca|^box\b|port[ãa]o|baia|plataforma|\bdock|^caixa\b|^pdv\b|checkout|guich[êe]|balc[ãa]o|^mesa\b|leito|m[áa]quina|^linha\b|esta[çc][ãa]o|^posto\b|consult[óo]rio|cabine|^bomba\b/i;
+const ASSET = /placa|caminh[ãa]o|ve[íi]culo|carreta|frota|cavalo|^moto\b|^van\b/i;
+// What moves through it: a person (a ticket, a customer, a patient) or a load (an order, a cargo…).
+const PERSON = /senha|cliente|paciente|pessoa|visitante|h[óo]spede|aluno|atendimento|consulta/i;
+const PEOPLE_PLACE = /^caixa\b|^pdv\b|checkout|guich[êe]|balc[ãa]o|^mesa\b|leito|consult[óo]rio|cabine/i;
+// When each stage began: "Hora de chegada", "Início do atendimento", "Saída", "Entrega"…
+const STAGE_TIME = [
+  [1, /chegada|entrada|abertura|recebimento|registro|cria[çc][ãa]o|emiss[ãa]o|pedido/i],
+  [2, /separa|triagem|confer/i],
+  [3, /in[íi]cio|carregamento|atendimento|produ[çc][ãa]o/i],
+  [4, /sa[íi]da|despacho|coleta|embarque|expedi/i],
+  [5, /fim|entrega|conclus|fechamento|finaliz|t[ée]rmino|baixa/i],
+];
 const DRIVER = /motorista|condutor/i;
 const DUE = /previs|prazo|promet|agend|vencim|\bsla\b|limite/i;
 const DONE_AT = /entrega|conclus|fechament|baixa|finaliz|chegada|resolu|atendid/i;
 const STOCK = /estoque|saldo/i;
-const SITE = /^(cd|centro de distribui|unidade|filial|armaz[ée]m|dep[óo]sito|planta|site|hub|base|galp[ãa]o)\b/i;
+const SITE = /^(cd|centro de distribui|unidade|filial|loja|armaz[ée]m|dep[óo]sito|planta|site|hub|base|galp[ãa]o)\b/i;
 
 /** The column values of a profiled table. */
 const valuesOf = (table, column) => table.rows.map((r) => String(r[table.columns.indexOf(column)] ?? "").trim()).filter(Boolean);
@@ -55,9 +67,22 @@ export function readFlow(fact, tables = []) {
   const asset = find(ASSET, (c) => c.type === "texto");
   const driver = find(DRIVER, (c) => c.type === "texto");
   const id = fact.columns.find((c) => c.role === "id");
-  const due = find(DUE, (c) => c.type === "data");
-  const doneAt = find(DONE_AT, (c) => c.type === "data" && c !== due);
-  const date = fact.columns.find((c) => c.type === "data" && c !== due && c !== doneAt);
+  const isDate = (c) => c.type === "data" || c.type === "datahora";
+  const due = find(DUE, isDate);
+  const doneAt = find(DONE_AT, (c) => isDate(c) && c !== due);
+  const date = fact.columns.find((c) => isDate(c) && c !== due && c !== doneAt) || fact.columns.find((c) => isDate(c) && c !== due);
+  // The time each stage began, when the data has it: the timeline can replay any moment.
+  const times = {};
+  for (const c of fact.columns.filter((x) => isDate(x) && x !== due)) {
+    const rule = STAGE_TIME.find(([rank, re]) => re.test(c.name) && stages.some((st) => st.rank === rank) && !times[rank]);
+    if (rule) times[rule[0]] = c.name;
+  }
+  // Only when every stage has its time: a replay with a missing stage would put everyone in the wrong one.
+  const timeline = stages.every((st) => times[st.rank]) ? times : null;
+  // With a timeline, the start is the first stage's time and the end the last one's ("Hora de chegada"
+  // is an arrival here, not a delivery).
+  const startCol = timeline ? fact.columns.find((c) => c.name === times[Math.min(...Object.keys(times).map(Number))]) : date;
+  const endCol = timeline && times[5] ? fact.columns.find((c) => c.name === times[5]) : doneAt;
   const by = (re) => fact.columns.find((c) => re.test(c.name) && c.type === "texto" && c !== best.column);
   const details = [
     driver && { label: driver.name, column: driver.name },
@@ -72,21 +97,48 @@ export function readFlow(fact, tables = []) {
     if (details.length >= 5) break;
     if (c.role === "dimension" && c !== best.column && c !== place && c !== asset && c.distinct <= 12 && /prioridade|categoria|tipo|setor|respons|t[ée]cnico|canal|equipe/i.test(c.name) && !details.some((d) => d.column === c.name)) details.push({ label: c.name, column: c.name });
   }
-  const vehicles = asset ? (/placa|caminh/i.test(asset.name) ? "caminhões" : "veículos") : null;
+  // What is drawn and how it is called: vehicles (a plate), people (a ticket at a checkout) or loads.
+  const entity = asset || id;
+  const glyph = asset ? "veiculo" : (entity && PERSON.test(entity.name)) || (place && PEOPLE_PLACE.test(place.name)) ? "pessoa" : "volume";
+  const nounOf = () => {
+    if (asset) return /placa|caminh/i.test(asset.name) ? "caminhões" : "veículos";
+    if (glyph === "pessoa") return /paciente/i.test(entity?.name || "") ? "pacientes" : "clientes";
+    const word = String(entity?.name || "item").toLowerCase().replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "item";
+    return /s$/.test(word) ? word : /[aeiou]$/.test(word) ? `${word}s` : /m$/.test(word) ? word.replace(/m$/, "ns") : /[rz]$/.test(word) ? `${word}es` : /ão$/.test(word) ? word.replace(/ão$/, "ões") : `${word}s`;
+  };
+  const vehicles = entity ? nounOf() : null;
+  // "nas docas", "nos caixas": the place's gender (o caixa, a doca, a estação).
+  const placeWord = place ? place.name.toLowerCase().replace(/\s+\d+$/, "") : null;
+  const placeMasc = placeWord ? /^(caixa|pdv|checkout|guich[êe]|balc[ãa]o|leito|consult[óo]rio|posto|box|port[ãa]o)/.test(placeWord) : false;
+  const placePlural = placeWord ? (placeWord.endsWith("ão") ? placeWord.replace(/ão$/, "ões") : /[ê]$/.test(placeWord) ? `${placeWord}s` : /[rz]$/.test(placeWord) ? `${placeWord}es` : /s$/.test(placeWord) ? placeWord : `${placeWord}s`) : null;
   const stock = tables.filter((t) => t !== fact).map((t) => ({ table: t, column: t.columns.find((c) => STOCK.test(c.name) && /quantity|value|money/.test(c.role) && !/m[íi]nimo/i.test(c.name)), minimum: t.columns.find((c) => /m[íi]nimo/i.test(c.name) && c.type !== "texto") })).find((s) => s.column) || null;
   return {
     fact: fact.name, status: best.column.name, stages, done,
     place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, siteValues, asset: asset?.name || null, driver: driver?.name || null,
-    id: id?.name || null, date: date?.name || null, due: due?.name || null, doneAt: doneAt?.name || null,
-    details, vehicles, stock,
+    id: id?.name || null, date: startCol?.name || null, due: due?.name || null, doneAt: endCol?.name || null,
+    details, vehicles, stock, glyph, timeline, placePlural, placeMasc,
+    queueLabel: (stages.find((st) => st.key === "fila")?.values[0] || "na fila").toLowerCase().replace(/^(pedido |chamado )/, "").replace(/^recebid[oa]$/, "na fila"),
+    transitLabel: (stages.find((st) => st.key === "transito")?.values[0] || "em trânsito").toLowerCase(),
     logistics: Boolean(place || asset || stages.some((s) => s.key === "transito")),
   };
 }
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const col = (table, column) => `${q(table)}[${String(column).replace(/]/g, "]]")}]`;
-const list = (values) => `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}`;
+// An empty list is not DAX ("IN {}"): a value no status has stands in.
+const list = (values) => (values.length ? `{${values.map((v) => `"${String(v).replace(/"/g, "\"\"")}"`).join(", ")}}` : "{\"(nenhum)\"}");
 const INT = "#,0";
+// The moment chosen in the timeline ("Agora", "há 2 h", "daqui 1 h"): the cards and the scene follow it.
+export const MOMENT = "NOW() + SELECTEDVALUE('Momento'[Minutos], 0) / 1440";
+/** The timeline's table: from 12 h ago to 3 h ahead, every 15 min, with words people read. */
+export function momentTable() {
+  const rows = [];
+  for (let m = -720; m <= 180; m += 15) {
+    const hhmm = (x) => { const a = Math.abs(x); const hh = Math.floor(a / 60); const mm = a % 60; return hh ? `${hh} h${mm ? ` ${mm}` : ""}` : `${mm} min`; };
+    rows.push([m, m === 0 ? "Agora" : m < 0 ? `há ${hhmm(m)}` : `daqui ${hhmm(m)} (previsão)`]);
+  }
+  return `DATATABLE("Minutos", INTEGER, "Quando", STRING, {${rows.map(([m, q2]) => `{${m}, "${q2}"}`).join(", ")}})`;
+}
 const PCT = "0.0%";
 
 /**
@@ -107,12 +159,12 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   if (flow.asset || flow.place) {
     // Counted vehicle by vehicle, where each one is now (its latest active record) — the same DAX the
     // yard draws with, so a card and the scene never disagree.
-    const V = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
-    const vm = vehicleMeasures(flow);
-    kpis.push(add(`${V} no pátio`, vm.patio, INT, "Operação", "Nas docas ou na fila agora (cada um conta uma vez, onde está)"));
-    if (flow.place) add(`${V} nas ${flow.place.toLowerCase()}s`, vm.docas, INT, "Operação", `Em uma ${flow.place.toLowerCase()} agora`);
+    const V = (flow.vehicles || "itens").replace(/^./, (c) => c.toUpperCase());
+    const vm = vehicleMeasures(flow, flow.timeline ? MOMENT : null);
+    kpis.push(add(flow.glyph === "veiculo" ? `${V} no pátio` : `${V} no local`, vm.patio, INT, "Operação", "Sendo atendidos ou na fila agora (cada um conta uma vez, onde está)"));
+    if (flow.place) add(`${V} ${flow.placeMasc ? "nos" : "nas"} ${flow.placePlural}`, vm.docas, INT, "Operação", `Em atendimento num(a) ${flow.place.toLowerCase()} agora`);
     add(`${V} na fila`, vm.fila, INT, "Operação", "Esperando agora");
-    add(`${V} em trânsito`, vm.estrada, INT, "Operação", "Na estrada agora");
+    if (flow.stages.some((st) => st.key === "transito")) add(`${V} em trânsito`, vm.estrada, INT, "Operação", "A caminho agora");
   }
   if (flow.due && flow.doneAt) {
     kpis.push(onTime = add(flow.logistics ? "Entregas no prazo %" : "No prazo %", `VAR Feitos = FILTER(${q(F)}, NOT ISBLANK(${col(F, flow.doneAt)}) && NOT ISBLANK(${col(F, flow.due)}))\nRETURN DIVIDE(COUNTROWS(FILTER(Feitos, ${col(F, flow.doneAt)} <= ${col(F, flow.due)})), COUNTROWS(Feitos))`, PCT, "Operação", `${flow.doneAt} até ${flow.due}`));
@@ -136,7 +188,7 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   const yards = new Map();
   const yard = (look) => {
     if (!yards.has(look)) {
-      const made = yardScene(flow, { title: title || "Centro de distribuição", look, stamp });
+      const made = yardScene(flow, { title: title || "Operação", look, stamp, at: flow.timeline ? MOMENT : null });
       const suffix = look === "dia" ? " (dia)" : "";
       yards.set(look, {
         url: picture(`Cena do pátio${suffix}`, made.dax, `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`),
@@ -159,7 +211,10 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   const rowsBy = key ? col(F, key) : status;
   const things = flow.asset ? (flow.vehicles === "caminhões" ? "Caminhões" : "Veículos") : "Itens";
   const scenes = {};
-  if (scene) scenes.patio = { covers: [flow.place, flow.site, flow.asset].filter(Boolean), desc: `o lugar desenhado e vivo: cada ${flow.place.toLowerCase()} com o ${flow.asset ? (flow.vehicles === "caminhões" ? "caminhão" : "veículo") : "item"} dela colorido pela etapa, livres em verde, fila, caminhões andando na estrada; clicar numa ${flow.place.toLowerCase()} filtra a página${flow.site ? `; uma ${flow.site.toLowerCase()} por vez` : ""}`, make: ({ look = "noite" } = {}) => { const y = yard(look); return { type: "image", scene: true, look, url: m(y.url), title: `${flow.place}s e ${things.toLowerCase()} agora`, overlay: { category: y.made.points.category, x: m(y.x), y: m(y.y), w: Number(y.made.points.w), h: Number(y.made.points.h) } }; } };
+  // The scene's name for the planner: "patio" for vehicles at docks, "operacao" for any other place.
+  const sceneId = flow.glyph === "veiculo" ? "patio" : "operacao";
+  const who = flow.vehicles || "itens";
+  if (scene) scenes[sceneId] = { covers: [flow.place, flow.site, flow.asset, flow.id].filter(Boolean), desc: `a operação desenhada e viva: ${flow.placeMasc ? "cada" : "cada"} ${flow.place.toLowerCase()} com os ${who} sendo atendidos e a fila de cada um, ${flow.placeMasc ? "livres" : "livres"} em verde${flow.stages.some((st) => st.key === "transito") ? ", os que estão a caminho na estrada" : ""}; cada um desenhado onde está${flow.timeline ? "; dá para voltar no tempo e ver a previsão das próximas horas" : ""}; clicar filtra a página${flow.site ? `; uma ${flow.site.toLowerCase()} por vez` : ""}`, make: ({ look = "noite" } = {}) => { const y = yard(look); return { type: "image", scene: true, look, url: m(y.url), title: `${flow.place}s e ${who} ${flow.timeline ? "no momento escolhido" : "agora"}`, overlay: { category: y.made.points.category, x: m(y.x), y: m(y.y), w: Number(y.made.points.w), h: Number(y.made.points.h) } }; } };
   else scenes.etapas = { desc: "as etapas como torres: quantos em cada uma, os atrasados em vermelho", make: () => ({ type: "image", url: m(towers), title: "Onde está cada um agora" }) };
   const specials = {
     rastreamento: { desc: "as etapas em sequência com quantos em cada (ou o caminho do item escolhido)", make: () => ({ type: "image", url: m(tracker), title: "Rastreamento" }) },

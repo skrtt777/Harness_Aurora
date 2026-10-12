@@ -201,7 +201,7 @@ static class Pbi {
     switch ((t ?? "").ToLowerInvariant()) {
       case "inteiro": case "int64": case "int": return Microsoft.AnalysisServices.Tabular.DataType.Int64;
       case "numero": case "número": case "double": case "decimal": case "moeda": return Microsoft.AnalysisServices.Tabular.DataType.Double;
-      case "data": case "datetime": case "date": return Microsoft.AnalysisServices.Tabular.DataType.DateTime;
+      case "data": case "datahora": case "datetime": case "date": return Microsoft.AnalysisServices.Tabular.DataType.DateTime;
       case "sim/não": case "boolean": case "bool": return Microsoft.AnalysisServices.Tabular.DataType.Boolean;
       default: return Microsoft.AnalysisServices.Tabular.DataType.String;
     }
@@ -352,7 +352,9 @@ static class Pbi {
       var t = new Microsoft.AnalysisServices.Tabular.Table { Name = Str(ts, "name") };
       if (Str(ts, "hidden") == "True") t.IsHidden = true;
       bool calc = ts.ContainsKey("dax");
-      foreach (var cs in List(ts, "columns")) {
+      var allColumns = new List<Dictionary<string, object>>(List(ts, "columns"));
+      allColumns.AddRange(List(ts, "extraColumns"));
+      foreach (var cs in allColumns) {
         Microsoft.AnalysisServices.Tabular.Column c;
         if (cs.ContainsKey("expression")) c = new Microsoft.AnalysisServices.Tabular.CalculatedColumn { Name = Str(cs, "name"), Expression = Str(cs, "expression"), DataType = Dt(Str(cs, "type")) };
         else if (calc) c = new Microsoft.AnalysisServices.Tabular.CalculatedTableColumn { Name = Str(cs, "name"), SourceColumn = "[" + Str(cs, "source", Str(cs, "name")) + "]", DataType = Dt(Str(cs, "type")), IsNameInferred = false, IsDataTypeInferred = false };

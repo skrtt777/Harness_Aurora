@@ -129,8 +129,8 @@ test("the scene's DAX: one slot per dock, quotes and parentheses balanced, data 
   assert.match(dax, /SUMMARIZE\(Ativos, 'Embarques'\[Placa\]\)/);
   assert.match(dax, /VAR Filtrado = COUNTROWS\(FILTER\(Veiculos, NOT \[@id\] IN Visiveis\)\) > 0/);
   for (const where of ["doca", "fila", "estrada"]) assert.match(dax, new RegExp(`class='v ${where}`));
-  assert.equal((dax.match(/class='v fila/g) || []).length, 10);
-  assert.equal((dax.match(/class='v estrada/g) || []).length, 8);
+  assert.equal((dax.match(/class='v fila'/g) || []).length, 10);
+  assert.equal((dax.match(/class='v estrada'/g) || []).length, 8);
   assert.match(dax, /fora do desenho/);
   assert.equal(daxText("a#b%c\"d"), "\"a%23b%25c\"\"d\"");
   assert.match(safe("[@placa]"), /"&", "&amp;"\), "<", "&lt;"\), "%", "%25"\), "#", "%23"/);
