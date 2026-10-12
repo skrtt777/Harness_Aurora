@@ -17,6 +17,8 @@ export const STATE_LABEL: Record<string, string> = {
   descanso: "Descansando", cobrado: "Sendo cobrado", desligado: "Fora do escritório", supervisionando: "Supervisionando", cobrando: "Cobrando",
 };
 const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (subagente)", professor: "Professor", chefe: "Chefe" };
+/** How someone is called in the list and on hover: a session with its conversation ("Marina · Metas de outubro"). */
+const who = (a: OfficeActor) => (a.kind === "aurora" && a.task ? `${a.name} · ${a.task}` : a.name);
 const BUSY = new Set(["trabalhando", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
 
 // The shirt colours of the pixel people (officePixel.ts), for the legend and the list.
@@ -118,7 +120,8 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
       <aside className="office-side" aria-label="Quem está na sala">
         {chosen ? <div className="office-card">
           <p className="office-kind">{KIND_LABEL[chosen.kind]}{chosen.department ? ` · ${chosen.department}` : ""}</p>
-          <h2>{chosen.kind === "aurora" && chosen.task ? `Aurora · ${chosen.task}` : chosen.name}</h2>
+          <h2>{chosen.name}</h2>
+          {chosen.kind === "aurora" && chosen.task && <p className="office-task">Conversa: {chosen.task}</p>}
           <p className={`office-state s-${chosen.state}`}>{STATE_LABEL[chosen.state] || chosen.state}{chosen.since ? ` · ${since(chosen.since)}` : ""}</p>
           <p>{chosen.activity}</p>
           {chosen.task && chosen.kind === "agente" && <p className="office-task">Tarefa: {chosen.task}</p>}
@@ -133,7 +136,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
           {people.map((a) => <li key={a.id}>
             <button className={a.id === selected ? "active" : ""} onClick={() => setSelected(a.id)}>
               <span className="office-dot" style={{ background: BODY[a.kind] }} />
-              <span className="office-who">{a.kind === "aurora" && a.task ? `Aurora · ${a.task}` : a.name}</span>
+              <span className="office-who">{who(a)}</span>
               <span className={`office-state s-${a.state}`}>{STATE_LABEL[a.state] || a.state}</span>
             </button>
           </li>)}
@@ -198,7 +201,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   ctx.textAlign = "center";
   for (const w of walkers) {
     const lit = w.id === hover || w.id === selected; const a = w.actor; const p = feet(w);
-    const text = lit ? `${a.kind === "aurora" && a.task ? `Aurora · ${a.task}` : a.name}: ${STATE_LABEL[a.state] || a.state}` : a.kind === "aurora" ? "Aurora" : a.name.length > 14 ? `${a.name.slice(0, 13)}…` : a.name;
+    const text = lit ? `${who(a)}: ${STATE_LABEL[a.state] || a.state}` : a.kind === "copia" ? a.name.replace(/ de .*/, "") : a.name.length > 14 ? `${a.name.slice(0, 13)}…` : a.name;
     const size = Math.round((lit ? 4.6 : 3.6) * k); ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
     const x = p.x * k, y = (p.y + 5) * k + size * 0.6;
     if (lit) { const wd = ctx.measureText(text).width + size; ctx.fillStyle = "rgba(23,20,31,0.88)"; ctx.fillRect(x - wd / 2, y - size, wd, size * 1.4); ctx.fillStyle = "#ffffff"; ctx.fillText(text, x, y); continue; }

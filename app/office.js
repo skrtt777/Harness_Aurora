@@ -1,8 +1,8 @@
 // The agents' office: the sessions, agents and helpers of the Harness as people in a room, so you can
 // see them work. Each project has its room; the task agents share the team floor. Every character is
 // something real, in the state it is really in (nothing is staged):
-// - "aurora": a conversation turn running now (or that just ended), one per conversation; a quiet
-//   room keeps its Aurora resting;
+// - "aurora": a conversation turn running now (or that just ended), one per conversation, each with a
+//   name of its own (sessionName); a quiet room keeps its Aurora resting;
 // - "agente": a task agent (app/agents.js), working on a run, resting, or called to account after a
 //   failed or corrected delivery;
 // - "copia": the extra copies of the local model checking an answer (app/copies.js);
@@ -46,6 +46,31 @@ export function turnState(turn, conversation = null) {
   return { state: "pensando", activity: stage || "Pensando" };
 }
 
+// ---------------- Names ----------------
+// Each Aurora session gets a person's name of its own: one starting with the same letter as its
+// conversation's title ("Metas de outubro" -> Marina, Mateus...), chosen by the conversation's id (the
+// same session keeps its name), never the same twice in a room.
+const NAMES = {
+  a: ["Ana", "Arthur", "Alice", "André", "Amanda", "Antônio"], b: ["Bruno", "Beatriz", "Bernardo", "Bianca", "Benício"], c: ["Carla", "Caio", "Camila", "César", "Clara"],
+  d: ["Davi", "Daniela", "Diego", "Débora", "Dora"], e: ["Eduardo", "Elisa", "Enzo", "Estela", "Érico"], f: ["Fernanda", "Felipe", "Fábio", "Flávia", "Francisco"],
+  g: ["Gabriel", "Giovana", "Gustavo", "Gabriela", "Guilherme"], h: ["Helena", "Heitor", "Hugo", "Heloísa", "Henrique"], i: ["Isabela", "Igor", "Ingrid", "Ítalo", "Iris"],
+  j: ["Júlia", "João", "Joana", "Jorge", "Juliano"], k: ["Karina", "Kauã", "Kelly", "Kléber"], l: ["Lucas", "Laura", "Leonardo", "Lívia", "Luana"],
+  m: ["Marina", "Mateus", "Mariana", "Miguel", "Mel"], n: ["Natália", "Nicolas", "Nina", "Nelson", "Noemi"], o: ["Otávio", "Olívia", "Oscar", "Odete", "Orlando"],
+  p: ["Paulo", "Patrícia", "Pedro", "Paula", "Priscila"], q: ["Quitéria", "Quirino", "Quênia"], r: ["Rafael", "Renata", "Rodrigo", "Raquel", "Rui"],
+  s: ["Sofia", "Samuel", "Sara", "Sérgio", "Silvia"], t: ["Tiago", "Tânia", "Tomás", "Teresa", "Túlio"], u: ["Úrsula", "Ulisses", "Ubiratã"],
+  v: ["Valentina", "Vinícius", "Vera", "Vitor", "Viviane"], w: ["Wesley", "Wanda", "Wagner", "Wilma"], x: ["Xavier", "Xênia"], y: ["Yasmin", "Yuri"], z: ["Zeca", "Zélia", "Zoe"],
+};
+const ALL_NAMES = Object.values(NAMES).flat();
+const fold = (text) => String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const hashText = (text) => { let h = 2166136261; for (const ch of String(text)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+/** A session's name: the initial of its title, picked by its id, not one already in the room. */
+export function sessionName(title, id, taken = new Set()) {
+  const letter = (/[a-z]/.exec(fold(title)) || [""])[0];
+  const pool = NAMES[letter] || ALL_NAMES; const h = hashText(id);
+  for (const list of [pool, ALL_NAMES]) for (let i = 0; i < list.length; i++) { const n = list[(h + i) % list.length]; if (!taken.has(n)) return n; }
+  return `Aurora ${(h % 90) + 10}`;
+}
+
 const short = (text, n = 48) => { const s = String(text || "").replace(/\s+/g, " ").trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 const age = (iso, now) => (iso ? now - new Date(iso).getTime() : Infinity);
 
@@ -75,7 +100,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
   const add = (roomId, actor) => { rooms.get(roomId).actors.push(actor); return actor; };
   const helpers = (r, owner, s) => {
     if (s.state === "revisao") add(r, { id: `prof:${owner.id}`, kind: "professor", name: TEACHERS[s.teacher], teacher: s.teacher, state: "revisao", activity: `Revisando a entrega de ${owner.name}`, with: owner.id, since: owner.since });
-    if (s.state === "conferindo") for (let i = 1; i < Math.min(s.copies || 2, 4); i++) add(r, { id: `copia:${owner.id}:${i}`, kind: "copia", name: `Cópia ${i + 1}`, state: "conferindo", activity: `Conferindo a resposta de ${owner.name}`, with: owner.id, since: owner.since });
+    if (s.state === "conferindo") for (let i = 1; i < Math.min(s.copies || 2, 4); i++) add(r, { id: `copia:${owner.id}:${i}`, kind: "copia", name: `Cópia ${i + 1} de ${owner.name}`, state: "conferindo", activity: `Conferindo a resposta de ${owner.name}`, with: owner.id, since: owner.since });
   };
 
   // The task agents: each one, in the state of its run (or at rest).
@@ -98,12 +123,15 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
     if (turn) helpers(TEAM_ROOM, actor, actor);
   }
 
-  // The Aurora in each conversation working now (agent runs are already on the team floor).
-  for (const t of turns.active) {
+  // The Aurora in each conversation working now (agent runs are already on the team floor), each with
+  // her own name; the oldest session names first, so a newcomer never takes someone's name.
+  const names = new Map();
+  const nameIn = (r, c, id) => { if (!names.has(r)) names.set(r, new Set(rooms.get(r).actors.map((a) => a.name))); const n = sessionName(c?.title || "", id, names.get(r)); names.get(r).add(n); return n; };
+  for (const t of [...turns.active].sort((a, b) => (a.since || 0) - (b.since || 0))) {
     if (runByConversation.get(t.conversationId)?.status === "running") continue;
     const c = conversations.get(t.conversationId); const r = roomOf(c);
     const s = turnState(t, c);
-    const actor = add(r, { id: `aurora:${t.conversationId}`, kind: "aurora", name: "Aurora", conversationId: t.conversationId, task: short(c?.title || "Conversa", 60), ...s, activity: short(s.activity, 60), since: t.since, plan: t.plan });
+    const actor = add(r, { id: `aurora:${t.conversationId}`, kind: "aurora", name: nameIn(r, c, t.conversationId), conversationId: t.conversationId, task: short(c?.title || "Conversa", 60), ...s, activity: short(s.activity, 60), since: t.since, plan: t.plan });
     helpers(r, actor, s);
   }
   // Just delivered: a coffee (once per conversation, the latest).
@@ -112,7 +140,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
     if (seen.has(e.conversationId) || activeById.has(e.conversationId) || runByConversation.has(e.conversationId)) continue;
     seen.add(e.conversationId);
     const c = conversations.get(e.conversationId); const r = roomOf(c);
-    add(r, { id: `aurora:${e.conversationId}`, kind: "aurora", name: "Aurora", conversationId: e.conversationId, task: short(c?.title || "Conversa", 60), state: e.cancelled ? "descanso" : "cafe", activity: e.cancelled ? "Pedido cancelado" : "Acabou de responder", since: e.endedAt });
+    add(r, { id: `aurora:${e.conversationId}`, kind: "aurora", name: nameIn(r, c, e.conversationId), conversationId: e.conversationId, task: short(c?.title || "Conversa", 60), state: e.cancelled ? "descanso" : "cafe", activity: e.cancelled ? "Pedido cancelado" : "Acabou de responder", since: e.endedAt });
   }
 
   // Each room: its Aurora at rest when nobody is working there, and the boss.

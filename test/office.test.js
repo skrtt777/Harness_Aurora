@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOffice, turnState, TEAM_ROOM } from '../app/office.js';
+import { buildOffice, turnState, sessionName, TEAM_ROOM } from '../app/office.js';
 import { startTurn, setStage, pushTurnStep, endTurn, turnSnapshots, requestApproval } from '../app/pendingTurns.js';
 
 const now = Date.parse('2026-10-12T22:00:00Z');
@@ -64,6 +64,22 @@ test('office: every character is something real, in its real state, in its proje
   // A team request: the boss and its agents in the meeting.
   const meeting = buildOffice({ agents: [{ id: 'a5', name: 'Estoque', enabled: true, projectId: 'pe' }], runs: [], orchestrations: [{ status: 'running', request: 'Fechar o mês', startedAt: iso(1000), plan: [{ agentId: 'a5' }] }], now });
   assert.equal(find(meeting, TEAM_ROOM, 'agente:a5').state, 'reuniao'); assert.equal(find(meeting, TEAM_ROOM, 'chefe:equipe').state, 'reuniao');
+});
+
+test('office: each session has a name of its own, from its conversation (same letter, same name every time, none twice in a room)', () => {
+  const n = sessionName('Metas de outubro', 'c1');
+  assert.match(n, /^M/); assert.equal(sessionName('Metas de outubro', 'c1'), n);
+  assert.match(sessionName('Écrire un mail', 'c9'), /^[EÉ]/);
+  assert.notEqual(sessionName('Metas', 'c1', new Set([n])), n);
+  const turns = { active: ['a', 'b', 'c'].map((id, i) => ({ conversationId: id, stage: 'Pensando…', steps: [], since: now - 1000 * (3 - i) })), ended: [] };
+  const conversations = new Map(['a', 'b', 'c'].map((id) => [id, { id, title: 'Metas', projectId: 'p1' }]));
+  const office = buildOffice({ projects: [{ id: 'p1', name: 'Vendas' }], conversations, turns, now });
+  const names = office.rooms.find((r) => r.id === 'p1').actors.filter((a) => a.kind === 'aurora').map((a) => a.name);
+  assert.equal(new Set(names).size, 3); assert.ok(names.every((x) => /^M/.test(x)), names.join());
+  // A newcomer never takes the name of who was already there.
+  const later = buildOffice({ projects: [{ id: 'p1', name: 'Vendas' }], conversations: new Map([...conversations, ['z', { id: 'z', title: 'Metas', projectId: 'p1' }]]), turns: { active: [...turns.active, { conversationId: 'z', stage: 'x', steps: [], since: now }], ended: [] }, now });
+  const again = later.rooms.find((r) => r.id === 'p1').actors.filter((a) => a.kind === 'aurora' && a.conversationId !== 'z').map((a) => a.name);
+  assert.deepEqual(again, names);
 });
 
 test('office: the live registry gives each turn\'s stage, steps, approval and the turns just ended', async () => {

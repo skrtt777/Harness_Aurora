@@ -21,7 +21,7 @@ Cada pessoa na sala é algo real do Harness, no estado em que está agora. Nada 
 
 | Pessoa | O que representa | De onde vem |
 | --- | --- | --- |
-| **Aurora** (roxo) | O turno de uma conversa trabalhando agora, ou que acabou de responder (uma por conversa). Uma sala sem trabalho mostra a Aurora descansando. | `app/pendingTurns.js` (`turnSnapshots`) |
+| **Sessão da Aurora** (roxo) | O turno de uma conversa trabalhando agora, ou que acabou de responder (uma por conversa). Cada sessão tem um nome próprio: começa com a mesma letra do título da conversa ("Metas de outubro" → Mariana), é escolhido pelo código da conversa (a mesma sessão mantém o nome) e não se repete na sala (`sessionName`). As cópias levam o nome de quem ajudam ("Cópia 2 de Paula"). Uma sala sem trabalho mostra a Aurora descansando. | `app/pendingTurns.js` (`turnSnapshots`) |
 | **Agente** (verde-água) | Um agente de tarefa (Agentes), no estado da sua execução. | `app/agents.js` (agentes e `agent_runs`) |
 | **Cópia** (verde claro, translúcida) | As cópias do modelo local conferindo uma resposta. | o estágio "Conferindo a resposta com N cópias" (`app/copies.js`) |
 | **Professor** (laranja, crachá C ou X) | Claude ou Codex, **só enquanto revisa**: entra na sala, senta à mesa de reunião com quem é revisado e sai depois. | o estágio "Revisando com…" (`app/teachingLoop.js`) |
