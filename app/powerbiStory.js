@@ -30,10 +30,27 @@ const STAGE_TIME = [
   [5, /fim|entrega|conclus|fechamento|finaliz|t[ée]rmino|baixa/i],
 ];
 const DRIVER = /motorista|condutor/i;
+// The kind of place, which decides the room the scene draws (not a warehouse with another name):
+// a dock wall, a shop floor with checkouts, a clinic with rooms and a waiting room, a hall with counters,
+// a factory floor with machines, a forecourt with pumps.
+const ENVIRONMENTS = [
+  ["armazem", /doca|^box\b|port[ãa]o|baia|plataforma|\bdock/i],
+  ["loja", /^caixa\b|^pdv\b|checkout/i],
+  ["clinica", /consult[óo]rio|leito|^sala\b|cabine|^box de/i],
+  ["salao", /guich[êe]|balc[ãa]o|^mesa\b|^posto\b|atendente/i],
+  ["fabrica", /m[áa]quina|^linha\b|esta[çc][ãa]o|c[ée]lula|equipamento/i],
+  ["patio", /^bomba\b|vaga/i],
+];
+// A column that says how serious each one is: the colour the entities wear (risk in a hospital, priority
+// in a help desk), instead of the stage colour, which their position already shows.
+const COLOR_SETS = [
+  { name: "risco", values: { vermelho: "#E53935", laranja: "#FB8C00", amarelo: "#FDD835", verde: "#43A047", azul: "#1E88E5", branco: "#ECEFF1" } },
+  { name: "prioridade", values: { "crítica": "#E53935", critica: "#E53935", urgente: "#E53935", emergência: "#E53935", alta: "#FB8C00", "média": "#FDD835", media: "#FDD835", preferencial: "#FB8C00", prioritário: "#FB8C00", normal: "#43A047", baixa: "#43A047" } },
+];
 const DUE = /previs|prazo|promet|agend|vencim|\bsla\b|limite/i;
 const DONE_AT = /entrega|conclus|fechament|baixa|finaliz|chegada|resolu|atendid/i;
 const STOCK = /estoque|saldo/i;
-const SITE = /^(cd|centro de distribui|unidade|filial|loja|armaz[ée]m|dep[óo]sito|planta|site|hub|base|galp[ãa]o)\b/i;
+const SITE = /^(cd|centro de distribui|unidade|filial|loja|armaz[ée]m|dep[óo]sito|planta|site|hub|base|galp[ãa]o|ag[êe]ncia|hospital|cl[íi]nica|escola|campus|f[áa]brica)\b/i;
 
 /** The column values of a profiled table. */
 const valuesOf = (table, column) => table.rows.map((r) => String(r[table.columns.indexOf(column)] ?? "").trim()).filter(Boolean);
@@ -102,11 +119,24 @@ export function readFlow(fact, tables = []) {
   const glyph = asset ? "veiculo" : (entity && PERSON.test(entity.name)) || (place && PEOPLE_PLACE.test(place.name)) ? "pessoa" : "volume";
   const nounOf = () => {
     if (asset) return /placa|caminh/i.test(asset.name) ? "caminhões" : "veículos";
-    if (glyph === "pessoa") return /paciente/i.test(entity?.name || "") ? "pacientes" : "clientes";
+    if (glyph === "pessoa") {
+      // Who they are, from any column of the data: a patient, a student, a guest…
+      const names = fact.columns.map((c) => c.name).join(" ");
+      return /paciente/i.test(names) ? "pacientes" : /aluno/i.test(names) ? "alunos" : /h[óo]spede/i.test(names) ? "hóspedes" : /visitante/i.test(names) ? "visitantes" : /cidad[ãa]o/i.test(names) ? "cidadãos" : "clientes";
+    }
     const word = String(entity?.name || "item").toLowerCase().replace(/^(n[ºo°]|n[uú]mero|c[óo]digo|id)\s*(d[oa]s?\s+)?/i, "").trim() || "item";
     return /s$/.test(word) ? word : /[aeiou]$/.test(word) ? `${word}s` : /m$/.test(word) ? word.replace(/m$/, "ns") : /[rz]$/.test(word) ? `${word}es` : /ão$/.test(word) ? word.replace(/ão$/, "ões") : `${word}s`;
   };
   const vehicles = entity ? nounOf() : null;
+  const environment = place ? (ENVIRONMENTS.find(([, re]) => re.test(place.name))?.[0] || (asset ? "armazem" : glyph === "pessoa" ? "salao" : "fabrica")) : null;
+  // The colour column: almost all its values are in one of the sets.
+  let colorBy = null;
+  for (const c of fact.columns) {
+    if (c.type !== "texto" || c.distinct < 2 || c.distinct > 8 || c === best.column) continue;
+    const distinct = [...new Set(valuesOf(fact, c).map((v) => v.toLowerCase()))];
+    const set = COLOR_SETS.find((cs) => distinct.filter((v) => cs.values[v]).length >= Math.max(2, distinct.length * 0.8));
+    if (set) { colorBy = { column: c.name, kind: set.name, values: Object.keys(set.values).filter((v) => distinct.includes(v)).map((v) => [valuesOf(fact, c).find((x) => x.toLowerCase() === v), set.values[v]]) }; break; }
+  }
   // "nas docas", "nos caixas": the place's gender (o caixa, a doca, a estação).
   const placeWord = place ? place.name.toLowerCase().replace(/\s+\d+$/, "") : null;
   const placeMasc = placeWord ? /^(caixa|pdv|checkout|guich[êe]|balc[ãa]o|leito|consult[óo]rio|posto|box|port[ãa]o)/.test(placeWord) : false;
@@ -116,7 +146,7 @@ export function readFlow(fact, tables = []) {
     fact: fact.name, status: best.column.name, stages, done,
     place: place?.name || null, placeCount: place?.distinct || 0, site: site?.name || null, siteValues, asset: asset?.name || null, driver: driver?.name || null,
     id: id?.name || null, date: startCol?.name || null, due: due?.name || null, doneAt: endCol?.name || null,
-    details, vehicles, stock, glyph, timeline, placePlural, placeMasc,
+    details, vehicles, stock, glyph, timeline, placePlural, placeMasc, environment, colorBy,
     queueLabel: (stages.find((st) => st.key === "fila")?.values[0] || "na fila").toLowerCase().replace(/^(pedido |chamado )/, "").replace(/^recebid[oa]$/, "na fila"),
     transitLabel: (stages.find((st) => st.key === "transito")?.values[0] || "em trânsito").toLowerCase(),
     logistics: Boolean(place || asset || stages.some((s) => s.key === "transito")),
@@ -191,9 +221,9 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
       const made = yardScene(flow, { title: title || "Operação", look, stamp, at: flow.timeline ? MOMENT : null });
       const suffix = look === "dia" ? " (dia)" : "";
       yards.set(look, {
-        url: picture(`Cena do pátio${suffix}`, made.dax, `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`),
-        x: add(`Pátio X${suffix}`, made.points.x, "0", "Cenas", "Posição de cada doca na cena (para o clique)"),
-        y: add(`Pátio Y${suffix}`, made.points.y, "0", "Cenas", "Posição de cada doca na cena (para o clique)"),
+        url: picture(`${flow.glyph === "veiculo" ? "Cena do pátio" : "Cena da operação"}${suffix}`, made.dax, `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`),
+        x: add(`${flow.glyph === "veiculo" ? "Pátio" : "Operação"} X${suffix}`, made.points.x, "0", "Cenas", `Posição de cada ${flow.place.toLowerCase()} na cena (para o clique)`),
+        y: add(`${flow.glyph === "veiculo" ? "Pátio" : "Operação"} Y${suffix}`, made.points.y, "0", "Cenas", `Posição de cada ${flow.place.toLowerCase()} na cena (para o clique)`),
         made,
       });
     }

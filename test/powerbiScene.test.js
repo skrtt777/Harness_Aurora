@@ -204,3 +204,42 @@ test("what changed between two refreshes: numbers, who moved, who is newly late,
   assert.equal(await narrate(["Atrasados agora: 1 → 3"], async () => ({ ok: true, text: "Os atrasados foram de 1 para 3." })), "Os atrasados foram de 1 para 3.");
   assert.match(notesTable([{ when: "14:10", text: "Doca \"03\" livre" }]), /DATATABLE\("Quando", STRING, "Texto", STRING, \{\{"14:10", "Doca ""03"" livre"\}\}\)/);
 });
+
+test("each area gets its own room: a clinic with risk colours, a shop, a hall, a factory; docks keep the warehouse", () => {
+  const people = (place, extra, status = ["Aguardando", "Em triagem", "Em atendimento", "Finalizado"]) => {
+    const rows = [];
+    for (let i = 0; i < 40; i += 1) rows.push([`PS-${1000 + i}`, i % 2 ? "Hospital Norte" : "Hospital Sul", status[i % 4], i % 4 >= 2 ? `${place} 0${1 + (i % 5)}` : "", ["Vermelho", "Amarelo", "Verde", "Azul", "Laranja"][i % 5], `${String(1 + (i % 28)).padStart(2, "0")}/10/2026`]);
+    return profile({ name: "Atendimentos", header: ["Atendimento", "Unidade", "Status", place, extra, "Data"], rows, source: { kind: "excel", path: "C:/dados/ps.xlsx", sheet: "Atendimentos" } });
+  };
+  const clinic = readFlow(people("Consultório", "Classificação de risco"), []);
+  assert.equal(clinic.environment, "clinica");
+  assert.equal(clinic.glyph, "pessoa");
+  assert.equal(clinic.site, "Unidade");
+  assert.deepEqual(clinic.colorBy.values.map(([v]) => v), ["Vermelho", "Laranja", "Amarelo", "Verde", "Azul"], "the risk colours in their order of severity");
+  const svg = yardScene({ ...clinic, fact: "Atendimentos" }, { title: "PS" }).dax;
+  assert.match(svg, /PRONTO ATENDIMENTO/);
+  assert.match(svg, /Recepção/);
+  assert.doesNotMatch(svg, /stroke-dasharray='14 12'/, "no road when nothing is in transit");
+  assert.equal(readFlow(people("Caixa", "Forma de pagamento"), []).environment, "loja");
+  assert.equal(readFlow(people("Guichê", "Serviço"), []).environment, "salao");
+  assert.equal(readFlow(people("Máquina", "Produto"), []).environment, "fabrica");
+  const docks = readFlow(shipments(), []);
+  assert.equal(docks.environment, "armazem");
+  assert.equal(docks.colorBy, null);
+});
+
+test("a chart only where it says something; page names keep the area's words", () => {
+  const { cat } = prepare([shipments()], { title: "CD" });
+  const plan = normalizePlan({ titulo: "CD", paginas: [{ nome: "Visão", numeros: [], blocos: [
+    { tipo: "medidor", medida: cat.numbers.find((n) => /R\$|frete/i.test(n)) || cat.numbers[0], por: "" },
+    { tipo: "linha", medida: cat.numbers[0], por: "Transportadora" },
+    { tipo: "funil", medida: cat.numbers[0], por: "Transportadora" },
+    { tipo: "funil", medida: cat.numbers[0], por: "Status" },
+  ] }] }, cat, "");
+  assert.deepEqual(plan.paginas[0].blocos.map((b) => b.tipo), ["barras", "barras", "barras", "funil"]);
+  assert.ok(!plan.paginas[0].blocos.some((b) => b.tipo === "medidor" || b.tipo === "linha"));
+  assert.ok(plan.paginas[0].blocos.some((b) => b.tipo === "funil" && b.por === "Status"));
+  const ps = { ...cat, sources: "pronto_socorro.xlsx", dims: [{ name: "Consultório" }], numbers: ["Pacientes na fila"], cardable: ["Pacientes na fila"], stories: [] };
+  assert.equal(normalizePlan({ titulo: "PS", paginas: [{ nome: "Visão geral do pátio", numeros: ["Pacientes na fila"], blocos: [] }] }, ps, "pronto-socorro").paginas[0].nome, "Visão geral da operação");
+  assert.equal(normalizePlan({ titulo: "CD", paginas: [{ nome: "Visão geral do pátio", numeros: [cat.cardable[0]], blocos: [] }] }, cat, "o pátio do CD").paginas[0].nome, "Visão geral do pátio");
+});

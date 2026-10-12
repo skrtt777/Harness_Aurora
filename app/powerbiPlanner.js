@@ -73,7 +73,8 @@ export function planPrompt(cat, goal) {
     "- Cada página mostra coisas diferentes das outras: não repita os mesmos números nem os mesmos gráficos.",
     "- Comece pelos números principais; cada número e cada gráfico precisa ajudar a responder a pergunta da página.",
     "- Cena só onde ela ajuda a entender (no máximo uma por página e duas no painel); blocos especiais só no assunto deles.",
-    "- Quando os dados descrevem um lugar ou processo (pátio, planta, etapas), a página principal pode ser um gêmeo digital (layout gemeo_digital): a cena é a tela, viva e clicável.",
+    "- Quando os dados descrevem um lugar ou processo (onde coisas ou pessoas esperam e são atendidas, uma planta, etapas), a página principal pode ser um gêmeo digital (layout gemeo_digital): a cena é a tela, viva e clicável.",
+    "- Os nomes das páginas usam as palavras da área destes dados (as colunas e o pedido); nunca palavras de outra área.",
     "- No máximo 5 números e 4 blocos por página; layouts diferentes entre as páginas quando fizer sentido.",
     "- O estilo combina com o assunto e com quem vai ler (diretoria: executivo e sóbrio; operação: escuro e técnico; dono de pequeno negócio: claro e acolhedor).",
     "Responda só o JSON.",
@@ -95,19 +96,48 @@ export function groundedName(name, said) {
   return title.split(" ").some((w) => w.length > 3) ? title : undefined;
 }
 
-const ACCENTS = Object.fromEntries(["visão", "evolução", "orçamento", "orçado", "execução", "análise", "período", "previsão", "média", "série", "histórico", "operação", "produção", "região", "regiões", "situação", "distribuição", "participação", "comparação", "variação", "tendência", "gestão", "finanças", "início", "último", "mês", "saída", "saídas", "líquido", "número", "números", "crédito", "débito", "serviço", "serviços", "logística", "estratégia", "visões", "áreas", "área", "rápido", "diário", "mensal", "trimestral", "pátio", "caminhões", "veículos", "depósito", "relatório", "indicadores", "câmbio", "preço", "preços", "lançamentos", "lançamento"].map((w) => [w.normalize("NFD").replace(/\p{M}/gu, "").replace(/ç/g, "c"), w]).concat([["evoluçao", "evolução"], ["orçamentacao", "orçamentação"], ["execuçao", "execução"], ["operaçao", "operação"], ["situaçao", "situação"], ["variaçao", "variação"], ["financieira", "financeira"], ["financieiro", "financeiro"]]).filter(([a, b]) => a !== b));
+const ACCENTS = Object.fromEntries(["visão", "evolução", "orçamento", "orçado", "execução", "análise", "período", "previsão", "média", "série", "histórico", "operação", "produção", "região", "regiões", "situação", "distribuição", "participação", "comparação", "variação", "tendência", "gestão", "finanças", "início", "último", "mês", "saída", "saídas", "líquido", "número", "números", "crédito", "débito", "serviço", "serviços", "logística", "estratégia", "visões", "áreas", "área", "rápido", "diário", "mensal", "trimestral", "pátio", "caminhões", "veículos", "depósito", "relatório", "indicadores", "câmbio", "preço", "preços", "lançamentos", "lançamento", "ocupação", "eficiência", "simulação", "simulações", "cenário", "cenários", "decisão", "atenção", "pressão", "posição", "classificação", "transportação", "notificação", "conferência", "ocorrência", "ocorrências", "frequência", "urgência", "emergência", "consultório", "consultórios", "chamados", "técnico", "técnicos", "crítico", "críticos", "prioridade", "padrão"].map((w) => [w.normalize("NFD").replace(/\p{M}/gu, "").replace(/ç/g, "c"), w]).concat([["evoluçao", "evolução"], ["orçamentacao", "orçamentação"], ["execuçao", "execução"], ["operaçao", "operação"], ["situaçao", "situação"], ["variaçao", "variação"], ["financieira", "financeira"], ["financieiro", "financeiro"]]).filter(([a, b]) => a !== b));
 
 /** "VisaoGeralFinanceira", "caixa_padaria" -> "Visao geral financeira", "Caixa padaria": a title, not an identifier. */
+const PROPER = new Set(["aurora", "brasil", "nordeste", "sudeste", "norte", "sul", "centro-oeste", "excel"]);
 export function humanTitle(text) {
   const t = String(text || "").replace(/[_]+/g, " ").replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2").replace(/\s+/g, " ").trim();
   if (!t) return "";
-  const words = t.split(" ").map((w, i) => (i > 0 && /^\p{Lu}\p{Ll}+$/u.test(w) ? w.toLowerCase() : w));
+  // Sentence case, except the names that keep their capital ("Brasil", "Aurora").
+  const words = t.split(" ").map((w, i) => (i > 0 && /^\p{Lu}\p{Ll}+$/u.test(w) && !PROPER.has(w.toLowerCase()) ? w.toLowerCase() : w)).map((w) => (PROPER.has(w.toLowerCase()) ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w));
   const titled = words.join(" ").replace(/^./, (c) => c.toUpperCase()).replace(/\s*\(([^)]*)\)\s*$/, " ($1)");
   // The accents a small model drops in the words of a BI ("Visao geral", "Evoluçao mensal").
   return titled.replace(/\p{L}+/gu, (w) => { const fixed = ACCENTS[w.toLowerCase()]; return fixed ? (w[0] === w[0].toUpperCase() ? fixed[0].toUpperCase() + fixed.slice(1) : fixed) : w; });
 }
 
 /** The model's plan made safe: known names only, limits kept, an empty page filled; null if unusable. */
+// The words of the yard example: in a page name only when the data or the request have them.
+const EXAMPLE_WORDS = [[/\b(d[oa]s?|n[oa]s?)\s+p[áa]tios?\b/gi, "da operação"], [/\bp[áa]tios?\b/gi, "operação"], [/\b(d[oa]s?|n[oa]s?)\s+docas?\b/gi, "dos atendimentos"], [/\bcaminh(ão|ões|oes|ao)\b/gi, "itens"]];
+function foreignWords(name, cat, goal) {
+  const vocab = fold(`${goal} ${cat.sources || ""} ${(cat.stories || []).join(" ")} ${(cat.dims || []).map((d) => d.name).join(" ")} ${(cat.numbers || []).join(" ")}`);
+  let out = name;
+  for (const [re, plain] of EXAMPLE_WORDS) {
+    const word = fold(String(name.match(re)?.[0] || "").split(/\s+/).pop() || "");
+    if (word && !vocab.includes(word.replace(/s$/, ""))) out = out.replace(re, plain);
+  }
+  out = out.replace(/\s+/g, " ").trim();
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+/**
+ * A chart only where it says something (showcase 11/10: a gauge of R$ against twice itself, a gauge blank
+ * without a previous month, a waterfall of one month, a funnel by payment method, a line by region — all
+ * empty or meaningless): otherwise bars of the same number.
+ */
+function fitChart(b, cat) {
+  const time = cat.time.includes(b.por);
+  if (b.tipo === "medidor" && !(/%/.test(b.medida) && !/anterior|varia|acumulad/i.test(b.medida))) return { ...b, tipo: "barras", por: b.por || cat.dims[0]?.name || "" };
+  if (["linha", "area"].includes(b.tipo) && b.por && !time) return { ...b, tipo: "barras" };
+  if (b.tipo === "cascata" && (b.por !== "mês" || (cat.months || 0) < 3)) return { ...b, tipo: b.por === "mês" ? "colunas" : "barras" };
+  if (b.tipo === "funil" && !(cat.statusColumn && b.por === cat.statusColumn)) return { ...b, tipo: "barras" };
+  return b;
+}
+
 export function normalizePlan(raw, cat, goal = "") {
   let plan = raw;
   if (typeof plan === "string") { try { plan = JSON.parse(plan.match(/\{[\s\S]*\}/)?.[0] || ""); } catch { return null; } }
@@ -119,13 +149,23 @@ export function normalizePlan(raw, cat, goal = "") {
   const seen = new Set();
   const cardable = new Set(cat.cardable || cat.numbers);
   let scenesUsed = 0;
+  // A ready block (the tracking table, the selected item's card…) once per BI: the same table on three
+  // pages was filler (showcase 11/10).
+  const specialsUsed = new Set();
   for (const p of plan.paginas.slice(0, 4)) {
-    const nome = humanTitle(p?.nome).slice(0, 40) || `Página ${pages.length + 1}`;
+    // Words of another area (a "pátio" in a hospital, 11/10): the page is about the operation.
+    const nome = foreignWords(humanTitle(p?.nome), cat, goal).slice(0, 40) || `Página ${pages.length + 1}`;
     if (seen.has(fold(nome))) continue;
     seen.add(fold(nome));
     const blocos = (Array.isArray(p.blocos) ? p.blocos : []).map((b) => ({
       tipo: String(b?.tipo || ""), medida: numbers.has(b?.medida) ? b.medida : "", por: dims.has(b?.por) ? b.por : "", titulo: String(b?.titulo || "").trim().slice(0, 70),
-    })).filter((b) => cat.specials[b.tipo] || (CHARTS[b.tipo] && b.medida && !(cat.foreign?.has(b.medida) && b.tipo !== "medidor"))).slice(0, 4);
+    })).filter((b) => (cat.specials[b.tipo] ? !specialsUsed.has(b.tipo) : CHARTS[b.tipo] && b.medida && !(cat.foreign?.has(b.medida) && b.tipo !== "medidor")))
+      .filter((b, i, all) => all.findIndex((x) => x.tipo === b.tipo && x.medida === b.medida && x.por === b.por) === i)
+      // A ready block keeps its own title (the model named a table of plates "Distribuição de Frete por Estado").
+      .map((b) => (cat.specials[b.tipo] ? { ...b, titulo: "" } : b))
+      // A waterfall needs the parts of a total in order (months); by a category it drew an empty chart.
+      .map((b) => fitChart(b, cat))
+      .slice(0, 4);
     const page = {
       nome, pergunta: String(p.pergunta || "").trim().slice(0, 120),
       layout: LAYOUTS[p.layout] ? p.layout : "grade",
@@ -134,6 +174,12 @@ export function normalizePlan(raw, cat, goal = "") {
       numeros: [...new Set((Array.isArray(p.numeros) ? p.numeros : []).filter((n) => cardable.has(n) && !pages.some((x) => x.numeros.includes(n))))].slice(0, 5),
       blocos,
     };
+    // A city of a column that a richer scene already draws (the rooms of a plan with X/Y): that scene.
+    if (/^cidade de /.test(page.cena)) {
+      const by = page.cena.replace(/^cidade de /, "");
+      const richer = Object.entries(cat.scenes).find(([id, sc]) => !/^cidade de /.test(id) && sc.covers?.includes(by));
+      if (richer) page.cena = richer[0];
+    }
     // At most two scenes in a BI (a scene on every page was filler, 11/10).
     if (page.cena !== "nenhuma" && (scenesUsed >= 2 || pages.some((x) => x.cena === page.cena))) page.cena = "nenhuma";
     if (page.cena !== "nenhuma") scenesUsed += 1;
@@ -157,6 +203,7 @@ export function normalizePlan(raw, cat, goal = "") {
     // A twin of an earlier page (same scene and charts) is dropped.
     const sign = (x) => `${x.cena}|${x.blocos.map((b) => `${b.tipo}:${b.medida}:${b.por}`).sort().join(",")}`;
     if (pages.some((x) => sign(x) === sign(page))) continue;
+    for (const b of page.blocos) if (cat.specials[b.tipo]) specialsUsed.add(b.tipo);
     pages.push(page);
   }
   if (!pages.length) return null;
@@ -225,7 +272,7 @@ export function materialize(page, cat, look = "noite") {
   const refOf = (por) => timeRef[por] || cat.dims.find((d) => d.name === por)?.ref || null;
   const isTime = (por) => Boolean(timeRef[por]);
   const defaultBy = (tipo) => (["linha", "area"].includes(tipo) && cat.time.length ? "mês" : cat.dims.find((d) => d.distinct >= 2 && d.distinct <= 30)?.name || cat.dims[0]?.name || "");
-  const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+  const lower = (s) => (/^\p{Lu}{2}/u.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
   const blocks = page.blocos.map((b) => {
     if (cat.specials[b.tipo]) return { ...cat.specials[b.tipo].make(), ...(b.titulo ? { title: b.titulo } : {}) };
     // A line by year with two or three years is a straight segment: month by month says more.

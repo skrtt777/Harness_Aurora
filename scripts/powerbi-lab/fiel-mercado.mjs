@@ -38,7 +38,7 @@ let opened = null;
 try {
   const r = await buildReport({ files: [file], folder: mkdtempSync(join(tmpdir(), "aurora-mercado-")), goal: "", conversationId: "mercado", planner: { ask: async () => ({ ok: true, text: JSON.stringify(plan) }), env: {} } }).catch((e) => { opened = e.opened; throw e; });
   opened = r.opened;
-  const scene = r.plan.measureList.find((m) => /^Cena do pátio/.test(m.name)).name;
+  const scene = r.plan.measureList.find((m) => /^Cena d[oa] (pátio|operação)/.test(m.name)).name;
   for (const offset of [0, -120]) {
     const nowText = await value("FORMAT(NOW(), \"yyyy-mm-dd HH:nn:ss\")");
     const [d, t] = nowText.split(" "); const [Y, M, Dd] = d.split("-").map(Number); const [hh, mm, ss] = t.split(":").map(Number);

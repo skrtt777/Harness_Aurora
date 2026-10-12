@@ -71,7 +71,7 @@ const TIME_PART = /[ T]\d{1,2}:\d{2}(:\d{2})?$/;
 const MONEY_NAME = /valor|pre[çc]o|receita|faturamento|custo|lucro|total|venda|desconto|frete|sal[áa]rio|comiss|ticket|montante|pago|saldo|despesa|gasto|or[çc]amento|imposto|tarifa|mensalidade|r\$/i;
 const UNIT_NAME = /unit[áa]rio|unit\b|p\.?\s?unit|pre[çc]o (de )?venda|pre[çc]o m[ée]dio|valor unit/i;
 const QTY_NAME = /qtd|quant|unidades|itens|volume|peso|kg|litros|horas|dias/i;
-const ID_NAME = /^(id|c[óo]d(igo)?|n[ºo°]|n[uú]mero|pedido|nf|nota|matr[íi]cula|cpf|cnpj|protocolo|ticket id|chamado|senha|ct-?e|os)\b|(^|\s)id$|c[óo]digo/i;
+const ID_NAME = /^(id|c[óo]d(igo)?|n[ºo°]|n[uú]mero|pedido|nf|nota|matr[íi]cula|cpf|cnpj|protocolo|ticket id|chamado|senha|ct-?e|os|atendimento|ficha|prontu[áa]rio|ocorr[êe]ncia|reserva|agendamento|registro|ordem|op|lote|requisi[çc][ãa]o|solicita[çc][ãa]o)\b|(^|\s)id$|c[óo]digo/i;
 const DIM_RANK = /produto|categoria|regi[ãa]o|cliente|vendedor|loja|canal|cidade|estado|uf|segmento|departamento|setor|status|tipo|marca|fornecedor|filial|equipe|forma de pagamento|origem|plano/i;
 const COST_NAME = /custo|despesa|gasto/i;
 const REVENUE_NAME = /receita|faturamento|venda|valor total|^valor$|^total$/i;
@@ -191,7 +191,8 @@ const CALENDAR_COLUMNS = [
   { name: "Dia da semana", type: "texto", sortBy: "Dia da semana nº" },
 ];
 
-const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+// "CT-es" and "OS" keep their capitals ("Qtd. de cT-es" was a slip, 11/10).
+const lower = (s) => (/^\p{Lu}{2}/u.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 /** pedido -> pedidos, venda -> vendas, nota fiscal -> notas fiscais, chamado -> chamados. */
 export function plural(word) {
   if (!word) return "";
@@ -415,7 +416,8 @@ export function prepare(tables, { title, goal = "" } = {}) {
       const bal = add("Saldo no cenário", `${m(fin.income)} - ${m(out)}`, MONEY, "Simulação", "Entradas menos as saídas do cenário");
       const mar = add("Margem no cenário %", `DIVIDE(${m(bal)}, ${m(fin.income)})`, PCT, "Simulação");
       simSpecial = { desc: "simulação: e se cortássemos as saídas (5% a 30%)? saídas, saldo e margem em cada cenário (com uma categoria escolhida, o corte vale só para ela)", make: () => ({ type: "tableEx", title: "Simulação: e se cortássemos as saídas?", values: ["'Corte'[Cenário]", m(out), m(bal), m(mar)], totals: false, sort: { by: "'Corte'[Cenário]", desc: false } }) };
-    } else if (headline) {
+    } else if (headline && !story) {
+      // (A flow without places to add — freight, tickets — has no "what if" that its data can answer.)
       simTables.push({ name: "Variação", dax: `DATATABLE("Variação %", INTEGER, "Cenário", STRING, {{-20, "−20%"}, {-10, "−10%"}, {0, "Como está"}, {10, "+10%"}, {20, "+20%"}})`, columns: [{ name: "Variação %", type: "inteiro", hidden: "True" }, { name: "Cenário", type: "texto", sortBy: "Variação %" }] });
       const sim = add(`${headline} no cenário`, `${m(headline)} * (1 + SELECTEDVALUE('Variação'[Variação %], 0) / 100)`, measures.find((x) => x.name === headline)?.format || DEC, "Simulação");
       simSpecial = { desc: `simulação: e se ${lower(headline)} variasse de −20% a +20%?`, make: () => ({ type: "tableEx", title: `Simulação: e se ${lower(headline)} mudasse?`, values: ["'Variação'[Cenário]", m(sim)], totals: false, sort: { by: "'Variação'[Cenário]", desc: false } }) };
@@ -428,11 +430,12 @@ export function prepare(tables, { title, goal = "" } = {}) {
       : { kpis: generic, headline };
   const numbers = measures.filter((x) => !x.category && x.format).map((x) => x.name);
   // A card shows the number alone: not a share, nor a month-on-month change (blank without one month).
-  const cardable = numbers.filter((n) => !/% do total|mês anterior|Variação %|ano anterior/.test(n));
+  const simulated = new Set(measures.filter((x) => x.folder === "Simulação").map((x) => x.name));
+  const cardable = numbers.filter((n) => !/% do total|mês anterior|Variação %|ano anterior/.test(n) && !simulated.has(n));
   const principal = [...new Set([...(keys.kpis || []), keys.income, keys.outgo, keys.balance, keys.margin, keys.execution, keys.onTime, keys.lateDone, headline].filter(Boolean))];
   const flowSlicers = flow ? [flow.details.find((x) => /transportadora|empresa|parceiro|equipe|respons/i.test(x.column))?.column, flow.asset, flow.place].filter(Boolean).map((c) => col(fact.name, c)) : [];
   const cat = {
-    title: reportTitle, sources, rows: fact.rows.length, kind, keys, months,
+    title: reportTitle, sources, rows: fact.rows.length, kind, keys, months, statusColumn: flow?.status || null,
     // Where each measure lives: one of another table (the stock) cannot be grouped by the fact's columns.
     foreign: new Set(measures.filter((x) => x.table && x.table !== fact.name).map((x) => x.name)),
     numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),
@@ -498,7 +501,7 @@ export function finish(prep, rawPlan = null) {
   if (flow?.timeline) modelTables.push({ name: "Momento", dax: momentTable(), columns: [{ name: "Minutos", type: "inteiro", hidden: "True" }, { name: "Quando", type: "texto", sortBy: "Minutos" }] });
   for (const t of prep.simTables || []) modelTables.push(t);
   // What changed since the last refresh, written by the Aurora (app/powerbiChanges.js).
-  modelTables.push({ name: "Notas da Aurora", dax: "DATATABLE(\"Quando\", STRING, \"Texto\", STRING, {{\"\", \"\"}})", columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
+  modelTables.push({ name: "Notas da Aurora", dax: `DATATABLE("Quando", STRING, "Texto", STRING, {{"${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}", "Painel aberto. A cada atualização (no máximo a cada 10 min) a Aurora escreve aqui o que mudou."}})`, columns: [{ name: "Quando", type: "texto" }, { name: "Texto", type: "texto" }] });
   // What the Aurora shows when asked ("mostra a doca 3"): she rewrites this table; the scenes ring it.
   modelTables.push({ name: "Destaque", dax: "DATATABLE(\"Valor\", STRING, \"Nota\", STRING, {{\"\", \"\"}})", hidden: "True", columns: [{ name: "Valor", type: "texto" }, { name: "Nota", type: "texto" }] });
   modelTables.push({ name: "Atualização", dax: "ROW(\"Atualizado em\", NOW())", hidden: "True", columns: [{ name: "Atualizado em", type: "data", format: "dd/mm/yyyy HH:mm" }] });

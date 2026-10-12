@@ -77,6 +77,28 @@ export function composePage(page, style, reportTitle) {
     visuals.push(place(spec, r));
     if (overlay) visuals.push(place({ type: "scatterChart", category: overlay.category, x_: overlay.x, y_: overlay.y, overlay: { w: overlay.w, h: overlay.h }, pointColor: style.pin || "#4F9BFF" }, r));
   });
+  // A scene keeps its drawing's proportion, so in a wide box it leaves a strip free on the right (the map
+  // with half the page empty, showcase 11/10): the other blocks go there instead of below it.
+  const sceneFirst = (r, others, weights = [1.3, 1]) => {
+    const ov = main[0]?.overlay;
+    const freeIn = (box) => (ov?.w && ov?.h ? box.w - Math.min(box.w, Math.round(box.h * (ov.w / ov.h) * 1.1)) : 0);
+    if (!others.length) return put(main.slice(0, 1), [r]);
+    // Few others and room beside the scene at full height: a column on the right.
+    if (others.length <= 2 && freeIn(r) >= 320) {
+      const w = freeIn(r);
+      put(main.slice(0, 1), [rect(r.x, r.y, r.w - w, r.h)]);
+      return put(others, split(rect(r.x + r.w - w + G, r.y, w - G, r.h), others.length, false));
+    }
+    const [top, bottom] = split(r, 2, false, weights);
+    const w = freeIn(top);
+    if (w >= 320 && others.length >= 2) {
+      put(main.slice(0, 1), [rect(top.x, top.y, top.w - w, top.h)]);
+      put(others.slice(0, 1), [rect(top.x + top.w - w + G, top.y, w - G, top.h)]);
+      return put(others.slice(1), split(bottom, others.length - 1, true));
+    }
+    put(main.slice(0, 1), [top]);
+    return put(others, split(bottom, others.length, true));
+  };
   let layout = page.layout in LAYOUTS ? page.layout : "grade";
   // One or two cards down the side stretched each to half the page: they go on top instead.
   if (layout === "cartoes_laterais" && cards.length < 3) layout = cards.length ? "narrativa" : "grade";
@@ -98,10 +120,7 @@ export function composePage(page, style, reportTitle) {
     for (const v of visuals) delete v.fitted;
     if (bottom.length) visuals.push(place(bottom[0], rect(M, BOTTOM - 104, RIGHT - M, 104)));
   } else if (layout === "cena_inteira") {
-    const rest = cardRow(body);
-    const below = main.slice(1, 4);
-    if (!below.length) put(main.slice(0, 1), [rest]);
-    else { const [top, bottom] = split(rest, 2, false, [2.4, 1]); put(main.slice(0, 1), [top]); put(below, split(bottom, below.length, true)); }
+    sceneFirst(cardRow(body), main.slice(1, 4), [2.4, 1]);
   } else if (layout === "cena_e_lateral") {
     const rest = cardRow(body);
     const side = main.slice(1, 4);
@@ -110,13 +129,9 @@ export function composePage(page, style, reportTitle) {
   } else if (layout === "cartoes_laterais") {
     const [left, right] = cards.length ? split(body, 2, true, [1, 4.4]) : [null, body];
     if (left) split(left, cards.length, false).forEach((c, i) => visuals.push(place(cards[i], c)));
-    if (main.length <= 1) put(main, [right]);
-    else { const [top, bottom] = split(right, 2, false, [1.6, 1]); put(main.slice(0, 1), [top]); const rest = main.slice(1, 4); put(rest, split(bottom, rest.length, true)); }
+    sceneFirst(right, main.slice(1, 4), [1.6, 1]);
   } else if (layout === "narrativa") {
-    const rest = cardRow(body);
-    const others = main.slice(1, 4);
-    if (!others.length) put(main.slice(0, 1), [rest]);
-    else { const [top, bottom] = split(rest, 2, false, [1.3, 1]); put(main.slice(0, 1), [top]); put(others, split(bottom, others.length, true)); }
+    sceneFirst(cardRow(body), main.slice(1, 4), [1.3, 1]);
   } else if (layout === "comparacao") {
     const rest = cardRow(body);
     const pair = main.slice(0, 2); const extra = main.slice(2, 4);

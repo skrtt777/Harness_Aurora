@@ -2,7 +2,8 @@
 // atualizado; confere números (--confere "[Medida]=valor"), grava cada imagem que o motor calcula (SVG ->
 // PNG) e tira a foto de cada página. Só com nenhum Power BI aberto antes; fecha só o que abriu.
 // node scripts/powerbi-lab/scenes-lab.mjs <arquivo .xlsx/.csv> <pasta das fotos> [--goal "…"] [--confere "[M]=v"]…
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -41,7 +42,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 640 } });
   for (const m of r.plan.measureList.filter((x) => x.category === "ImageUrl")) {
     // A row picture (a bar per row) is drawn for the first item of a table; the scenes, for everything.
-    const v = await value(`[${m.name}]`);
+    // --filtro "'Tabela'[Coluna]=valor": as the page shows it (the unit chosen in its filter).
+    const filters = flag("filtro").map((f) => /^(.+?)=(.+)$/.exec(f)).map(([, ref, val]) => `${ref} = "${val.replace(/"/g, '""')}"`);
+    const v = await value(filters.length ? `CALCULATE([${m.name}], ${filters.join(", ")})` : `[${m.name}]`);
     const url = v.text || "";
     const ok = url.startsWith("data:image/svg+xml;utf8,<svg");
     const empty = !v.error && !url;
@@ -66,16 +69,23 @@ try {
   await browser.close();
   await new Promise((res) => setTimeout(res, 6000));
   const windowTitle = (await openReports()).find((x) => x.pid === r.opened.pid)?.title || r.opened.title;
+  const shot = (file) => { execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(import.meta.dirname, "window-shot.ps1"), String(r.opened.pid), file]); return createHash("sha1").update(readFileSync(file)).digest("hex"); };
+  let previous = null;
   for (const [i, pg] of r.plan.pages.entries()) {
-    if (i > 0) {
-      const snap = await desktopRequest("snapshot", { window: windowTitle, max: 700 });
-      const ref = new RegExp(`\\[(d\\d+)\\] TabItem "${pg.displayName}"`).exec(snap.text || "")?.[1];
-      if (ref) { await desktopRequest("click", { ref }); await new Promise((res) => setTimeout(res, 6000)); }
+    // The tab is clicked again while the photo is still the previous page's (a lost click, or loading).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (i > 0) {
+        const snap = await desktopRequest("snapshot", { window: windowTitle, max: 700 });
+        const ref = new RegExp(`\\[(d\\d+)\\] TabItem "${pg.displayName}"`).exec(snap.text || "")?.[1];
+        if (ref) { await desktopRequest("click", { ref }); await new Promise((res) => setTimeout(res, 9000)); }
+      }
+      const hash = shot(join(shots, `pagina${i + 1}.png`));
+      if (hash !== previous) { previous = hash; break; }
     }
     const screen = String((await desktopRequest("snapshot", { window: windowTitle, max: 700 })).text || "");
     const errors = screen.match(/(Não é possível exibir|Corrigir isto|Ver detalhes|campos? que não existe)[^"\n]*/gi) || [];
     check(`página ${pg.displayName} sem erro`, errors.length === 0, errors.slice(0, 3).join(" | "));
-    execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(import.meta.dirname, "window-shot.ps1"), String(r.opened.pid), join(shots, `pagina${i + 1}.png`)]);
+    shot(join(shots, `pagina${i + 1}.png`));
   }
 } finally {
   stopDesktop();

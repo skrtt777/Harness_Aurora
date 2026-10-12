@@ -26,6 +26,7 @@ export function joinDax(parts) {
   return out.length ? out.join(" & ") : "\"\"";
 }
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+import { faces, roomKit } from "./powerbiPlaces.js";
 // What the Aurora points at (the 'Destaque' table she writes when asked "mostra…"), and her note.
 export const HIGHLIGHT_VARS = ["VAR Destacados = VALUES('Destaque'[Valor])", "VAR NotaAurora = MAXX('Destaque', 'Destaque'[Nota]) & \"\""];
 /** A pulsing ring the Aurora draws around what she was asked to show. */
@@ -181,7 +182,7 @@ export function vehicleVars(flow, base = `ALL(${q(flow.fact)})`, at = null) {
   return [
     `VAR T = ${T}`,
     `VAR Ativos = ${active}`,
-    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0)`,
+    `VAR Veiculos0 = ADDCOLUMNS(${rows}, "@st", ${latest(statusExpr)} & "", "@doca", ${latest(place)} & "", "@atraso", ${latest(lateExpr)} + 0, "@id", ${latest(flow.id ? col(F, flow.id) : key || "BLANK()")} & "", "@nome", ${latest(h.label)} & "", "@prev", ${latest(prevExpr)} + 0${flow.colorBy ? `, "@cor", ${latest(col(F, flow.colorBy.column))} & ""` : ""})`,
     `VAR Veiculos = ADDCOLUMNS(Veiculos0, "@where", SWITCH(TRUE(), [@st] IN ${list(roadStages)}, "estrada", ${hasService ? `[@st] IN ${list(serviceStages)} && [@doca] <> "", "doca", [@st] IN ${list(queueStages)} && [@doca] <> "", "filalocal", ` : `[@st] IN ${list(queueStages)} && [@doca] <> "", "doca", `}[@st] IN ${list([...serviceStages, ...queueStages])}, "fila", "outro"))`,
   ];
 }
@@ -213,11 +214,33 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const G = flow.glyph || "veiculo";
   const cv = new Canvas();
   const LEN = 640; const DEPTH = 200; const HEIGHT = 112;
-  const QUEUE = { veiculo: 10, pessoa: 20, volume: 15 }[G];
+  const QUEUE0 = { veiculo: 10, pessoa: 20, volume: 15 }[G];
   const ROAD = 8;
   const hasRoad = flow.stages.some((st) => st.key === "transito");
+  // The room of this area (a shop, a clinic, a hall, a factory): app/powerbiPlaces.js. Vehicles at docks
+  // keep the warehouse drawn below.
+  const env = G === "veiculo" ? "armazem" : flow.environment || "fabrica";
+  const n = Math.max(1, Math.min(16, flow.placeCount || 10));
+  const w = (LEN - 40) / n;
+  const kit = env === "armazem" ? null : roomKit(env, { cv, look, LEN, DEPTH, n, w, hasRoad, D, safe, siteName: site ? "Unidade" : null, title });
+  // The general queue's ground: parking spots for vehicles, a marked line for people, a bay for loads.
+  const QUEUE = kit ? kit.QUEUE : QUEUE0;
+  const spot = kit ? kit.spot : {
+    veiculo: (j) => [20 + (j % 5) * 82, 520 + Math.floor(j / 5) * 140],
+    pessoa: (j) => [40 + (j % 10) * 46, 560 + Math.floor(j / 10) * 70],
+    volume: (j) => [40 + (j % 5) * 70, 540 + Math.floor(j / 5) * 70],
+  }[G];
   const parts = [];
   cv.quiet = true;
+  if (kit) {
+    parts.push(kit.floor);
+    if (hasRoad) {
+      parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
+      parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
+    }
+    cv.quiet = false;
+    parts.push(kit.queueGround, kit.backdrop);
+  } else {
   parts.push(cv.poly([[-120, -60, 0], [920, -60, 0], [920, 800, 0], [-120, 800, 0]], L.ground));
   for (let g = 40; g <= 880; g += 95) parts.push(`<polyline points='${cv.pts([[g, -60, 0], [g, 800, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
   for (let g = 50; g <= 760; g += 90) parts.push(`<polyline points='${cv.pts([[-120, g, 0], [920, g, 0]])}' stroke='${L.grid}' stroke-width='1' fill='none'/>`);
@@ -226,14 +249,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     parts.push(cv.poly([[720, -60, 0], [880, -60, 0], [880, 800, 0], [720, 800, 0]], L.road));
     parts.push(`<polyline points='${cv.pts([[800, -60, 0], [800, 800, 0]])}' stroke='${L.roadLine}' stroke-width='3' stroke-dasharray='14 12' fill='none' opacity='0.7'/>`);
   }
-  // The general queue's ground: parking spots for vehicles, a marked line for people, a bay for loads.
-  const spot = {
-    veiculo: (j) => [20 + (j % 5) * 82, 520 + Math.floor(j / 5) * 140],
-    pessoa: (j) => [40 + (j % 10) * 46, 560 + Math.floor(j / 10) * 70],
-    volume: (j) => [40 + (j % 5) * 70, 540 + Math.floor(j / 5) * 70],
-  }[G];
   if (G === "veiculo") for (let j = 0; j < QUEUE; j += 1) { const [x, y] = spot(j); parts.push(cv.poly([[x, y, 0], [x + 64, y, 0], [x + 64, y + 130, 0], [x, y + 130, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5'`)); }
-  else { const [x0, y0] = spot(0); const [x1, y1] = spot(QUEUE - 1); parts.push(cv.poly([[x0 - 30, y0 - 30, 0], [x1 + 30, y0 - 30, 0], [x1 + 30, y1 + 30, 0], [x0 - 30, y1 + 30, 0]], "none", ` stroke='${L.spot}' stroke-width='1.5' stroke-dasharray='8 6'`)); }
   parts.push(`<polyline points='${cv.pts([[-90, -40, 0], [-90, 790, 0], [690, 790, 0]])}' stroke='${L.fence}' stroke-width='2.5' fill='none'/>`);
   cv.quiet = false;
   for (const [X, Y] of [[-60, 40], [-60, 220], [-60, 420], [-60, 640], [480, 760], [660, 740], [690, -20], ...(hasRoad ? [[905, 160], [905, 520]] : [])]) parts.push(tree(cv, X, Y, L, 0.9));
@@ -241,23 +257,27 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   for (let r = 26; r < 100; r += 30) parts.push(`<polyline points='${cv.pts([[16, r, HEIGHT], [LEN - 16, r, HEIGHT]])}' stroke='${L.stripe}' stroke-width='5' fill='none' opacity='${look === "dia" ? 0.35 : 1}'/>`);
   const [wx, wy] = cv.at(30, 168, HEIGHT);
   parts.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${wx},${wy})' fill='${L.roofText}' ${FONT} font-size='34' font-weight='700' letter-spacing='3'>`, site ? D(safe("UPPER(LEFT(Unidade, 30))")) : xml(title.toUpperCase().slice(0, 30)), "</text>");
+  }
 
   // The glyphs: each drawn object in its own colour (the stage, red when late), dimmed when a selection
   // hides it, ghostly when it is a forecast.
   const keyOf = `IF([@atraso] = 1, "atraso", ${h.keyOf("[@st]")})`;
   const open = (where) => [`<g class='v ${where}' opacity='`, D(`IF(NOT Filtrado || [@id] IN Visiveis, IF([@prev] = 1, "0.5", "1"), "0.22")`), "'>"];
-  const colours = (key) => [shade(key, 0), shade(key, 1), shade(key, 2)];
+  const byColour = flow.colorBy ? (i) => D(`SWITCH(LOWER([@cor]), ${flow.colorBy.values.map(([v, hex]) => `"${String(v).toLowerCase().replace(/"/g, "\"\"")}", ${daxText(faces(hex)[i])}`).join(", ")}, ${daxText(faces("#8EA0BC")[i])})`) : null;
+  // With a colour column (risk, priority) the entity wears it; its stage is where it stands.
+  const colours = (key) => (byColour && key !== `"fila"` ? [byColour(0), byColour(1), byColour(2)] : [shade(key, 0), shade(key, 1), shade(key, 2)]);
   const vehicle = (x, y, tw, key, where) => [open(where), cv.box(x, y, 0, tw, 150, 9, [L.chassis, L.chassis, L.chassis]), cv.box(x, y, 9, tw, 118, 52, colours(key)), cv.box(x + 2, y + 122, 9, tw - 4, 30, 40, L.cab), "</g>"];
-  const person = (x, y, key, where) => {
-    const [hx, hy] = cv.at(x, y, 54);
-    return [open(where), cv.box(x - 10, y - 10, 0, 20, 20, 42, colours(key)), `<ellipse cx='${hx}' cy='${hy}' rx='11' ry='12' fill='${look === "dia" ? "#E9B98F" : "#C99A73"}'/>`, "</g>"];
+  const person = (x, y, key, where, seat = false) => {
+    const z = seat ? 16 : 0; const body = seat ? 30 : 42;
+    const [hx, hy] = cv.at(x, y, z + body + 12);
+    // Past the limit with a colour column: a red mark over the head (the colour already says the risk).
+    const late = byColour && key !== `"fila"` ? when("[@atraso] = 1", [`<circle cx='${hx}' cy='${r1(Number(hy) - 24)}' r='8' fill='#E53935'/><text x='${hx}' y='${r1(Number(hy) - 19)}' text-anchor='middle' fill='#FFFFFF' ${FONT} font-size='12' font-weight='800'>!</text>`]) : "";
+    return [open(where), cv.box(x - 10, y - 10, z, 20, 20, body, colours(key)), `<ellipse cx='${hx}' cy='${hy}' rx='11' ry='12' fill='${look === "dia" ? "#E9B98F" : "#C99A73"}'/>`, late, "</g>"];
   };
   const load = (x, y, key, where) => [open(where), cv.box(x - 18, y - 18, 0, 36, 36, 6, ["#D9B27C", "#C99A5B", "#A87E45"]), cv.box(x - 15, y - 15, 6, 30, 30, 28, colours(key)), "</g>"];
   const glyph = (x, y, key, where, tw = 34) => (G === "veiculo" ? vehicle(x - tw / 2, y, tw, key, where) : G === "pessoa" ? person(x, y + 20, key, where) : load(x, y + 20, key, where));
 
   // The places: up to 16 drawn; more is written.
-  const n = Math.max(1, Math.min(16, flow.placeCount || 10));
-  const w = (LEN - 40) / n;
   const tw = Math.min(w * 0.62, 46);
   const fragments = [];
   const points = [];
@@ -265,23 +285,26 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     const cx = 20 + k * w + w / 2;
     const frag = [];
     const free = D(`IF([@n] + [@f] = 0, ${daxText("#27AE60")}, ${daxText(L.door)})`);
-    if (G === "veiculo") frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], free));
+    if (kit) frag.push(kit.place(cx, k, free));
+    else if (G === "veiculo") frag.push(cv.poly([[cx - tw / 2 - 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 0], [cx + tw / 2 + 4, DEPTH, 66], [cx - tw / 2 - 4, DEPTH, 66]], free));
     else {
       // A counter (checkout, desk) or a workstation in front of the wall; its top green when free.
       const cw = Math.min(w * 0.7, 54);
       frag.push(cv.box(cx - cw / 2, DEPTH + 8, 0, cw, G === "pessoa" ? 22 : 40, G === "pessoa" ? 28 : 18, [free, L.walls[1], L.walls[2]]));
     }
     // Being served: up to three, side by side (vehicles one behind the other).
-    const served = [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, G === "veiculo"
+    const at = (xy, key, where, seat) => (G === "pessoa" ? person(xy[0], xy[1], key, where, seat) : load(xy[0], xy[1], key, where));
+    const served = kit ? [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, at(kit.served(cx, i), keyOf, "doca"))) : [0, 1, 2].map((i) => when(`[@n] >= ${i + 1}`, G === "veiculo"
       ? (i === 0 ? glyph(cx, DEPTH + 10, keyOf, "doca", tw) : [open("doca"), cv.box(cx - tw / 2 + 4, DEPTH + 172 + (i - 1) * 70, 0, tw - 8, 60, 30, colours(keyOf)), cv.box(cx - tw / 2 + 6, DEPTH + 218 + (i - 1) * 70, 30, tw - 12, 14, 18, L.cab), "</g>"])
       : glyph(cx + (i - 1) * Math.min(18, w / 3), DEPTH + (G === "pessoa" ? 36 : 14), keyOf, "doca")));
     frag.push(served);
     // That place's own line: up to four waiting behind, the rest written.
     const lineStep = G === "veiculo" ? 0 : G === "pessoa" ? 36 : 42;
-    if (G !== "veiculo") frag.push([0, 1, 2, 3].map((i) => when(`[@f] >= ${i + 1}`, glyph(cx, DEPTH + 70 + i * lineStep, `"fila"`, "filalocal"))));
+    if (kit) frag.push([0, 1, 2, 3].map((i) => when(`[@f] >= ${i + 1}`, at(kit.line(cx, i), `"fila"`, "filalocal", Boolean(kit.seated)))));
+    else if (G !== "veiculo") frag.push([0, 1, 2, 3].map((i) => when(`[@f] >= ${i + 1}`, glyph(cx, DEPTH + 70 + i * lineStep, `"fila"`, "filalocal"))));
     else frag.push([0, 1].map((i) => when(`[@f] >= ${i + 1}`, [open("filalocal"), cv.box(cx - tw / 2 + 4, DEPTH + 330 + i * 64, 0, tw - 8, 56, 30, STATE.fila.shades), "</g>"])));
     const shown = G === "veiculo" ? 2 : 4;
-    const [ox, oy] = cv.at(cx, DEPTH + (G === "veiculo" ? 470 : 70 + shown * lineStep + 14), 0);
+    const [ox, oy] = kit ? cv.at(kit.line(cx, shown)[0], kit.line(cx, shown)[1] - 8, 0) : cv.at(cx, DEPTH + (G === "veiculo" ? 470 : 70 + shown * lineStep + 14), 0);
     frag.push(when(`[@f] > ${shown}`, [`<text x='${ox}' y='${oy}' text-anchor='middle' fill='${L.queue}' ${FONT} font-size='15' font-weight='700'>+`, D(`[@f] - ${shown}`), "</text>"]));
     if (G === "veiculo") {
       const [p0x, p0y] = cv.at(cx, DEPTH - 6, 12); const [p1x, p1y] = cv.at(cx, DEPTH + 40, 12);
@@ -290,7 +313,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     }
     // The name of the one being served, over it ("+2" when there are more).
     // The tag: over the vehicle, or over the head of the one being served.
-    const [px, py] = cv.at(cx, DEPTH + (G === "veiculo" ? 60 : 56), G === "veiculo" ? 61 : 92);
+    const [px, py] = kit ? cv.at(...kit.tag(cx)) : cv.at(cx, DEPTH + (G === "veiculo" ? 60 : 56), G === "veiculo" ? 61 : 92);
     const pw = G === "veiculo" ? (n > 10 ? 70 : 92) : 70;
     const lift = n > 10 && k % 2 ? 30 : 0;
     frag.push(when("[@n] > 0", [
@@ -300,8 +323,10 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     const [gx, gy] = cv.at(cx, DEPTH + 90, 0);
     frag.push(when(`${place} IN Destacados || [@nome] IN Destacados`, auroraRing(gx, gy, G === "veiculo" ? 84 : 56, G === "veiculo" ? 48 : 32)));
     frag.push(when("Filtrado && [@n] > 0 && [@id] IN Visiveis", [`<ellipse cx='${gx}' cy='${gy}' rx='${G === "veiculo" ? 70 : 46}' ry='${G === "veiculo" ? 40 : 26}' fill='none' stroke='${L.pin}' stroke-width='4'><animate attributeName='stroke-opacity' values='1;0.3;1' dur='1.4s' repeatCount='indefinite'/></ellipse>`]));
-    const [nx, ny] = cv.at(cx - tw / 2 - 4, DEPTH, G === "veiculo" ? 76 : 98);
-    frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 12 : 15}' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
+    const [nx, ny] = kit ? cv.at(...kit.label(cx)) : cv.at(cx - tw / 2 - 4, DEPTH, G === "veiculo" ? 76 : 98);
+    // In a room the place's number is painted on the floor at its door (the legend says what it is).
+    if (kit) frag.push(`<text transform='matrix(${r1(COS)},0.5,${r1(-COS)},0.5,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 15 : 19}' font-weight='800'>`, D(safe(`VAR p = TRIM(SUBSTITUTE(${place}, ${JSON.stringify(String(flow.place))}, "")) RETURN LEFT(IF(p = "", ${place}, p), 8)`)), "</text>");
+    else frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 12 : 15}' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
     fragments.push(`${k + 1}, ${joinDax(frag)}`);
     points.push([k + 1, Number(gx), Number(gy)]);
   }
@@ -311,7 +336,8 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   for (let j = 0; j < QUEUE; j += 1) {
     const [x, y] = spot(j);
     const [mx, my] = cv.at(x + (G === "veiculo" ? 32 : 0), y + (G === "veiculo" ? 60 : 0), 0);
-    queueSlots.push(`${j + 1}, ${joinDax([G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila"), when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24))])}`);
+    const drawn = G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : kit && G === "pessoa" ? person(x, y, keyOf, "fila", Boolean(kit.seated)) : kit ? load(x, y, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila");
+    queueSlots.push(`${j + 1}, ${joinDax([drawn, when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24))])}`);
   }
   const roadSlots = [];
   if (hasRoad) {
@@ -341,10 +367,13 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
 
   const vb = { x: cv.minX - 16, y: cv.minY - 16, w: cv.maxX - cv.minX + 32, h: cv.maxY - cv.minY + 32 };
   const legend = [];
-  const legendKeys = [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", `${flow.place} livre`]];
+  const legendKeys = flow.colorBy
+    ? [...flow.colorBy.values.map(([v, hex]) => [hex, v]), ["#E53935", "! passou do limite"], [STATE.livre.shades[1], `${flow.place} livre`]]
+    : [...flow.stages.filter((s) => s.key !== "concluido").map((s) => [s.key, s.values[0]]), ["atraso", "Atrasado"], ["livre", `${flow.place} livre`]];
+  if (flow.colorBy) legend.push(`<text x='${r1(vb.x + 24)}' y='${r1(vb.y + 28)}' fill='${L.strong}' ${FONT} font-size='18' font-weight='700'>${xml(flow.colorBy.column)}</text>`);
   legendKeys.forEach(([key, text], i) => {
-    const lx = vb.x + 24; const ly = vb.y + 34 + i * 32;
-    legend.push(`<rect x='${r1(lx)}' y='${r1(ly - 16)}' width='20' height='20' rx='10' fill='${STATE[key]?.shades[1] || "#6B7A90"}'/>`);
+    const lx = vb.x + 24; const ly = vb.y + 34 + (flow.colorBy ? 30 : 0) + i * 32;
+    legend.push(`<rect x='${r1(lx)}' y='${r1(ly - 16)}' width='20' height='20' rx='10' fill='${key.startsWith("#") ? key : STATE[key]?.shades[1] || "#6B7A90"}'/>`);
     legend.push(`<text x='${r1(lx + 30)}' y='${r1(ly + 1)}' fill='${L.text}' ${FONT} font-size='20'>${xml(text)}</text>`);
   });
   if (stamp) legend.push(liveBadge(stamp, vb.x + vb.w - 320, vb.y + 14, L));
@@ -383,9 +412,9 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     `VAR Docas = TOPN(${n}, TodasDocas, ${place}, ASC)`,
     `VAR Slots0 = ADDCOLUMNS(Docas, "@i", VAR d = ${place} RETURN COUNTROWS(FILTER(Docas, ${place} <= d)), "@n", VAR d = ${place} & "" RETURN COUNTROWS(FILTER(NaDoca, [@doca] = d)) + 0, "@f", VAR d = ${place} & "" RETURN COUNTROWS(FILTER(NaFilaLocal, [@doca] = d)) + 0)`,
     `VAR Slots1 = ADDCOLUMNS(Slots0, "@nome", VAR d = ${place} & "" RETURN MINX(FILTER(NaDoca, [@doca] = d), [@nome]))`,
-    `VAR DocaVeic = ADDCOLUMNS(Slots1, "@st", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@st]), "@atraso", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@atraso]) + 0, "@id", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@id]), "@prev", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@prev]) + 0)`,
-    `VAR FilaN = ADDCOLUMNS(Fila, "@j", VAR v = [@nome] RETURN COUNTROWS(FILTER(Fila, [@nome] <= v)))`,
-    `VAR EstradaN = ADDCOLUMNS(Estrada, "@j", VAR v = [@nome] RETURN COUNTROWS(FILTER(Estrada, [@nome] <= v)))`,
+    `VAR DocaVeic = ADDCOLUMNS(Slots1, "@st", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@st]), "@atraso", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@atraso]) + 0, "@id", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@id]), "@prev", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@prev]) + 0${flow.colorBy ? `, "@cor", VAR v = [@nome] RETURN MAXX(FILTER(NaDoca, [@nome] = v), [@cor])` : ""})`,
+    `VAR FilaN = ADDCOLUMNS(Fila, "@j", VAR v = [@nome] & "|" & [@id] RETURN COUNTROWS(FILTER(Fila, [@nome] & "|" & [@id] <= v)))`,
+    `VAR EstradaN = ADDCOLUMNS(Estrada, "@j", VAR v = [@nome] & "|" & [@id] RETURN COUNTROWS(FILTER(Estrada, [@nome] & "|" & [@id] <= v)))`,
     // What is drawn (capped per place, per line, per queue, per road) against everything there is.
     `VAR nTotal = COUNTROWS(FILTER(Veiculos, [@where] IN {"doca", "filalocal", "fila", "estrada"})) + 0`,
     `VAR nDesenhados = SUMX(TOPN(${n}, Slots0, [@i], ASC), MIN([@n], ${capServed}) + MIN([@f], ${capLine})) + MIN(nFila, ${QUEUE}) + ${hasRoad ? `MIN(nEstrada, ${ROAD})` : "0"}`,
@@ -547,13 +576,14 @@ export function cityScene(spec) {
   // A row runs across the screen (X up, Y down): a wide panel gets a wide city; more than 6, two rows.
   const cols = n <= 6 ? n : Math.ceil(n / 2);
   const cv = new Canvas();
-  const FOOT = 100; const STEP_X = 175; const STEP_Y = 210; const H = 300;
+  const FOOT = 100; const STEP_X = 175; const STEP_Y = 330; const H = 300;
   const parts = [];
   cv.quiet = true;
   const rows = n > cols ? 2 : 1;
-  const at = (k) => { const c = k % cols; const r = Math.floor(k / cols); return [c * STEP_X + r * STEP_Y, -c * STEP_X + r * STEP_Y]; };
-  const [x0] = at(0); const [xl, yl] = at(cols - 1); const [, yr] = at((rows - 1) * cols);
-  parts.push(cv.poly([[x0 - 70, -70, 0], [xl + FOOT + 70, yl - 70, 0], [xl + FOOT + 70 + (rows - 1) * STEP_Y, yl + FOOT + 70 + (rows - 1) * STEP_Y, 0], [x0 - 70 + (rows - 1) * STEP_Y, yr + FOOT + 70, 0]], L.ground));
+  // The second row further back and half a step aside: in front of the first it hid its buildings (11/10).
+  const at = (k) => { const c = k % cols; const r = Math.floor(k / cols); return [c * STEP_X + r * (STEP_Y + 90), -c * STEP_X + r * (STEP_Y - 90)]; };
+  const [ax, ay] = at(0); const [bx, by] = at(cols - 1); const [ex, ey] = at((rows - 1) * cols + cols - 1); const [dx, dy] = at((rows - 1) * cols);
+  parts.push(cv.poly([[ax - 70, ay - 70, 0], [bx + FOOT + 70, by - 70, 0], [ex + FOOT + 70, ey + FOOT + 70, 0], [dx - 70, dy + FOOT + 70, 0]], L.ground));
   cv.quiet = false;
   const slots = [];
   const points = [];
