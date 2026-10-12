@@ -113,10 +113,13 @@ export function compose(specIn, catalog, seed = "", { clear = true } = {}) {
     const anda = typeof raw === "object" && raw.anda ? norm(raw.anda) : typeof raw === "object" && raw.comportamento ? norm(raw.comportamento) : null;
     return { t, qtd, anda, nome: typeof raw === "object" && raw.nome && norm(raw.nome) !== norm(t.nome) ? String(raw.nome).slice(0, 40) : "", zone: zoneHint };
   };
-  let zones = (Array.isArray(spec.zonas) ? spec.zonas : []).slice(0, 12).map((z) => ({
-    tipo: ZONES.includes(norm(z?.tipo)) ? norm(z.tipo) : "livre", onde: norm(z?.onde || ""), tam: norm(z?.tam || ""), nome: String(z?.nome || ""),
-    itens: (Array.isArray(z?.itens) ? z.itens : []).map((i) => item(i)).filter(Boolean),
-  }));
+  let zones = (Array.isArray(spec.zonas) ? spec.zonas : []).slice(0, 12).map((z) => {
+    const known = ZONES.includes(norm(z?.tipo));
+    const itens = (Array.isArray(z?.itens) ? z.itens : []).map((i) => item(i)).filter(Boolean);
+    // A zone named after a thing ("castelo", "muralha"): an open zone with that thing in it.
+    const named = !known && z?.tipo && resolveType(cat, z.tipo) ? item({ tipo: z.tipo, qtd: 1 }) : null;
+    return { tipo: known ? norm(z.tipo) : "livre", onde: norm(z?.onde || ""), tam: norm(z?.tam || ""), nome: String(z?.nome || ""), itens: named ? [named, ...itens] : itens };
+  });
   const loose = (Array.isArray(spec.itens) ? spec.itens : Array.isArray(spec.items) ? spec.items : []).map((i) => item(i)).filter(Boolean);
   for (const it of loose) {
     // Things in the sky, at the back or on roads/rails need no zone of their own.
@@ -215,15 +218,19 @@ export function compose(specIn, catalog, seed = "", { clear = true } = {}) {
   const footprint = (t, size, vi) => (t.cerca ? size * 0.2 : footprintOf(t, size, vi) * 0.85);
   const scatter = (it, area, opts = {}) => {
     for (let k = 0; k < it.qtd; k++) {
-      const v = pick(it.t); const r = footprint(it.t, it.t.tam, v);
-      let at = null;
-      for (let a = 0; a < 60 && !at; a++) {
-        const [x, z] = area.sample();
-        if (opts.water ? area.contains(x, z, r * 0.5) : area.contains(x, z, r * 0.7) && free(x, z, r, opts.pad ?? 0.004)) at = [x, z];
+      const v = pick(it.t); let at = null, scale = 1;
+      // A big thing (a castle in a small zone) is made a little smaller before it is left out.
+      for (const k of it.t.tam > 0.12 ? [1, 0.75, 0.55] : [1]) {
+        const r = footprint(it.t, it.t.tam * k, v); scale = k;
+        for (let a = 0; a < 60 && !at; a++) {
+          const [x, z] = area.sample();
+          if (opts.water ? area.contains(x, z, r * 0.5) : area.contains(x, z, r * 0.7) && free(x, z, r, opts.pad ?? 0.004)) at = [x, z];
+        }
+        if (!at && !opts.water) for (let a = 0; a < 40 && !at; a++) { const [x, z] = area.sample(); if (area.contains(x, z, r * 0.4) && free(x, z, r * 0.6)) at = [x, z]; }
+        if (at) break;
       }
-      if (!at && !opts.water) for (let a = 0; a < 40 && !at; a++) { const [x, z] = area.sample(); if (area.contains(x, z, r * 0.4) && free(x, z, r * 0.6)) at = [x, z]; }
       if (!at) continue;
-      put(it.t, at[0], at[1], opts.face ? opts.face(at[0], at[1]) : random() * Math.PI * 2, { v, anda: it.anda, nome: it.nome, zone: opts.zone, area: opts.area, path: opts.path, s: random() });
+      put(it.t, at[0], at[1], opts.face ? opts.face(at[0], at[1]) : random() * Math.PI * 2, { v, scale, anda: it.anda, nome: it.nome, zone: opts.zone, area: opts.area, path: opts.path, s: random() });
     }
   };
   const rectArea = (R, inset = 0) => ({ sample: () => [R.x0 + inset + random() * (R.x1 - R.x0 - 2 * inset), R.z0 + inset + random() * (R.z1 - R.z0 - 2 * inset)], contains: (x, z, r = 0) => x - r >= R.x0 && x + r <= R.x1 && z - r >= R.z0 && z + r <= R.z1 });
@@ -439,21 +446,30 @@ export function clearance(L, cat) {
     if (t.id !== "cais") for (const e of L.water) if (inEllipse(x, z, e, r * 0.8)) { const a = Math.atan2((z - e.z) / e.rz, (x - e.x) / e.rx); const bx = e.x + Math.cos(a) * (e.rx + r * 0.8 + 0.003), bz = e.z + Math.sin(a) * (e.rz + r * 0.8 + 0.003); return { dx: bx - x, dz: bz - z, by: 1 }; }
     return null;
   };
-  for (const th of L.things) {
+  // The biggest first: a castle keeps its place and a lamp next to it gives way, not the other way.
+  const order = L.things.map((th, i) => [th, i]).sort((a, b) => b[0].size - a[0].size || a[1] - b[1]);
+  const keep = new Set();
+  for (const [th] of order) {
     const t = T(th);
-    if (!standsStill(th, t)) { out.push(th); continue; }
-    const r = footprintOf(t, th.size, th.v) * SOLID;
-    let x = th.x, z = th.z, ok = false;
-    for (let k = 0; k < 4; k++) {
-      const v = violation(x, z, r, t); if (!v) { ok = true; break; }
-      x += v.dx * v.by; z += v.dz * v.by;
-      x = clamp(x, -W / 2 + r * 0.5, W / 2 - r * 0.5); z = clamp(z, -D / 2 + r * 0.5, D / 2 - r * 0.5);
+    if (!standsStill(th, t)) { keep.add(th); continue; }
+    let x = th.x, z = th.z, ok = false, size = th.size;
+    // Off the roads and the water; a big one that cannot get off is made a little smaller first.
+    for (let shrink = 0; shrink < 3 && !ok; shrink++) {
+      if (shrink) { size *= 0.8; if (t.tam < 0.12) break; }
+      const r = footprintOf(t, size, th.v) * SOLID;
+      for (let k = 0; k < 8; k++) {
+        const v = violation(x, z, r, t); if (!v) { ok = true; break; }
+        x += v.dx * v.by; z += v.dz * v.by;
+        x = clamp(x, -W / 2 + r * 0.5, W / 2 - r * 0.5); z = clamp(z, -D / 2 + r * 0.5, D / 2 - r * 0.5);
+      }
     }
     if (!ok) continue;
+    const r = footprintOf(t, size, th.v) * SOLID;
     // Two standing things never inside each other (the crops of a field stand in rows on their own).
     if (!th.crop && kept.some((o) => !o.th.crop && Math.hypot(o.x - x, o.z - z) < (o.r + r) * 0.55)) continue;
-    th.x = r3(x); th.z = r3(z); kept.push({ th, x, z, r }); out.push(th);
+    th.x = r3(x); th.z = r3(z); th.size = r3(size); kept.push({ th, x, z, r }); keep.add(th);
   }
+  for (const th of L.things) if (keep.has(th)) out.push(th);
   L.things = out;
   // Walkers: away from what stands (a mountain put at the back after them, a lamp of the square) and
   // then as far as they may go without touching it, a road or the water; one with no room is left out.

@@ -169,7 +169,7 @@ export const RECIPES = [
     z("acampamento", "centro", [["barraca", 4], ["fogueira", 1], ["aventureiro", 4], ["cachorro", 1], ["saco_dormir", 3], ["lenha", 2], ["ferramenta", 2], ["placa_caminho", 1]], "m"), z("bosque", "esquerda", [["pinheiro", 8], ["cervo", 1]], "g"),
     z("lago", "direita", [["canoa", 2], ["peixe", 4], ["cais", 1]], "m")],
     itens: [["montanha", 3], ["nuvem", 2], ["passaro", 3]] },
-  { words: "castelo reino medieval princesa rei cavaleiro", titulo: "Reino", chao: "grama", estrada: "anel", zonas: [
+  { words: "castelo reino medieval princesa rei cavaleiro feudal", titulo: "Reino", chao: "grama", estrada: "anel", zonas: [
     z("livre", "fundo", [["castelo", 1], ["torre", 2], ["bandeira", 3]], "g"), z("quadra", "frente", [["casa_medieval", 5], ["estalagem", 1], ["ferreiro", 1]], "m"),
     z("feira", "esquerda", [["barraca_feira", 4], ["banca_frutas", 2], ["pessoa", 6], ["carroca", 2], ["lampiao", 3]], "p"), z("cercado", "direita", [["cavalo_branco", 2], ["cavalo", 2]], "p"), z("lago", "", [["moinho_agua", 1], ["pato", 3]], "p")],
     itens: [["rei", 1], ["soldado", 4], ["portao_castelo", 1], ["muralha", 2], ["bancada", 1], ["dragao", 1], ["catapulta", 2], ["torre_cerco", 1], ["poco", 1], ["nuvem", 2]] },
@@ -224,10 +224,18 @@ export function recipeJson(r) {
   const it = (l) => l.map((x) => (Array.isArray(x) ? { tipo: x[0], qtd: x[1] } : x));
   return JSON.stringify({ titulo: r.titulo, chao: r.chao, ...(r.estrada ? { estrada: r.estrada } : {}), zonas: r.zonas.map((zz) => ({ tipo: zz.tipo, ...(zz.onde ? { onde: zz.onde } : {}), ...(zz.tam ? { tam: zz.tam } : {}), itens: it(zz.itens) })), itens: it(r.itens) });
 }
-/** The recipe closest to a request (its theme's words), or null. */
+/**
+ * The recipe closest to a request: the one whose theme words it uses most ("cidade medieval com
+ * castelos" is the kingdom, two words, not the city, one), or null.
+ */
 export function recipeFor(prompt) {
-  const t = ` ${words(prompt).join(" ")} `;
-  return RECIPES.find((r) => r.words.split(" ").some((w) => t.includes(` ${w} `) || t.includes(` ${w}s `))) || null;
+  const t = ` ${words(prompt).map(singular).join(" ")} `;
+  let best = null, most = 0;
+  for (const r of RECIPES) {
+    const n = r.words.split(" ").filter((w) => t.includes(` ${singular(w)} `)).length;
+    if (n > most) { best = r; most = n; }
+  }
+  return best;
 }
 /**
  * The instruction for the Aurora: what a good miniature is (the rules a model maker follows), the
@@ -253,6 +261,45 @@ Tipos da biblioteca (id (tamanho): descrição):
 ${lib}
 Não use ferramentas.`;
 }
+const PLACES = ["esquerda", "direita", "fundo", "frente", "centro"];
+export const GROUND_IDS = ["grama", "areia", "terra", "neve", "asfalto", "pedra", "agua", "espaco", "lava"];
+const ZONE_IDS = ["cercado", "lavoura", "bosque", "lago", "porto", "quadra", "praca", "feira", "acampamento", "estacionamento", "cemiterio", "livre"];
+/**
+ * The JSON schema a scene answer is held to (the local model can write nothing else): zones that exist,
+ * only the library's types told for this request, counts a miniature holds, a short sentence to say.
+ */
+export function sceneSchema(typeIds) {
+  const item = { type: "object", additionalProperties: false, required: ["tipo", "qtd"], properties: { tipo: { type: "string", enum: [...new Set(typeIds)] }, qtd: { type: "integer", minimum: 1, maximum: 12 } } };
+  return {
+    type: "object", additionalProperties: false, required: ["titulo", "chao", "estrada", "zonas", "itens", "frase"],
+    properties: {
+      titulo: { type: "string", minLength: 3, maxLength: 40 },
+      chao: { type: "string", enum: GROUND_IDS },
+      estrada: { type: "string", enum: ["nenhuma", "anel", "grade", "cruz"] },
+      zonas: { type: "array", minItems: 3, maxItems: 7, items: { type: "object", additionalProperties: false, required: ["tipo", "onde", "tam", "itens"],
+        properties: { tipo: { type: "string", enum: ZONE_IDS }, onde: { type: "string", enum: PLACES }, tam: { type: "string", enum: ["p", "m", "g"] }, itens: { type: "array", minItems: 2, maxItems: 8, items: item } } } },
+      itens: { type: "array", minItems: 1, maxItems: 10, items: item },
+      frase: { type: "string", minLength: 5, maxLength: 140 },
+    },
+  };
+}
+/** The instruction for the structured request: what a good miniature is, a reference, the library. */
+export function sceneSystem(types, reference = null) {
+  const lib = types.map((t) => `${t.id} (${Math.round(t.tam * 100)} cm): ${t.desc}`).join("\n");
+  return `Você é a Aurora montando uma maquete 3D bonita e que faça sentido, numa base de 90 x 60 cm, para a pessoa ver no óculos de realidade virtual.
+Pense como um maquetista: entenda o tema pedido e escolha os objetos que combinam com ele; atenda tudo o que a pessoa citou.
+Regras:
+- 4 a 6 zonas, cada uma com um assunto (pasto, plantação, mata, lago, quarteirão, praça, feira, acampamento...), com 3 a 8 tipos de itens que combinam com ela.
+- Animais em cercado, bosque ou lago; peixes, barcos e patos em lago ou porto; casas, prédios e castelos em quadra ou livre.
+- Veículos, nuvens, pássaros, sol, lua e montanhas vão em "itens" (o motor põe na estrada, no céu e ao fundo).
+- Use estrada "anel" quando houver veículos; "grade" para cidade com quarteirões; "nenhuma" para natureza.
+- "frase": uma frase curta e simpática dizendo o que você montou.
+Zonas: ${ZONE_HELP}.${reference ? `
+Exemplo de uma boa maquete de tema parecido (faça a sua, atendendo ao pedido): ${recipeJson(reference)}` : ""}
+Objetos que você pode usar (id (tamanho): descrição):
+${lib}`;
+}
+
 /** The person's own words (the instruction added by the app is not shown back). */
 export const ownWords = (text) => { const s = String(text || ""); const i = s.indexOf(SCENE_MARK.trim()); return i >= 0 ? s.slice(0, i).trim() : s; };
 
@@ -271,7 +318,7 @@ export function mergeWithDraft(aurora, draft, resolve, told = null) {
   // Most of what she used must be what the request is about (a farm for "a city" shares a tree and a
   // car, not most), and at least one thing of the draft's theme.
   const onTopic = [...a].filter((t) => topic.has(t)).length, shared = [...a].filter((t) => d.has(t)).length;
-  if (!a.size || (d.size && (shared === 0 || onTopic / a.size < (told ? 0.7 : 0.5)))) return { spec: draft, used: false };
+  if (!a.size || (d.size && ((shared === 0 && !told) || onTopic / a.size < (told ? 0.7 : 0.5)))) return { spec: draft, used: false };
   const spec = JSON.parse(JSON.stringify(aurora)); spec.zonas = spec.zonas || []; spec.itens = spec.itens || spec.items || [];
   if (count(spec) < 25) {
     const have = new Set(spec.zonas.map((zz) => zz.tipo));

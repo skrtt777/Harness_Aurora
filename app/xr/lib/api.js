@@ -63,6 +63,8 @@ export function createBridgeClient({ base = "", fetch = globalThis.fetch.bind(gl
     remember: (data) => submit("/memories", data),
     transcribe: (audio) => submit("/transcribe", { audio }),
     speak: (text) => submit("/speak", { text }),
+    /** A scene from the Aurora's local model, its answer held to the schema (app/xrScene.js): { text }. */
+    scene: (system, prompt, schema) => submit("/scene", { system, prompt, schema }),
     approve: (conversationId, id, approved) => call(`/conversations/${conversationId}/approval`, "POST", { id, approved }),
     cancel: (conversationId) => call(`/conversations/${conversationId}/cancel`, "POST", {}),
   };

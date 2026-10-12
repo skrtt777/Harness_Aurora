@@ -82,7 +82,7 @@ function textField(body,key,max,required=true) {
 }
 function identifier(value) {if(typeof value!=='string'||!idPattern.test(value))fail(400,'Identificador inválido.');return value;}
 
-export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date.now()}) {
+export function createXRHandler({store,desktop,media={},teachers={},scene=null,now=()=>Date.now()}) {
   let teachersActive=0;
   let wakeActive=0;
   let pairing=null;
@@ -135,7 +135,7 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
         return respond(res,200,await media[body.kind](body));
       }
       if(p==='/xr/v1/capabilities'&&method==='GET')return respond(res,200,{protocol:1,chat:true,projects:true,memories:true,artifacts:true,twin:true,app:'/xr/app/',
-        voice:!!media.transcribe,speech:!!media.speak,vision:!!media.observe,tokenStreaming:false});
+        voice:!!media.transcribe,speech:!!media.speak,vision:!!media.observe,scene:!!scene,tokenStreaming:false});
       if(p==='/xr/v1/device'&&method==='DELETE'){store.revoke(device);return respond(res,200,{revoked:true});}
       // Ephemeral name detection: never journal ambient audio or non-addressed speech.
       if(p==='/xr/v1/wake'&&method==='POST'){
@@ -206,6 +206,8 @@ export function createXRHandler({store,desktop,media={},teachers={},now=()=>Date
       m=p.match(/^\/xr\/v1\/conversations\/([\w-]+)\/artifacts\/([\w-]+)\/open$/);
       if(m){const path=`/conversations/${m[1]}/artifacts/${m[2]}/open`;kind='artifact';action=async()=>{const a=await desktop(path,'POST',{});delete a.filePath;return a;};}
       for(const [path,fn] of [['transcribe','transcribe'],['speak','speak'],['observe','observe']]) if(p===`/xr/v1/${path}`){if(!media[fn])fail(503,'Recurso indisponível.');kind=path;action=()=>media[fn](body);}
+      // A scene for the miniature: the Aurora's local model, its answer held to the scene's JSON schema (app/xrScene.js).
+      if(p==='/xr/v1/scene'){if(!scene)fail(503,'Cenários indisponíveis.');kind='scene';action=()=>scene({system:body.system,prompt:body.prompt,schema:body.schema});}
       if(!action)fail(404,'Operação não disponível.');
       return respond(res,202,submit(device,body,kind,action));
     } catch(error) {respond(res,error.status||502,{error:error.status?error.message:'Não foi possível comunicar com o Harness local.'});}
@@ -218,7 +220,8 @@ export async function runBridge() {
   const store=new XRStore(directory);
   const {createMedia}=await import('./xrMedia.js');
   const {runCodex}=await import('./codex.js');const {runClaude}=await import('./claude.js');
-  const bridge=createXRHandler({store,desktop:createDesktopClient(),media:createMedia(),teachers:{codex:runCodex,claude:runClaude}});
+  const {createSceneModel}=await import('./xrScene.js');
+  const bridge=createXRHandler({store,desktop:createDesktopClient(),media:createMedia(),teachers:{codex:runCodex,claude:runClaude},scene:createSceneModel()});
   // The certificate the Quest app already trusts; made here (and kept) on a PC that has none.
   const keyFile=join(directory,'server-key.pem'),certFile=join(directory,'server-cert.pem');
   if(!existsSync(keyFile)||!existsSync(certFile)){const made=selfSigned({name:'aurora-xr',dns:['localhost'],ips:['127.0.0.1',...lanAddresses()]});writeFileSync(keyFile,made.key,{mode:0o600});writeFileSync(certFile,made.cert);}

@@ -6,7 +6,7 @@ import { createBridgeClient, createTwinClient, createChat } from "./lib/api.js";
 import { twinLayout } from "./lib/twinLayout.js";
 import { deviceProfile, sessionInit, MODE_LABEL } from "./lib/device.js";
 import { voiceCommand, VOICE_HELP, downsample, encodeWav, toBase64, SilenceGate, spokenPart } from "./lib/voice.js";
-import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, ownWords, recipeFor } from "./lib/scene.js";
+import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, ownWords, recipeFor, sceneSchema, sceneSystem } from "./lib/scene.js";
 import { compose, relevantTypes, resolveType } from "./lib/compose.js";
 import { Stage } from "./xr/stage.js";
 import { legend } from "./xr/twin3d.js";
@@ -259,25 +259,40 @@ function showOperation() { S.view = "operacao"; S.scene = null; S.picked = null;
 function keepScene(x) { S.scenes = [x, ...S.scenes.filter((y) => y.id !== x.id)].slice(0, 12); saveScenes(); }
 /**
  * A scene from a request: a draft at once (the recipe of its theme and the things it names), then the
- * Aurora's, in the same conversation as everything else, told about the library's types that matter.
+ * Aurora's. Her local model answers held to the scene's schema (only the library's types told for this
+ * request: it cannot stop in the middle or invent); without it (an older bridge, the model off), she
+ * is asked in the conversation and her block is read as before.
  */
 async function makeScene(prompt) {
   prompt = String(prompt || "").trim(); if (!prompt || S.sceneBusy) return;
   const cat = await catalogReady; if (!cat) return;
-  const draft = sceneFromPrompt(prompt, resolve);
+  const draft = sceneFromPrompt(prompt, resolve); const reference = recipeFor(prompt);
   const x = { id: sceneId(), prompt, title: draft.titulo, spec: draft, note: "" };
   S.page = "cenarios"; showScene(x); hint(`Rascunho pronto. A Aurora está montando "${prompt}"…`);
   if (!chat) { keepScene(x); return render(); }
   S.sceneBusy = true; S.scenePrompt = prompt; S.messages.push({ role: "user", content: prompt }); render();
+  // What she may use: the types that matter for the request, those it names and those of the reference.
+  const ids = new Set(relevantTypes(cat, `${prompt} ${draft.titulo}`, 60).map((t) => t.id));
+  for (const zz of draft.zonas || []) for (const it of zz.itens || []) { const id = resolve(it.tipo); if (id) ids.add(id); }
+  for (const it of draft.itens || []) { const id = resolve(it.tipo); if (id) ids.add(id); }
+  const told = [...ids].map((id) => cat.byId.get(id)).filter(Boolean);
   try {
-    const told = relevantTypes(cat, `${prompt} ${draft.titulo}`);
-    const reply = await chat.send(prompt + scenePrompt(told, recipeFor(prompt)), { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
-    const content = reply.content || "";
-    S.messages.push({ role: "assistant", content });
-    const { spec, rest } = parseSceneReply(content);
+    let spec = null, rest = "";
+    if (S.caps?.scene) {
+      S.stage = "A Aurora está montando a maquete…"; render();
+      try {
+        const r = await client.scene(sceneSystem(told, reference), `Monte esta maquete: ${prompt}`, sceneSchema(told.map((t) => t.id)));
+        spec = JSON.parse(r.text); rest = String(spec.frase || "");
+      } catch (e) { spec = null; console.warn("cenário estruturado:", e.message); }
+    }
+    if (!spec) {
+      const reply = await chat.send(prompt + scenePrompt(told, reference), { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
+      ({ spec, rest } = parseSceneReply(reply.content || ""));
+    }
     const merged = mergeWithDraft(spec, draft, resolve, told.map((t) => t.id));
     x.spec = merged.spec; x.title = String(merged.spec.titulo || x.title).slice(0, 60);
     x.note = spokenPart(rest, 200);
+    S.messages.push({ role: "assistant", content: merged.used ? `${x.note || "Montei a maquete."} (${x.title})` : "Não consegui montar uma maquete que combine; ficou o rascunho feito com as suas palavras." });
     keepScene(x);
     if (S.view === "cenario" && S.scene?.id === x.id && merged.used) await showScene(x);
     hint(merged.used ? `Cenário "${x.title}" pronto. Pegue qualquer coisa com a mão para ver de perto.` : "A Aurora respondeu sem uma maquete que combine: ficou o rascunho feito com as suas palavras.");
