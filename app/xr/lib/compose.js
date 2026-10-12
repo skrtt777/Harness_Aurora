@@ -52,6 +52,27 @@ function distToPath(x, z, pts, closed) {
   }
   return best;
 }
+/** The nearest point of a polyline to a point, and how far. */
+function nearestOnPath(x, z, pts, closed) {
+  let best = { d: Infinity, x, z }; const n = pts.length;
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n]; const dx = bx - ax, dz = bz - az; const L = dx * dx + dz * dz || 1e-9;
+    const t = clamp(((x - ax) * dx + (z - az) * dz) / L, 0, 1); const px = ax + t * dx, pz = az + t * dz; const d = Math.hypot(x - px, z - pz);
+    if (d < best.d) best = { d, x: px, z: pz };
+  }
+  return best;
+}
+export { distToPath };
+/**
+ * How much ground a thing covers: the radius of its footprint (from the model's measured sides, the
+ * variant used, or the widest of them), so nothing is put on a road, in the water or inside another thing.
+ */
+export function footprintOf(t, size, vi = null) {
+  let k = 0; const list = vi != null && t?.v?.[vi]?.d ? [t.v[vi]] : t?.v || [];
+  for (const v of list) if (v.d && Math.max(...v.d) > 0) k = Math.max(k, Math.hypot(v.d[0], v.d[2]) / (2 * Math.max(...v.d)));
+  if (!k) k = t?.zona === "lote" || t?.zona === "construcao" || t?.zona === "centro" ? 0.6 : 0.45;
+  return size * k * 0.85;
+}
 /** A rounded rectangle as a closed polyline (the loops vehicles drive). */
 function roundedRect(x0, z0, x1, z1, r, seg = 4) {
   const pts = []; r = Math.min(r, (x1 - x0) / 2, (z1 - z0) / 2);
@@ -67,7 +88,7 @@ function ellipseLoop(e, k = 0.6, n = 24) { const pts = []; for (let i = 0; i < n
  * Returns the layout scene3d draws: ground, patches, water, roads, fences, things (with behaviour and
  * path), decor (instanced grass, flowers...), and what was asked but is not in the catalog (`missing`).
  */
-export function compose(specIn, catalog, seed = "") {
+export function compose(specIn, catalog, seed = "", { clear = true } = {}) {
   const cat = catalog?.byId ? catalog : indexCatalog(catalog);
   const spec = specIn && typeof specIn === "object" ? specIn : {};
   const W = PLATE.width, D = PLATE.depth, cw = W / PLATE.cols, cd = D / PLATE.rows;
@@ -79,6 +100,8 @@ export function compose(specIn, catalog, seed = "") {
     && occupied.every((o) => Math.hypot(o.x - x, o.z - z) >= o.r + r + pad)
     && L.water.every((e) => !inEllipse(x, z, e, r)) && L.roads.every((rd) => distToPath(x, z, rd.points, rd.closed) >= rd.width / 2 + r);
   const pick = (t) => Math.floor(random() * Math.max(1, t.v.length));
+  // Detail (grass, flowers, pebbles) in two looks per kind: hundreds of them, few draws on a headset.
+  const pickDecor = (t) => Math.floor(random() * Math.max(1, Math.min(2, t.v.length)));
 
   // ---- 1. What is asked: zones with things (loose things go to the zone their type prefers) ----
   const item = (raw, zoneHint) => {
@@ -86,7 +109,7 @@ export function compose(specIn, catalog, seed = "") {
     const id = resolveType(cat, name) || resolveType(cat, raw?.nome || "");
     if (!id) { if (name) L.missing.push(String(name).slice(0, 40)); return null; }
     const t = cat.byId.get(id);
-    const qtd = clamp(Math.round(Number(typeof raw === "object" ? raw.qtd ?? raw.quantidade ?? raw.count ?? 1 : 1)) || 1, 1, 40);
+    const qtd = clamp(Math.round(Number(typeof raw === "object" ? raw.qtd ?? raw.quantidade ?? raw.count ?? 1 : 1)) || 1, 1, 24);
     const anda = typeof raw === "object" && raw.anda ? norm(raw.anda) : typeof raw === "object" && raw.comportamento ? norm(raw.comportamento) : null;
     return { t, qtd, anda, nome: typeof raw === "object" && raw.nome && norm(raw.nome) !== norm(t.nome) ? String(raw.nome).slice(0, 40) : "", zone: zoneHint };
   };
@@ -186,21 +209,21 @@ export function compose(specIn, catalog, seed = "") {
     if (opts.path != null) { thing.path = opts.path; thing.s = r3(opts.s || 0); }
     if (opts.area) thing.area = opts.area;
     L.things.push(thing);
-    if (!opts.y && t.onde !== "agua" && t.onde !== "ar") occupied.push({ x, z, r: footprint(t, size) });
+    if (!opts.y && t.onde !== "agua" && t.onde !== "ar") occupied.push({ x, z, r: footprint(t, size, thing.v) });
     return thing;
   };
-  const footprint = (t, size) => size * (t.zona === "lote" || t.zona === "construcao" || t.zona === "centro" ? 0.45 : t.cerca ? 0.2 : 0.38);
+  const footprint = (t, size, vi) => (t.cerca ? size * 0.2 : footprintOf(t, size, vi) * 0.85);
   const scatter = (it, area, opts = {}) => {
     for (let k = 0; k < it.qtd; k++) {
-      const r = footprint(it.t, it.t.tam);
+      const v = pick(it.t); const r = footprint(it.t, it.t.tam, v);
       let at = null;
       for (let a = 0; a < 60 && !at; a++) {
         const [x, z] = area.sample();
-        if (opts.water ? area.contains(x, z, r * 0.5) : free(x, z, r, opts.pad ?? 0.004)) at = [x, z];
+        if (opts.water ? area.contains(x, z, r * 0.5) : area.contains(x, z, r * 0.7) && free(x, z, r, opts.pad ?? 0.004)) at = [x, z];
       }
-      if (!at && !opts.water) for (let a = 0; a < 40 && !at; a++) { const [x, z] = area.sample(); if (free(x, z, r * 0.6)) at = [x, z]; }
+      if (!at && !opts.water) for (let a = 0; a < 40 && !at; a++) { const [x, z] = area.sample(); if (area.contains(x, z, r * 0.4) && free(x, z, r * 0.6)) at = [x, z]; }
       if (!at) continue;
-      put(it.t, at[0], at[1], opts.face ? opts.face(at[0], at[1]) : random() * Math.PI * 2, { anda: it.anda, nome: it.nome, zone: opts.zone, area: opts.area, path: opts.path, s: random() });
+      put(it.t, at[0], at[1], opts.face ? opts.face(at[0], at[1]) : random() * Math.PI * 2, { v, anda: it.anda, nome: it.nome, zone: opts.zone, area: opts.area, path: opts.path, s: random() });
     }
   };
   const rectArea = (R, inset = 0) => ({ sample: () => [R.x0 + inset + random() * (R.x1 - R.x0 - 2 * inset), R.z0 + inset + random() * (R.z1 - R.z0 - 2 * inset)], contains: (x, z, r = 0) => x - r >= R.x0 && x + r <= R.x1 && z - r >= R.z0 && z + r <= R.z1 });
@@ -271,7 +294,7 @@ export function compose(specIn, catalog, seed = "") {
         const ring = Math.round((e.rx + e.rz) * 60);
         for (let i = 0; i < ring; i++) {
           const a = (i / ring) * Math.PI * 2 + random() * 0.2; const k = 1.02 + random() * 0.08; const t = random() < 0.55 ? T("pedra") : T("capim");
-          if (t) L.decor.push({ type: t.id, v: pick(t), x: r3(e.x + Math.cos(a) * e.rx * k), z: r3(e.z + Math.sin(a) * e.rz * k), rot: r3(random() * 6.28), size: r3(t.tam * (0.4 + random() * 0.5)) });
+          if (t) L.decor.push({ type: t.id, v: pickDecor(t), x: r3(e.x + Math.cos(a) * e.rx * k), z: r3(e.z + Math.sin(a) * e.rz * k), rot: r3(random() * 6.28), size: r3(t.tam * (0.4 + random() * 0.5)) });
         }
         for (const it of shore) {
           if (it.t.id === "cais") { const a = Math.atan2(-e.z, -e.x); for (let k = 0; k < it.qtd; k++) { const aa = a + (k - (it.qtd - 1) / 2) * 0.6; put(it.t, e.x + Math.cos(aa) * e.rx * 0.88, e.z + Math.sin(aa) * e.rz * 0.88, Math.PI / 2 - aa, { zone: "lago", fixed: true }); } continue; }
@@ -284,18 +307,19 @@ export function compose(specIn, catalog, seed = "") {
         // Buildings along the edges of the block, facing the street; the inside: trees and yards.
         const builds = things.filter((it) => ["lote", "construcao", "centro"].includes(it.t.zona)); const rest = things.filter((it) => !builds.includes(it));
         const queue = builds.flatMap((it) => Array.from({ length: it.qtd }, () => it.t));
-        const edge = [];
+        const edge = []; const later = [];
         const step = (len, s) => { const n = Math.max(1, Math.floor(len / s)); return Array.from({ length: n }, (_, i) => (i + 0.5) / n); };
         for (const [side, a, b, fixed, rot] of [["s", R.x0, R.x1, R.z1, 0], ["n", R.x0, R.x1, R.z0, Math.PI], ["w", R.z0, R.z1, R.x0, -Math.PI / 2], ["e", R.z0, R.z1, R.x1, Math.PI / 2]]) {
           const t = queue[0]; if (!t) break; const s = t.tam * 0.75 + 0.008;
           for (const u of step(b - a, s)) edge.push({ side, at: a + (b - a) * u, fixed, rot });
         }
         for (const slot of edge) {
-          const t = queue.shift(); if (!t) break; const inset = t.tam * 0.36;
+          const t = queue.shift(); if (!t) break; const inset = t.tam * 0.36; const v = pick(t);
           const [x, zz] = slot.side === "s" ? [slot.at, slot.fixed - inset] : slot.side === "n" ? [slot.at, slot.fixed + inset] : slot.side === "w" ? [slot.fixed + inset, slot.at] : [slot.fixed - inset, slot.at];
-          if (free(x, zz, footprint(t, t.tam) * 0.8)) put(t, x, zz, slot.rot, { zone: "quadra" });
+          if (free(x, zz, footprint(t, t.tam, v) * 0.8)) put(t, x, zz, slot.rot, { zone: "quadra", v }); else later.push(t);
         }
-        for (const t of queue) scatter({ t, qtd: 1 }, area, { zone: "quadra" });
+        // What did not fit along the street goes inside the block.
+        for (const t of [...later, ...queue]) scatter({ t, qtd: 1 }, area, { zone: "quadra", face: faceOut(R) });
         for (const it of rest) scatter(it, area, { zone: "quadra" });
         break;
       }
@@ -335,7 +359,7 @@ export function compose(specIn, catalog, seed = "") {
         const e = { x: cx, z: cz, rx: (R.x1 - R.x0) / 2, rz: (R.z1 - R.z0) / 2 };
         const trees = things.length ? things : [{ t: T("arvore"), qtd: 6 }].filter((x) => x.t);
         for (const it of trees) scatter(it, ellArea(e, 0.95), { zone: "bosque", pad: -0.006 });
-        for (const id of ["arbusto", "samambaia", "cogumelo", "toco", "pedra"]) { const t = T(id); if (!t || ground === "neve" && id === "samambaia") continue; const n = Math.round((e.rx * e.rz) * (id === "arbusto" ? 260 : 90)); for (let k = 0; k < n; k++) { const [x, zz] = ellArea(e).sample(); if (free(x, zz, t.tam * 0.25)) L.decor.push({ type: id, v: pick(t), x: r3(x), z: r3(zz), rot: r3(random() * 6.28), size: r3(t.tam * (0.6 + random() * 0.6)) }); } }
+        for (const id of ["arbusto", "samambaia", "cogumelo", "toco", "pedra"]) { const t = T(id); if (!t || ground === "neve" && id === "samambaia") continue; const n = Math.round((e.rx * e.rz) * (id === "arbusto" ? 260 : 90)); for (let k = 0; k < n; k++) { const [x, zz] = ellArea(e).sample(); if (free(x, zz, t.tam * 0.25)) L.decor.push({ type: id, v: pickDecor(t), x: r3(x), z: r3(zz), rot: r3(random() * 6.28), size: r3(t.tam * (0.6 + random() * 0.6)) }); } }
         break;
       }
       case "livre": default: {
@@ -377,7 +401,10 @@ export function compose(specIn, catalog, seed = "") {
     const x = -W / 2 + (k + 0.5 + (random() - 0.5) * 0.4) * W / n; put(it.t, clamp(x, -W / 2 + 0.08, W / 2 - 0.08), -D / 2 + 0.055, random() * 6.28, { zone: "borda", fixed: true, scale: it.t.tam > 0.2 ? 0.7 : 1 });
   }
 
-  // ---- 6. Detail: the empty ground gets grass, flowers, pebbles (by ground type) ----
+  // ---- 6. Nothing passes through anything ----
+  if (clear) clearance(L, cat);
+
+  // ---- 7. Detail: the empty ground gets grass, flowers, pebbles (by ground type) ----
   const detail = clamp(Number(spec.detalhe ?? 0.7), 0, 1);
   const DECOR = { grama: [["capim", 1], ["flor", 0.2], ["pedrinha", 0.15], ["arbusto", 0.06]], terra: [["capim", 0.5], ["pedrinha", 0.4]], areia: [["pedrinha", 0.4], ["capim", 0.15]], neve: [["pedrinha", 0.3]], espaco: [], lava: [["pedra", 0.3]], madeira: [], asfalto: [], agua: [], pedra: [] }[ground] || [];
   const tries = Math.round(W * D * 1100 * detail);
@@ -387,8 +414,70 @@ export function compose(specIn, catalog, seed = "") {
     let u = random() * total; const [id] = DECOR.find(([, w]) => (u -= w) < 0) || DECOR[0]; const t = T(id); if (!t) continue;
     if (!free(x, zz, 0.004)) continue;
     if (L.patches.some((p) => p.rows && Math.abs(x - p.x) < p.w / 2 && Math.abs(zz - p.z) < p.d / 2)) continue;
-    L.decor.push({ type: id, v: pick(t), x: r3(x), z: r3(zz), rot: r3(random() * 6.28), size: r3(t.tam * (0.45 + random() * 0.55)) });
+    L.decor.push({ type: id, v: pickDecor(t), x: r3(x), z: r3(zz), rot: r3(random() * 6.28), size: r3(t.tam * (0.45 + random() * 0.55)) });
   }
+  return L;
+}
+
+/** What stays where it is put (buildings, trees, statues, things that only turn or bob in place). */
+const MOVES = new Set(["passear", "voar", "orbitar", "nadar", "rota", "rodar"]);
+export const standsStill = (th, t) => th.path == null && !th.y && t && t.onde !== "agua" && t.onde !== "ar" && !MOVES.has(th.behavior);
+const SOLID = 0.75;             // how much of a footprint must stay clear (the rest is a model's thin edges)
+/**
+ * The last pass of the composer, so vehicles and walkers never go through a statue or a wall:
+ * - what stands still is moved off the roads, rails and water (or left out when it does not fit),
+ *   and two that stand still never stand inside each other;
+ * - each walker (people, animals) gets how far it may wander (roam) before it would touch something
+ *   standing, a road or the water.
+ */
+export function clearance(L, cat) {
+  const W = L.width, D = L.depth; const T = (th) => cat.byId.get(th.type);
+  const roads = L.roads.filter((r) => r.kind !== "agua");
+  const kept = []; const out = [];
+  const violation = (x, z, r, t) => {
+    for (const rd of roads) { const n = nearestOnPath(x, z, rd.points, rd.closed); const gap = n.d - rd.width / 2 - r; if (gap < 0) return { dx: n.d > 1e-6 ? (x - n.x) / n.d : 0, dz: n.d > 1e-6 ? (z - n.z) / n.d : 1, by: -gap + 0.002 }; }
+    if (t.id !== "cais") for (const e of L.water) if (inEllipse(x, z, e, r * 0.8)) { const a = Math.atan2((z - e.z) / e.rz, (x - e.x) / e.rx); const bx = e.x + Math.cos(a) * (e.rx + r * 0.8 + 0.003), bz = e.z + Math.sin(a) * (e.rz + r * 0.8 + 0.003); return { dx: bx - x, dz: bz - z, by: 1 }; }
+    return null;
+  };
+  for (const th of L.things) {
+    const t = T(th);
+    if (!standsStill(th, t)) { out.push(th); continue; }
+    const r = footprintOf(t, th.size, th.v) * SOLID;
+    let x = th.x, z = th.z, ok = false;
+    for (let k = 0; k < 4; k++) {
+      const v = violation(x, z, r, t); if (!v) { ok = true; break; }
+      x += v.dx * v.by; z += v.dz * v.by;
+      x = clamp(x, -W / 2 + r * 0.5, W / 2 - r * 0.5); z = clamp(z, -D / 2 + r * 0.5, D / 2 - r * 0.5);
+    }
+    if (!ok) continue;
+    // Two standing things never inside each other (the crops of a field stand in rows on their own).
+    if (!th.crop && kept.some((o) => !o.th.crop && Math.hypot(o.x - x, o.z - z) < (o.r + r) * 0.55)) continue;
+    th.x = r3(x); th.z = r3(z); kept.push({ th, x, z, r }); out.push(th);
+  }
+  L.things = out;
+  // Walkers: away from what stands (a mountain put at the back after them, a lamp of the square) and
+  // then as far as they may go without touching it, a road or the water; one with no room is left out.
+  const lost = new Set();
+  for (const th of L.things) {
+    const t = T(th); if (th.behavior !== "passear" || th.path != null || th.y) continue;
+    const rw = footprintOf(t, th.size, th.v) * SOLID;
+    const nearest = () => {
+      let clear = 0.045 * 1.45, from = null;
+      for (const o of kept) { const g = Math.hypot(o.x - th.x, o.z - th.z) - o.r - rw; if (g < clear) { clear = g; from = o; } }
+      for (const rd of roads) { const n = nearestOnPath(th.x, th.z, rd.points, rd.closed); const g = n.d - rd.width / 2 - rw; if (g < clear) { clear = g; from = n; } }
+      for (const e of L.water) { const g = (Math.hypot((th.x - e.x) / e.rx, (th.z - e.z) / e.rz) - 1) * Math.min(e.rx, e.rz) - rw; if (g < clear) { clear = g; from = e; } }
+      return { clear, from };
+    };
+    let n = nearest();
+    const A = th.area || { x0: -W / 2, x1: W / 2, z0: -D / 2, z1: D / 2 };
+    for (let k = 0; k < 6 && n.clear < 0 && n.from; k++) {
+      const dx = th.x - n.from.x, dz = th.z - n.from.z, d = Math.hypot(dx, dz) || 1; const by = -n.clear + 0.003;
+      th.x = r3(clamp(th.x + (dx / d) * by, A.x0 + rw, A.x1 - rw)); th.z = r3(clamp(th.z + (dz / d) * by, A.z0 + rw, A.z1 - rw));
+      n = nearest();
+    }
+    if (n.clear < 0) lost.add(th); else th.roam = r3(n.clear / 1.45);
+  }
+  if (lost.size) L.things = L.things.filter((th) => !lost.has(th));
   return L;
 }
 

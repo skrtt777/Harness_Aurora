@@ -3,12 +3,19 @@
 // (pasture, ploughed rows, pavement), the water with its shore, roads with their lane marks, rails with
 // sleepers, fences, every thing (userData.dyn: its body for the life of the miniature, its path when
 // it drives or swims) and the instanced detail (grass, flowers, pebbles).
+// Light for a headset: what stands still is drawn in batches (one draw per model part for all its
+// copies; its own model shows only while it is held, pushed or flying home: xr/stage.js), crops and
+// furrows are instanced, and surfaces use a matte material that is cheap to shade.
 import * as THREE from "../vendor/three.module.js";
 import { pathLength } from "../lib/compose.js";
 import { label } from "./twin3d.js";
 
 const mats = new Map();
-const mat = (color, extra = {}) => { const k = color + JSON.stringify(extra); if (!mats.has(k)) mats.set(k, new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...extra })); return mats.get(k); };
+const mat = (color, extra = {}) => {
+  const k = color + JSON.stringify(extra);
+  if (!mats.has(k)) { const { roughness, metalness, ...lambert } = extra; mats.set(k, new THREE.MeshLambertMaterial({ color, ...lambert })); }
+  return mats.get(k);
+};
 const noRay = (o) => { o.raycast = () => {}; return o; };
 
 /** A flat ribbon along a polyline (roads, rails), at height y. */
@@ -30,13 +37,18 @@ function dashes(points, closed, y, color, dash = 0.012, gap = 0.01) {
   line.computeLineDistances(); return noRay(line);
 }
 
-export async function buildScene(L, assets, onProgress) {
+/**
+ * animBudget: how many people and animals move with their animations (spread over the kinds, so each
+ * kind has some walking); the others stand in their resting pose, drawn in batches. A headset gets
+ * fewer (xr/stage.js).
+ */
+export async function buildScene(L, assets, onProgress, { animBudget = 40 } = {}) {
   const root = new THREE.Group(); root.name = "scene";
   const W = L.width, D = L.depth;
   // The plate: the ground, a little thick, with the violet rim of the Aurora's miniatures.
   const extra = L.ground === "lava" ? { emissive: "#ff4500", emissiveIntensity: 0.18 } : L.ground === "agua" ? { roughness: 0.25, metalness: 0.1 } : {};
   const plate = new THREE.Mesh(new THREE.BoxGeometry(W, 0.014, D), mat(L.groundColor, extra));
-  plate.position.y = -0.007; plate.userData.grab = true; root.add(plate);
+  plate.position.y = -0.007; plate.userData.grab = true; root.add(plate); root.userData.plate = plate;
   const rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, 0.014, D)), new THREE.LineBasicMaterial({ color: "#b04bff" }));
   rim.position.y = -0.007; root.add(noRay(rim));
   if (L.ground === "espaco") {
@@ -48,7 +60,11 @@ export async function buildScene(L, assets, onProgress) {
   for (const p of L.patches) {
     const geo = p.shape === "ellipse" ? new THREE.CircleGeometry(0.5, 40).rotateX(-Math.PI / 2).scale(p.w, 1, p.d) : new THREE.PlaneGeometry(p.w, p.d).rotateX(-Math.PI / 2);
     const m = noRay(new THREE.Mesh(geo, mat(p.color))); m.position.set(p.x, 0.0006, p.z); root.add(m);
-    if (p.rows) for (let z = p.z - p.d / 2 + 0.008; z < p.z + p.d / 2; z += 0.015) { const r = noRay(new THREE.Mesh(new THREE.PlaneGeometry(p.w * 0.97, 0.006).rotateX(-Math.PI / 2), mat("#5c4128"))); r.position.set(p.x, 0.0009, z); root.add(r); }
+    if (p.rows) {
+      const zs = []; for (let z = p.z - p.d / 2 + 0.008; z < p.z + p.d / 2; z += 0.015) zs.push(z);
+      const rows = noRay(new THREE.InstancedMesh(new THREE.PlaneGeometry(p.w * 0.97, 0.006).rotateX(-Math.PI / 2), mat("#5c4128"), zs.length));
+      zs.forEach((z, i) => rows.setMatrixAt(i, new THREE.Matrix4().makeTranslation(p.x, 0.0009, z))); root.add(rows);
+    }
   }
   // Water: a sandy shore and the water a little below the plate's top, glossy.
   for (const e of L.water) {
@@ -81,16 +97,43 @@ export async function buildScene(L, assets, onProgress) {
   }
   // Things, fences and detail, from the library.
   await assets.preload(L, onProgress);
+  const batches = new Map();          // "type|variant|part" -> { geometry, material, slots: [{ matrix, obj }] }
+  const batch = (t, m, own) => {
+    m.updateMatrixWorld(true); let n = 0;
+    m.traverse((o) => {
+      if (!o.isMesh || o.isSkinnedMesh) return;
+      const key = `${t.type}|${t.v || 0}|${m.userData.posed ? "p" : ""}|${n++}`; if (!batches.has(key)) batches.set(key, { geometry: o.geometry, material: o.material, slots: [] });
+      batches.get(key).slots.push({ matrix: o.matrixWorld.clone(), obj: own ? m : null });
+    });
+  };
+  const crops = L.things.filter((t) => t.crop);
+  for (const t of crops) { const m = await assets.instance(t.type, t.v, t.size).catch(() => null); if (!m) continue; m.position.set(t.x, 0, t.z); m.rotation.y = t.rot || 0; batch(t, m, false); }
+  // Who moves with animations: round the kinds (a cow, a horse, a sheep, then a second cow...), the
+  // ones on a road or a swim loop first (they cross the scene), up to the budget.
+  const cat = await assets.load(); const lives = new Set();
+  const animal = L.things.filter((t) => !t.crop && cat.byId.get(t.type)?.v[t.v || 0]?.a);
+  const kinds = new Map(); for (const t of animal.sort((a, b) => (b.path != null) - (a.path != null))) { if (!kinds.has(t.type)) kinds.set(t.type, []); kinds.get(t.type).push(t); }
+  for (let round = 0; lives.size < animBudget && lives.size < animal.length; round++) for (const list of kinds.values()) if (list[round] && lives.size < animBudget) lives.add(list[round]);
   for (const t of L.things) {
-    const m = await assets.instance(t.type, t.v, t.size).catch(() => null); if (!m) continue;
+    if (t.crop) continue;
+    const resting = animal.includes(t) && !lives.has(t);
+    const m = await assets.instance(t.type, t.v, t.size, { still: resting }).catch(() => null); if (!m) continue;
+    const behavior = resting && t.path == null ? "parado" : t.behavior;
     m.position.set(t.x, t.y || 0, t.z); m.rotation.y = t.rot || 0;
     const info = { name: t.label, kind: t.type, scene: true };
     m.traverse((o) => { o.userData.entity = info; });
     const path = t.path != null ? L.roads[t.path] : null;
-    m.userData.dyn = { radius: Math.max(0.006, t.size * (t.crop ? 0.3 : 0.38)), height: m.userData.height || t.size, behavior: t.behavior, seed: L.things.indexOf(t) + 1, fixed: t.fixed, label: t.label,
-      path: path ? { pts: path.points, closed: path.closed, len: pathLength(path.points, path.closed), s: t.s || 0, speed: path.kind === "agua" ? 0.018 : path.kind === "trilho" ? 0.04 : 0.035 } : null, area: t.area || null };
-    if (t.crop) { m.userData.dyn.behavior = "parado"; }
+    m.userData.dyn = { radius: Math.max(0.006, t.size * (t.crop ? 0.3 : 0.38)), height: m.userData.height || t.size, behavior, seed: L.things.indexOf(t) + 1, fixed: t.fixed, label: t.label,
+      roam: t.roam ?? null, path: path ? { pts: path.points, closed: path.closed, len: pathLength(path.points, path.closed), s: t.s || 0, speed: path.kind === "agua" ? 0.018 : path.kind === "trilho" ? 0.04 : 0.035 } : null, area: t.area || null };
     root.add(m);
+    // Standing still and made of plain meshes: drawn with its batch until it is moved.
+    const still = !m.userData.anim && !m.userData.tick && (behavior === "parado" || !behavior) && t.path == null && !t.y;
+    if (still) { batch(t, m, true); m.userData.batched = []; m.children.forEach((c) => (c.visible = false)); }
+  }
+  for (const [, b] of batches) {
+    const im = noRay(new THREE.InstancedMesh(b.geometry, b.material, b.slots.length));
+    b.slots.forEach((sl, i) => { im.setMatrixAt(i, sl.matrix); if (sl.obj) sl.obj.userData.batched.push({ im, i, home: sl.matrix }); });
+    im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); root.add(im);
   }
   const fences = await assets.instanced(L.fences); root.add(fences);
   const decor = await assets.instanced(L.decor); root.add(decor);

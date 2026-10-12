@@ -69,3 +69,16 @@ export class SilenceGate {
     return (this.heard && this.silence > this.quiet) || this.age > this.limit || (!this.heard && this.age > 6);
   }
 }
+
+/**
+ * What is said aloud of a reply: its opening, without code, tables or markdown, up to two sentences
+ * (about 240 characters), so the voice is quick to make on the PC and short to hear.
+ */
+export function spokenPart(text, max = 240) {
+  let s = String(text || "").replace(/```[\s\S]*?(```|$)/g, " ").replace(/^\s*\|.*$/gm, " ").replace(/[*_#>`]+/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const sentences = s.match(/[^.!?]+[.!?]+/g) || [];
+  let out = ""; for (const x of sentences) { if ((out + x).length > max) break; out += x; }
+  if (!out) out = s.slice(0, max).replace(/\s+\S*$/, "") + "…";
+  return out.trim();
+}

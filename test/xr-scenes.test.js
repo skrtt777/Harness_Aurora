@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { compose, indexCatalog, resolveType, relevantTypes, PLATE } from '../app/xr/lib/compose.js';
-import { sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, isSceneRequest, sceneEdit, editScene, mentioned, ownWords, RECIPES } from '../app/xr/lib/scene.js';
+import { compose, indexCatalog, resolveType, relevantTypes, PLATE, footprintOf, distToPath, standsStill } from '../app/xr/lib/compose.js';
+import { sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, recipeFor, isSceneRequest, sceneEdit, editScene, mentioned, ownWords, RECIPES } from '../app/xr/lib/scene.js';
 import { makeBody, behave, stepBodies } from '../app/xr/lib/dynamics.js';
+import { spokenPart } from '../app/xr/lib/voice.js';
 import { TYPES } from '../scripts/xr-assets/library.mjs';
 
 const catalog = JSON.parse(readFileSync(new URL('../app/xr/assets/catalog.json', import.meta.url), 'utf8'));
@@ -96,12 +97,57 @@ test('XR scenes: the Aurora reply, checked against the request and enriched when
   assert.equal(thin.rest, 'Montei!');
   const m = mergeWithDraft(thin.spec, sceneFromPrompt('fazenda', resolve), resolve);
   assert.ok(m.used && m.spec.titulo === 'Fazenda Sol' && m.spec.zonas.length > 3);
+  // A reply cut in the middle of the JSON (the model's answer limit) still gives what she wrote.
+  const cut = parseSceneReply('Fazenda!\n```json\n{"titulo":"Fazenda Sol","chao":"grama","zonas":[{"tipo":"cercado","itens":[{"tipo":"vaca","qtd":8},{"tipo":"cavalo","qtd":3}]},{"tipo":"lavoura","itens":[{"tipo":"mil');
+  assert.deepEqual(cut.spec.zonas[0].itens.map((i) => i.tipo), ['vaca', 'cavalo']);
+  // What she uses must be about the request: the types she was told for it count as on topic.
+  const told = relevantTypes(cat, 'um castelo medieval').map((t) => t.id);
+  const castle = { titulo: 'Reino', zonas: [{ tipo: 'livre', itens: [{ tipo: 'castelo' }, { tipo: 'torre', qtd: 2 }, { tipo: 'cavaleiro', qtd: 3 }, { tipo: 'dragao' }] }] };
+  assert.equal(mergeWithDraft(castle, sceneFromPrompt('um castelo medieval', resolve), resolve, told).used, true);
+  assert.equal(mergeWithDraft(farm, sceneFromPrompt('uma cidade', resolve), resolve, relevantTypes(cat, 'uma cidade').map((t) => t.id)).used, false);
+  // The instruction carries a good scene of the theme as a reference, and asks for the JSON first.
+  assert.match(scenePrompt([], recipeFor('faz uma fazenda')), /Exemplo de uma boa maquete deste tema.*"titulo":"Fazenda"/);
+  assert.match(scenePrompt([]), /PRIMEIRO com um bloco/);
   // Asking and changing.
   assert.ok(isSceneRequest('Aurora, cria um cenário de praia')); assert.ok(!isSceneRequest('monta o power bi da operação'));
   assert.deepEqual(sceneEdit('adiciona 3 cavalos', resolve), { op: 'add', things: [['cavalo', 3]] });
   const less = editScene({ zonas: [{ tipo: 'livre', itens: [{ tipo: 'carro', qtd: 3 }, { tipo: 'vaca' }] }] }, sceneEdit('tira os carros', resolve), resolve);
   assert.deepEqual(less.zonas[0].itens, [{ tipo: 'vaca' }]);
   assert.equal(ownWords(`faz uma praia${scenePrompt([])}`), 'faz uma praia');
+});
+
+test('XR composer: nothing passes through anything (roads, rails, water, statues, walkers)', () => {
+  // Every recipe, several seeds, and scenes as the Aurora really wrote them (crowded, a lake asked loose).
+  const specs = RECIPES.map((r) => sceneFromPrompt(r.words.split(' ')[0], resolve));
+  specs.push({ titulo: 'Cidade', chao: 'asfalto', estrada: 'grade', zonas: [{ tipo: 'quadra', onde: 'centro', tam: 'g', itens: [{ tipo: 'casa', qtd: 20 }, { tipo: 'predio', qtd: 15 }] }], itens: [{ tipo: 'carro', qtd: 45 }, { tipo: 'arvore', qtd: 60 }, { tipo: 'praca_fonte' }, { tipo: 'banco', qtd: 25 }, { tipo: 'pessoa', qtd: 80 }] });
+  specs.push({ titulo: 'Fazenda', chao: 'grama', zonas: [{ tipo: 'cercado', onde: 'esquerda', tam: 'g', itens: [{ tipo: 'arvore', qtd: 10 }, { tipo: 'vaca', qtd: 8 }] }, { tipo: 'praca', onde: 'direita', itens: [{ tipo: 'banco', qtd: 6 }] }], itens: [{ tipo: 'lago' }, { tipo: 'pato', qtd: 5 }, { tipo: 'trator' }, { tipo: 'trem' }, { tipo: 'vagao', qtd: 3 }, { tipo: 'montanha', qtd: 3 }] });
+  for (const spec of specs) for (const seed of ['a', 'b', 'c']) {
+    const L = compose(spec, cat, seed); const T = (th) => cat.byId.get(th.type);
+    const roads = L.roads.filter((r) => r.kind !== 'agua');
+    const still = L.things.filter((th) => standsStill(th, T(th))).map((th) => ({ th, r: footprintOf(T(th), th.size, th.v) * 0.75 }));
+    for (const { th, r } of still) {
+      for (const rd of roads) assert.ok(distToPath(th.x, th.z, rd.points, rd.closed) >= rd.width / 2 + r - 0.003, `${spec.titulo}/${seed}: ${th.type} na ${rd.kind}`);
+      if (th.type !== 'cais') for (const e of L.water) assert.ok(((th.x - e.x) / (e.rx + r * 0.8)) ** 2 + ((th.z - e.z) / (e.rz + r * 0.8)) ** 2 >= 0.98, `${spec.titulo}/${seed}: ${th.type} na água`);
+    }
+    for (let i = 0; i < still.length; i++) for (let j = i + 1; j < still.length; j++) {
+      const a = still[i], b = still[j]; if (a.th.crop || b.th.crop) continue;
+      assert.ok(Math.hypot(a.th.x - b.th.x, a.th.z - b.th.z) >= (a.r + b.r) * 0.55 - 1e-3, `${spec.titulo}/${seed}: ${a.th.type} dentro de ${b.th.type}`);
+    }
+    // A walker never reaches what stands: wandering its roam, it keeps clear.
+    for (const w of L.things.filter((th) => th.behavior === 'passear' && th.path == null && !th.y)) {
+      const rw = footprintOf(T(w), w.size, w.v) * 0.75; const reach = (w.roam ?? 0.045) * 1.42;
+      for (const { th, r } of still) assert.ok(Math.hypot(w.x - th.x, w.z - th.z) - r - rw - reach >= -0.003, `${spec.titulo}/${seed}: ${w.type} anda até ${th.type}`);
+    }
+    // Counts stay reasonable for a headset.
+    assert.ok(L.things.filter((th) => !th.crop).length <= 260, `${spec.titulo}: ${L.things.length}`);
+  }
+});
+
+test('XR voice: one short opening is spoken, never code or a whole description', () => {
+  assert.equal(spokenPart('Montei a fazenda! ```cena\n{"a":1}\n``` Tem vacas.'), 'Montei a fazenda! Tem vacas.');
+  const long = 'Uma fazenda idílica com pastos. '.repeat(20);
+  assert.ok(spokenPart(long).length <= 240 && spokenPart(long).endsWith('.'));
+  assert.equal(spokenPart('**Pronto**: veja o [painel](x).'), 'Pronto: veja o painel.');
 });
 
 test('XR dynamics: vehicles follow their road, animals stay in their pasture', () => {

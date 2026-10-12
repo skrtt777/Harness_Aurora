@@ -64,8 +64,8 @@ Os cenários são para imaginar e brincar e existem **só no Aurora XR**. O Powe
 
 ### A biblioteca de objetos (explicada para a Aurora)
 
-`scripts/xr-assets/library.mjs` lista **206 tipos** de coisa e cerca de **500 modelos 3D** (variantes), todos em domínio público (CC0):
-- **Kenney:** cidade, subúrbio, ruas, indústria, carros, natureza, castelo, vila medieval, piratas, barcos, trens, espaço, Natal, cemitério, móveis e outros pacotes.
+`scripts/xr-assets/library.mjs` lista **232 tipos** de coisa e cerca de **560 modelos 3D** (variantes), todos em domínio público (CC0):
+- **Kenney:** cidade, subúrbio, ruas, indústria, carros, natureza, castelo (muralhas, portões, torres de cerco), vila medieval (lampiões, cerca viva), sobrevivência (bancada, lenha, ferramentas), mercado, arena (colunas, soldado animado), estação espacial, comida, piratas, barcos, trens, espaço, Natal, cemitério, móveis e outros pacotes.
 - **Quaternius:** animais **animados** (vaca, cavalo, ovelha, lobo, cervo, zebra…), dinossauros, peixes, tubarão, baleia e pessoas animadas.
 
 Cada tipo diz à Aurora:
@@ -84,13 +84,28 @@ O resultado vai para `app/xr/assets/catalog.json` + `app/xr/assets/m/*.glb` (cer
 
 ### Como a Aurora monta
 
-1. **Pedido:** na aba **Cenários**, ou falando ("Aurora, faz uma fazenda com 8 vacas"), sai na hora um **rascunho**: a receita do tema mais as coisas contadas. São 18 receitas ricas: fazenda, cidade, praia, sistema solar, base em Marte, dinossauros, floresta, zoológico, porto, inverno, acampamento, reino medieval, parque, fundo do mar, ilha pirata, cemitério, ferrovia e jardim japonês.
-2. **A Aurora do PC** recebe, na mesma conversa, o pedido, o formato e **só os tipos da biblioteca que importam para ele, cada um com a sua descrição** (`relevantTypes`). Ela responde com zonas e coisas num bloco ` ```cena `.
-3. **A resposta é conferida** (`mergeWithDraft`). Uma resposta que copia o exemplo ou foge do assunto fica com o rascunho, e uma maquete magra recebe as zonas do rascunho que faltaram.
+1. **Pedido:** na aba **Cenários**, ou falando ("Aurora, faz uma fazenda com 8 vacas"), sai na hora um **rascunho**: a receita do tema mais as coisas contadas. São 20 receitas ricas: fazenda, cidade, praia, sistema solar, base em Marte, dinossauros, floresta, zoológico, porto, inverno, acampamento, reino medieval, parque, fundo do mar, ilha pirata, cemitério, ferrovia, ruínas antigas, fortaleza e jardim japonês.
+2. **A Aurora do PC** recebe, na mesma conversa (`scenePrompt`):
+   - o pedido e o formato;
+   - **as regras de um bom maquetista** (4 a 7 zonas com assunto, quantidades de 1 a 12, animais no cercado, mata ou lago, veículos e céu só em "itens");
+   - **uma boa maquete do mesmo tema como exemplo** (a receita, em JSON compacto);
+   - **só os tipos da biblioteca que importam para o pedido, cada um com a sua descrição** (`relevantTypes`).
+
+   Ela responde **primeiro** com o bloco ` ```cena ` numa linha e depois uma frase curta: um modelo pequeno tem limite de resposta, e um JSON comprido era cortado. Um JSON cortado no meio ainda é aproveitado até o último item completo (`closeCut`).
+3. **A resposta é conferida** (`mergeWithDraft`). Pelo menos 70% do que ela usou tem de ser do assunto (os tipos que ela recebeu para esse pedido, ou os do rascunho). Uma resposta que copia outro tema ou foge do assunto fica com o rascunho, e uma maquete magra recebe as zonas do rascunho que faltaram.
 4. **O compositor** (`app/xr/lib/compose.js`) arruma tudo numa base de 90 × 60 cm, como um maquetista:
    - **Grade e zonas:** uma grade de 4 × 3 recebe as zonas: pasto com cerca e porteira; lavoura em fileiras; mata densa com vegetação rasteira; lago com margem de pedras e plantas, barcos e peixes nadando em voltas; quadras com os prédios virados para a rua; praça com fonte, bancos e postes em roda; feira, acampamento, cemitério e porto.
    - **Ruas, trilhos e céu:** ruas, estradas de terra e trilhos, com os veículos andando nelas; montanhas ao fundo; nuvens, pássaros e planetas no céu.
+   - **Nada atravessa nada** (`clearance`): pelo tamanho medido de cada modelo, o que fica parado sai de cima das ruas, dos trilhos e da água (ou fica de fora quando não cabe), e duas coisas paradas nunca ficam uma dentro da outra. Cada pessoa ou animal que passeia recebe até onde pode andar sem encostar numa estátua, parede, rua ou água. O teste confere isso em todas as receitas e em respostas reais da Aurora.
    - **Detalhe:** por fim, capim, flores e pedrinhas no chão vazio.
+
+### Leve no óculos
+
+- **Desenho em lote:** o que fica parado é desenhado em lote, uma vez por peça de modelo para todas as cópias. O modelo próprio só aparece enquanto está na mão, empurrado ou voltando. Plantações e sulcos também saem em lote.
+- **Animações:** no óculos, até 12 pessoas e animais se mexem com animação, revezando as espécies. Os outros ficam numa pose de descanso, que é calculada uma vez e desenhada em lote. As animações se revezam entre os quadros.
+- **Materiais e tela:** materiais foscos (Lambert), mais baratos que os físicos, e foveação ligada.
+- **Apontar:** o raio da mão testa a base e uma esfera por coisa, não as centenas de malhas a cada quadro.
+- **Voz:** uma de cada vez. Uma resposta nova cala a anterior, e uma voz que chega atrasada é descartada. Só a abertura da resposta é falada (até cerca de 240 caracteres).
 
 Com o cenário na tela, "adiciona 3 cavalos" e "tira os carros" mudam a maquete na hora. Os cenários ficam salvos no aparelho (até 12).
 

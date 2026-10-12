@@ -28,6 +28,7 @@ const ANCHOR_KEY = "aurora-xr-anchor";
 const v3 = (v) => [v.x, v.y, v.z];
 const INSPECT = 0.14;          // metres: the largest side of a thing held to be seen up close
 const NEAR = 0.035;            // metres from a thing's edge where a pinch or a grip takes it directly
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 export class Stage {
   constructor({ canvas, profile, storage, onPick, onPanelAction, onTracking, onModeChange }) {
@@ -37,6 +38,8 @@ export class Stage {
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.xr.enabled = true;
+    // A headset draws the edges of the view at lower resolution, where the eye does not look.
+    this.renderer.xr.setFoveation?.(1);
     this.assets = new Assets();
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 60);
@@ -129,8 +132,9 @@ export class Stage {
    */
   async setScene(layout, onProgress) {
     const ticket = (this.sceneTicket = (this.sceneTicket || 0) + 1);
-    const group = await buildScene(layout, this.assets, onProgress);
+    const group = await buildScene(layout, this.assets, onProgress, { animBudget: this.profile.kind === "headset" ? 12 : 30 });
     if (ticket !== this.sceneTicket) { dispose(group); return false; }
+    this.loose = layout.things.filter((t) => !t.crop).length;      // things with a body (crops are drawn in rows)
     this.setContent(group, { width: layout.width, depth: layout.depth }); return true;
   }
   setContent(group, dims) {
@@ -144,10 +148,13 @@ export class Stage {
     const bounds = { w: dims.width || 0.5, d: dims.depth || 0.5 };
     this.bodies = group.children.filter((o) => o.userData.dyn).map((obj) => {
       const d = obj.userData.dyn;
-      const body = makeBody({ x: obj.position.x, y: obj.position.y, z: obj.position.z, rot: obj.rotation.y, radius: d.radius, height: d.height, behavior: d.behavior, seed: d.seed, fixed: d.fixed, bounds, path: d.path, area: d.area });
+      const body = makeBody({ x: obj.position.x, y: obj.position.y, z: obj.position.z, rot: obj.rotation.y, radius: d.radius, height: d.height, behavior: d.behavior, seed: d.seed, fixed: d.fixed, bounds, path: d.path, area: d.area, roam: d.roam });
       body.obj = obj; body.s0 = obj.scale.x; obj.userData.body = body;
       return body;
     });
+    // Drawn in a batch while still (xr/scene3d.js); the living ones' animations are spread over frames.
+    this.batched = this.bodies.filter((b) => b.obj.userData.batched?.length);
+    this.animated = this.bodies.filter((b) => b.obj.userData.anim).length;
     if (this.mode === "3d") this.frameTwin();
   }
   setPanel(state) { this.panelState = state; if (this.panel.object.visible) this.panel.draw(state); }
@@ -354,6 +361,7 @@ export class Stage {
     for (const h of this.holds.values()) { const p = local(h.obj.position); pushers.push({ x: p.x, y: p.y, z: p.z, r: h.body.radius * (h.obj.scale.x / (h.body.s0 * W)) }); }
     if (this.mouse?.moved) { const o = this.mouse.obj.position; pushers.push({ x: o.x, y: o.y, z: o.z, r: this.mouse.body.radius }); }
     stepBodies(this.bodies, { t, dt, pushers });
+    this.frameNo = (this.frameNo || 0) + 1; const every = this.animated > 16 ? 3 : 2;
     for (const b of this.bodies) {
       if (!b.held) { b.obj.position.set(b.pose.x, b.pose.y, b.pose.z); b.obj.rotation.y = b.pose.rot; }
       b.obj.userData.tick?.(t);
@@ -364,8 +372,20 @@ export class Stage {
         b.speed = (b.speed || 0) * 0.85 + v * 0.15;
         const swims = b.path && b.path.speed < 0.02;              // a swim loop (lib/compose.js lakes)
         play(b.obj, b.held ? "idle" : b.speed > 0.03 ? "run" : b.speed > 0.002 ? (swims ? "swim" : "walk") : b.seed % 3 === 0 ? "eat" : "idle");
-        A.mixer.update(dt);
+        // Each animal or person every second (or third, in a crowd) frame, with the time it missed.
+        A.wait = (A.wait || 0) + dt;
+        if (b.held || (this.frameNo + b.seed) % every === 0) { A.mixer.update(A.wait); A.wait = 0; }
       }
+    }
+    this.syncBatches();
+  }
+  /** A still thing that is held, pushed or flying home shows its own model; at home, its batch draws it. */
+  syncBatches() {
+    for (const b of this.batched) {
+      const loose = b.held || Math.abs(b.ox) > 2e-4 || Math.abs(b.oz) > 2e-4 || b.hop >= 0;
+      if (loose === !!b.loose) continue;
+      b.loose = loose; b.obj.children.forEach((c) => (c.visible = loose));
+      for (const sl of b.obj.userData.batched) { sl.im.setMatrixAt(sl.i, loose ? HIDDEN : sl.home); sl.im.instanceMatrix.needsUpdate = true; }
     }
   }
   showHover(obj) {
@@ -408,8 +428,26 @@ export class Stage {
 
   hits(origin, dir) {
     this.raycaster.set(origin, dir); this.raycaster.far = 5; this.raycaster.camera = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
-    const targets = [this.panel.object.visible ? this.panel.mesh : null, this.panel.object.visible ? this.panel.bar : null, this.twin && this.twinVisible ? this.twin : null].filter(Boolean);
-    return this.raycaster.intersectObjects(targets, true);
+    const shown = this.twin && this.twinVisible; const plate = shown && this.twin.userData.plate;
+    const targets = [this.panel.object.visible ? this.panel.mesh : null, this.panel.object.visible ? this.panel.bar : null, shown && !plate ? this.twin : null].filter(Boolean);
+    const out = this.raycaster.intersectObjects(targets, true);
+    // A composed scene: its plate and the things' bodies (a ray against hundreds of meshes, animated
+    // ones skinned on the CPU to be tested, costs a headset its frame rate).
+    if (plate) { out.push(...this.raycaster.intersectObject(plate, false)); const t = this.rayThing(origin, dir); if (t) out.push(t); out.sort((a, b) => a.distance - b.distance); }
+    return out;
+  }
+  /** The nearest thing a ray passes through (each thing a sphere around its body). */
+  rayThing(origin, dir) {
+    const W = this.twin.getWorldScale(new THREE.Vector3()).x; let best = null; const c = new THREE.Vector3();
+    for (const b of this.bodies) {
+      if (b.held || b.fixed) continue;
+      this.twin.localToWorld(c.set(b.pose.x, b.pose.y + b.height / 2, b.pose.z)).sub(origin);
+      const r = Math.max(b.radius, b.height / 2) * W; const along = c.dot(dir); if (along < 0) continue;
+      const off = c.lengthSq() - along * along; if (off > r * r) continue;
+      const d = along - Math.sqrt(r * r - off);
+      if (!best || d < best.distance) best = { object: b.obj, distance: d, point: origin.clone().addScaledVector(dir, d) };
+    }
+    return best;
   }
   rayOf(input) {
     const m = input.ctrl.matrixWorld;

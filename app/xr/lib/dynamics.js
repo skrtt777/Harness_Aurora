@@ -7,8 +7,9 @@ export const RING = { ax: 0.24, az: 0.165 };     // the ring road of "rodar" (an
 const SPEED = 0.035;                              // m/s, walking and driving in the miniature
 
 // path: { pts, closed, len, s, speed } (roads, rails, swim loops: lib/compose.js); area: { x0, x1, z0, z1 } (a pasture).
-export function makeBody({ x = 0, y = 0, z = 0, rot = 0, radius = 0.015, height = 0.03, behavior = "parado", seed = 1, bounds = null, fixed = false, path = null, area = null }) {
-  return { home: { x, y, z, rot }, radius, height, behavior, seed, bounds, fixed, path, area, ox: 0, oz: 0, vx: 0, vz: 0, held: false, hop: -1, pose: { x, y, z, rot } };
+// roam: how far a walker may go from home without touching what stands around it (lib/compose.js clearance).
+export function makeBody({ x = 0, y = 0, z = 0, rot = 0, radius = 0.015, height = 0.03, behavior = "parado", seed = 1, bounds = null, fixed = false, path = null, area = null, roam = null }) {
+  return { home: { x, y, z, rot }, radius, height, behavior, seed, bounds, fixed, path, area, roam, ox: 0, oz: 0, vx: 0, vz: 0, held: false, hop: -1, pose: { x, y, z, rot } };
 }
 
 export function pathLength(pts, closed) { let s = 0; for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += Math.hypot(b[0] - a[0], b[1] - a[1]); } return s; }
@@ -37,7 +38,7 @@ export function behave(b, t) {
   }
   switch (b.behavior) {
     case "passear": case "nadar": {
-      const R = b.behavior === "nadar" ? 0.03 : 0.045; const slow = b.behavior === "nadar" ? 0.7 : 1;
+      const R = Math.min(b.behavior === "nadar" ? 0.03 : 0.045, b.roam ?? Infinity); const slow = b.behavior === "nadar" ? 0.7 : 1;
       // Inside its pasture, when it has one (the fence holds it).
       const A = b.area; const lim = (v, lo, hi) => (A ? Math.max(lo + b.radius, Math.min(hi - b.radius, v)) : v);
       const at = (tt) => ({ x: lim(h.x + R * wave(tt * slow, s, 0), A?.x0, A?.x1), z: lim(h.z + R * wave(tt * slow, s, 1), A?.z0, A?.z1) });

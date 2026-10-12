@@ -13,7 +13,7 @@ const PROC_COLOR = { aviao: "#e9ecef", helicoptero: "#e8590c", balao: "#f03e3e",
 
 export class Assets {
   constructor(base = "assets/") {
-    this.base = base; this.files = new Map(); this.catalog = null;
+    this.base = base; this.files = new Map(); this.poses = new Map(); this.catalog = null;
     this.loader = new GLTFLoader(); this.loader.setMeshoptDecoder(MeshoptDecoder);
   }
   /** The catalog, indexed (lib/compose.js indexCatalog); loaded once. */
@@ -22,7 +22,7 @@ export class Assets {
     return this.catalog;
   }
   file(f) {
-    if (!this.files.has(f)) this.files.set(f, this.loader.loadAsync(this.base + f).catch((e) => { this.files.delete(f); throw e; }));
+    if (!this.files.has(f)) this.files.set(f, this.loader.loadAsync(this.base + f).then(matte).catch((e) => { this.files.delete(f); throw e; }));
     return this.files.get(f);
   }
   /** Every file a layout needs, loaded in parallel; onProgress(done, total). */
@@ -32,8 +32,38 @@ export class Assets {
     let done = 0; const all = [...want];
     await Promise.all(all.map((f) => this.file(f).catch(() => null).then(() => onProgress?.(++done, all.length))));
   }
-  /** An instance of a type's variant at a size (metres, largest side). */
-  async instance(typeId, vi = 0, size = 0.05) {
+  /**
+   * An animated model frozen in its resting pose as plain meshes (the skinning done once, here): a
+   * crowd's extra animals and people cost what a statue costs, and are drawn in batches. Cached per file.
+   */
+  posed(f) {
+    if (!this.poses.has(f)) this.poses.set(f, this.file(f).then((gltf) => {
+      const probe = cloneSkinned(gltf.scene);
+      const clip = gltf.animations.find((a) => /idle/i.test(a.name)) || gltf.animations[0];
+      if (clip) { const mixer = new THREE.AnimationMixer(probe); mixer.clipAction(clip).play(); mixer.update(0.05); }
+      probe.updateMatrixWorld(true);
+      const out = new THREE.Group(); const v = new THREE.Vector3();
+      probe.traverse((o) => {
+        if (!o.isMesh) return;
+        const g = o.geometry.clone();
+        if (o.isSkinnedMesh) {
+          o.skeleton.update(); const pos = g.attributes.position;
+          for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); o.applyBoneTransform(i, v); pos.setXYZ(i, v.x, v.y, v.z); }
+          g.deleteAttribute("skinIndex"); g.deleteAttribute("skinWeight");
+        }
+        g.applyMatrix4(o.matrixWorld); g.computeVertexNormals(); g.computeBoundingBox(); g.computeBoundingSphere();
+        out.add(new THREE.Mesh(g, o.material));
+      });
+      const box = new THREE.Box3().setFromObject(out); const size = box.getSize(new THREE.Vector3()); const mid = box.getCenter(new THREE.Vector3());
+      return { group: out, d: size.toArray(), c: [mid.x, box.min.y, mid.z] };
+    }));
+    return this.poses.get(f);
+  }
+  /**
+   * An instance of a type's variant at a size (metres, largest side). still: an animated one frozen
+   * in its resting pose (posed), without its animations.
+   */
+  async instance(typeId, vi = 0, size = 0.05, { still = false } = {}) {
     const cat = await this.load(); const t = cat.byId.get(typeId);
     const v = t?.v[Math.min(vi || 0, (t?.v.length || 1) - 1)];
     const wrap = new THREE.Group(); wrap.name = typeId;
@@ -43,6 +73,12 @@ export class Assets {
       return wrap;
     }
     const gltf = await this.file(v.f);
+    if (still && gltf.animations.length) {
+      const P = await this.posed(v.f); const inner = P.group.clone();
+      inner.position.set(-P.c[0], -P.c[1], -P.c[2]); wrap.add(inner);
+      const k = size / Math.max(...P.d, 1e-6); wrap.scale.setScalar(k); wrap.userData.height = P.d[1] * k; wrap.userData.posed = true;
+      return wrap;
+    }
     const animated = gltf.animations.length > 0;
     const inner = animated ? cloneSkinned(gltf.scene) : gltf.scene.clone(true);
     inner.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = !o.isSkinnedMesh; } });
@@ -94,6 +130,21 @@ export class Assets {
     }
     return group;
   }
+}
+
+/**
+ * The models' materials made matte (Lambert: the same colours and textures, far cheaper to shade on a
+ * headset than physically based ones; the miniature's look is flat colour anyway). Once per file.
+ */
+function matte(gltf) {
+  const done = new Map();
+  const swap = (m) => {
+    if (!m || m.isMeshLambertMaterial || m.isMeshBasicMaterial) return m;
+    if (!done.has(m)) done.set(m, Object.assign(new THREE.MeshLambertMaterial({ color: m.color, map: m.map, emissive: m.emissive, emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity ?? 1, vertexColors: m.vertexColors, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, side: m.side }), { name: m.name }));
+    return done.get(m);
+  };
+  gltf.scene.traverse((o) => { if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material); });
+  return gltf;
 }
 
 /** Plays a role's animation (fading from the one before); falls back to idle, then to whatever exists. */

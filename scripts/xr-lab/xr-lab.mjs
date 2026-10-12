@@ -124,8 +124,10 @@ await run("pc", { viewport: { width: 1440, height: 900 } }, async (page, r) => {
   await page.fill('form[data-act="scene"] textarea', "faz uma fazenda com vacas e um trator"); await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.auroraXR.S.view === "cenario" && !window.auroraXR.S.sceneBusy, null, { timeout: 15000 });
   await page.waitForFunction(() => window.auroraXR.S.scene && !window.auroraXR.S.scene.loading && window.auroraXR.stage.bodies.length > 20, null, { timeout: 60000 });
-  r.checks.scene = await page.evaluate(() => { const { S, stage } = window.auroraXR; const anim = stage.bodies.filter((b) => b.obj.userData.anim).length; return { title: S.scene.title, things: S.scene.count, bodies: stage.bodies.length, animated: anim, missing: S.scene.missing, saved: S.scenes.length }; });
-  if (r.checks.scene.title !== "Fazenda da Aurora" || r.checks.scene.bodies < r.checks.scene.things * 0.95 || r.checks.scene.animated < 5) r.failed = "o cenário da Aurora não apareceu inteiro";
+  r.checks.scene = await page.evaluate(() => { const { S, stage } = window.auroraXR; const anim = stage.bodies.filter((b) => b.obj.userData.anim).length; stage.renderer.render(stage.scene, stage.camera); const calls = stage.renderer.info.render.calls; const kinds = {}; stage.twin.traverseVisible((o) => { if (!o.isMesh && !o.isLine && !o.isPoints) return; const k = o.isInstancedMesh ? `lote:${o.parent?.name === "decor" ? "detalhe" : o.count}` : o.isSkinnedMesh ? "animado" : o.isMesh ? `malha:${o.parent?.parent?.name || o.parent?.name || ""}` : "linha"; kinds[k] = (kinds[k] || 0) + 1; }); return { kinds, title: S.scene.title, things: S.scene.count, loose: stage.loose, bodies: stage.bodies.length, animated: anim, batched: stage.batched.length, drawCalls: calls, missing: S.scene.missing, saved: S.scenes.length }; });
+  if (r.checks.scene.title !== "Fazenda da Aurora" || r.checks.scene.bodies < r.checks.scene.loose * 0.95 || r.checks.scene.animated < 5) r.failed = "o cenário da Aurora não apareceu inteiro";
+  // Light enough for a headset: what stands still is drawn in batches.
+  else if (r.checks.scene.drawCalls > 260) r.failed = `cenário pesado demais: ${r.checks.scene.drawCalls} desenhos por quadro`;
   await page.waitForTimeout(1500);
   await page.screenshot({ path: join(out, "pc-cenario.png") });
   // Drag a cow with the mouse; let go: it goes back to where it walks.
@@ -270,6 +272,24 @@ if (iwer) {
       const f = (v) => v.toArray().map((x) => +x.toFixed(2)); return { head: f(h), twin: f(stage.holder.position), panel: f(stage.panel.object.position), ref: stage.renderer.xr.getReferenceSpace()?.constructor?.name, twinVisible: stage.twin?.visible, room: stage.room.visible }; });
     if (process.env.XR_LAB_DEBUG) for (const [i, name] of [[0, "chao"], [2, "mesa"], [1, "grade"]]) { await page.evaluate((i) => { window.auroraXR.stage.room.children[i].visible = false; }, i); await page.waitForTimeout(300); await page.screenshot({ path: join(out, `vr-sem-${name}.png`) }); }
     if (!(r.checks.movedX > 0.15 && r.checks.movedX < 0.25)) r.failed = `a maquete não acompanhou o controle (${r.checks.movedX} m)`;
+    // A rich scene in the headset: few animated (the rest resting, in batches), few draws, the ray
+    // finds things by their bodies, and frames stay short.
+    await page.evaluate(() => window.auroraXR.makeScene("faz uma fazenda"));
+    await page.waitForFunction(() => { const { S, stage } = window.auroraXR; return S.view === "cenario" && !S.sceneBusy && S.scene && !S.scene.loading && stage.bodies.length > 20; }, null, { timeout: 60000 });
+    await page.waitForTimeout(1500);
+    r.checks.headsetScene = await page.evaluate(async () => {
+      const { stage } = window.auroraXR; const info = stage.renderer.info; info.autoReset = false; info.reset();
+      const t0 = performance.now(); let frames = 0; await new Promise((ok) => { const tick = () => { frames++; if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else ok(); }; requestAnimationFrame(tick); });
+      const calls = Math.round(info.render.calls / Math.max(1, frames)); info.autoReset = true;
+      const animated = stage.bodies.filter((b) => b.obj.userData.anim).length;
+      const b = stage.bodies.find((x) => !x.fixed && !x.held); const V = stage.holder.position.constructor;
+      const at = stage.twin.localToWorld(new V(b.pose.x, b.pose.y + b.height / 2, b.pose.z)); const from = new V(at.x, at.y + 0.4, at.z + 0.3);
+      const hit = stage.hits(from, at.clone().sub(from).normalize())[0];
+      return { things: stage.loose, bodies: stage.bodies.length, animated, batched: stage.batched.length, drawsPerFrame: calls, rayFinds: hit?.object === b.obj };
+    });
+    const hs = r.checks.headsetScene;
+    if (hs.animated > 12) r.failed = `animados demais no óculos (${hs.animated})`;
+    else if (!hs.rayFinds) r.failed = "o raio não encontrou a coisa apontada no cenário";
   });
 }
 await browser.close();

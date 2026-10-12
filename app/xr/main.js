@@ -5,8 +5,8 @@
 import { createBridgeClient, createTwinClient, createChat } from "./lib/api.js";
 import { twinLayout } from "./lib/twinLayout.js";
 import { deviceProfile, sessionInit, MODE_LABEL } from "./lib/device.js";
-import { voiceCommand, VOICE_HELP, downsample, encodeWav, toBase64, SilenceGate } from "./lib/voice.js";
-import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, ownWords } from "./lib/scene.js";
+import { voiceCommand, VOICE_HELP, downsample, encodeWav, toBase64, SilenceGate, spokenPart } from "./lib/voice.js";
+import { isSceneRequest, sceneEdit, editScene, sceneFromPrompt, parseSceneReply, scenePrompt, mergeWithDraft, ownWords, recipeFor } from "./lib/scene.js";
 import { compose, relevantTypes, resolveType } from "./lib/compose.js";
 import { Stage } from "./xr/stage.js";
 import { legend } from "./xr/twin3d.js";
@@ -230,7 +230,7 @@ async function send(text) {
   if (/power bi|operação|maquete|bi\b/i.test(text)) loadTwin(true);
 }
 function runCommand(c) {
-  if (c === "stop") { audio?.stop?.(); speechSynthesis?.cancel?.(); if (S.busy && chat?.id) client.cancel(chat.id).catch(() => {}); return; }
+  if (c === "stop") { silence(); if (S.busy && chat?.id) client.cancel(chat.id).catch(() => {}); return; }
   if (c === "repeat") return act("repeat");
   if (c.startsWith("page:")) return act(c);
   if (c === "recenter") return act("recenter");
@@ -270,13 +270,14 @@ async function makeScene(prompt) {
   if (!chat) { keepScene(x); return render(); }
   S.sceneBusy = true; S.scenePrompt = prompt; S.messages.push({ role: "user", content: prompt }); render();
   try {
-    const reply = await chat.send(prompt + scenePrompt(relevantTypes(cat, `${prompt} ${draft.titulo}`)), { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
+    const told = relevantTypes(cat, `${prompt} ${draft.titulo}`);
+    const reply = await chat.send(prompt + scenePrompt(told, recipeFor(prompt)), { projectId: S.projectId, onStage: (p) => { S.stage = p.stage || S.stage; render(); } });
     const content = reply.content || "";
     S.messages.push({ role: "assistant", content });
     const { spec, rest } = parseSceneReply(content);
-    const merged = mergeWithDraft(spec, draft, resolve);
+    const merged = mergeWithDraft(spec, draft, resolve, told.map((t) => t.id));
     x.spec = merged.spec; x.title = String(merged.spec.titulo || x.title).slice(0, 60);
-    x.note = rest.split(/\n/)[0].slice(0, 200);
+    x.note = spokenPart(rest, 200);
     keepScene(x);
     if (S.view === "cenario" && S.scene?.id === x.id && merged.used) await showScene(x);
     hint(merged.used ? `Cenário "${x.title}" pronto. Pegue qualquer coisa com a mão para ver de perto.` : "A Aurora respondeu sem uma maquete que combine: ficou o rascunho feito com as suas palavras.");
@@ -296,6 +297,7 @@ function changeScene(edit, text) {
 let mic = null; let audio = null;
 async function listen() {
   if (!bridgeMode) return;
+  silence();              // she stops talking while you speak
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
     const ctx = new AudioContext(); const src = ctx.createMediaStreamSource(stream);
@@ -327,18 +329,27 @@ async function stopListening(submit) {
     send(text);
   } catch (e) { S.busy = false; render(); hint(e.message); }
 }
+// One voice at a time: a new reply silences the one speaking, and a voice still being made on the PC
+// for an older reply is dropped when it arrives. Only the opening is spoken (the rest is on the panel).
+let speechTurn = 0;
+function silence() { speechTurn++; audio?.stop?.(); audio = null; try { speechSynthesis.cancel(); } catch { /* no voice */ } }
 async function speak(text) {
-  if (!text) return;
+  text = spokenPart(text); if (!text) return;
+  silence(); const turn = speechTurn;
   try {
     if (S.caps && !S.caps.speech) throw new Error("sem voz neural");
-    const r = await client.speak(text.slice(0, 1500));
+    const r = await client.speak(text);
+    if (turn !== speechTurn) return;
     const bytes = Uint8Array.from(atob(r.audio), (c) => c.charCodeAt(0));
     const ctx = new AudioContext(); const buf = await ctx.decodeAudioData(bytes.buffer);
+    if (turn !== speechTurn) { ctx.close(); return; }
     const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start();
     audio = { stop: () => { try { src.stop(); ctx.close(); } catch { /* ended */ } } };
+    src.onended = () => { if (turn === speechTurn) audio = null; ctx.close().catch(() => {}); };
   } catch {
+    if (turn !== speechTurn) return;
     // Without the PC's neural voice: the browser's own, when it has Portuguese.
-    try { const u = new SpeechSynthesisUtterance(text.slice(0, 600)); u.lang = "pt-BR"; speechSynthesis.speak(u); } catch { /* no voice */ }
+    try { const u = new SpeechSynthesisUtterance(text); u.lang = "pt-BR"; speechSynthesis.speak(u); } catch { /* no voice */ }
   }
 }
 
