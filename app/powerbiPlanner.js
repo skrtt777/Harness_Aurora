@@ -96,7 +96,7 @@ export function groundedName(name, said) {
   return title.split(" ").some((w) => w.length > 3) ? title : undefined;
 }
 
-const ACCENTS = Object.fromEntries(["visão", "evolução", "orçamento", "orçado", "execução", "análise", "período", "previsão", "média", "série", "histórico", "operação", "produção", "região", "regiões", "situação", "distribuição", "participação", "comparação", "variação", "tendência", "gestão", "finanças", "início", "último", "mês", "saída", "saídas", "líquido", "número", "números", "crédito", "débito", "serviço", "serviços", "logística", "estratégia", "visões", "áreas", "área", "rápido", "diário", "mensal", "trimestral", "pátio", "caminhões", "veículos", "depósito", "relatório", "indicadores", "câmbio", "preço", "preços", "lançamentos", "lançamento", "ocupação", "eficiência", "simulação", "simulações", "cenário", "cenários", "decisão", "atenção", "pressão", "posição", "classificação", "transportação", "notificação", "conferência", "ocorrência", "ocorrências", "frequência", "urgência", "emergência", "consultório", "consultórios", "chamados", "técnico", "técnicos", "crítico", "críticos", "prioridade", "padrão"].map((w) => [w.normalize("NFD").replace(/\p{M}/gu, "").replace(/ç/g, "c"), w]).concat([["evoluçao", "evolução"], ["orçamentacao", "orçamentação"], ["execuçao", "execução"], ["operaçao", "operação"], ["situaçao", "situação"], ["variaçao", "variação"], ["financieira", "financeira"], ["financieiro", "financeiro"]]).filter(([a, b]) => a !== b));
+const ACCENTS = Object.fromEntries(["visão", "evolução", "orçamento", "orçado", "execução", "análise", "período", "previsão", "média", "série", "histórico", "operação", "produção", "região", "regiões", "situação", "distribuição", "participação", "comparação", "variação", "tendência", "gestão", "finanças", "início", "último", "mês", "saída", "saídas", "líquido", "número", "números", "crédito", "débito", "serviço", "serviços", "logística", "estratégia", "visões", "áreas", "área", "rápido", "diário", "mensal", "trimestral", "pátio", "caminhões", "veículos", "depósito", "relatório", "indicadores", "câmbio", "preço", "preços", "lançamentos", "lançamento", "otimização", "ocupação", "eficiência", "simulação", "simulações", "cenário", "cenários", "decisão", "atenção", "pressão", "posição", "classificação", "transportação", "notificação", "conferência", "ocorrência", "ocorrências", "frequência", "urgência", "emergência", "consultório", "consultórios", "chamados", "técnico", "técnicos", "crítico", "críticos", "prioridade", "padrão"].map((w) => [w.normalize("NFD").replace(/\p{M}/gu, "").replace(/ç/g, "c"), w]).concat([["evoluçao", "evolução"], ["orçamentacao", "orçamentação"], ["execuçao", "execução"], ["operaçao", "operação"], ["situaçao", "situação"], ["variaçao", "variação"], ["financieira", "financeira"], ["financieiro", "financeiro"]]).filter(([a, b]) => a !== b));
 
 /** "VisaoGeralFinanceira", "caixa_padaria" -> "Visao geral financeira", "Caixa padaria": a title, not an identifier. */
 const PROPER = new Set(["aurora", "brasil", "nordeste", "sudeste", "norte", "sul", "centro-oeste", "excel"]);
@@ -144,6 +144,8 @@ function fitChart(b, cat) {
 }
 
 function fitType(b, cat) {
+  // A number of "now" over time is a spike at the end: by the place instead, or out.
+  if (cat.nowMetrics?.has(b.medida) && cat.time.includes(b.por)) return { ...b, tipo: "barras", por: cat.dims.find((d) => d.distinct >= 3 && d.distinct <= 30 && d.name !== cat.siteColumn)?.name || "", titulo: "" };
   if (/anterior|varia[çc][ãa]o %/i.test(b.medida) && (cat.months || 0) < 2) b = { ...b, medida: (cat.principal || cat.numbers).find((n) => !/anterior|varia/i.test(n)) || b.medida, titulo: "" };
   const time = cat.time.includes(b.por);
   // A column of dozens of values (a description, a date as text) is not a chart's axis: a fewer-valued one.
@@ -364,7 +366,7 @@ export function materialize(page, cat, look = "noite") {
   // strip of the twin page.
   const cards = page.numeros.map((name) => {
     const classic = { type: "card", values: m(name), title: name, from: { numero: name }, ...(cat.money.has(name) ? { precision: 0 } : {}) };
-    return cat.kpi ? { type: "image", url: m(cat.kpi(name, look === "noite")), kpi: m(name), from: { numero: name }, classic } : classic;
+    return cat.kpi ? { type: "image", url: m(cat.kpi(name, look === "noite")), wideUrl: m(cat.kpi(name, look === "noite", true)), kpi: m(name), from: { numero: name }, classic } : classic;
   });
   return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks: shown, slicers };
 }

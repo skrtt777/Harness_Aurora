@@ -60,7 +60,7 @@ export async function narrate(facts, ask, env = {}, about = "o que mudou na oper
   const plain = facts.join(". ").slice(0, 240);
   if (!ask) return plain;
   const prompt = `Escreva em português do Brasil, em ${maxChars < 160 ? "1 frase curta" : "1 ou 2 frases curtas"} (no máximo ${maxChars} caracteres), ${about}, usando SÓ estes fatos, sem inventar números nem causas:\n- ${facts.join("\n- ")}\nResponda só a frase.`;
-  const reply = await ask(prompt, { ...env, LOCAL_MAX_OUTPUT_TOKENS: "160" }).catch(() => null);
+  const reply = await ask(prompt, { ...env, LOCAL_MAX_OUTPUT_TOKENS: "160", LOCAL_TEMPERATURE: "0.2" }).catch(() => null);
   const text = String(reply?.ok ? reply.text : "").replace(/\s+/g, " ").trim();
   // A note with a number the facts do not have is not used. A rounding is ("R$ 4,6 milhões" for
   // 4.634.278,59; "94k"): within 5% of a number of the facts. An invented one is not.

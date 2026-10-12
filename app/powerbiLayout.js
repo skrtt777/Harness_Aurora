@@ -43,7 +43,8 @@ function grid(r, n) {
 }
 
 // A card's number sized to its card (a narrow one cut "R$ 4.634.27…", 11/10).
-const place = (spec, r) => ({ ...spec, x: r.x, y: r.y, w: r.w, h: r.h, ...(spec.type === "card" && !spec.fontSize ? (r.w < 250 ? { fontSize: 20 } : r.w < 330 ? { fontSize: 24 } : {}) : {}) });
+// A KPI tile in a box much wider than tall: its wide drawing (value left, line right).
+const place = (spec, r) => ({ ...spec, ...(spec.wideUrl && r.w / r.h > 3.4 ? { url: spec.wideUrl } : {}), x: r.x, y: r.y, w: r.w, h: r.h, ...(spec.type === "card" && !spec.fontSize ? (r.w < 250 ? { fontSize: 20 } : r.w < 330 ? { fontSize: 24 } : {}) : {}) });
 
 /**
  * One page. page: { name, question, layout, cards: [visual], scene: visual|null, blocks: [visual],

@@ -31,11 +31,14 @@ export async function auditReport(plan, ask) {
       const dax = `EVALUATE TOPN(41, FILTER(SUMMARIZECOLUMNS(${v.category}${filters.length ? `, ${filters.join(", ")}` : ""}, "v", ${v.values}), NOT ISBLANK([v])))`;
       const r = await ask("query", { dax, max: 45 });
       if (!r.ok) continue;
-      const rows = String(r.text).split("\n").slice(2).filter((l) => l && !l.startsWith("…")).map((l) => l.split(" | ").pop());
+      const lines = String(r.text).split("\n").slice(2).filter((l) => l && !l.startsWith("…")).map((l) => l.split(" | "));
+      const rows = lines.map((l) => l[l.length - 1]);
+      const blank = lines.some((l) => l.length > 1 && !String(l[0]).trim());
       const why = !rows.length ? "não tem dados"
         : rows.length === 1 ? "mostra uma barra só"
           : rows.length >= 3 && new Set(rows).size === 1 ? "mostra tudo igual"
-            : MANY.has(v.type) && rows.length > 30 ? "tem barras demais para ler" : null;
+            : MANY.has(v.type) && rows.length > 30 ? "tem barras demais para ler"
+              : blank ? "mostra uma barra (Em branco)" : null;
       if (why) issues.push({ page: page.displayName, title: label, why, from: v.from });
     }
   }
@@ -61,7 +64,7 @@ export function fixPlan(plan, issues, cat) {
     const at = page.blocos.findIndex((b) => b.tipo === issue.from.tipo && b.medida === issue.from.medida && b.por === issue.from.por);
     if (at < 0) continue;
     const used = new Set(page.blocos.map((b) => b.por));
-    const other = /barra só|demais/.test(issue.why) ? cat.dims.find((d) => d.distinct >= 3 && d.distinct <= 30 && !used.has(d.name) && d.name !== cat.siteColumn && d.name !== issue.from.por) : null;
+    const other = /barra só|demais|em branco/i.test(issue.why) ? cat.dims.find((d) => d.distinct >= 3 && d.distinct <= 30 && !used.has(d.name) && d.name !== cat.siteColumn && d.name !== issue.from.por) : null;
     if (other) {
       page.blocos[at] = { ...page.blocos[at], tipo: ["linha", "area", "cascata"].includes(page.blocos[at].tipo) ? "barras" : page.blocos[at].tipo, por: other.name, titulo: "" };
       changes.push(`"${issue.title}" ${issue.why}: agora por ${other.name.toLowerCase()}`);

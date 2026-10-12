@@ -512,15 +512,16 @@ export function prepare(tables, { title, goal = "" } = {}) {
     title: reportTitle, sources, rows: fact.rows.length, kind, keys, months, statusColumn: flow?.status || null, siteColumn: flow?.site || null,
     // Where each measure lives: one of another table (the stock) cannot be grouped by the fact's columns.
     foreign: new Set(measures.filter((x) => x.table && x.table !== fact.name).map((x) => x.name)),
+    nowMetrics: new Set([...(story?.kpis || []), ...numbers.filter((n) => /agora|em andamento|na fila|nas docas|nos caixas|no p[áa]tio|no local|em tr[âa]nsito|aguardando|nos consult|nos guich|nas m[áa]quinas/i.test(n))]),
     numbers, cardable, principal, money: new Set(measures.filter((x) => x.format === MONEY).map((x) => x.name)),
     // A KPI tile for a number (made once per look, when a page uses it): name, value, last month, 12-month line.
-    kpi: (name, dark) => {
-      const tile = `KPI: ${name}${dark ? "" : " (dia)"}`;
+    kpi: (name, dark, wide = false) => {
+      const tile = `KPI: ${name}${dark ? "" : " (dia)"}${wide ? " (largo)" : ""}`;
       if (!measures.some((x) => x.name === tile)) {
         const source = measures.find((x) => x.name === name);
         // A number of "now" (in progress, in line, late now) has no month to compare: the value alone.
         const now = (story?.kpis || []).includes(name) || /agora|em andamento|na fila|nas docas|nos caixas|no p[áa]tio|no local|em tr[âa]nsito|aguardando/i.test(name);
-        add(tile, kpiTile({ measure: m(name), name, format: source?.format === MONEY ? MONEY_ROUND : source?.format, calendar: date && !now ? "'Calendário'" : null, dark }), null, "Cartões", `O cartão de ${name}`, { category: "ImageUrl" });
+        add(tile, kpiTile({ measure: m(name), name, format: source?.format === MONEY ? MONEY_ROUND : source?.format, calendar: date && !now ? "'Calendário'" : null, dark, wide }), null, "Cartões", `O cartão de ${name}`, { category: "ImageUrl" });
       }
       return tile;
     },
