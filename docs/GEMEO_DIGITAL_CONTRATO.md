@@ -7,7 +7,9 @@ relatório desenha: 5 caminhões na doca no Power BI são 5 caminhões na doca n
 - **Fonte:** `twinNow()` em `app/powerbi.js`, que chama `twinState()` em `app/powerbiTwin.js`. Lê o último relatório que a Aurora abriu e mantém atualizado.
 - **Frequência:** o relatório se atualiza quando a planilha muda e no máximo a cada 10 minutos. Quem lê o estado não precisa ler mais de uma vez a cada 15 s.
 - **Conferência:** `scripts/powerbi-lab/gemeo-lab.mjs` compara o estado com o gerador dos dados (CD: 11/11).
-- **Entrega ao visualizador:** ainda falta definir como o estado chega ao Quest (servidor na rede local com HTTPS, arquivo, outro meio). Isso depende de autorização da pessoa.
+- **Onde ler:**
+  - **Quest (app AuroraXR):** `GET /xr/v1/twin` na ponte XR (pareada, autenticada, só leitura). Ela repassa para `GET /api/powerbi/twin` no PC. A página **Operação** do painel mostra os números e o que mudou, e põe a maquete na mesa (`AuroraTwin.h/.cpp`).
+  - **Navegador / WebXR:** `powerbi action=vr` sobe um servidor só de leitura com código aleatório no endereço (`app/twinServer.js`). Ele responde em HTTP neste computador e em HTTPS na rede, com certificado feito em memória. Serve `/<código>/` (página three.js com "Entrar em VR") e `/<código>/state`.
 
 ## Formato (version 1)
 
@@ -21,6 +23,9 @@ relatório desenha: 5 caminhões na doca no Power BI são 5 caminhões na doca n
   "glyph": "veiculo",
   "noun": "caminhões",
   "placeLabel": "Doca",
+  "environment": "armazem",
+  "colorBy": null,
+  "stages": [{ "key": "fila", "label": "Pedido recebido" }, { "key": "carregando", "label": "Carregando" }],
   "units": [
     {
       "name": "CD Contagem",
@@ -34,7 +39,7 @@ relatório desenha: 5 caminhões na doca no Power BI são 5 caminhões na doca n
     }
   ],
   "entities": [
-    { "name": "ABC-3P34", "id": "EMB-0412", "status": "Carregando", "where": "doca", "place": "Doca 01", "late": false, "unit": "CD Contagem" }
+    { "name": "ABC-3P34", "id": "EMB-0412", "status": "Carregando", "where": "doca", "place": "Doca 01", "late": false, "unit": "CD Contagem", "waited": 42 }
   ],
   "numbers": { "Caminhões nas docas": "9", "Caminhões na fila": "7" },
   "highlight": { "values": ["Doca 03"], "note": "Doca 03 com dois caminhões" },
@@ -57,6 +62,10 @@ relatório desenha: 5 caminhões na doca no Power BI são 5 caminhões na doca n
 | `entities[].where` | `doca` (sendo atendido num lugar), `filalocal` (na fila de um lugar), `fila` (fila geral), `estrada` (a caminho). |
 | `entities[].late` | Passou do prazo: desenhe em vermelho. |
 | `numbers` | Os números principais do painel, já formatados como no Power BI. |
+| `environment` | O ambiente da área: `armazem` (docas), `loja` (caixas), `clinica` (consultórios, leitos), `salao` (guichês, balcões), `fabrica` (máquinas). Desenhe o lugar daquela área. |
+| `colorBy` | Quando os dados têm classificação de risco ou prioridade: `{ column, values: [[valor, "#cor"], …] }`, na ordem de gravidade. A entidade veste essa cor (`entities[].color`); mostre também o número (1 = mais grave). |
+| `stages` | As etapas em andamento (`key`, `label`): a cor de cada entidade vem da etapa quando não há `colorBy`. |
+| `entities[].waited` | Minutos desde a chegada, quando os dados têm horário. Mostre "18 min", "2 h 10". |
 | `highlight` | O que a Aurora foi pedida para mostrar ("mostra a doca 3"). Desenhe um anel roxo (#B04BFF) em lugares ou entidades com esses nomes e mostre a `note`. |
 | `notes` | O que mudou nas últimas atualizações, da mais nova para a mais velha. |
 

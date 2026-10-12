@@ -24,6 +24,16 @@ Veja [uso e comandos](Docs/PRESENCE-USO.md). Inicie os servicos com
 `node scripts/diagnose-xr-pc.mjs`, na raiz do repositorio, confere a ponte sem
 exibir credenciais nem criar conversas.
 
+## Operação do Power BI no Quest (12/10/2026)
+
+O painel ganhou o botão **Operação**. Ele mostra o Power BI que a Aurora mantém aberto no PC:
+- **No painel:** os números, a unidade e o que mudou.
+- **Maquete:** fica meio metro à frente, na altura de uma mesa. Cada lugar aparece (livre em verde) e cada caminhão, pessoa ou volume fica onde está, na cor da etapa ou do risco. O que a Aurora destacou ganha um anel violeta, e o selo "N de N" fecha a contagem.
+- **Ações:** Atualizar, Trocar unidade e Mostrar/ocultar maquete. Por voz: "mostra a operação", "power bi".
+- **Fonte:** o mesmo estado da cena do Power BI (`docs/GEMEO_DIGITAL_CONTRATO.md`), via `/xr/v1/twin`. Com a página aberta, ele atualiza a cada 15 s.
+- **Prévia no desktop:** `UnrealEditor.exe AuroraXR.uproject /Game/Aurora/Maps/L_AuroraMR -game -AuroraTwinPreview`, com o estado em `Saved/aurora-twin-preview.json`.
+- **Teste:** `Aurora.Twin.Layout`.
+
 ## Historico da sala VR inicial
 - Sala Aurora com paineis de conversa, memoria e controles, materiais proprios e mesa com cubos interativos do template.
 - Paineis sao sinalizacao de prototipo; ainda nao sao interfaces clicaveis nem exibem dados reais.
