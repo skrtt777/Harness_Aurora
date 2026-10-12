@@ -243,3 +243,31 @@ test("a chart only where it says something; page names keep the area's words", (
   assert.equal(normalizePlan({ titulo: "PS", paginas: [{ nome: "Visão geral do pátio", numeros: ["Pacientes na fila"], blocos: [] }] }, ps, "pronto-socorro").paginas[0].nome, "Visão geral da operação");
   assert.equal(normalizePlan({ titulo: "CD", paginas: [{ nome: "Visão geral do pátio", numeros: [cat.cardable[0]], blocos: [] }] }, cat, "o pátio do CD").paginas[0].nome, "Visão geral do pátio");
 });
+
+test("the BI is checked before delivery: a chart with one bar takes another column, an empty one leaves", async () => {
+  const { auditReport, fixPlan } = await import("../app/powerbiAudit.js");
+  const plan = { pages: [{ displayName: "Volume", visuals: [
+    { type: "slicer", values: "'T'[Unidade]", select: ["Norte"] },
+    { type: "clusteredColumnChart", title: "Qtd. por mês", category: "'Calendário'[Mês]", values: "[Qtd.]", from: { tipo: "colunas", medida: "Qtd.", por: "mês" } },
+    { type: "clusteredBarChart", title: "Fila por serviço", category: "'T'[Serviço]", values: "[Fila]", from: { tipo: "barras", medida: "Fila", por: "Serviço" } },
+    { type: "card", title: "Variação", values: "[Variação]", from: { numero: "Variação" } },
+    { type: "donutChart", title: "Por prioridade", category: "'T'[Prioridade]", values: "[Qtd.]", from: { tipo: "rosca", medida: "Qtd.", por: "Prioridade" } },
+  ] }] };
+  const asked = [];
+  const ask = async (cmd, { dax }) => {
+    asked.push(dax);
+    if (/Calendário/.test(dax)) return { ok: true, text: "1 linha(s):\nMês | v\nout/2026 | 120\n" };
+    if (/Serviço/.test(dax)) return { ok: true, text: "3 linha(s):\nServiço | v\nA | 4\nB | 4\nC | 4\n" };
+    if (/Prioridade/.test(dax)) return { ok: true, text: "2 linha(s):\nPrioridade | v\nNormal | 90\nPreferencial | 30\n" };
+    return { ok: true, text: "1 linha(s):\nv\n\n" };
+  };
+  const issues = await auditReport(plan, ask);
+  assert.ok(asked.every((d) => !/Calendário|Serviço|Prioridade/.test(d) || /TREATAS\(\{"Norte"\}, 'T'\[Unidade\]\)/.test(d)), "with the page's own unit");
+  assert.deepEqual(issues.map((i) => i.why), ["mostra uma barra só", "mostra tudo igual", "fica em branco"]);
+  const cat = { dims: [{ name: "Serviço", distinct: 5 }, { name: "Status", distinct: 4 }, { name: "Unidade", distinct: 2 }], siteColumn: "Unidade" };
+  const raw = { paginas: [{ nome: "Volume", cena: "nenhuma", numeros: ["Qtd.", "Variação"], blocos: [{ tipo: "colunas", medida: "Qtd.", por: "mês" }, { tipo: "barras", medida: "Fila", por: "Serviço" }, { tipo: "rosca", medida: "Qtd.", por: "Prioridade" }] }] };
+  const fixed = fixPlan(raw, issues, cat);
+  assert.deepEqual(fixed.plan.paginas[0].blocos.map((b) => `${b.tipo}:${b.por}`), ["colunas:Status", "rosca:Prioridade"]);
+  assert.deepEqual(fixed.plan.paginas[0].numeros, ["Qtd."]);
+  assert.equal(fixed.changes.length, 3);
+});

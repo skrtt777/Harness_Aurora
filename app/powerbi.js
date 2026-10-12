@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { finish, prepare, profile, readSources } from "./powerbiDesign.js";
 import { localPlanAsk, planWithModel } from "./powerbiPlanner.js";
 import { biEvents, diffSnapshots, narrate, notesTable } from "./powerbiChanges.js";
+import { auditReport, fixPlan } from "./powerbiAudit.js";
 import { writeProject, writeReport } from "./powerbiReport.js";
 
 const SOURCE = fileURLToPath(new URL("./powerbi/PbiHost.cs", import.meta.url));
@@ -264,13 +265,39 @@ export async function buildReport({ files, folder, name, goal, conversationId, o
   ok(await pbiRequest("build", { folder: join(projectDir, `${projectName}.SemanticModel`), model: plan.model }));
   onStage("Desenhando as páginas…");
   writeReport(join(projectDir, `${projectName}.Report`), { name: projectName, modelFolder: `${projectName}.SemanticModel`, pages: plan.pages, measures: plan.measures, palette: plan.palette });
-  const result = { pbip, folder: projectDir, plan, opened: null, refreshed: "", checks: "" };
+  const result = { pbip, folder: projectDir, plan, opened: null, refreshed: "", checks: "", audit: [] };
   if (!open) return result;
   onStage("Abrindo no Power BI Desktop…");
-  const report = await openInDesktop(pbip);
+  let report = await openInDesktop(pbip);
   result.opened = report;
   try {
     await loadOpened(result, plan, report, conversationId, onStage);
+    // Checked before it is handed over: a chart or card that says nothing is fixed and the pages drawn
+    // again (once).
+    onStage("Conferindo cada gráfico…");
+    const issues = await auditReport(plan, pbiRequest).catch(() => []);
+    const fixed = issues.length && plan.plan ? fixPlan(plan.plan, issues, prep.cat) : null;
+    if (fixed) {
+      onStage("Corrigindo o que não ficou bom…");
+      const redone = finish(prep, fixed.plan);
+      // Closed first: an open Power BI writes its pages back over the new ones.
+      try { process.kill(report.pid); } catch { /* closed */ }
+      for (let t = 0; t < 20 && alive(report.pid); t += 1) await wait(500);
+      await wait(2000);
+      // A project of its own: reopened at the same path, Power BI brought the old page back (its recovery
+      // of the closed window), and the report had both.
+      const fixedDir = join(projectDir, "conferido");
+      mkdirSync(fixedDir, { recursive: true });
+      const fixedPbip = writeProject(fixedDir, projectName);
+      ok(await pbiRequest("build", { folder: join(fixedDir, `${projectName}.SemanticModel`), model: redone.model }));
+      writeReport(join(fixedDir, `${projectName}.Report`), { name: projectName, modelFolder: `${projectName}.SemanticModel`, pages: redone.pages, measures: redone.measures, palette: redone.palette });
+      result.pbip = fixedPbip; result.folder = fixedDir;
+      report = await openInDesktop(fixedPbip);
+      result.opened = report;
+      Object.assign(plan, { pages: redone.pages, plan: redone.plan, summary: `${redone.summary}\nConferi o painel antes de entregar: ${fixed.changes.join("; ")}.` });
+      await loadOpened(result, plan, report, conversationId, onStage);
+    }
+    result.audit = fixed ? fixed.changes : [];
     // From now on its data follows the spreadsheets (at most REFRESH_MINUTES late).
     watchReport(report, files, { watch: plan.watch || null });
     // The first look, to compare the next refreshes with.

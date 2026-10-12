@@ -291,7 +291,8 @@ export function materialize(page, cat, look = "noite") {
   const isTime = (por) => Boolean(timeRef[por]);
   const defaultBy = (tipo) => (["linha", "area"].includes(tipo) && cat.time.length ? "mês" : cat.dims.find((d) => d.distinct >= 2 && d.distinct <= 30)?.name || cat.dims[0]?.name || "");
   const lower = (s) => (/^\p{Lu}{2}/u.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
-  const blocks = page.blocos.map((b) => {
+  const blocks = page.blocos.map((b) => ({ b, v: blockVisual(b) })).map(({ b, v }) => (v && !cat.specials[b.tipo] ? { ...v, from: { tipo: b.tipo, medida: b.medida, por: b.por } } : v));
+  function blockVisual(b) {
     if (cat.specials[b.tipo]) return { ...cat.specials[b.tipo].make(), ...(b.titulo ? { title: b.titulo } : {}) };
     // A line by year with two or three years is a straight segment: month by month says more.
     const por = (["linha", "area"].includes(b.tipo) && b.por === "ano" && cat.months >= 6) ? "mês" : b.por || defaultBy(b.tipo);
@@ -313,7 +314,8 @@ export function materialize(page, cat, look = "noite") {
         return { type: "tableEx", title, values: [ref, m(b.medida), ...extra.map(m)].filter(Boolean), totals: false, sort };
       }
     }
-  }).filter((v) => v && (v.type === "gauge" || v.type === "tableEx" || v.category || v.url || v.values));
+  }
+  const shown = blocks.filter((v) => v && (v.type === "gauge" || v.type === "tableEx" || v.category || v.url || v.values));
   const scene = page.cena !== "nenhuma" ? cat.scenes[page.cena]?.make({ look }) : null;
   // The filters of the page: the year, and what its charts group by.
   const used = page.blocos.map((b) => b.por).filter((p) => p && !timeRef[p]);
@@ -321,8 +323,8 @@ export function materialize(page, cat, look = "noite") {
   // The moment and the unit (the filters with a default) come first: they decide what the page shows.
   const first = cat.slicerRefs.filter((r) => cat.slicerDefaults?.[r]);
   const slicers = [...new Set([...first, ...slicerRefs])].slice(0, 3).map((values) => ({ type: "slicer", values, dropdown: true, ...(cat.slicerDefaults?.[values] ? { select: [cat.slicerDefaults[values]], single: true } : {}) }));
-  const cards = page.numeros.map((name) => ({ type: "card", values: m(name), title: name, ...(cat.money.has(name) ? { precision: 0 } : {}) }));
-  return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks, slicers };
+  const cards = page.numeros.map((name) => ({ type: "card", values: m(name), title: name, from: { numero: name }, ...(cat.money.has(name) ? { precision: 0 } : {}) }));
+  return { name: page.nome, question: page.pergunta, layout: page.layout, cards, scene, blocks: shown, slicers };
 }
 
 /**

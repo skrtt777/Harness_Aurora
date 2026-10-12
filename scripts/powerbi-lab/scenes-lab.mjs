@@ -30,7 +30,7 @@ let opened = null;
 try {
   const r = await buildReport({ files: [file], folder: out, goal: flag("goal")[0] || "", planner: fixedPlan ? { ask: async () => ({ ok: true, text: JSON.stringify(fixedPlan) }), env: {} } : planner, conversationId: "cenas", onStage: (s) => console.log(`  … ${s}`) }).catch((e) => { opened = e.opened; throw e; });
   opened = r.opened;
-  console.log(`  ${r.refreshed}\n  ${r.plan.summary.split("\n").filter((l) => /^Plano/.test(l)).join("\n")}`);
+  console.log(`  ${r.refreshed}\n  ${r.plan.summary.split("\n").filter((l) => /^Plano|^Conferi/.test(l)).join("\n")}`);
   check("abriu e carregou", /Atualizei os dados/.test(r.refreshed), r.refreshed);
   for (const c of flag("confere")) {
     const [, measure, want] = /^(.+?)=(.+)$/.exec(c);

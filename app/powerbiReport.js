@@ -2,7 +2,7 @@
 // plain JSON that Power BI Desktop opens. The model side (TMDL) is written by app/powerbi/PbiHost.cs with
 // the Power BI's own serializer. Pages and visuals come from app/powerbiDesign.js.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SCHEMA = "https://developer.microsoft.com/json-schemas/fabric";
@@ -207,7 +207,7 @@ function darkTheme(palette = {}) {
  * pages: [{ displayName, visuals: [...] }]; measures: { "Nome da medida": "Tabela" }.
  */
 export function writeReport(reportDir, { name, modelFolder, pages, measures, palette }) {
-  rmSync(join(reportDir, "definition"), { recursive: true, force: true });
+  rmSync(join(reportDir, "definition"), { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   write(join(reportDir, "definition.pbir"), { version: "4.0", datasetReference: { byPath: { path: `../${modelFolder}` } } });
   write(join(reportDir, ".platform"), { $schema: `${SCHEMA}/gitIntegration/platformProperties/2.0.0/schema.json`, metadata: { type: "Report", displayName: name }, config: { version: "2.0", logicalId: randomUUID() } });
   const def = join(reportDir, "definition");
@@ -222,6 +222,8 @@ export function writeReport(reportDir, { name, modelFolder, pages, measures, pal
   write(join(reportDir, "StaticResources", "RegisteredResources", "AuroraTheme.json"), theme(palette));
   const pageNames = pages.map((p, i) => p.name || `pagina${i + 1}${id().slice(0, 6)}`);
   write(join(def, "pages", "pages.json"), { $schema: `${SCHEMA}/item/report/definition/pagesMetadata/1.0.0/schema.json`, pageOrder: pageNames, activePageName: pageNames[0] });
+  // A page folder left from before (a rewrite while Windows still held it) would come back as a page.
+  for (const old of readdirSync(join(def, "pages"), { withFileTypes: true })) if (old.isDirectory() && !pageNames.includes(old.name)) rmSync(join(def, "pages", old.name), { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   pages.forEach((page, i) => {
     const dir = join(def, "pages", pageNames[i]);
     write(join(dir, "page.json"), { $schema: `${SCHEMA}/item/report/definition/page/1.0.0/schema.json`, name: pageNames[i], displayName: page.displayName, displayOption: "FitToPage", height: page.height || 720, width: page.width || 1280 });
