@@ -8,6 +8,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { XRStore, createXRHandler } from "../../app/xrBridge.js";
+import { sceneFromPrompt } from "../../app/xr/lib/scene.js";
+import { indexCatalog, resolveType } from "../../app/xr/lib/compose.js";
+const labCatalog = indexCatalog(JSON.parse(readFileSync(new URL("../../app/xr/assets/catalog.json", import.meta.url), "utf8")));
 
 const out = resolve(process.argv[2] || "xr-lab-out"); mkdirSync(out, { recursive: true });
 const iwerAt = process.argv.indexOf("--iwer"); const iwer = iwerAt > 0 ? readFileSync(process.argv[iwerAt + 1], "utf8") : null;
@@ -46,8 +49,11 @@ const desktop = async (path, method = "GET", body) => {
   if (m) {
     const list = conversations.get(m[1]) || []; list.push({ role: "user", content: body.message }); await new Promise((r) => setTimeout(r, 600));
     // A scene asked from the app: the answer the Aurora gives (a sentence and the ```cena block).
-    const scene = { titulo: "Fazenda da Aurora", chao: "grama", itens: [{ tipo: "vaca", qtd: 3 }, { tipo: "trator", comportamento: "rodar" }, { tipo: "celeiro", x: -0.6, z: -0.5 }, { tipo: "arvore", qtd: 4 }, { tipo: "carro", qtd: 2, cor: "azul" }, { tipo: "lago" }] };
-    const a = { role: "assistant", content: body.message.includes("[Aurora XR]") ? `Montei uma fazenda com vacas e um trator.\n\`\`\`cena\n${JSON.stringify(scene)}\n\`\`\`` : `Hoje há 14 caminhões nas docas e 12 na fila; 4 atrasados. Você disse: “${body.message}”.` };
+    // A small scene of what was asked (its theme's recipe, thinner), named by "her".
+    const asked = body.message.split("[Aurora XR]")[0];
+    const draft = sceneFromPrompt(asked, (w) => resolveType(labCatalog, w));
+    const scene = { titulo: `${draft.titulo} da Aurora`, chao: draft.chao, estrada: draft.estrada, zonas: draft.zonas.slice(0, 3), itens: draft.itens.slice(0, 3) };
+    const a = { role: "assistant", content: body.message.includes("[Aurora XR]") ? `Montei: ${scene.titulo}.\n\`\`\`cena\n${JSON.stringify(scene)}\n\`\`\`` : `Hoje há 14 caminhões nas docas e 12 na fila; 4 atrasados. Você disse: “${body.message}”.` };
     list.push(a); return { message: a };
   }
   m = path.match(/^\/conversations\/(\w+)\/pending$/); if (m) return { stage: "Lendo o Power BI…", partial: "" };
@@ -135,6 +141,11 @@ await run("pc", { viewport: { width: 1440, height: 900 } }, async (page, r) => {
   r.checks.cowBack = await page.evaluate(() => { const { stage } = window.auroraXR; const b = stage.bodies.find((x) => x.obj.userData.dyn.label === "Vaca"); return { onPlate: b.obj.parent === stage.twin, off: +Math.hypot(b.obj.position.x - b.pose.x, b.obj.position.z - b.pose.z).toFixed(4), held: b.held }; });
   if (!r.checks.dragged?.moved || r.checks.dragged.away < 0.01) r.failed = "a vaca não foi arrastada";
   else if (!r.checks.cowBack.onPlate || r.checks.cowBack.off > 0.003) r.failed = "a vaca não voltou para o lugar";
+  // Another subject right after: it must be that one (the "always the farm" bug).
+  await page.evaluate(() => window.auroraXR.act("scene:make", "O sistema solar"));
+  await page.waitForFunction(() => !window.auroraXR.S.sceneBusy && /Sistema solar/.test(window.auroraXR.S.scene?.title || ""), null, { timeout: 30000 }).catch(() => {});
+  r.checks.second = await page.evaluate(() => window.auroraXR.S.scene?.title);
+  if (!/Sistema solar/.test(r.checks.second || "")) r.failed = `o segundo cenário virou "${r.checks.second}"`;
   // Back to the operation.
   await page.evaluate(() => window.auroraXR.act("view:operacao")); await page.waitForTimeout(300);
   r.checks.backToOperation = await page.evaluate(() => window.auroraXR.stage.bodies.length);

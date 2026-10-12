@@ -220,8 +220,10 @@ const count = (spec) => [...(spec?.zonas || []).flatMap((zz) => zz.itens || []),
 export function mergeWithDraft(aurora, draft, resolve) {
   if (!aurora) return { spec: draft, used: false };
   const a = typesOf(aurora, resolve), d = typesOf(draft, resolve);
+  // At least half of what she used must be what the request is about (a farm for "a city" shares a
+  // tree and a car, not half).
   const shared = [...a].filter((t) => d.has(t)).length;
-  if (d.size && shared === 0) return { spec: draft, used: false };
+  if (d.size && (shared === 0 || shared / Math.max(1, a.size) < 0.5)) return { spec: draft, used: false };
   const spec = JSON.parse(JSON.stringify(aurora)); spec.zonas = spec.zonas || []; spec.itens = spec.itens || spec.items || [];
   if (count(spec) < 25) {
     const have = new Set(spec.zonas.map((zz) => zz.tipo));

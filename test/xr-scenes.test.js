@@ -88,6 +88,9 @@ test('XR scenes: the Aurora reply, checked against the request and enriched when
   // The instruction's farm example sent back for a solar system: the draft stays.
   const copied = parseSceneReply('Pronto!\n```cena\n{"titulo":"Fazenda Boa Vista","chao":"grama","zonas":[{"tipo":"cercado","itens":[{"tipo":"vaca","qtd":6}]}]}\n```');
   assert.equal(mergeWithDraft(copied.spec, draft, resolve).used, false);
+  // A farm answered for a city (they share a tree and a car): still the city.
+  const farm = { titulo: 'Fazenda', itens: ['vaca', 'trator', 'celeiro', 'arvore', 'carro', 'cavalo'].map((tipo) => ({ tipo })) };
+  assert.equal(mergeWithDraft(farm, sceneFromPrompt('uma cidade', resolve), resolve).used, false);
   // A good but thin answer: hers, with the draft's zones added; lenient JSON (trailing comma).
   const thin = parseSceneReply('Montei! ```cena\n{"titulo":"Fazenda Sol","chao":"grama","zonas":[{"tipo":"cercado","itens":[{"tipo":"vacas","qtd":3},]}]}\n```');
   assert.equal(thin.rest, 'Montei!');
