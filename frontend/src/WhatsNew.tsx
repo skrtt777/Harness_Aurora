@@ -8,6 +8,17 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.41': {
+    title: 'Veja seus agentes trabalhando',
+    items: [
+      ['Escritório dos agentes', 'Na barra lateral, Escritório: uma sala em pixel art para cada projeto, onde cada pessoinha é uma conversa, um agente ou um professor de verdade. Quem trabalha digita no computador, quem lê arquivos vai à estante, quem roda comandos vai ao servidor e quem espera sua autorização levanta a mão.'],
+      ['Uma equipe que se mexe', 'Quem termina leva o papel ao chefe e vai tomar um cafezinho. O chefe faz ronda e cobra quem precisa refazer, e o Claude ou o Codex entram para revisar na sala de reunião. Quem está livre descansa no sofá e conversa. A sala segue a hora do dia e cresce com a equipe.'],
+      ['Cada sessão com seu nome', 'Cada conversa em andamento ganha um nome próprio, com a letra do título ("Metas de outubro" vira Mariana). Clique numa pessoa para ver o que ela faz e abrir a conversa.'],
+      ['Power BI com a sua operação desenhada', 'O painel mostra o lugar da sua área (docas e caminhões, guichês, caixas, máquinas) desenhado pelos dados: cada item aparece uma vez, onde está, com a mesma contagem dos cartões. Ao clicar num item, ele acende na cena.'],
+      ['O que mudou desde a última atualização', 'A Aurora escreve no BI o que mudou a cada atualização, com alertas. Ela também mostra o mapa do Brasil por estado e uma simulação "e se" separada dos números reais.'],
+      ['Aurora no óculos (Quest)', 'O app de realidade virtual foi refeito: a operação do Power BI vira uma maquete na sua mesa, que você pode pegar com a mão. E dá para pedir à Aurora um cenário de brincadeira, como uma fazenda, uma cidade medieval ou uma praia.'],
+    ],
+  },
   '0.1.40': {
     title: 'Peça no chat, a Aurora faz nos programas',
     items: [

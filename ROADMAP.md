@@ -70,6 +70,18 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.41 (11–12/10, publicada): escritório dos agentes, BI com a operação desenhada e Aurora XR.**
+  - **Escritório** (`docs/ESCRITORIO.md`):
+    - cada sessão, agente, cópia, professor e o chefe aparece como uma pessoa em pixel art, no estado real;
+    - o lugar muda conforme a ferramenta: estante, servidor ou computador;
+    - quem entrega leva o papel ao chefe e vai ao café; o chefe faz ronda e cobra;
+    - as sessões ganham nomes;
+    - a sala cresce com a equipe e acompanha a hora do dia.
+  - **Power BI com cena:** a operação desenhada pelos dados, gêmeo digital, notas do que mudou, mapa por estado e simulação "e se".
+  - **Aurora XR:** VR refeito em WebXR, com maquete viva e cenários da Aurora com resposta presa ao formato (só no XR).
+  - **Regressão:**
+    - testes automáticos 100%, conversas reais 100%, agentes 90,6% (−4,7), empresa 98%;
+    - testes de uso por bateria: 1 = 92,3% na rodada da regressão e 95,1% no reteste (variação do modelo; "pede pro agente financeiro…" às vezes devolve tabela ou .docx em vez de .xlsx, como já acontecia na 0.1.40), 2 = 100%, 3 = 100%, 4 = 91,3%.
 - **0.1.40 (09–11/10, publicada): trabalho junto nos programas.**
   - Excel, Word e PowerPoint são abertos e preenchidos na tela, com tabelas, fórmulas e gráficos.
   - Qualquer programa pode ser operado por janela, com a diferença da tela conferida depois de cada ação.
