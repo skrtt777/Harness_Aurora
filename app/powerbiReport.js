@@ -101,7 +101,7 @@ export function visual(spec, measures, z = 0) {
     objects.categoryAxis = [{ properties: { show: literal(false), showAxisTitle: literal(false), start: literal(0), end: literal(box.w) } }];
     objects.valueAxis = [{ properties: { show: literal(false), showAxisTitle: literal(false), start: literal(0), end: literal(box.h) } }];
     objects.legend = [{ properties: { show: literal(false) } }];
-    objects.dataPoint = [{ properties: { fill: color(spec.pointColor || "#FFFFFF") } }];
+    objects.dataPoint = [{ properties: { fill: color(spec.pointColor || "#FFFFFF"), ...(spec.pointTransparency !== undefined ? { transparency: literal(spec.pointTransparency) } : {}) } }];
     objects.markers = [{ properties: { markerSize: literal(spec.pointSize || 18) } }];
   }
   // A table with a picture measure (progress bars): the size of the pictures in the cells.

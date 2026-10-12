@@ -75,7 +75,9 @@ export function composePage(page, style, reportTitle) {
       spec.fitted = { right: rects[i].x + rects[i].w - (r.x + r.w), box: r };
     }
     visuals.push(place(spec, r));
-    if (overlay) visuals.push(place({ type: "scatterChart", category: overlay.category, x_: overlay.x, y_: overlay.y, overlay: { w: overlay.w, h: overlay.h }, pointColor: style.pin || "#4F9BFF" }, r));
+    if (overlay) visuals.push(place({ type: "scatterChart", category: overlay.category, x_: overlay.x, y_: overlay.y, overlay: { w: overlay.w, h: overlay.h }, pointColor: style.pin || "#4F9BFF", pointSize: 36, pointTransparency: 90 }, r));
+    // On top, a point on each one drawn (nearly invisible, the size of the object): click it to select it.
+    if (overlay?.entities) visuals.push(place({ type: "scatterChart", category: overlay.entities.category, x_: overlay.entities.x, y_: overlay.entities.y, overlay: { w: overlay.w, h: overlay.h }, pointColor: "#FFFFFF", pointSize: 48, pointTransparency: 92 }, r));
   });
   // A scene keeps its drawing's proportion, so in a wide box it leaves a strip free on the right (the map
   // with half the page empty, showcase 11/10): the other blocks go there instead of below it.

@@ -282,6 +282,9 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   const tw = Math.min(w * 0.62, 46);
   const fragments = [];
   const points = [];
+  // Where each drawn one is in the picture (for a click on it): place k (1..n) served i / in its line i,
+  // the queue's slot j, the road's slot j — the same order the picture uses.
+  const ent = { served: [], line: [], queue: [], road: [] };
   for (let k = 0; k < n; k += 1) {
     const cx = 20 + k * w + w / 2;
     const frag = [];
@@ -330,6 +333,14 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
     else frag.push(`<text transform='matrix(${r1(COS)},0.5,0,1,${nx},${ny})' fill='${L.text}' ${FONT} font-size='${n > 10 ? 12 : 15}' font-weight='600'>`, D(safe(`LEFT(${place}, 10)`)), "</text>");
     fragments.push(`${k + 1}, ${joinDax(frag)}`);
     points.push([k + 1, Number(gx), Number(gy)]);
+    for (let i = 0; i < 3; i += 1) {
+      const xy = kit ? cv.at(...kit.served(cx, i), 30) : G === "veiculo" ? (i === 0 ? cv.at(cx, DEPTH + 85, 30) : cv.at(cx, DEPTH + 202 + (i - 1) * 70, 20)) : cv.at(cx + (i - 1) * Math.min(18, w / 3), DEPTH + (G === "pessoa" ? 56 : 34), 30);
+      ent.served.push([(k + 1) * 10 + i, ...xy.map(Number)]);
+    }
+    for (let i = 0; i < (G === "veiculo" ? 2 : 4); i += 1) {
+      const xy = kit ? cv.at(...kit.line(cx, i), 30) : G === "veiculo" ? cv.at(cx, DEPTH + 358 + i * 64, 15) : cv.at(cx, DEPTH + 90 + i * lineStep, 30);
+      ent.line.push([(k + 1) * 10 + i, ...xy.map(Number)]);
+    }
   }
 
   // The general queue (waiting with no place yet) and the way out.
@@ -337,6 +348,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   for (let j = 0; j < QUEUE; j += 1) {
     const [x, y] = spot(j);
     const [mx, my] = cv.at(x + (G === "veiculo" ? 32 : 0), y + (G === "veiculo" ? 60 : 0), 0);
+    ent.queue.push([j + 1, ...(G === "veiculo" ? cv.at(x + 32, y + 81, 30) : cv.at(x, y, 30)).map(Number)]);
     const drawn = G === "veiculo" ? vehicle(x + 16, y + 6, 32, keyOf, "fila") : kit && G === "pessoa" ? person(x, y, keyOf, "fila", Boolean(kit.seated)) : kit ? load(x, y, keyOf, "fila") : glyph(x, y - 20, keyOf, "fila");
     queueSlots.push(`${j + 1}, ${joinDax([drawn, when("[@nome] IN Destacados", auroraRing(mx, my, 40, 24))])}`);
   }
@@ -349,6 +361,7 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
       const moving = `<animateTransform attributeName='transform' type='translate' values='0 0; ${r1(Number(a1x) - Number(a0x))} ${r1(Number(a1y) - Number(a0y))}; 0 0' dur='${(5 + (j % 3)).toFixed(0)}s' repeatCount='indefinite'/>`;
       // Loads and people go out by vehicle too: a van carrying them, coloured by their stage.
       const [mx, my] = cv.at(X + 17, Y - 60, 0);
+      ent.road.push([j + 1, ...cv.at(X + 17, Y - 45, 30).map(Number)]);
       roadSlots.push(`${j + 1}, ${joinDax(["<g>", moving, vehicle(X, Y - 120, 34, keyOf, "estrada", -1), when("[@nome] IN Destacados", auroraRing(mx, my, 50, 30)), "</g>"])}`);
     }
   }
@@ -437,7 +450,28 @@ export function yardScene(flow, { title = "Operação", look = "noite", stamp = 
   ].join("\n");
   const pointX = `${index}\nRETURN SWITCH(i, ${points.map(([i, x]) => `${i}, ${r1(x - vb.x)}`).join(", ")}, BLANK())`;
   const pointY = `${index}\nRETURN SWITCH(i, ${points.map(([i, , y]) => `${i}, ${r1(vb.h - (y - vb.y))}`).join(", ")}, BLANK())`;
-  return { dax, points: { category: place, x: pointX, y: pointY, w: r1(vb.w), h: r1(vb.h) } };
+  // A point on each one drawn (a truck, a person, a load): the click selects it, the page filters to
+  // it and the card shows it. Blank for whoever is not drawn (past the caps).
+  const who = flow.asset || flow.id;
+  let entities = null;
+  if (who) {
+    const sw = (list, axis) => list.map(([c, x, y]) => `${c}, ${axis === "x" ? r1(x - vb.x) : r1(vb.h - (y - vb.y))}`).join(", ");
+    const entityDax = (axis) => [
+      ...unitVars,
+      ...vehicleVars(flow, "Base", at),
+      // (Names of its own: vehicleVars already uses short ones.)
+      `VAR EuSou = SELECTEDVALUE(${col(F, who)})`,
+      "VAR Eu = FILTER(Veiculos, [@nome] = EuSou)",
+      "VAR Onde = MAXX(Eu, [@where]) VAR MeuLugar = MAXX(Eu, [@doca]) VAR MeuId = MAXX(Eu, [@id])",
+      `VAR Docas = TOPN(${n}, FILTER(${docks}, NOT ISBLANK(${place}) && ${place} <> ""), ${place}, ASC)`,
+      `VAR Ix = IF(MeuLugar = "" || NOT MeuLugar IN SELECTCOLUMNS(Docas, "d", ${place} & ""), 0, COUNTROWS(FILTER(Docas, ${place} <= MeuLugar)))`,
+      "VAR Rk = COUNTROWS(FILTER(Veiculos, [@where] = Onde && [@doca] = MeuLugar && [@nome] < EuSou)) + 0",
+      "VAR Jx = COUNTROWS(FILTER(Veiculos, [@where] = Onde && [@nome] & \"|\" & [@id] <= EuSou & \"|\" & MeuId))",
+      `RETURN IF(ISBLANK(EuSou) || ISBLANK(Onde), BLANK(), SWITCH(Onde, "doca", SWITCH(Ix * 10 + Rk, ${sw(ent.served, axis)}, BLANK()), "filalocal", SWITCH(Ix * 10 + Rk, ${sw(ent.line, axis)}, BLANK()), "fila", SWITCH(Jx, ${sw(ent.queue, axis)}, BLANK())${ent.road.length ? `, "estrada", SWITCH(Jx, ${sw(ent.road, axis)}, BLANK())` : ""}, BLANK()))`,
+    ].join("\n");
+    entities = { category: col(F, who), x: entityDax("x"), y: entityDax("y") };
+  }
+  return { dax, points: { category: place, x: pointX, y: pointY, w: r1(vb.w), h: r1(vb.h) }, entities };
 }
 
 // ---- Stage tracker --------------------------------------------------------------------------------

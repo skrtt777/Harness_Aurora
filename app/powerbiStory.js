@@ -30,6 +30,8 @@ const STAGE_TIME = [
   [5, /fim|entrega|conclus|fechamento|finaliz|t[ée]rmino|baixa/i],
 ];
 const DRIVER = /motorista|condutor/i;
+const singularWord = (w) => (/ões$/.test(w) ? w.replace(/ões$/, "ão") : /ns$/.test(w) ? w.replace(/ns$/, "m") : /(r|z)es$/.test(w) ? w.replace(/es$/, "") : /is$/.test(w) ? w.replace(/is$/, "l") : w.replace(/s$/, ""));
+const singular = (phrase) => { const m = /^(\S+)(\s+.*)?$/.exec(String(phrase)); return `${singularWord(m[1])}${m[2] || ""}`; };
 const pluralWord = (w) => (/s$/.test(w) ? w : /ão$/.test(w) ? w.replace(/ão$/, "ões") : /m$/.test(w) ? w.replace(/m$/, "ns") : /[rz]$/.test(w) ? `${w}es` : /l$/.test(w) ? w.replace(/l$/, "is") : `${w}s`);
 // The kind of place, which decides the room the scene draws (not a warehouse with another name):
 // a dock wall, a shop floor with checkouts, a clinic with rooms and a waiting room, a hall with counters,
@@ -229,6 +231,9 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
         url: picture(`${flow.glyph === "veiculo" ? "Cena do pátio" : "Cena da operação"}${suffix}`, made.dax, `As ${flow.place.toLowerCase()}s e os ${flow.vehicles || "itens"} desenhados a partir dos dados`),
         x: add(`${flow.glyph === "veiculo" ? "Pátio" : "Operação"} X${suffix}`, made.points.x, "0", "Cenas", `Posição de cada ${flow.place.toLowerCase()} na cena (para o clique)`),
         y: add(`${flow.glyph === "veiculo" ? "Pátio" : "Operação"} Y${suffix}`, made.points.y, "0", "Cenas", `Posição de cada ${flow.place.toLowerCase()} na cena (para o clique)`),
+        // One point on each one drawn: a click on a truck (a patient, an order) selects it.
+        ex: made.entities ? add(`Posição X na cena${suffix}`, made.entities.x, "0", "Cenas", `Onde cada um dos ${flow.vehicles || "itens"} está desenhado (para o clique)`) : null,
+        ey: made.entities ? add(`Posição Y na cena${suffix}`, made.entities.y, "0", "Cenas", `Onde cada um dos ${flow.vehicles || "itens"} está desenhado (para o clique)`) : null,
         made,
       });
     }
@@ -238,7 +243,10 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   const tracker = picture("Rastreamento", trackerScene(flow), "As etapas e quantos estão em cada uma");
   const progress = picture("Progresso", progressBar(flow), "Quanto falta para concluir");
   const key = flow.asset || flow.id;
-  const detail = key ? picture("Detalhe selecionado", detailCard(flow, { pick: `Escolha ${flow.asset ? (flow.vehicles === "caminhões" ? "um caminhão" : "um veículo") : "um item"} na tabela` }), "O item escolhido e a etapa dele") : null;
+  // "Clique num caminhão na cena", "Clique numa ordem de produção na cena".
+  const one = singular(flow.vehicles || "item");
+  const article = /^(ordem|senha|carga|nota|ficha|solicita|requisi|entrega|encomenda|pessoa|consulta)/.test(one) ? "numa" : "num";
+  const detail = key ? picture("Detalhe selecionado", detailCard(flow, { pick: `Clique ${article} ${one} na cena ou na tabela` }), "O item escolhido e a etapa dele") : null;
 
   // The blocks a plan can place: the scene (the yard, or the stages as towers), the tracker, the selected
   // item and the table of what is in progress with its progress bars.
@@ -250,7 +258,7 @@ export function flowDesign(flow, { add, title, count, stamp = null }) {
   // The scene's name for the planner: "patio" for vehicles at docks, "operacao" for any other place.
   const sceneId = flow.glyph === "veiculo" ? "patio" : "operacao";
   const who = flow.vehicles || "itens";
-  if (scene) scenes[sceneId] = { covers: [flow.place, flow.site, flow.asset, flow.id].filter(Boolean), desc: `a operação desenhada e viva: ${flow.placeMasc ? "cada" : "cada"} ${flow.place.toLowerCase()} com os ${who} sendo atendidos e a fila de cada um, ${flow.placeMasc ? "livres" : "livres"} em verde${flow.stages.some((st) => st.key === "transito") ? ", os que estão a caminho na estrada" : ""}; cada um desenhado onde está${flow.timeline ? "; dá para voltar no tempo e ver a previsão das próximas horas" : ""}; clicar filtra a página${flow.site ? `; uma ${flow.site.toLowerCase()} por vez` : ""}`, make: ({ look = "noite" } = {}) => { const y = yard(look); return { type: "image", scene: true, look, url: m(y.url), title: `${flow.place}s e ${who} ${flow.timeline ? "no momento escolhido" : "agora"}`, overlay: { category: y.made.points.category, x: m(y.x), y: m(y.y), w: Number(y.made.points.w), h: Number(y.made.points.h) } }; } };
+  if (scene) scenes[sceneId] = { covers: [flow.place, flow.site, flow.asset, flow.id].filter(Boolean), desc: `a operação desenhada e viva: ${flow.placeMasc ? "cada" : "cada"} ${flow.place.toLowerCase()} com os ${who} sendo atendidos e a fila de cada um, ${flow.placeMasc ? "livres" : "livres"} em verde${flow.stages.some((st) => st.key === "transito") ? ", os que estão a caminho na estrada" : ""}; cada um desenhado onde está${flow.timeline ? "; dá para voltar no tempo e ver a previsão das próximas horas" : ""}; clicar filtra a página${flow.site ? `; uma ${flow.site.toLowerCase()} por vez` : ""}`, make: ({ look = "noite" } = {}) => { const y = yard(look); return { type: "image", scene: true, look, url: m(y.url), title: `${flow.place}s e ${who} ${flow.timeline ? "no momento escolhido" : "agora"}`, overlay: { category: y.made.points.category, x: m(y.x), y: m(y.y), w: Number(y.made.points.w), h: Number(y.made.points.h), ...(y.ex ? { entities: { category: y.made.entities.category, x: m(y.ex), y: m(y.ey) } } : {}) } }; } };
   else scenes.etapas = { desc: "as etapas como torres: quantos em cada uma, os atrasados em vermelho", make: () => ({ type: "image", url: m(towers), title: "Onde está cada um agora" }) };
   const specials = {
     rastreamento: { desc: "as etapas em sequência com quantos em cada (ou o caminho do item escolhido)", make: () => ({ type: "image", url: m(tracker), title: "Rastreamento" }) },
