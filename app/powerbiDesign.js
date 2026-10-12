@@ -45,7 +45,9 @@ export function readSources(path) {
     const utf8 = !text.includes("�");
     if (!utf8) text = buffer.toString("latin1");
     const { delimiter, rows } = csvRows(text);
-    return [{ name: tableName(basename(path, ext)), header: rows[0], rows: rows.slice(1), source: { kind: "csv", path, delimiter, encoding: utf8 ? 65001 : 1252 } }];
+    const table = cleanTable(rows);
+    if (!table) throw new Error(`Não achei uma tabela em "${basename(path)}" (uma linha de cabeçalho e dados abaixo dela).`);
+    return [{ name: tableName(basename(path, ext)), header: table.header, rows: table.rows, source: { kind: "csv", path, delimiter, encoding: utf8 ? 65001 : 1252, headerKey: table.headerKey, columns: table.columns } }];
   }
   if (ext === ".xlsx" || ext === ".xlsm") {
     const tables = [];
@@ -55,9 +57,52 @@ export function readSources(path) {
       if (sheet) { current = { sheet: sheet[1], lines: [] }; tables.push(current); continue; }
       if (current) current.lines.push(line.split(" | "));
     }
-    return tables.filter((t) => t.lines.length >= 2).map((t) => ({ name: tableName(t.sheet), sheet: t.sheet, header: t.lines[0], rows: t.lines.slice(1), source: { kind: "excel", path, sheet: t.sheet } }));
+    // A sheet that is not a table (notes, a cover) is left out.
+    return tables.map((t) => ({ t, table: cleanTable(t.lines) })).filter(({ table }) => table)
+      .map(({ t, table }) => ({ name: tableName(t.sheet), sheet: t.sheet, header: table.header, rows: table.rows, source: { kind: "excel", path, sheet: t.sheet, headerKey: table.headerKey, columns: table.columns } }));
   }
   throw new Error(`O Power BI da Aurora lê planilhas .xlsx e arquivos .csv; "${basename(path)}" não é um deles.`);
+}
+
+// ---- A table out of a sheet as it comes (a title over it, blank rows, a total at the end) ------------
+
+const TOTAL_ROW = /^(total|subtotal|totais|soma|total geral)\b/i;
+const filled = (row) => row.filter((v) => String(v ?? "").trim() !== "");
+const looksLikeValue = (v) => /^-?(R\$\s*)?[\d.,]+%?$/.test(String(v).trim()) || /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/.test(String(v).trim());
+
+/**
+ * The header is the first row (of the first 15) with at least two names, none of them a number or a
+ * date, and data under it; columns without a name and without data go; blank rows and total rows go.
+ * Dates come out as dd/mm/yyyy (the sheet mixes "05/07/26", "2026-07-05"…). Returns { header, rows,
+ * headerKey, columns } or null when the sheet has no table (fewer than 2 columns or 3 rows).
+ */
+export function cleanTable(lines) {
+  const rows = lines.map((r) => r.map((v) => String(v ?? "").trim()));
+  let h = -1;
+  for (let i = 0; i < Math.min(15, rows.length); i += 1) {
+    const names = filled(rows[i]);
+    if (names.length < 2 || names.some(looksLikeValue) || new Set(names).size < names.length) continue;
+    const below = rows.slice(i + 1, i + 4).filter((r) => filled(r).length);
+    if (below.length && below.every((r) => filled(r).length >= Math.max(2, names.length - 2))) { h = i; break; }
+  }
+  if (h < 0) return null;
+  const width = Math.max(...rows.slice(h).map((r) => r.length));
+  const body = rows.slice(h + 1).filter((r) => filled(r).length && !TOTAL_ROW.test(filled(r)[0]));
+  const keep = [];
+  for (let c = 0; c < width; c += 1) if ((rows[h][c] || "") !== "" || body.some((r) => (r[c] || "") !== "")) keep.push(c);
+  if (keep.length < 2 || body.length < 3) return null;
+  const header = keep.map((c) => rows[h][c] || `Coluna ${c + 1}`);
+  const data = body.map((r) => keep.map((c) => normalDate(r[c] || "")));
+  return { header, rows: data, headerKey: filled(rows[h]).join("|"), columns: keep.map((c) => ({ position: c + 1, name: header[keep.indexOf(c)], unnamed: !rows[h][c] })) };
+}
+
+/** "05/07/26", "2026-07-05", "5/7/2026 14:30" -> "05/07/2026[ 14:30]"; anything else as it was. */
+function normalDate(v) {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?$/.exec(v);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}${iso[4] ? ` ${iso[4]}` : ""}`;
+  const br = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?: (\d{1,2}:\d{2}(?::\d{2})?))?$/.exec(v);
+  if (br) return `${br[1].padStart(2, "0")}/${br[2].padStart(2, "0")}/${br[3].length === 2 ? `20${br[3]}` : br[3]}${br[4] ? ` ${br[4]}` : ""}`;
+  return v;
 }
 
 const tableName = (text) => String(text).replace(/[_-]+/g, " ").replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase()) || "Dados";
@@ -82,7 +127,7 @@ export function parseNumber(raw, decimalComma) {
   if (!s || !/^-?[\d.,]+%?$/.test(s)) return NaN;
   const percent = s.endsWith("%");
   s = s.replace(/%$/, "");
-  if (decimalComma) s = s.replace(/\./g, "").replace(",", ".");
+  if (decimalComma || /^-?\d{1,3}(\.\d{3})+,\d+$|^-?\d+,\d{1,2}$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
   else s = s.replace(/,/g, "");
   const n = Number(s);
   return percent ? n / 100 : n;
@@ -131,14 +176,37 @@ const INT = "#,0";
 const DEC = "#,0.00";
 const PCT = "0.0%";
 
+/** The same cleaning in Power Query: find the header row by its names, keep the columns, drop the rest. */
+function mClean(t) {
+  const src = t.source;
+  if (!src.headerKey) return { steps: ["    Cabecalhos = Table.PromoteHeaders(Fonte0, [PromoteAllScalars=true]),"], last: "Cabecalhos" };
+  const keep = src.columns.map((c) => (c.unnamed ? `Column${c.position}` : c.name));
+  const rename = src.columns.filter((c) => c.unnamed).map((c) => `{${mString(`Column${c.position}`)}, ${mString(c.name)}}`);
+  const numbers = t.columns.filter((c) => c.type === "numero" || c.type === "inteiro").map((c) => `{${mString(c.name)}, each if _ is text then Number.FromText(Text.Trim(Text.Remove(_, {"R", "$", " "})), "pt-BR") else _}`);
+  const total = "{\"total\", \"subtotal\", \"totais\", \"soma\", \"total geral\"}";
+  return {
+    steps: [
+      "    Linhas = List.Transform(Table.ToRows(Fonte0), each Text.Combine(List.Transform(List.Select(_, each _ <> null and Text.Trim(Text.From(_)) <> \"\"), each Text.Trim(Text.From(_))), \"|\")),",
+      `    Inicio = List.PositionOf(Linhas, ${mString(src.headerKey)}),`,
+      "    Cabecalhos = Table.PromoteHeaders(Table.Skip(Fonte0, if Inicio < 0 then 0 else Inicio), [PromoteAllScalars=true]),",
+      `    Colunas = Table.SelectColumns(Cabecalhos, {${keep.map(mString).join(", ")}}, MissingField.UseNull),`,
+      `    Nomes = ${rename.length ? `Table.RenameColumns(Colunas, {${rename.join(", ")}})` : "Colunas"},`,
+      `    Uteis = Table.SelectRows(Nomes, each let v = List.Select(Record.FieldValues(_), each _ <> null and Text.Trim(Text.From(_)) <> "") in List.Count(v) > 0 and not List.Contains(${total}, Text.Lower(Text.Trim(Text.From(v{0}))))),`,
+      `    Numeros = ${numbers.length ? `Table.TransformColumns(Uteis, {${numbers.join(", ")}})` : "Uteis"},`,
+    ],
+    last: "Numeros",
+  };
+}
+
 function mExpression(t) {
   const types = t.columns.map((c) => `{${mString(c.name)}, ${M_TYPE[c.type]}}`).join(", ");
+  const clean = mClean(t);
   if (t.source.kind === "csv") {
     return [
       "let",
-      `    Fonte = Csv.Document(File.Contents(${mString(t.source.path)}), [Delimiter=${mString(t.source.delimiter)}, Columns=${t.header.length}, Encoding=${t.source.encoding}, QuoteStyle=QuoteStyle.Csv]),`,
-      "    Cabecalhos = Table.PromoteHeaders(Fonte, [PromoteAllScalars=true]),",
-      `    Tipos = Table.TransformColumnTypes(Cabecalhos, {${types}}, ${mString(t.decimalComma ? "pt-BR" : "en-US")})`,
+      `    Fonte0 = Csv.Document(File.Contents(${mString(t.source.path)}), [Delimiter=${mString(t.source.delimiter)}, Encoding=${t.source.encoding}, QuoteStyle=QuoteStyle.Csv]),`,
+      ...clean.steps,
+      `    Tipos = Table.TransformColumnTypes(${clean.last}, {${types}}, ${mString(t.decimalComma ? "pt-BR" : "en-US")})`,
       "in",
       "    Tipos",
     ].join("\n");
@@ -146,10 +214,10 @@ function mExpression(t) {
   return [
     "let",
     `    Fonte = Excel.Workbook(File.Contents(${mString(t.source.path)}), null, true),`,
-    `    Planilha = Fonte{[Item=${mString(t.source.sheet)},Kind="Sheet"]}[Data],`,
-    "    Cabecalhos = Table.PromoteHeaders(Planilha, [PromoteAllScalars=true]),",
+    `    Fonte0 = Fonte{[Item=${mString(t.source.sheet)},Kind="Sheet"]}[Data],`,
+    ...clean.steps,
     // pt-BR: a date typed as text in the sheet ("15/03/2025") is read as day/month.
-    `    Tipos = Table.TransformColumnTypes(Cabecalhos, {${types}}, "pt-BR")`,
+    `    Tipos = Table.TransformColumnTypes(${clean.last}, {${types}}, "pt-BR")`,
     "in",
     "    Tipos",
   ].join("\n");

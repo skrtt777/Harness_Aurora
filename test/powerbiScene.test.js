@@ -290,3 +290,23 @@ test("the local model plans up to three times and the best plan wins; the main p
   assert.equal(normalizePlan(weak, cat, "").paginas[0].cena, "patio");
   assert.ok(scorePlan(normalizePlan(good, cat, "ver o pátio, as docas e os atrasos"), cat, "ver o pátio, as docas e os atrasos") > scorePlan(normalizePlan(weak, cat, "ver o pátio, as docas e os atrasos"), cat, "ver o pátio, as docas e os atrasos"));
 });
+
+test("a sheet as it comes: title over it, blank rows, a total at the end, mixed dates and money as text", async () => {
+  const { cleanTable, parseNumber } = await import("../app/powerbiDesign.js");
+  const t = cleanTable([
+    ["Relatório de vendas"], ["Gerado em 11/10/2026"], [],
+    ["Data", "Loja", "", "Valor (R$)", ""],
+    ["05/07/26", "Centro", "", "R$ 12,50", ""],
+    ["2026-07-06", "Savassi", "x", "10", ""],
+    [],
+    ["7/7/2026", "Centro", "", "1.234,56", ""],
+    ["Total", "", "", "1257.06", ""],
+  ]);
+  assert.deepEqual(t.header, ["Data", "Loja", "Coluna 3", "Valor (R$)"]);
+  assert.deepEqual(t.rows.map((r) => r[0]), ["05/07/2026", "06/07/2026", "07/07/2026"]);
+  assert.equal(t.headerKey, "Data|Loja|Valor (R$)");
+  assert.equal(parseNumber("R$ 12,50", false), 12.5);
+  assert.equal(parseNumber("1.234,56", false), 1234.56);
+  assert.equal(parseNumber("1234.56", false), 1234.56);
+  assert.equal(cleanTable([["Planilha mantida pelo financeiro."], ["Valores sem impostos."]]), null, "a notes sheet is not a table");
+});
