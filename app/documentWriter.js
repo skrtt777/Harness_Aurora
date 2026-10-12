@@ -12,23 +12,52 @@ const cells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split(
 const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
 const isSeparator = (line) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
 
-/** Markdown → blocks: {type:"heading",level,text} | {type:"bullet",text} | {type:"paragraph",text} | {type:"table",rows}. */
-export function parseBlocks(markdown) {
+/**
+ * A run of lines that is a table written without the markdown pipes at the ends ("Nome | Cargo",
+ * 12/10: a whole spreadsheet became one text column and its Power BI came out empty) or, for a
+ * spreadsheet, as delimited text (";" "," or tab): at least two lines of two cells or more.
+ * Returns how many lines it takes and the delimiter, or null.
+ */
+function delimitedRun(lines, i, delimiters) {
+  for (const d of delimiters) {
+    const count = (line) => (line.trim() ? line.split(d).length : 0);
+    const n = count(lines[i]);
+    if (n < 2) continue;
+    // Lines of other widths stay in the run: the table check then says which one is wrong.
+    let j = i; while (j < lines.length && count(lines[j]) >= 2) j += 1;
+    if (j - i >= 2) return { length: j - i, delimiter: d };
+  }
+  return null;
+}
+
+/**
+ * Markdown → blocks: {type:"heading",level,text} | {type:"bullet",text} | {type:"paragraph",text} | {type:"table",rows,title}.
+ * sheet: for a spreadsheet (.xlsx/.csv) a delimited run of lines is a table too.
+ */
+export function parseBlocks(markdown, { sheet = false } = {}) {
   const blocks = [];
   const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  let lastHeading = "";
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     // Blank lines and --- separators.
     if (!line.trim() || /^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) continue;
+    const run = !isTableLine(line) && delimitedRun(lines, i, sheet ? ["|", "\t", ";", ","] : ["|"]);
+    if (run) {
+      const rows = lines.slice(i, i + run.length).filter((l) => !isSeparator(l)).map((l) => l.split(run.delimiter).map((c) => clean(c.replace(/^"(.*)"$/, "$1"))));
+      blocks.push({ type: "table", rows, title: lastHeading });
+      i += run.length - 1;
+      continue;
+    }
     if (isTableLine(line)) {
       const rows = [];
       for (; i < lines.length && isTableLine(lines[i]); i += 1) if (!isSeparator(lines[i])) rows.push(cells(lines[i]));
       i -= 1;
-      blocks.push({ type: "table", rows });
+      blocks.push({ type: "table", rows, title: lastHeading });
       continue;
     }
     const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
-    if (heading) { blocks.push({ type: "heading", level: heading[1].length, text: clean(heading[2]) }); continue; }
+    if (heading) { lastHeading = clean(heading[2]); blocks.push({ type: "heading", level: heading[1].length, text: lastHeading }); continue; }
     const bullet = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
     if (bullet) { blocks.push({ type: "bullet", text: clean(bullet[1]) }); continue; }
     blocks.push({ type: "paragraph", text: clean(line) });
@@ -63,14 +92,38 @@ async function makeDocument(blocks) {
   });
 }
 
-const NUMBER = /^-?\d+(\.\d+)?$/;
+/**
+ * A cell's number as a Brazilian writes it: "385000", "1.5", "8.500.000,00", "R$ 1.234,56", "12,5%"
+ * (as 12.5); null when it is not a plain number (a date, a code, a CNPJ, "0001").
+ */
+export function cellNumber(value) {
+  const s = String(value ?? "").replace(/^R\$\s*/i, "").replace(/\s+/g, "").replace(/%$/, "");
+  if (!s || /^-?0\d/.test(s)) return null;
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) return Number(s.replace(/\./g, "").replace(",", "."));
+  if (/^-?\d+,\d+$/.test(s)) return Number(s.replace(",", "."));
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  return null;
+}
+/** A table that is a table: a header, rows, the same columns in each; the error says what to fix. */
+function checkTable(rows, name) {
+  if (rows.length < 2) throw new Error(`A tabela "${name}" só tem o cabeçalho: grave as linhas de dados abaixo dele.`);
+  const width = rows[0].length;
+  const bad = rows.findIndex((r) => r.length !== width);
+  if (bad > 0) throw new Error(`A tabela "${name}" tem ${width} colunas no cabeçalho, mas a linha ${bad + 1} tem ${rows[bad].length}: cada linha com uma célula por coluna (uma planilha assim chega quebrada no Power BI).`);
+}
 async function makeSheet(blocks) {
   const { makeXlsx } = await import("./sampleDocs.js");
   const tables = blocks.filter((b) => b.type === "table");
-  const sheets = tables.length
-    ? Object.fromEntries(tables.map((t, i) => [`Tabela ${i + 1}`, t.rows]))
-    : { Planilha: blocks.map((b) => [b.text]) };
-  for (const rows of Object.values(sheets)) for (const row of rows) row.forEach((v, i) => { if (NUMBER.test(v)) row[i] = Number(v); });
+  // A spreadsheet is tables: text alone (a report written as markdown) is refused, not stored as one
+  // column of sentences (12/10: such a file opened in Power BI with no data).
+  if (!tables.length) throw new Error("Uma planilha .xlsx precisa de tabela: uma linha de cabeçalho e as linhas de dados, com as células separadas por | (ex.: \"Departamento | Funcionários\\nVendas | 345\"). Para texto, use .docx.");
+  const sheets = {};
+  tables.forEach((t, i) => {
+    let name = String(t.title || `Tabela ${i + 1}`).replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || `Tabela ${i + 1}`;
+    while (sheets[name]) name = `${name.slice(0, 28)} ${i + 1}`;
+    checkTable(t.rows, name);
+    sheets[name] = t.rows.map((row, r) => (r === 0 ? row : row.map((v) => cellNumber(v) ?? v)));
+  });
   return makeXlsx(sheets);
 }
 
@@ -126,13 +179,16 @@ export function makePdfDocument(blocks) {
 }
 
 function csvOf(blocks) {
-  const rows = blocks.some((b) => b.type === "table") ? blocks.filter((b) => b.type === "table").flatMap((b) => b.rows) : blocks.map((b) => [b.text]);
+  const tables = blocks.filter((b) => b.type === "table");
+  // A .csv is one table (a "Fonte:" line or a title after it would be a row of garbage in Power BI).
+  if (tables.length) checkTable(tables[0].rows, tables[0].title || "CSV");
+  const rows = tables.length ? tables[0].rows : blocks.map((b) => [b.text]);
   return `﻿${rows.map((row) => row.map((c) => (/[;"\n]/.test(c) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(";")).join("\r\n")}\r\n`;
 }
 
 /** Bytes of the document in the given format. */
 export async function renderDocument(format, markdown) {
-  const blocks = parseBlocks(markdown);
+  const blocks = parseBlocks(markdown, { sheet: format === "xlsx" || format === "csv" });
   if (!blocks.length) throw new Error("O conteúdo está vazio.");
   if (format === "docx") return makeDocument(blocks);
   if (format === "xlsx") return makeSheet(blocks);

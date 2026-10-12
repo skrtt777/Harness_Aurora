@@ -319,6 +319,17 @@ export async function buildReport({ files, folder, name, goal, conversationId, o
   return result;
 }
 
+/** The data tables (from the person's files) that the refresh reports with no rows or an error. */
+export function emptySourceTables(refreshed, names) {
+  const text = String(refreshed || "").replace(/^.*?Linhas por tabela:\s*/s, "").replace(/\.\s*$/, "");
+  return names.filter((name) => {
+    const m = new RegExp(`(?:^|, )${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} ([^,]*)`).exec(text);
+    if (!m) return false;
+    const n = Number(String(m[1]).trim().replace(/\./g, ""));
+    return !Number.isFinite(n) || n === 0 || /erro/i.test(m[1]) || !String(m[1]).trim();
+  });
+}
+
 async function loadOpened(result, plan, report, conversationId, onStage) {
   // The engine is up before the project's model is in it: a few tries.
   let model = "";
@@ -331,6 +342,10 @@ async function loadOpened(result, plan, report, conversationId, onStage) {
   connected.set(conversationId || "", { ...report, model });
   onStage("Carregando os dados…");
   result.refreshed = ok(await pbiRequest("refresh", {}, 300_000)).text;
+  // A table of the person's data that loaded no rows is a failed BI, never "Pronto" (12/10: three
+  // reports in a row opened empty and the Aurora said they were fine).
+  const empty = emptySourceTables(result.refreshed, plan.model.tables.filter((t) => t.m).map((t) => t.name));
+  if (empty.length) throw new Error(`O Power BI abriu, mas ${empty.length > 1 ? "as tabelas" : "a tabela"} ${empty.map((n) => `"${n}"`).join(", ")} ficou sem nenhuma linha: o painel está vazio. Confira a planilha com read_file (cabeçalho na primeira linha e uma célula por coluna) e, se ela estiver errada, grave de novo com write_document antes de montar o BI.`);
   // The headline numbers, as the cards will show them.
   const kpis = plan.pages[0].visuals.filter((v) => v.type === "card" || v.kpi).map((v) => v.kpi || v.values);
   if (kpis.length) {

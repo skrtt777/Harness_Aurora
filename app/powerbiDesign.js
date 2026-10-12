@@ -4,7 +4,7 @@
 // says which files and what to call it; the quality of the model and of the pages comes from here.
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
-import { xlsxText } from "./docText.js";
+import { xlsxSheets } from "./docText.js";
 import { flowDesign, momentTable, readFlow } from "./powerbiStory.js";
 import { moneyDesign, readMoney } from "./powerbiMoney.js";
 import { cityScene } from "./powerbiScene.js";
@@ -52,16 +52,23 @@ export function readSources(path) {
     return [{ name: tableName(basename(path, ext)), header: table.header, rows: table.rows, source: { kind: "csv", path, delimiter, encoding: utf8 ? 65001 : 1252, headerKey: table.headerKey, columns: table.columns } }];
   }
   if (ext === ".xlsx" || ext === ".xlsm") {
-    const tables = [];
-    let current = null;
-    for (const line of xlsxText(buffer).split("\n")) {
-      const sheet = /^## (.*)$/.exec(line);
-      if (sheet) { current = { sheet: sheet[1], lines: [] }; tables.push(current); continue; }
-      if (current) current.lines.push(line.split(" | "));
-    }
+    // The cells as Excel and Power BI see them (not the text split at " | ": a sheet with each row in
+    // one cell looked like a table here and loaded empty in Power BI, 12/10).
+    const sheets = xlsxSheets(buffer);
     // A sheet that is not a table (notes, a cover) is left out.
-    return tables.map((t) => ({ t, table: cleanTable(t.lines) })).filter(({ table }) => table)
-      .map(({ t, table }) => ({ name: tableName(t.sheet), sheet: t.sheet, header: table.header, rows: table.rows, source: { kind: "excel", path, sheet: t.sheet, headerKey: table.headerKey, columns: table.columns } }));
+    const found = sheets.map((t) => ({ t, table: cleanTable(t.rows) })).filter(({ table }) => table)
+      .map(({ t, table }) => ({ name: tableName(t.name), sheet: t.name, header: table.header, rows: table.rows, source: { kind: "excel", path, sheet: t.name, headerKey: table.headerKey, columns: table.columns } }));
+    // A sheet with a name that says nothing ("Tabela 1", "Planilha1", "Sheet1") takes the file's name:
+    // three files of the Aurora's became "Tabela 1", "Tabela 1 2", "Tabela 1 3" in one model (12/10).
+    const file = basename(path, ext);
+    for (const t of found) if (/^(tabela|planilha|plan|sheet|folha)\s*\d*$/i.test(String(t.sheet).trim())) t.name = tableName(found.length > 1 ? `${file} ${t.sheet}` : file);
+    if (!found.length) {
+      const oneColumn = sheets.some((t) => t.rows.length > 1 && t.rows.every((r) => r.filter((c) => String(c).trim()).length <= 1) && t.rows.some((r) => /\s\|\s/.test(String(r[0]))));
+      throw new Error(oneColumn
+        ? `"${basename(path)}" tem cada linha inteira numa célula só ("Nome | Cargo | ..." na coluna A): não é uma tabela para o Power BI. Grave a planilha de novo com write_document, uma tabela com cabeçalho e uma célula por coluna.`
+        : `Não achei uma tabela em "${basename(path)}" (uma linha de cabeçalho e dados abaixo dela, uma célula por coluna).`);
+    }
+    return found;
   }
   throw new Error(`O Power BI da Aurora lê planilhas .xlsx e arquivos .csv; "${basename(path)}" não é um deles.`);
 }

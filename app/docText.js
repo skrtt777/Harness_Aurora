@@ -95,14 +95,17 @@ const tidyNumber = (n) => String(Number(n.toFixed(6)));
 /** Column index (0-based) of a cell reference such as "C12". */
 const columnIndex = (ref) => [...ref.replace(/\d+$/, "")].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
 
-export function xlsxText(buffer) {
+/**
+ * The sheets of an .xlsx as their cells really are: [{ name, rows: [[cell, ...], ...] }] (empty rows
+ * left out). A cell holding "A | B | C" stays one cell, as Excel and Power BI see it.
+ */
+export function xlsxSheets(buffer) {
   const zip = readZip(buffer);
   const shared = [...entryText(zip, "xl/sharedStrings.xml").matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xmlText([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
   const names = [...entryText(zip, "xl/workbook.xml").matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => xmlText(m[1]));
   const kinds = cellKinds(entryText(zip, "xl/styles.xml"));
-  const out = [];
-  numbered([...zip.keys()], "xl/worksheets/sheet").forEach((sheet, index) => {
-    out.push(`## ${names[index] || `Planilha ${index + 1}`}`);
+  return numbered([...zip.keys()], "xl/worksheets/sheet").map((sheet, index) => {
+    const rows = [];
     for (const row of entryText(zip, sheet).matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
       // Empty cells are not stored at all, so place each value by its reference ("C12").
       const cells = [];
@@ -122,10 +125,14 @@ export function xlsxText(buffer) {
         while (cells.length < at) cells.push("");
         cells[at] = value;
       }
-      if (cells.some((c) => String(c).trim())) out.push(cells.join(" | "));
+      if (cells.some((c) => String(c).trim())) rows.push(cells);
     }
+    return { name: names[index] || `Planilha ${index + 1}`, rows };
   });
-  return out.join("\n");
+}
+
+export function xlsxText(buffer) {
+  return xlsxSheets(buffer).map((s) => [`## ${s.name}`, ...s.rows.map((cells) => cells.join(" | "))].join("\n")).join("\n");
 }
 
 export function pptxText(buffer) {

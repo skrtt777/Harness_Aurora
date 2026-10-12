@@ -143,7 +143,7 @@ export const powerBiTools = [
       action: { type: "string", enum: ["build", "connect", "model", "query", "show", "vr", "change", "refresh", "save"] },
       values: { type: "array", items: { type: "string" }, description: "show: o que acender no painel, com o nome exato como está nos dados (ex.: [\"Doca 03\"], [\"ABC-3P34\"], [\"Caixa 04\"], [\"MG\"]); vazio apaga" },
       note: { type: "string", description: "show: a frase curta que aparece na cena (ex.: \"Doca 03 parada há 40 min\")" },
-      files: { type: "array", items: { type: "string" }, description: "planilhas .xlsx/.csv (build)" },
+      files: { type: "array", items: { type: "string" }, description: "build: TODAS as planilhas .xlsx/.csv do pedido, com o caminho completo que a ferramenta que as criou ou achou devolveu; cada uma é uma tabela (cabeçalho e linhas, uma célula por coluna)" },
       name: { type: "string", description: "título do painel (build)" },
       goal: { type: "string", description: "o que o painel deve mostrar, nas palavras da pessoa (build)" },
       folder: { type: "string", description: "onde criar o projeto (build; padrão Documentos/Power BI)" },

@@ -906,7 +906,8 @@ function documentPath(args, ctx) {
 export function requestedFormat(request) {
   const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   if (/\b(markdown|\.md|texto puro|\.txt)\b/.test(text)) return null;
-  if (/\b(planilha|excel|xlsx)\b/.test(text)) return "xlsx";
+  // "planilhas", and Excel as people type it ("execel", "exel", 12/10).
+  if (/\b(planilhas?|excel|execel|exel|exell|xlsx)\b/.test(text)) return "xlsx";
   if (/\bpdf\b/.test(text)) return "pdf";
   if (/\b(word|docx|relatorio|documento)\b/.test(text)) return "docx";
   return null;
