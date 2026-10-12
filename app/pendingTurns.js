@@ -24,7 +24,7 @@ export function activeTurns() {
 export function startTurn(conversationId) {
   if (pending.has(conversationId)) throw Object.assign(new Error("Esta conversa já tem uma resposta em andamento."), { status: 409 });
   const controller = new AbortController();
-  pending.set(conversationId, { controller, stage: "Gerando resposta…" });
+  pending.set(conversationId, { controller, stage: "Gerando resposta…", since: Date.now() });
   return controller;
 }
 
@@ -117,8 +117,28 @@ export function endTurn(conversationId, controller) {
   const entry = pending.get(conversationId);
   if (!controller || entry?.controller === controller) {
     entry?.approval?.resolve(false);
+    if (entry) { recent.unshift({ conversationId, since: entry.since, endedAt: Date.now(), cancelled: entry.controller.signal.aborted }); recent.length = Math.min(recent.length, 30); }
     pending.delete(conversationId);
   }
+}
+
+// Turns that ended lately (the office shows who just delivered taking a coffee): in memory only.
+const recent = [];
+
+/**
+ * What every turn is doing right now, for the agents' office (app/office.js): its stage, the last
+ * steps, the permission it waits for, how far its plan is; and the turns that ended in the last
+ * `withinMs`.
+ */
+export function turnSnapshots({ withinMs = 5 * 60_000, now = Date.now() } = {}) {
+  const active = [...pending.entries()].map(([conversationId, e]) => ({
+    conversationId, stage: e.stage || null, since: e.since || null,
+    steps: (e.steps || []).slice(-3).map((s) => ({ tool: s.tool, status: s.status || null, summary: String(s.summary || s.stage || "").slice(0, 160) })),
+    approval: e.approval ? { tool: e.approval.tool, summary: String(e.approval.summary || "").slice(0, 160) } : null,
+    plan: Array.isArray(e.plan) ? { done: e.plan.filter((p) => p.status === "done").length, total: e.plan.length } : null,
+  }));
+  const ended = recent.filter((r) => now - r.endedAt <= withinMs && !pending.has(r.conversationId));
+  return { active, ended };
 }
 
 export function cancelTurn(conversationId) {

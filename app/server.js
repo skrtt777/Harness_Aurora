@@ -44,6 +44,7 @@ import { computerRoots, discoverCompanyFolders, personalFolders } from "./fileAc
 import * as taskAgents from "./agents.js";
 import { onAutomaticRun, runStats, startAgentScheduler, stopAgentScheduler } from "./agentScheduler.js";
 import { listOrchestrations, planRequest, startOrchestration } from "./orchestrator.js";
+import { officeSnapshot } from "./office.js";
 import { agentSettingsPayload, correctionContext, handleChatTurn, validateWorkspaceDir, warmLocalChat } from "./chatTurn.js";
 import { BROWSER_BACKENDS } from "./browserBackend.js";
 import { createRun, pushStep, finishRun, getRun, getActiveRun, cancelRun } from "./agentRuns.js";
@@ -450,6 +451,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Conhecimento da empresa (pastas da rede / SharePoint) ----------
       // Task agents (agents.js): list, create, change, remove, run, history.
+      // The agents' office (app/office.js): who is working on what, as people in a room.
+      if (method === "GET" && pathname === "/api/office") return sendJson(response, 200, await officeSnapshot({ store: { getConversation, listProjects }, agents: taskAgents, orchestrator: { listOrchestrations } }));
       if (method === "GET" && pathname === "/api/agents") return sendJson(response, 200, { agents: await taskAgents.listAgents(), runs: await taskAgents.listRuns({ limit: 20 }) });
       if (method === "POST" && pathname === "/api/agents") return sendJson(response, 201, { agent: await taskAgents.createAgent(await readJson(request)) });
       if (method === "POST" && pathname === "/api/agents/sector") {

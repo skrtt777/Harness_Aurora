@@ -654,3 +654,7 @@ export interface SubjectSearch {
 export const searchSubject = (q: string) => request<SubjectSearch>(`/privacy/search?q=${encodeURIComponent(q)}`);
 export const exportSubject = (term: string) => request<Record<string, unknown>>("/privacy/export", { method: "POST", body: JSON.stringify({ term }) });
 export const eraseSubject = (term: string) => request<{ memoriesDeleted: number; messagesRedacted: number; conversationsRenamed: number; profileRedacted: boolean }>("/privacy/erase", { method: "POST", body: JSON.stringify({ term, confirm: true }) });
+
+// The agents' office (app/office.js): the rooms and who is in them, each a real session, agent or teacher.
+export type OfficeRoom = { id: string; name: string; kind: "equipe" | "projeto" | "geral"; actors: import("./officeSim").OfficeActor[] };
+export const getOffice = () => request<{ rooms: OfficeRoom[]; updatedAt: string }>("/office");

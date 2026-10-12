@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import Sidebar from "./Sidebar";
 import SkillsView from "./SkillsView";
 import AgentsView from "./AgentsView";
+import OfficeView from "./OfficeView";
 import ChatView from "./ChatView";
 import MemoryView from "./MemoryView";
 import SettingsView from "./SettingsView";
@@ -43,7 +44,7 @@ import {
   onShowAgents,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents";
+type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents" | "office";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -459,6 +460,16 @@ export default function AppShell() {
           />
         )}
         {view === "skills" && <SkillsView />}
+        {view === "office" && (
+          <OfficeView
+            onOpenConversation={(id) => {
+              if (id !== activeConversationId) { setActiveConversation(null); setLoadingConversation(true); }
+              setActiveConversationId(id);
+              setView("chat");
+            }}
+            onOpenAgents={() => setView("agents")}
+          />
+        )}
         {view === "agents" && (
           <AgentsView
             onOpenConversation={(id) => {

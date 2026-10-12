@@ -1,0 +1,43 @@
+/* The agents' office (OfficeView.tsx): the room on a canvas, the people list beside it. */
+.app-shell .office-view.page-skin { max-width: 1680px; padding: 28px 32px 48px; }
+.app-shell .office-view { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.app-shell .office-view .office-lede { margin: 4px 0 0; color: var(--text-3); }
+.app-shell .office-rooms { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-shell .office-room-tab {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--stroke-2); background: transparent; color: var(--text-2); cursor: pointer; font: inherit;
+}
+.app-shell .office-room-tab:hover { background: var(--fill-hover); }
+.app-shell .office-room-tab.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text-1); }
+.app-shell .office-busy { font-size: 12px; color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.app-shell .office-error { color: var(--red); }
+.app-shell .office-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .app-shell .office-body { grid-template-columns: minmax(0, 1fr); } }
+.app-shell .office-stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.app-shell .office-canvas { width: 100%; height: auto; aspect-ratio: 30 / 18; border-radius: 12px; border: 1px solid var(--stroke-2); display: block; background: #d9c6a5; }
+.app-shell .office-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0; padding: 0; list-style: none; color: var(--text-3); font-size: 12px; }
+.app-shell .office-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.app-shell .office-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.app-shell .office-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.app-shell .office-card { padding: 14px; border: 1px solid var(--stroke-2); border-radius: 12px; background: var(--bg-elevated); display: flex; flex-direction: column; gap: 6px; }
+.app-shell .office-card h2 { margin: 0; font-size: 16px; }
+.app-shell .office-card p { margin: 0; overflow-wrap: anywhere; }
+.app-shell .office-kind { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-4); }
+.app-shell .office-task { color: var(--text-3); font-size: 13px; }
+.app-shell .office-hint { color: var(--text-3); margin: 0; }
+.app-shell .office-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.app-shell .office-actions button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--text-1); cursor: pointer; font: inherit; }
+.app-shell .office-actions button.ghost { border-color: var(--stroke-2); background: transparent; color: var(--text-2); }
+.app-shell .office-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 420px; overflow-y: auto; }
+.app-shell .office-people button {
+  width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 8px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; font: inherit; text-align: left;
+}
+.app-shell .office-people button:hover { background: var(--fill-hover); }
+.app-shell .office-people button.active { background: var(--fill-active); color: var(--text-1); }
+.app-shell .office-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .office-state { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.app-shell .office-state.s-trabalhando, .app-shell .office-state.s-refazendo, .app-shell .office-state.s-conferindo, .app-shell .office-state.s-pensando { color: var(--accent-strong); }
+.app-shell .office-state.s-aguardando, .app-shell .office-state.s-cobrando { color: var(--yellow); }
+.app-shell .office-state.s-cobrado { color: var(--red); }
+.app-shell .office-state.s-revisao, .app-shell .office-state.s-reuniao { color: var(--blue); }
