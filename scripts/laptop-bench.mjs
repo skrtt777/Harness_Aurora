@@ -13,7 +13,7 @@ const env = { ...process.env, LLAMA_FORCE_CPU: "1", LLAMA_SERVER_EXTRA_ARGS: `${
 let peak = 0;
 const sample = () => {
   try {
-    const out = execFileSync("powershell", ["-NoProfile", "-Command", "(Get-Process llama-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -notmatch 'ollama' -or $true } | Measure-Object WorkingSet64 -Sum).Sum"], { windowsHide: true }).toString().trim();
+    const out = execFileSync("powershell", ["-NoProfile", "-Command", "(Get-CimInstance Win32_Process -Filter \"Name='llama-server.exe'\" | Where-Object { $_.CommandLine -match '--alias' } | ForEach-Object { (Get-Process -Id $_.ProcessId).WorkingSet64 } | Measure-Object -Sum).Sum"], { windowsHide: true }).toString().trim();
     peak = Math.max(peak, Number(out) || 0);
   } catch { /* no server yet */ }
 };
@@ -25,6 +25,6 @@ child.stdout.on("data", (d) => { out += d; process.stdout.write(String(d).split(
 child.stderr.on("data", () => {});
 child.on("close", () => {
   clearInterval(timer);
-  console.log(`\nTotal ${Math.round((Date.now() - started) / 1000)} s | memória de pico dos servidores llama: ${(peak / 1024 ** 3).toFixed(1)} GB | ${threads} threads, só CPU`);
+  console.log(`\nTotal ${Math.round((Date.now() - started) / 1000)} s | memória de pico do servidor da Aurora: ${(peak / 1024 ** 3).toFixed(1)} GB | ${threads} threads, só CPU`);
   try { const r = JSON.parse(readFileSync(`reports/agentes/${label}.json`, "utf8")); console.log(JSON.stringify(r.summary)); } catch {}
 });

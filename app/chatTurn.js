@@ -669,7 +669,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const areaText = env.AURORA_AREA_RULES !== "off" && toolContext.order?.areaSure ? areaRules[toolContext.order.area] : null;
           // The rules of the tool groups this request gets (AURORA_TOOL_ROUTER=off: all of them, as before).
           const userTexts = history.filter((m) => m.role === "user").map((m) => String(m.content || ""));
-          const groups = env.AURORA_TOOL_ROUTER === "off" ? Object.keys(topicRules) : activeGroups(trimmed, { history: userTexts, also: [...(codeTurn ? ["comandos"] : []), ...(multiPart(trimmed) ? ["equipe"] : [])] });
+          // A legal request reads the law: its official pages are in the order, so the web tools go too.
+          const legalTurn = Boolean(toolContext.order?.sources?.length || toolContext.order?.legalAsk || (toolContext.order?.area === "juridico" && toolContext.order?.areaSure));
+          const groups = env.AURORA_TOOL_ROUTER === "off" ? Object.keys(topicRules) : activeGroups(trimmed, { history: userTexts, also: [...(codeTurn ? ["comandos"] : []), ...(legalTurn ? ["web"] : []), ...(multiPart(trimmed) ? ["equipe"] : [])] });
           const topics = groups.map((g) => topicRules[g]).filter(Boolean).join("\n");
           const base = topics ? `${agentRules}\n${topics}` : agentRules;
           const coreRules = codeTurn ? `${base}\n${codeRules}` : areaText ? `${base}\n${areaText}` : base;
@@ -703,7 +705,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             // The person's MCP extensions join the built-in tools (an agent with its own list gets the ones it names).
             ...(toolContext.agentTools
               ? { tools: [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") }
-              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools], ...(env.AURORA_TOOL_ROUTER === "off" ? {} : { offer: routeTools(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")), extra: [...(codeTurn ? CODE_TOOL_NAMES : []), ...extensionTools.map((t) => t.name), ...(multiPart(trimmed) ? ["subagents"] : [])] }) }) }),
+              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools], ...(env.AURORA_TOOL_ROUTER === "off" ? {} : { offer: routeTools(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")), extra: [...(codeTurn ? CODE_TOOL_NAMES : []), ...(legalTurn ? ["web_search", "web_fetch", "learn"] : []), ...extensionTools.map((t) => t.name), ...(multiPart(trimmed) ? ["subagents"] : [])] }) }) }),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             onCheck: (check) => setCheck(conversationId, check),
