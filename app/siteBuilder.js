@@ -465,7 +465,7 @@ ${c.three ? "- **Three.js** (`js/scene.js`): a cena 3D do topo, que segue o mous
 ${c.java ? "- **Java** (`server/Servidor.java`): servidor do site e dos itens em JSON (`/api/itens`).\n  `javac server/Servidor.java -d server/out` e `java -cp server/out Servidor`\n" : ""}${c.cpp ? "- **C++** (`cpp/ranking.cpp`): ranking e média por categoria.\n  `g++ -std=c++17 -O2 -o ranking cpp/ranking.cpp` e `./ranking`\n" : ""}`;
 
 /** Writes the site in `dir`; returns the files written (relative paths). */
-export async function buildSite(dir, input) {
+export async function buildSite(dir, input, { write = null } = {}) {
   const c = siteContent(input); const t = SITE_THEMES[c.theme];
   const files = {
     "index.html": html(c, t), "css/style.css": css(t), "js/data.js": dataJs(c), "js/catalog.js": catalogJs(), "js/menu.js": menuJs(),
@@ -476,6 +476,7 @@ export async function buildSite(dir, input) {
   };
   for (const [rel, text] of Object.entries(files)) {
     const file = join(dir, rel);
+    if (write) { await write(file, text); continue; }
     await mkdir(join(file, ".."), { recursive: true });
     await writeFile(file, text, "utf8");
   }

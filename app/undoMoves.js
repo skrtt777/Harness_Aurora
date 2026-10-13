@@ -51,7 +51,14 @@ export async function backupBeforeChange(file) {
  */
 export async function undoEdits(edits = []) {
   const restored = [], skipped = [];
-  for (const { file, backup, after } of [...edits].reverse()) {
+  for (const { file, backup, after, created } of [...edits].reverse()) {
+    // A file the agent created: undoing removes it, unless it changed since (13/10: the VS Code
+    // extension and the desktop "Desfazer" also take back new files).
+    if (created) {
+      if (!existsSync(file)) { skipped.push({ file, reason: "não está mais lá" }); continue; }
+      if (sha(await readFile(file)) !== after) { skipped.push({ file, reason: "mudou depois de criado" }); continue; }
+      await unlink(file); restored.push(file); continue;
+    }
     if (!backup || !existsSync(backup)) { skipped.push({ file, reason: "a cópia de antes não existe mais" }); continue; }
     if (!existsSync(file)) { skipped.push({ file, reason: "não está mais lá" }); continue; }
     if (sha(await readFile(file)) !== after) { skipped.push({ file, reason: "mudou depois da edição" }); continue; }

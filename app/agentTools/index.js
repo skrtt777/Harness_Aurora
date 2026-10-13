@@ -20,7 +20,19 @@ import { decide } from "../agentPolicy.js";
 const INTERACT = new Set(["browser_click", "browser_type", "browser_key"]);
 for (const tool of [...browserTools, ...webTools]) tool.describe ||= () => ({ kind: INTERACT.has(tool.name) ? "interact" : "browse" });
 
-export const AGENT_TOOLS = [...browserTools, ...webTools, ...learnTools, ...siteTools, ...codeTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...subagentTools, ...desktopTools, ...excelTools, ...wordTools, ...pptTools, ...powerBiTools];
+export const AGENT_TOOLS = [...browserTools, ...webTools, ...learnTools, ...systemTools, ...fileTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...subagentTools, ...desktopTools, ...excelTools, ...wordTools, ...pptTools, ...powerBiTools, ...siteTools, ...codeTools];
+/** The tools only a code request gets (they are last, so the others' prompt prefix stays the same). */
+export const CODE_TOOL_NAMES = new Set([...siteTools, ...codeTools].map((t) => t.name));
+const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const CODE_WORDS = /\b(site|website|pagina web|landing page|portal|api|backend|crud|codigo|programa|programe|script|python|node(\.js)?|javascript|typescript|react|vue|angular|three\.?js|java|html|css|funcao|classe|bug|compil|testes? unitarios?|node:test|endpoint|rota|servidor|frontend|app|aplicativo|repositorio|git)\b|\.(py|js|jsx|ts|tsx|java|cpp|html|css)\b|c\+\+/;
+/** A request (or conversation) about code: from the words, or a conversation started in VS Code. */
+export function isCodeRequest(text, { title = "" } = {}) {
+  return /^vs code\b/i.test(String(title)) || CODE_WORDS.test(fold(text));
+}
+/** The tools of a turn: the code ones only for a code request. */
+export function toolsFor(tools, code) {
+  return code ? tools : tools.filter((t) => !CODE_TOOL_NAMES.has(t.name));
+}
 const byName = new Map(AGENT_TOOLS.map((tool) => [tool.name, tool]));
 export const MAX_TOOL_RESULT = 4500;
 

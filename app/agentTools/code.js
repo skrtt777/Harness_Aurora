@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { checkPage, pageAddress, shotsFolder } from "../pageCheck.js";
 import { buildApi } from "../apiBuilder.js";
-import { askedFolder } from "./files.js";
+import { askedFolder, recordedWrite } from "./files.js";
 import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 
@@ -96,7 +96,7 @@ export const codeTools = [
       const name = String(args.folder || askedFolder(ctx.request) || "api");
       const dir = resolve(ctx.workspace || ".", name);
       if (ctx.workspace) { const inside = relative(resolve(ctx.workspace), dir); if (inside.startsWith("..") || isAbsolute(inside)) throw new Error("A API vai dentro da pasta do projeto: use um caminho relativo (ex.: api)."); }
-      const { spec, files } = await buildApi(dir, args);
+      const { spec, files } = await buildApi(dir, args, { write: (file, text) => recordedWrite(file, Buffer.from(text, "utf8"), ctx) });
       ctx.onStage?.("Rodando os testes da API…");
       const t = await runNodeTests(dir);
       return [

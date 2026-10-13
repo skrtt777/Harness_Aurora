@@ -1410,8 +1410,7 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // Excel wants; Python's csv module read "\ufeffnome;gênero" as one column (13/10).
       const plainCsv = format === "csv" && CODE_REQUEST.test(foldText(ctx.request));
       const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "", { plainCsv });
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, bytes);
+      await recordedWrite(file, bytes, ctx);
       OWN_DOCUMENTS.add(file.toLowerCase());
       ctx.docBodies.set(file.toLowerCase(), String(args.content ?? args.text ?? args.markdown ?? ""));
       const missing = missingRows(ctx.lastRows, args.content ?? args.text ?? args.markdown ?? "");
@@ -1591,9 +1590,18 @@ async function moveOne(fromArg, to, ctx) {
 
 /** Writes over an existing file keeping a copy of before, so "Desfazer" can put it back. */
 async function changeFile(file, content, ctx) {
+  await recordedWrite(file, Buffer.from(content, "utf8"), ctx);
+}
+
+/**
+ * A write the answer keeps a record of: a changed file with its copy from before, a new file as
+ * created, so "Desfazer" (desktop and VS Code) and "Ver diferenças" (VS Code) cover both.
+ */
+export async function recordedWrite(file, bytes, ctx) {
   const backup = await backupBeforeChange(file);
-  await writeFile(file, content, "utf8");
-  if (backup) ctx.onEdit?.({ file, backup, after: sha(Buffer.from(content, "utf8")) });
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, bytes);
+  ctx.onEdit?.({ file, ...(backup ? { backup } : { created: true }), after: sha(bytes) });
 }
 
 async function editFile({ path, before, after }, ctx) {

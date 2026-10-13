@@ -13,10 +13,10 @@ exports.run = async function run() {
     await ext.activate();
     out.active = ext.isActive;
     const commands = await vscode.commands.getCommands(true);
-    out.commands = ["aurora.approve", "aurora.newConversation", "aurora.openHarness"].filter((c) => commands.includes(c));
+    out.commands = ["aurora.approve", "aurora.newConversation", "aurora.openHarness", "aurora.showDiffs", "aurora.undo", "aurora.openChat", "aurora.explain", "aurora.fix", "aurora.tests", "aurora.review", "aurora.fixProblem"].filter((c) => commands.includes(c));
     out.chatApi = typeof vscode.chat?.createChatParticipant === "function";
     out.version = vscode.version;
-    out.ok = out.found && out.active && out.commands.length === 3 && out.chatApi;
+    out.ok = out.found && out.active && out.commands.length === 11 && out.chatApi;
   } catch (error) { out.error = error.message; }
   writeFileSync(process.env.AURORA_SMOKE_OUT, JSON.stringify(out));
 };

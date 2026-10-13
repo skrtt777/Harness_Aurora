@@ -144,12 +144,16 @@ function UndoChatMoves({ message }: { message: ChatMessage }) {
   const [done, setDone] = useState(message.execution?.movesUndoneAt ? 'Mudanças desfeitas.' : '');
   const moved = message.execution?.moves?.length ?? 0, edited = message.execution?.edits?.length ?? 0;
   const undo = () => {
-    if (!window.confirm('Desfazer o que esta resposta mudou nos seus arquivos?')) return;
+    if (!window.confirm('Desfazer o que esta resposta mudou nos seus arquivos? Os editados voltam como estavam e os criados são apagados (o que você mudou depois fica).')) return;
     undoMessageMoves(message.id)
       .then((r) => setDone(`Mudanças desfeitas: ${r.restored.length} voltaram${r.skipped.length ? `; ${r.skipped.length} ficaram (${r.skipped.map((x) => x.reason).join(', ')})` : ''}.`))
       .catch((e: Error) => setDone(e.message));
   };
-  const text = moved && edited ? `Moveu ${moved} e editou ${edited} arquivo(s).` : moved ? `Moveu ${moved} arquivo(s).` : `Editou ${edited} arquivo(s).`;
+  // Created files are in the edits too (created: true): "Desfazer" removes them, unless changed since.
+  const created = (message.execution?.edits || []).filter((e: { created?: boolean }) => e.created).length;
+  const changed = edited - created;
+  const what = [moved ? `moveu ${moved}` : '', changed ? `editou ${changed}` : '', created ? `criou ${created}` : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' e $1');
+  const text = `${what.charAt(0).toUpperCase()}${what.slice(1)} arquivo(s).`;
   return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>{text}</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
 }
 

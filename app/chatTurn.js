@@ -23,7 +23,7 @@ import { WHERE_IS, requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
-import { AGENT_TOOLS, knownFolders, toolSchemas } from "./agentTools/index.js";
+import { AGENT_TOOLS, knownFolders, toolSchemas, isCodeRequest, toolsFor } from "./agentTools/index.js";
 import { runLlama } from "./localLlama.js";
 import { multiPart, planParts, subagentTools } from "./agentTools/subagents.js";
 import { mcpAgentTools } from "./mcp.js";
@@ -42,7 +42,7 @@ import { computerRoots, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
-import { compactContext, rules, agentRules } from "./economy.js";
+import { compactContext, rules, agentRules, codeRules } from "./economy.js";
 import { findReusableWorkflow } from "./workflows.js";
 
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
@@ -218,7 +218,7 @@ export function warmLocalChat(env = process.env) {
   warming ||= (async () => {
     const url = await localChatServer(env);
     if (!url) return null;
-    const tools = toolSchemas([...AGENT_TOOLS, ...(await mcpAgentTools().catch(() => []))]);
+    const tools = toolSchemas([...toolsFor(AGENT_TOOLS, false), ...(await mcpAgentTools().catch(() => []))]);
     await fetch(`${url}/v1/chat/completions`, {
       method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(180_000),
       body: JSON.stringify({ messages: [{ role: "system", content: agentRules }, { role: "user", content: "." }], tools, max_tokens: 1, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }),
@@ -619,6 +619,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
+          // Code rules and code tools only for code (the request, the last messages, a VS Code conversation).
+          const codeTurn = isCodeRequest([...history.filter((m) => m.role === "user").slice(-2).map((m) => String(m.content || "")), trimmed].join("\n"), { title: conversation.title });
           // What the person said in this conversation (the rules of made-up data live in earlier messages).
           toolContext.conversationText = [...history.filter((m) => m.role === "user").slice(-6).map((m) => String(m.content || "")), trimmed].join("\n");
           const extensionTools = await mcpAgentTools().catch(() => []);
@@ -654,7 +656,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const sheet = autoDocs.find((d) => /\.(xlsx|csv|tsv)$/i.test(d.path));
           if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, redactRestricted(text.split(/\r?\n/), trimmed, env).join("\n")); }
           const docsBlockOf = (whole) => (autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${whole && fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):${totalRowsNote(fullSheets.get(d.path).split(/\r?\n/))}\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "");
-          const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
+          const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: codeTurn ? `${agentRules}\n${codeRules}` : agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
@@ -678,7 +680,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             // The person's MCP extensions join the built-in tools (an agent with its own list gets the ones it names).
             ...(toolContext.agentTools
               ? { tools: [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") }
-              : extensionTools.length ? { tools: [...AGENT_TOOLS, ...extensionTools] } : {}),
+              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools] }),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             // The answer appears as it is written (local model on llama-server).
@@ -691,7 +693,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.runSubagent = (prompt, hooks = {}) => runAgent([], prompt, {
             question: prompt, deliverFirst: false, onText: null, maxSteps: Number(env.AURORA_SUBAGENT_STEPS) || 14,
             toolContext: { ...toolContext, subagent: hooks.name || true, runSubagent: null, docBodies: new Map(), delegatedTo: null, delegatedAnswer: null },
-            tools: (toolContext.agentTools ? [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") : [...AGENT_TOOLS, ...extensionTools]).filter((t) => !["subagents", "team_request", "agent_delegate"].includes(t.name)),
+            tools: (toolContext.agentTools ? [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") : [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools]).filter((t) => !["subagents", "team_request", "agent_delegate"].includes(t.name)),
             onStage: hooks.onStage || (() => {}), onStep: hooks.onStep || (() => {}),
           });
           // A delivery with several parts (planilhas + um Power BI, um relatório e uma apresentação): on the

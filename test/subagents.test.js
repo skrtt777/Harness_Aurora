@@ -224,3 +224,19 @@ test("code guards: the files a request names must exist; 'o script rodou' only w
   assert.equal(claimsRunWithoutRunning("O script rodou: média 8,7", [{ tool: "run_command", ok: true }], ask), false);
   assert.equal(claimsRunWithoutRunning("Criei os arquivos.", [], ask), false);
 });
+
+test("code gating: code rules and code tools only in a code turn (the sector agents' prompt stays small)", async () => {
+  const { AGENT_TOOLS, toolsFor, isCodeRequest, CODE_TOOL_NAMES } = await import("../app/agentTools/index.js");
+  const { agentRules, codeRules } = await import("../app/economy.js");
+  assert.equal(isCodeRequest("Quais clientes estão inadimplentes há mais de 30 dias?"), false);
+  assert.equal(isCodeRequest("faça um relatório de vendas do mês"), false);
+  assert.equal(isCodeRequest("crie um website sobre jogos"), true);
+  assert.equal(isCodeRequest("explique isso", { title: "VS Code: meu-projeto" }), true);
+  assert.ok(toolsFor(AGENT_TOOLS, false).every((t) => !CODE_TOOL_NAMES.has(t.name)));
+  assert.ok(["create_site", "create_api", "check_page", "code_map"].every((n) => toolsFor(AGENT_TOOLS, true).some((t) => t.name === n)));
+  // The code tools are last: the common prompt is a prefix of the code one.
+  assert.deepEqual(AGENT_TOOLS.slice(0, toolsFor(AGENT_TOOLS, false).length).map((t) => t.name), toolsFor(AGENT_TOOLS, false).map((t) => t.name));
+  assert.doesNotMatch(agentRules, /create_site|create_api|code_map/);
+  assert.match(codeRules, /create_site[\s\S]*create_api[\s\S]*code_map/);
+  assert.ok(agentRules.length < 11500, `AGENT.md has ${agentRules.length} chars`);
+});

@@ -65,3 +65,38 @@ test("VS Code: only this computer's Harness; a closed Harness says to open it; t
   assert.equal(composeMessage("oi"), "oi");
   assert.deepEqual(filesIn("Salvei em C:\\Users\\x\\Documentos\\rel.docx.", []), ["C:\\Users\\x\\Documentos\\rel.docx"]);
 });
+
+test("VS Code 0.2: the changes of an answer (edited with the copy from before, created), the Problems panel, slash commands", () => {
+  const { changesOf, problemsText, commandPrompt } = require("../vscode/aurora/lib/client.js");
+  assert.deepEqual(changesOf({ edits: [{ file: "C:/p/a.js", backup: "C:/b/1.bak", after: "x" }, { file: "C:/p/a.js", backup: "C:/b/2.bak" }, { file: "C:/p/novo.js", created: true }] }),
+    [{ file: "C:/p/a.js", created: false, backup: "C:/b/1.bak" }, { file: "C:/p/novo.js", created: true, backup: null }]);
+  assert.deepEqual(changesOf(null), []);
+  const message = composeMessage(commandPrompt("corrigir", ""), { file: "C:/p/a.js", problems: [{ file: "a.js", line: 3, severity: "aviso", message: "unused" }, { file: "b.js", line: 9, severity: "erro", message: "x is not defined" }], diff: "", selectionRange: "3-5", selection: "let x" });
+  assert.match(message, /^Corrija os problemas abaixo/);
+  assert.match(message, /seleção nas linhas 3-5/);
+  assert.match(message, /Problemas do VS Code[\s\S]*b\.js:9 erro: x is not defined\na\.js:3 aviso: unused/);
+  assert.match(composeMessage(commandPrompt("revisar", "segurança"), { diff: "diff --git a/x b/x\n+oi" }), /com foco em: segurança[\s\S]*```diff\ndiff --git/);
+  assert.equal(commandPrompt(undefined, "oi"), "oi");
+  assert.equal(problemsText([]), "");
+});
+
+test("Harness: created files are recorded and undone (desktop and VS Code), edited files restored", async () => {
+  const { recordedWrite } = await import("../app/agentTools/files.js");
+  const { undoEdits } = await import("../app/undoMoves.js");
+  const { mkdtempSync, writeFileSync, readFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "aurora-rec-"));
+  writeFileSync(join(dir, "old.js"), "antes\n");
+  const edits = []; const ctx = { onEdit: (e) => edits.push(e) };
+  await recordedWrite(join(dir, "old.js"), Buffer.from("depois\n"), ctx);
+  await recordedWrite(join(dir, "sub", "novo.js"), Buffer.from("novo\n"), ctx);
+  assert.equal(edits.length, 2); assert.ok(edits[0].backup && !edits[0].created); assert.equal(edits[1].created, true);
+  const r = await undoEdits(edits);
+  assert.equal(r.restored.length, 2);
+  assert.equal(readFileSync(join(dir, "old.js"), "utf8"), "antes\n");
+  assert.equal(existsSync(join(dir, "sub", "novo.js")), false);
+  // A created file the person changed afterwards stays.
+  const later = []; await recordedWrite(join(dir, "mine.js"), Buffer.from("a\n"), { onEdit: (e) => later.push(e) });
+  writeFileSync(join(dir, "mine.js"), "meu\n");
+  assert.equal((await undoEdits(later)).skipped[0].reason, "mudou depois de criado");
+});

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildSite, SITE_THEMES } from "../siteBuilder.js";
-import { askedFolder } from "./files.js";
+import { askedFolder, recordedWrite } from "./files.js";
 import { checkPage, shotsFolder } from "../pageCheck.js";
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -44,7 +44,7 @@ export const siteTools = [
       const dir = siteDir(args.folder, ctx);
       // The technologies the person named are in, whatever the model sent.
       const input = { ...args, java: args.java || /\bjava(?!script)\b/.test(asked), cpp: args.cpp || /c\+\+|\bcpp\b/.test(asked), three: args.three !== false || /three/.test(asked) };
-      const { files, content } = await buildSite(dir, input);
+      const { files, content } = await buildSite(dir, input, { write: (file, text) => recordedWrite(file, Buffer.from(text, "utf8"), ctx) });
       // The Java server compiled already ("java -cp server/out Servidor" found no class, 13/10).
       let compiled = null;
       if (content.java) compiled = await new Promise((done) => execFile("javac", ["server/Servidor.java", "-d", "server/out"], { cwd: dir, windowsHide: true, timeout: 60000 }, (error, _out, err) => done(error ? `não compilou (${String(err || error.message).split(/\r?\n/)[0].slice(0, 120)})` : "compilado")));

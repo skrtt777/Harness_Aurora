@@ -133,12 +133,13 @@ test("Desfazer also puts back a file the agent edited or replaced, but never ove
     assert.equal((await executeTool("write_file", { path: "novo.txt", content: "novo" }, ctx)).ok, true);
     return { ok: true, message: { conversationId, content: "Corrigi.", execution: { toolSteps: [], edits } } };
   } });
-  assert.equal(run.edits.length, 3, "a new file has nothing to put back");
+  assert.equal(run.edits.length, 4, "the new file is recorded as created");
+  assert.equal(run.edits.filter((e) => e.created).length, 1);
   writeFileSync(join(workDir, "outro.txt"), "versão 3 da pessoa"); // changed again after the agent
   const result = await agents.undoRunMoves(run.id);
   assert.equal(readFileSync(join(workDir, "media.js"), "utf8"), "export const media = (a) => a.length + 1;\n");
   assert.equal(readFileSync(join(workDir, "notas.txt"), "utf8"), "minhas notas");
   assert.equal(readFileSync(join(workDir, "outro.txt"), "utf8"), "versão 3 da pessoa", "the person's later change stays");
   assert.match(result.skipped.map((s) => s.reason).join(), /mudou depois da edição/);
-  assert.ok(existsSync(join(workDir, "novo.txt")), "nothing is deleted");
+  assert.ok(!existsSync(join(workDir, "novo.txt")), "a file the agent created (unchanged since) is taken back");
 });

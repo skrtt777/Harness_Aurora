@@ -192,13 +192,13 @@ Campos: ${s.fields.map((f) => `\`${f.name}\` (${f.type}${f.required ? ", obrigat
 `;
 
 /** Writes the API in `dir`; returns { spec, files }. */
-export async function buildApi(dir, input) {
+export async function buildApi(dir, input, { write = null } = {}) {
   const s = apiSpec(input);
   const files = {
     "server.js": server(s), "test/api.test.js": tests(s), "data.json": `${JSON.stringify(s.sample, null, 2)}\n`,
     "package.json": `${JSON.stringify({ name: `api-${s.resource}`, version: "1.0.0", private: true, scripts: { start: "node server.js", test: "node --test" } }, null, 2)}\n`,
     "README.md": readme(s),
   };
-  for (const [rel, text] of Object.entries(files)) { const file = join(dir, rel); await mkdir(join(file, ".."), { recursive: true }); await writeFile(file, text, "utf8"); }
+  for (const [rel, text] of Object.entries(files)) { const file = join(dir, rel); if (write) { await write(file, text); continue; } await mkdir(join(file, ".."), { recursive: true }); await writeFile(file, text, "utf8"); }
   return { spec: s, files: Object.keys(files) };
 }

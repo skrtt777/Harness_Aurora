@@ -56,9 +56,12 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
     conversation: (id) => call(`/conversations/${encodeURIComponent(id)}`),
     approve: (id, approvalId, approved) => call(`/conversations/${encodeURIComponent(id)}/approval`, { method: "POST", body: { id: approvalId, approved } }),
     cancel: (id) => call(`/conversations/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} }).catch(() => null),
+    /** Takes back what one answer changed: edited files restored, created files removed. */
+    undo: (messageId) => call(`/messages/${encodeURIComponent(messageId)}/undo-moves`, { method: "POST", body: {} }),
     /**
      * Sends a message and, while the Aurora works, reports each new stage, step and permission request
-     * (onProgress({ stage, steps, approval, plan })). Resolves with { content, steps, files }.
+     * (onProgress({ stage, steps, approval, plan, partial })). Resolves with { content, steps, files,
+     * messageId, changes: [{ file, created, backup }] }.
      */
     async send(id, message, { onProgress = () => {}, signal } = {}) {
       if (!token) await session();
@@ -72,7 +75,7 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
           if (done) break;
           const p = await call(`/conversations/${encodeURIComponent(id)}/pending`, { timeoutMs: 5000 }).catch(() => null);
           if (!p) continue;
-          const key = JSON.stringify([p.stage, p.steps?.length, p.steps?.at?.(-1)?.status, p.approval?.id]);
+          const key = JSON.stringify([p.stage, p.steps?.length, p.steps?.at?.(-1)?.status, p.approval?.id, String(p.partial || "").length]);
           if (key !== last) { last = key; onProgress(p); }
         }
       })();
@@ -80,7 +83,8 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
       await poll;
       const message_ = result.message || {};
       const steps = message_.execution?.toolSteps || [];
-      return { content: String(message_.content || result.error || ""), steps, files: filesIn(message_.content, steps) };
+      const changes = changesOf(message_.execution);
+      return { content: String(message_.content || result.error || ""), steps, files: [...new Set([...changes.map((c) => c.file), ...filesIn(message_.content, steps)])], messageId: message_.id || null, changes };
     },
   };
 }
@@ -90,6 +94,26 @@ function filesIn(text, steps = []) {
   const written = steps.filter((s) => s.ok && /^(write_file|edit_file|write_document)$/.test(s.tool)).map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$|$)/.exec(String(s.summary || ""))?.[1]).filter(Boolean);
   const said = [...String(text || "").matchAll(/(?:[A-Za-z]:\\|\/)(?:[^\s`'"<>|*?\n]+[\\/])*[^\s`'"<>|*?\n]+\.[A-Za-z0-9]{1,6}/g)].map((m) => m[0].replace(/[.,;:)]+$/, ""));
   return [...new Set([...written, ...said])];
+}
+
+/** The files one answer changed, as the Harness recorded them (one entry per file, the first copy). */
+function changesOf(execution) {
+  const seen = new Map();
+  for (const e of execution?.edits || []) {
+    if (!e?.file) continue;
+    if (!seen.has(e.file)) seen.set(e.file, { file: e.file, created: Boolean(e.created), backup: e.backup || null });
+  }
+  return [...seen.values()];
+}
+
+/**
+ * The context of the Problems panel: [{ file, line, severity, message, source }] -> text lines,
+ * the most serious first, at most `max`.
+ */
+function problemsText(problems = [], max = 40) {
+  const order = { erro: 0, aviso: 1 };
+  return problems.slice().sort((a, b) => (order[a.severity] ?? 2) - (order[b.severity] ?? 2)).slice(0, max)
+    .map((p) => `${p.file}:${p.line} ${p.severity}: ${String(p.message).replace(/\s+/g, " ").slice(0, 200)}${p.source ? ` (${p.source})` : ""}`).join("\n");
 }
 
 /** What a step looks like in the chat while it runs ("Lendo src/app.js"). */
@@ -102,17 +126,34 @@ function stepLine(step) {
  * The message the Aurora gets: the person's words, then what VS Code shows them (the open file, the
  * selected code, the files they attached), so "explica isso" or "corrige essa função" have a subject.
  */
-function composeMessage(prompt, { file = null, selection = "", language = "", references = [] } = {}) {
+function composeMessage(prompt, { file = null, selection = "", language = "", references = [], problems = [], diff = "", selectionRange = null } = {}) {
   const parts = [String(prompt || "").trim()];
   const context = [];
-  if (file) context.push(`Arquivo aberto no VS Code: ${file}`);
+  if (file) context.push(`Arquivo aberto no VS Code: ${file}${selectionRange ? ` (seleção nas linhas ${selectionRange})` : ""}`);
   if (selection.trim()) context.push(`Trecho selecionado${language ? ` (${language})` : ""}:\n\`\`\`${language}\n${selection.slice(0, 8000)}\n\`\`\``);
   for (const r of references.slice(0, 8)) {
     if (r.path && r.text != null) context.push(`Arquivo anexado ${r.path}:\n\`\`\`\n${String(r.text).slice(0, 8000)}\n\`\`\``);
     else if (r.path) context.push(`Arquivo citado: ${r.path}`);
   }
+  if (problems.length) context.push(`Problemas do VS Code (painel Problemas):\n${problemsText(problems)}`);
+  if (diff) context.push(`Mudanças ainda não commitadas (git diff):\n\`\`\`diff\n${String(diff).slice(0, 12000)}\n\`\`\``);
   if (context.length) parts.push(`\n\n[Contexto do VS Code]\n${context.join("\n\n")}`);
   return parts.join("");
 }
 
-module.exports = { createClient, HarnessError, filesIn, stepLine, composeMessage };
+/**
+ * The request of a slash command, in the Aurora's words: what to do with the context VS Code sends.
+ * /explicar, /corrigir, /testes, /revisar; anything else is the person's own prompt.
+ */
+const COMMANDS = {
+  explicar: (p) => `Explique ${p || "o trecho selecionado (ou o arquivo aberto)"}: o que faz, como funciona por partes e o que pode dar errado. Não mude nenhum arquivo.`,
+  corrigir: (p) => `Corrija ${p || "os problemas abaixo"} no código: leia só os arquivos e linhas apontados, mude com edit_file só o trecho necessário, rode ou teste se der, e diga o que mudou em cada arquivo.`,
+  testes: (p) => `Escreva testes para ${p || "o arquivo aberto (ou o trecho selecionado)"} no estilo do projeto (node:test em Node, pytest/unittest em Python, o que já houver), grave ao lado do código, rode os testes e mostre o resultado real.`,
+  revisar: (p) => `Revise as mudanças abaixo (git diff)${p ? ` com foco em: ${p}` : ""}: aponte bugs, riscos e o que falta (testes, casos de erro), do mais grave ao menos, com arquivo e linha. Não mude arquivos.`,
+};
+function commandPrompt(command, prompt) {
+  const make = COMMANDS[command];
+  return make ? make(String(prompt || "").trim()) : String(prompt || "");
+}
+
+module.exports = { createClient, HarnessError, filesIn, stepLine, composeMessage, changesOf, problemsText, commandPrompt, COMMANDS };
