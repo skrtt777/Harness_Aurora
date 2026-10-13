@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.46': {
+    title: 'A Aurora leve: roda em notebook',
+    items: [
+      ['Muito mais leve para o modelo local', 'Cada pedido manda ao modelo só as ferramentas e as regras do assunto dele: o começo de cada pedido caiu de 12-14 mil para 5-7 mil tokens. Num computador sem placa de vídeo, a primeira resposta chega em menos da metade do tempo.'],
+      ['Menos memória', 'Sem placa de vídeo, o modelo usa uma vaga só e o cache de pedidos tem limite pela memória do computador. As gerações simples usam o mesmo modelo já carregado, em vez de carregar outro.'],
+      ['Sem cair no modo sem ferramentas', 'Em computador sem placa de vídeo, cada passo pode levar até 15 minutos antes de desistir. Antes, a Aurora desistia em 5 e respondia sem conseguir gravar arquivos.'],
+      ['Jurídico com a lei aberta', 'Pedidos jurídicos sempre recebem a página oficial da lei e as ferramentas para lê-la.'],
+    ],
+  },
   '0.1.45': {
     title: 'Pedidos grandes não são mais recusados',
     items: [

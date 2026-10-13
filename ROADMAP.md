@@ -70,6 +70,13 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.46 (13/10, publicada): a Aurora leve (notebook sem placa de vídeo).**
+  - **Ferramentas por assunto** (`app/toolRouter.js`): de ~8.700 para 1.900-3.700 tokens; **AGENT.md** 10.670 → 3.900 caracteres com as regras de cada grupo em `runtime-policy/topics`.
+  - **llama-server**: 1 vaga sem placa de vídeo (2 até 10 GB, 4 acima), `--cache-ram` pela RAM (padrão de 8 GB chegou a 10,6 GB), gerações simples no mesmo servidor (o Ollama carregava o modelo de novo).
+  - Tempo limite de 15 min por chamada só no processador; pedido jurídico com as ferramentas da web.
+  - **Notebook simulado** (`scripts/laptop-bench.mjs`, só CPU, 4 núcleos): antes 0 de 3 tarefas em 25 min e prompts de 12-14 mil tokens; agora 3 de 3 perfeitas em ~15 min, prompts de 5-7 mil tokens, servidor no pico de 6,1 GB.
+  - Baterias (GPU): suíte 699/699, conversas 42/43, agentes de setor 62/64, código 4/4, VS Code 5/5.
+
 - **0.1.45 (13/10, publicada): pedidos grandes encaixados, fontes oficiais e lições da Conferência.**
   - **Contexto** (`app/economy.js` fitBlocks): o último recurso encurta os blocos grandes (projeto, anexos, documentos da empresa) dizendo quanto faltou, em vez de recusar com "Requisitos ou dependências excedem o contexto" (notebook do trabalho).
   - **Fontes oficiais** (`app/legalSources.js`): a página do Planalto das leis do pedido na ordem de serviço e na cobrança da Conferência; Pessoas com a CLT.
