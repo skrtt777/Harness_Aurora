@@ -1,8 +1,8 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, resolve as resolveFrom } from "node:path";
 import { expandPath, resolveExisting } from "./files.js";
 import { assertAllowedUrl } from "./netGuard.js";
 
@@ -151,6 +151,30 @@ export function stopAllBackgroundProcesses() {
   for (const entry of processes.values()) stopTree(entry.child);
 }
 
+/**
+ * The code around the line where a script failed (the last frame of the person's own files in a Python
+ * traceback or a Node stack), so the fix starts from the code, not only from the message. A 4B model
+ * read "TypeError: 'float' object is not subscriptable" and edited the wrong line twice (13/10).
+ */
+export function errorSource(output, dir) {
+  // Python: the innermost frame is the last one; Node: the first one.
+  const frames = [
+    ...[...String(output).matchAll(/File "([^"]+)", line (\d+)/g)].map((m) => [m[1], Number(m[2])]).reverse(),
+    ...[...String(output).matchAll(/(?:\(|at |^)((?:[A-Za-z]:)?[^\s():]+\.(?:m?js|cjs|ts|py)):(\d+)(?::\d+)?/gm)].map((m) => [m[1], Number(m[2])]),
+  ].filter(([f]) => !/node:internal|node_modules|site-packages|[\\/]lib[\\/]python|<frozen|<string>/i.test(f));
+  for (const [file, line] of frames) {
+    let path = file;
+    try { path = resolveFrom(dir, file); } catch { continue; }
+    if (!existsSync(path)) continue;
+    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    if (line < 1 || line > lines.length) continue;
+    const from = Math.max(1, line - 3), to = Math.min(lines.length, line + 2);
+    const shown = lines.slice(from - 1, to).map((l, i) => `${from + i === line ? ">" : " "}${String(from + i).padStart(4)}  ${l}`).join("\n");
+    return `\n\nOnde falhou (${path}, linha ${line}):\n${shown}\nCorrija esse trecho com edit_file e rode de novo.`;
+  }
+  return "";
+}
+
 export const systemTools = [
   {
     name: "open",
@@ -251,7 +275,8 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
           ctx.signal?.removeEventListener("abort", abort);
           const status = signal || code === null ? "interrompido" : `código ${code}`;
           const tail = output.trim();
-          resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}`);
+          const where = code ? errorSource(tail, dir) : "";
+          resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}${where}`);
         });
       });
     },
