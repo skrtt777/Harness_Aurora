@@ -74,6 +74,11 @@ export async function runLocal(prompt, env = process.env, externalSignal, {onTex
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);
+  // The agent's llama-server already has this model in memory: the plain generations (titles,
+  // summaries, memories, a chat without tools) go there too, instead of Ollama loading it a second
+  // time (4.6 GB more next to the 3 GB of the server, 13/10). LOCAL_SHARE_SERVER=off keeps Ollama.
+  const shared = env.LOCAL_SHARE_SERVER !== 'off' && !env.LOCAL_BASE_URL ? llamaServerInfo() : null;
+  if (shared?.healthy && shared.baseUrl && shared.model === model) return runLlama(prompt, { ...env, LOCAL_ENGINE: 'llama.cpp', LOCAL_BASE_URL: shared.baseUrl, LOCAL_MODEL: model }, externalSignal, { onText });
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;

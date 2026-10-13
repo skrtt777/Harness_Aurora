@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { protectPort } from "./agentTools/netGuard.js";
 import { cacheDir, learnPrefix, noteCacheUse, restoreSnapshot, snapshotKey } from "./llamaCache.js";
@@ -23,6 +23,17 @@ const SLOTS = 4;
  * anyway (copies.js turns them off), so one slot: a work laptop kept 4 GB it never used (13/10).
  * LLAMA_SLOTS overrides.
  */
+/**
+ * The RAM the server may keep old prompts in (llama-server's --cache-ram, 8 GB by default): during a
+ * battery it grew to 10.6 GB and the PC ran out of memory; on an 8-16 GB work laptop that alone is
+ * half the machine (13/10). By the machine's RAM; LLAMA_CACHE_RAM (MiB) overrides.
+ */
+export function cacheRamFor(env = process.env, total = totalmem()) {
+  if (env.LLAMA_CACHE_RAM !== undefined && env.LLAMA_CACHE_RAM !== "") return Math.max(0, Math.floor(Number(env.LLAMA_CACHE_RAM) || 0));
+  const gb = total / 1024 ** 3;
+  return gb <= 16.5 ? 512 : gb <= 32.5 ? 2048 : 4096;
+}
+
 export function slotsFor({ gpu = false, device = null } = {}, env = process.env) {
   if (Number(env.LLAMA_SLOTS) >= 1) return Math.min(8, Math.floor(Number(env.LLAMA_SLOTS)));
   if (!gpu) return 1;
@@ -156,6 +167,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
       // rows from tool results into documents, and those come out 2.5x faster on GPU and ~5x on CPU,
       // same text (scripts/spec-bench.mjs, 05/10/2026). LLAMA_SPEC=off turns it off.
       ...(env.LLAMA_SPEC === "off" ? [] : ["--spec-type", "ngram-mod"]),
+      "--cache-ram", String(cacheRamFor(env)),
       // Partida instantânea (app/llamaCache.js): the fixed start of the prompt saved and restored here.
       ...(env.LLAMA_CACHE === "off" ? [] : ["--slot-save-path", ensureDir(cacheDir(env))]),
       // Experiments (benchmarks of speculative decoding, sampling…) without touching the code.
@@ -168,6 +180,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
     const ok = await waitHealthy(baseUrl, child);
     if (!ok) { child.kill(); if (server === entry) server = null; failedAt = Date.now(); return null; }
     entry.gpu = gpu;
+    entry.healthy = true;
     entry.cacheKey = snapshotKey(model, blob, bin(libDir));
     if (env.LLAMA_CACHE !== "off") entry.restored = await restoreSnapshot(baseUrl, { key: entry.cacheKey, slots, env });
     entry.env = env;
@@ -200,7 +213,7 @@ export function afterLlamaAnswer(baseUrl, body, cachedTokens) {
   void learnPrefix(baseUrl, body, { key: current.cacheKey, env: current.env });
 }
 
-export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), slots: server.slots || SLOTS, restoredTokens: server.restored || 0 } : null);
+export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), healthy: Boolean(server.healthy), slots: server.slots || SLOTS, restoredTokens: server.restored || 0 } : null);
 
 // The server belongs to this app: it closes with it.
 process.once("exit", stopLlamaServer);
