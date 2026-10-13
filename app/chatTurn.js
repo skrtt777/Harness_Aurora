@@ -18,6 +18,7 @@ import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
 import { diagnoseLocalArtifact } from "./localDiagnostics.js";
 import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan, setCheck, setOrder } from "./pendingTurns.js";
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
+import { rememberConference } from "./conferenceLessons.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -825,6 +826,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (agentDocs.length) result.execution = { ...(result.execution || {}), knowledgeDocs: agentDocs };
     if (result.copies) result.execution = { ...(result.execution || {}), copies: result.copies };
     if (result.checks?.length) result.execution = { ...(result.execution || {}), checks: result.checks };
+    // The Conferência teaches: what a guard held back becomes a lesson for the next request of that kind.
+    if (result.checks?.length && conversation.provider === "local" && env.AURORA_CONFERENCE_LESSONS !== "off") rememberConference(result.checks, { request: trimmed, projectId: conversation.projectId || null, conversationId, env }).catch(() => {});
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (result.ok && agentSteps.length) result.text = withDeliveryPath(result.text, agentSteps);
