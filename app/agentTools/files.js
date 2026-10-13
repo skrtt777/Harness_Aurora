@@ -926,6 +926,20 @@ export function cleanCode(file, content) {
   return s;
 }
 
+/**
+ * A file name Windows accepts: "Inadimplência > 30 dias.xlsx" failed with ENOENT and the agent gave up
+ * the delivery (13/10). > and < become words, the other forbidden characters a dash; the folders and
+ * the drive's colon are left alone.
+ */
+export function safeFileName(file) {
+  const p = String(file || "");
+  const at = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  const dir = p.slice(0, at + 1), name = p.slice(at + 1);
+  const clean = name.replace(/\s*>=\s*/g, " pelo menos ").replace(/\s*<=\s*/g, " até ").replace(/\s*>\s*/g, " acima de ").replace(/\s*<\s*/g, " abaixo de ")
+    .replace(/[:"|?*\u0000-\u001f]/g, "-").replace(/\s{2,}/g, " ").replace(/[ .]+(\.[^.]+)$/, "$1").trim();
+  return dir + (clean || "arquivo");
+}
+
 function documentPath(args, ctx) {
   // Small models name the field after other tools ("file_path", "filename").
   let path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
@@ -1307,7 +1321,7 @@ export const fileTools = [
       // folder inside the VS Code project (13/10).
       if (ctx.workspace && CODE_FILE.test(String(path || "")) && /^(documentos|documents|area de trabalho|desktop)[\\/]/i.test(foldText(String(path || "")))) path = String(path).replace(/^[^\\/]+[\\/]/, "");
       path = inAskedFolder(path, ctx);
-      const file = landing(full(path, ctx), ctx);
+      const file = safeFileName(landing(full(path, ctx), ctx));
       content = cleanCode(file, content);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
@@ -1329,7 +1343,7 @@ export const fileTools = [
     async run(args, ctx) {
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
-      let file = documentPath(args, ctx);
+      let file = safeFileName(documentPath(args, ctx));
       const format = extname(file).slice(1).toLowerCase();
       if (["docx", "pdf", "md"].includes(format) && CODE_REQUEST.test(foldText(ctx.request)) && !/\b(docx?|word|pdf|documento|relatorio em|manual|apresentacao)\b/.test(foldText(ctx.request).replace(/relatorio\.py/g, ""))) {
         throw new Error(`O pedido é de código e não pediu documento ${format}: não crie ${basename(file)}. Responda com o que foi feito no código (arquivos, como rodar, o resultado real).`);

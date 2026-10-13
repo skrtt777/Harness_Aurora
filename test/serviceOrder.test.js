@@ -50,3 +50,29 @@ test("department rules: one short checklist per area, outside the common prompt"
   assert.match(areaRules.juridico, /fonte oficial[\s\S]*dias úteis ou corridos/);
   assert.doesNotMatch(agentRules, /Departamento Jurídico/);
 });
+
+test("a file name Windows accepts (a > in the name failed with ENOENT); long results cut at a line, saying what is left", async () => {
+  const { safeFileName } = await import("../app/agentTools/files.js");
+  const { clipResult } = await import("../app/agentTools/index.js");
+  assert.equal(safeFileName("C:/t/Cobrança Inadimplência > 30 dias.xlsx"), "C:/t/Cobrança Inadimplência acima de 30 dias.xlsx");
+  assert.equal(safeFileName("C:/t/ok.xlsx"), "C:/t/ok.xlsx");
+  const lines = Array.from({ length: 200 }, (_, i) => `${String(i + 1).padStart(5)}  linha ${i + 1} | 123,45 | texto`);
+  lines.splice(150, 0, "  151  ## Orçado mensal");
+  const clipped = clipResult(lines.join("\n"), 3000);
+  assert.doesNotMatch(clipped, /cortado/);
+  assert.match(clipped, /\| texto\n\(As linhas acima estão completas\. Faltam \d+ linha\(s\) das partes: Orçado mensal\. Só se precisar delas, leia de novo com offset=\d+\.\)$/);
+  assert.equal(clipResult("curto"), "curto");
+});
+
+test("a read repeated with the delivery still to write keeps the tools to write (not a forced text answer)", async () => {
+  const order = serviceOrder("Faça um relatório em Word com as áreas que gastaram mais de 5% acima do orçado");
+  const reader = { name: "read_file", description: "lê", parameters: { type: "object", properties: {} }, run: async () => "Orçamento.xlsx\n1 | TI | 14,35%" };
+  const writer = { name: "write_document", description: "cria", parameters: { type: "object", properties: {} }, run: async () => "Criei C:/t/Desvios.docx (DOCX, 10 bytes)." };
+  const offeredAt = [];
+  const read = { ok: true, text: "", toolCalls: [{ name: "read_file", arguments: { path: "Orçamento.xlsx" } }] };
+  const replies = [read, read, read, read, read, { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "Desvios.docx", content: "# x" } }] }, { ok: true, text: "Relatório pronto." }];
+  const result = await runChatAgent({ system: "s", input: "Faça um relatório em Word", tools: [reader, writer], toolContext: { order }, callModel: async (messages, tools) => { offeredAt.push(tools.map((t) => t.name).join(",")); return replies.shift(); } });
+  assert.ok(result.steps.some((s) => s.tool === "write_document" && s.ok), JSON.stringify(result.steps.map((s) => s.tool)));
+  assert.ok(offeredAt.includes("write_document"), offeredAt.join(" | "));
+  assert.match(result.text, /Desvios\.docx|Relatório pronto/);
+});

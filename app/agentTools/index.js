@@ -36,6 +36,23 @@ export function toolsFor(tools, code) {
 const byName = new Map(AGENT_TOOLS.map((tool) => [tool.name, tool]));
 export const MAX_TOOL_RESULT = 4500;
 
+/**
+ * A long result cut at the end of a line, saying what was shown whole and what is left. "… (cortado)"
+ * in the middle of a row made a small model answer "a leitura está limitada, não consegui extrair" with
+ * the whole table it needed on screen (the budget sheet of the Controladoria, 13/10).
+ */
+export function clipResult(output, max = MAX_TOOL_RESULT) {
+  const text = String(output);
+  if (text.length <= max) return text;
+  const cut = text.lastIndexOf("\n", max);
+  const shown = text.slice(0, cut > max * 0.6 ? cut : max);
+  const rest = text.slice(shown.length).split("\n").filter((l) => l.trim());
+  // Numbered lines (read_file): where the next part starts; "## Seção" lines: what the rest holds.
+  const lastNumber = [...shown.matchAll(/^\s*(\d+)\s{2}/gm)].at(-1)?.[1];
+  const sections = rest.map((l) => l.match(/^\s*\d*\s*##\s+(.+)$/)?.[1]).filter(Boolean).slice(0, 6);
+  return `${shown}\n(As linhas acima estão completas. Faltam ${rest.length} linha(s)${sections.length ? ` das partes: ${sections.join(", ")}` : ""}. Só se precisar delas, leia de novo com offset=${lastNumber ? Number(lastNumber) + 1 : "a próxima linha"}.)`;
+}
+
 export function getTool(name, tools) {
   return tools ? tools.find((tool) => tool.name === name) || null : byName.get(name) || null;
 }
@@ -85,7 +102,7 @@ export async function executeTool(name, args, ctx, tools = AGENT_TOOLS) {
       if (access.kind === "desktop" && access.program) (ctx.desktopApproved ||= new Set()).add(String(access.program).toLowerCase());
     }
     const output = String(await tool.run(input, ctx));
-    return { ok: true, result: output.length > MAX_TOOL_RESULT ? `${output.slice(0, MAX_TOOL_RESULT)}\n… (cortado)` : output, ms: Date.now() - started };
+    return { ok: true, result: clipResult(output), ms: Date.now() - started };
   } catch (error) {
     if (ctx.signal?.aborted) throw Object.assign(new Error("Cancelado pelo usuário."), { name: "AbortError" });
     return { ok: false, result: `ERRO: ${String(error.message || error).split("\n")[0].slice(0, 600)}${/autoriza/i.test(String(error.message)) ? whereFree() : ""}`, ms: Date.now() - started };

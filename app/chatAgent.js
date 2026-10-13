@@ -535,6 +535,12 @@ export async function runChatAgent({
         // first write goes back once, asking for the parts to be divided among subagents.
         ctx.subagentsNudged = true;
         outcome = { ok: false, result: `ERRO: este pedido tem várias partes (${multiPart(question).join(", ")}). Divida com subagents: uma tarefa por planilha ou parte, cada uma com tudo o que precisa (dados, regras do pedido) e o caminho completo do que entregar. Quando voltarem, confira as entregas e faça você o que depende de tudo pronto (ex.: o Power BI com todas as planilhas).`, ms: 0 };
+      } else if (count >= REPEAT_LIMIT && toolContext.order?.deliver?.length && !WRITE_TOOLS.has(call.name) && !steps.some((st) => st.ok && WRITE_TOOLS.has(st.tool)) && tools.some((t) => t.name === "write_document" || t.name === "write_file")) {
+        // Reading the same sheet again with the delivery still to write: the tools to write stay (all
+        // tools gone, a Controladoria report was answered in text and never written, 13/10).
+        outcome = { ok: false, result: `ERRO: você já leu isso várias vezes e o resultado não muda: o que você leu está completo. Grave AGORA a entrega pedida (${toolContext.order.deliver.join("; ")}) com os dados que já tem, e responda com o caminho.`, ms: 0 };
+        offered = tools.filter((t) => ["write_document", "write_file"].includes(t.name));
+        forced = "deliver";
       } else if (count >= REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: você já repetiu exatamente essa ação várias vezes sem progresso.${tools.some((t) => t.name === "learn") ? " Faça diferente: divida em partes menores, leia o erro e corrija outra coisa, ou chame learn com o erro exato para aprender como resolver." : ""}`, ms: 0 };
         offered = [];
