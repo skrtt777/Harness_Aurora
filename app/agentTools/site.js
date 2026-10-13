@@ -1,4 +1,5 @@
 // create_site: the Aurora writes the content, app/siteBuilder.js writes a website that looks like one.
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -43,13 +44,16 @@ export const siteTools = [
       // The technologies the person named are in, whatever the model sent.
       const input = { ...args, java: args.java || /\bjava(?!script)\b/.test(asked), cpp: args.cpp || /c\+\+|\bcpp\b/.test(asked), three: args.three !== false || /three/.test(asked) };
       const { files, content } = await buildSite(dir, input);
+      // The Java server compiled already ("java -cp server/out Servidor" found no class, 13/10).
+      let compiled = null;
+      if (content.java) compiled = await new Promise((done) => execFile("javac", ["server/Servidor.java", "-d", "server/out"], { cwd: dir, windowsHide: true, timeout: 60000 }, (error, _out, err) => done(error ? `não compilou (${String(err || error.message).split(/\r?\n/)[0].slice(0, 120)})` : "compilado")));
       const index = join(dir, "index.html");
       return [
         `Criei o site "${content.title}" em ${dir} (tema ${content.theme}, ${content.items.length} itens):`,
         `O que ele tem (descreva só isto): menu fixo com as seções ${["Início", content.itemsTitle, ...(content.features.length ? ["Recursos"] : []), "Sobre", "Contato"].join(", ")}, que vira um menu ☰ no celular e acende a seção na tela;${content.three ? " no topo, uma cena 3D em Three.js com formas geométricas flutuando nas cores do tema, que segue o mouse;" : ""} os ${content.items.length} ${content.itemsTitle.toLowerCase()} em cartões React com filtro por categoria (${[...new Set(content.items.map((i) => i.category))].join(", ")}), busca, ordenação e um painel de detalhes ao clicar; ranking dos 5 de maior nota; formulário de contato.`,
         ...files.map((f) => `- ${f}`),
         `Para ver: dois cliques em ${index} (ou browser_navigate em ${pathToFileURL(index).href}).`,
-        ...(content.java ? ["Java: na pasta do site, javac server/Servidor.java -d server/out e java -cp server/out Servidor (http://localhost:8080)."] : []),
+        ...(content.java ? [compiled === "compilado" ? "Java: já compilado; para rodar, na pasta do site: java -cp server/out Servidor (http://localhost:8080)." : `Java: ${compiled} — na pasta do site: javac server/Servidor.java -d server/out e depois java -cp server/out Servidor (http://localhost:8080).`] : []),
         ...(content.cpp ? ["C++: g++ -std=c++17 -O2 -o ranking cpp/ranking.cpp e ./ranking."] : []),
         "Confira abrindo a página com browser_navigate; para mudar o conteúdo, chame create_site de novo com a mesma pasta. Na resposta, diga o que tem o site e como abrir.",
       ].join("\n");
