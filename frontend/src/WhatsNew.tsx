@@ -8,6 +8,17 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.44': {
+    title: 'Citações conferidas',
+    items: [
+      ['Conferência de citações', 'Em pedidos jurídicos, cada artigo, lei ou súmula citado (na resposta ou no documento) precisa estar no que a Aurora leu nesta resposta, na página da própria lei. O que não estiver volta para ela confirmar no site oficial, e o que sobrar sai com um aviso claro.'],
+      ['Leis com o artigo certo', 'A leitura de páginas traz o trecho do que se procura ("Art. 4") numa lei longa, e os acentos dos sites do governo não vêm mais quebrados.'],
+      ['Sem escapar para outro idioma', 'Se um trecho da entrega sai em outro alfabeto (como chinês) por engano, ela reescreve em português.'],
+      ['Power BI cobrado', 'Num pedido de Power BI, a entrega só termina com o painel montado.'],
+      ['Scripts que falham mostram onde', 'Quando um script Python ou Node dá erro, a Aurora recebe o código em volta da linha do erro para corrigir.'],
+      ['Filtros exatos', 'Quando a lista gravada não bate com o filtro, ela é orientada a usar as linhas exatas do filtro.'],
+    ],
+  },
   '0.1.43': {
     title: 'A Sede da Aurora',
     items: [

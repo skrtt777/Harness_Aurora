@@ -70,6 +70,13 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.44 (13/10, publicada): Conferência de citações e entregas mais firmes.**
+  - **Conferência de citações** (`app/serviceOrder.js`): artigo, lei, súmula e decreto da resposta e dos documentos precisam estar no texto lido (por página, "art. X da Lei N" na página da lei N); volta uma vez, o resto sai com aviso. Texto em outro alfabeto volta.
+  - **web_fetch**: `find` (o trecho de uma lei longa) e a codificação da página (windows-1252).
+  - **Recepção** fora dos pedidos divididos entre subagentes (A/B: 2,75 → 3,5 de 5 na conversa do Power BI); Power BI cobrado na Expedição.
+  - Script que falha mostra o código da linha do erro; filtro que não bate sugere `{{linhas}}`; corte de código pequeno pede reescrita enxuta.
+  - Baterias: suíte 691/691, conversas 43/43, agentes de setor 61/64 (2 rodadas), VS Code 5/5.
+
 - **0.1.43 (13/10, publicada): a Sede da Aurora.**
   - **Sede** (`app/headquarters.js`, `docs/ESCRITORIO.md`): 18 salas em três faixas; a estação de cada pessoa pelo que ela faz de verdade; a ficha de cada pedido.
   - **Recepção e Expedição** (`app/serviceOrder.js`): ordem de serviço no prompt e na ficha; a entrega conferida contra ela.
