@@ -831,7 +831,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (result.ok && agentSteps.length) result.text = withDeliveryPath(result.text, agentSteps);
-    if (result.ok && brief) result.text = withAdjustOptions(result.text, brief);
+    // "Quer ajustar?" options are for a person in the conversation, not for a task agent's run.
+    if (result.ok && brief && !env.AGENT_RUN_TRIGGER) result.text = withAdjustOptions(result.text, brief);
     if (!result.ok) {
       const cancelled = Boolean(controller?.signal.aborted);
       const errorMessage = await addMessage({
