@@ -8,6 +8,18 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.42': {
+    title: 'A Aurora programa, aprende e tem um RH',
+    items: [
+      ['Aurora no VS Code', 'Instale a extensão (vscode/aurora-harness-0.2.0.vsix) e escreva @aurora no chat do VS Code: ela usa a pasta aberta como projeto. /explicar, /corrigir com os erros do painel Problemas, /testes e /revisar suas mudanças. No fim, Ver diferenças e Desfazer.'],
+      ['Sites e APIs de verdade', '"Crie um site sobre jogos" sai com menu, cena 3D, cartões com filtro e busca, e Java e C++ se você pedir. "Crie uma API de tarefas" sai com rotas, validação e testes que já rodam. A Aurora confere a página no computador e no celular antes de responder.'],
+      ['Código conferido', 'Cada arquivo de código é checado na hora em que é gravado. Se o pedido cita um arquivo que não existe, ou ela diz que rodou sem ter rodado, ela volta e faz.'],
+      ['Ela aprende sozinha', 'Quando não sabe algo ou um erro se repete, ela pesquisa a documentação, escreve uma lição curta e guarda na memória.'],
+      ['Um escritório para todos e o RH', 'O Escritório agora é uma sala só. Helena e Otávio, do RH, dão nota aos agentes pelas entregas reais: estrela para os bons, plano de melhoria para os fracos e substituto para quem não melhora. Recontratar desfaz.'],
+      ['Desfazer também apaga o que ela criou', 'O Desfazer de uma resposta agora apaga os arquivos que ela criou, se você não mexeu neles depois, e devolve os editados como estavam.'],
+      ['Planilhas e Power BI sem erro', 'Regras como "mais de 300 funcionários em cada departamento" são conferidas em cada linha, e pedidos grandes são divididos entre subagentes.'],
+    ],
+  },
   '0.1.41': {
     title: 'Veja seus agentes trabalhando',
     items: [

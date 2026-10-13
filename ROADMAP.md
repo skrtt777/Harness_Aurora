@@ -70,6 +70,14 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.42 (13/10, publicada): Aurora em código e no VS Code, aprendizado, escritório único com RH.**
+  - **VS Code** (`vscode/aurora` 0.2.0): `@aurora` com /explicar, /corrigir (painel Problemas), /testes, /revisar (git diff); diferenças e desfazer; barra de status; lâmpada "Corrigir com a Aurora".
+  - **Código:** `create_site` e `create_api` (o modelo escreve o conteúdo, o Harness o resto); sintaxe checada ao gravar; `check_page` (computador e celular); `code_map`; travas de arquivo pedido e de "rodou sem rodar"; regras e ferramentas de código só em pedido de código.
+  - **Aprender:** ferramenta `learn` (web, Stack Overflow, MDN, lição na memória); Bing quando o DuckDuckGo bloqueia; guias de código.
+  - **Escritório:** uma sala para todos; RH (`app/hr.js`) com nota, estrela, plano de melhoria, desligamento com substituto e recontratar.
+  - **BI:** regras de número por linha; subagentes por planilha.
+  - Baterias: conversas 43/43, agentes de setor 32/32, código 4/4, VS Code 5/5.
+
 - **0.1.41 (11–12/10, publicada): escritório dos agentes, BI com a operação desenhada e Aurora XR.**
   - **Escritório** (`docs/ESCRITORIO.md`):
     - cada sessão, agente, cópia, professor e o chefe aparece como uma pessoa em pixel art, no estado real;
