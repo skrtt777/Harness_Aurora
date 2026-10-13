@@ -26,11 +26,11 @@ test("Expedição: the format asked must be written, what had to run must run, t
   assert.deepEqual(dispatchCheck(order, { answer: "Pronto.", steps: [] }).missing.map((m) => /xlsx/.test(m)), [true]);
   const steps = [{ tool: "write_document", ok: true, summary: "Criei C:/t/Ferias-Outubro.xlsx (XLSX, 10 bytes)." }];
   assert.deepEqual(writtenFiles(steps), ["C:/t/Ferias-Outubro.xlsx"]);
-  assert.deepEqual(dispatchCheck(order, { answer: "Fiz a planilha.", steps }), { fix: "\n\nArquivo: C:/t/Ferias-Outubro.xlsx", missing: [] });
+  assert.deepEqual(dispatchCheck(order, { answer: "Fiz a planilha.", steps }), { fix: "\n\nArquivo: C:/t/Ferias-Outubro.xlsx", missing: [], unconfirmed: [] });
   assert.equal(dispatchCheck(order, { answer: "Está em C:/t/Ferias-Outubro.xlsx.", steps }).fix, null);
   const run = serviceOrder("crie um script soma.py e rode");
   assert.match(dispatchCheck(run, { answer: "ok", steps: [{ tool: "write_file", ok: true, summary: "Salvei C:/p/soma.py (10 bytes)." }] }).missing.join(), /nada rodou/);
-  assert.deepEqual(dispatchCheck(serviceOrder("qual o total de vendas?"), { answer: "R$ 10", steps: [] }), { fix: null, missing: [] });
+  assert.deepEqual(dispatchCheck(serviceOrder("qual o total de vendas?"), { answer: "R$ 10", steps: [] }), { fix: null, missing: [], unconfirmed: [] });
 });
 
 test("Expedição in the agent: once back when the delivery is incomplete, then the file's path appended", async () => {
@@ -75,4 +75,40 @@ test("a read repeated with the delivery still to write keeps the tools to write 
   assert.ok(result.steps.some((s) => s.tool === "write_document" && s.ok), JSON.stringify(result.steps.map((s) => s.tool)));
   assert.ok(offeredAt.includes("write_document"), offeredAt.join(" | "));
   assert.match(result.text, /Desvios\.docx|Relatório pronto/);
+});
+
+test("Conferência jurídica: law or case law cited with nothing consulted goes back; consulted or another area passes", () => {
+  const legal = serviceOrder("explique o prazo de aviso prévio do contrato de locação");
+  assert.equal(legal.area, "juridico");
+  const cited = "Pelo art. 6º da Lei 8.245/1991, o inquilino avisa com 30 dias.";
+  assert.match(dispatchCheck(legal, { answer: cited, steps: [] }).missing.join(), /sem consultar nada/);
+  const page = { tool: "web_fetch", ok: true, result: "URL: https://www.planalto.gov.br/ccivil_03/leis/l8245.htm\nLei nº 8.245, de 18 de outubro de 1991 … Art. 6º O locatário poderá denunciar a locação…" };
+  assert.deepEqual(dispatchCheck(legal, { answer: cited, steps: [page] }).missing, [], "cited and found in the page read");
+  // A search that found nothing does not confirm an article (the "Art. 601" of 13/10).
+  const invented = dispatchCheck(legal, { answer: "Pelo Art. 601 da Lei 8.245, a multa é integral.", steps: [page] }).missing.join();
+  assert.match(invented, /não aparecem em nada que você leu[\s\S]*Art\. 601/);
+  assert.doesNotMatch(invented, /Lei 8\.245,/);
+  assert.deepEqual(dispatchCheck(legal, { answer: "O contrato prevê aviso de 30 dias.", steps: [] }).missing, []);
+  assert.deepEqual(dispatchCheck(serviceOrder("qual o total de vendas de setembro?"), { answer: "Pelo art. 5 do manual, R$ 10.", steps: [] }).missing, []);
+  assert.match(dispatchCheck(serviceOrder("cite fontes oficiais sobre férias"), { answer: "Súmula 450 do TST garante…", steps: [] }).missing.join(), /fonte oficial/);
+});
+
+test("Conferência: the documents written count (an invented article inside the Word), and text in another script goes back", () => {
+  const order = serviceOrder("Faça um parecer curto em Word sobre multa por rescisão antecipada de contrato de locação residencial.");
+  const steps = [{ tool: "write_document", ok: true, args: { path: "Parecer.docx", content: "Artigo 609 da Lei nº 8.245/1991: ... depende da是否存在 justa causa" }, summary: "Criei C:/t/Parecer.docx (DOCX)." }];
+  const { missing } = dispatchCheck(order, { answer: "Criei o parecer em C:/t/Parecer.docx.", steps });
+  assert.equal(missing.length, 2, missing.join(" | "));
+  assert.match(missing[0], /outro alfabeto \(是否存在\)[\s\S]*grave o documento de novo/);
+  assert.match(missing[1], /sem consultar nada/);
+  assert.deepEqual(dispatchCheck(serviceOrder("traduza para o japonês: bom dia"), { answer: "おはよう", steps: [] }).missing.filter((m) => /alfabeto/.test(m)), [], "asked in another script: fine only if the request has it");
+});
+
+test("Expedição: citations still unconfirmed at the end are said plainly in the answer", async () => {
+  const order = serviceOrder("Faça um parecer curto em Word sobre multa por rescisão antecipada de contrato de locação residencial.");
+  const writer = { name: "write_document", description: "cria", parameters: { type: "object", properties: {} }, run: async () => "Criei C:/t/Parecer.docx (DOCX, 10 bytes)." };
+  const write = { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "Parecer.docx", content: "Pelo Artigo 36 da Lei 8.245, a multa é integral." } }] };
+  const replies = [write, { ok: true, text: "Parecer pronto em C:/t/Parecer.docx." }, { ok: true, text: "Parecer pronto em C:/t/Parecer.docx." }];
+  const result = await runChatAgent({ system: "s", input: "Faça um parecer", tools: [writer], toolContext: { order }, callModel: async () => replies.shift() });
+  assert.match(result.text, /\*\*Atenção:\*\* estas citações não foram confirmadas[\s\S]*Artigo 36[\s\S]*Lei 8\.245/);
+  assert.ok(result.checks.some((c) => c.check === "unconfirmed_citations"));
 });

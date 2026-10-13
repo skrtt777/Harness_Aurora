@@ -26,7 +26,8 @@ const { createClient } = createRequire(import.meta.url)("../vscode/aurora/lib/cl
 const client = createClient({ base: `http://127.0.0.1:${server.address().port}`, pollMs: 1000 });
 
 const SAFE = /^\s*(cd\s+[^&|;]+&&\s*)?(node|npm|npx|python|py|pip|java|javac|g\+\+|gcc|cmake|mvn|gradle)\b/i;
-const tasks = [
+const asked = process.argv.includes("--ask") ? process.argv[process.argv.indexOf("--ask") + 1] : null;
+const tasks = asked ? [{ n: 1, ask: asked }] : [
   { n: 1, ask: "crie um website usando three.js, c++,html, java e react, o site deve ser sobre video games, dete ter um menu interarivo, dinamico e responsivo. Crie tudo dentro da pasta site." },
   { n: 2, ask: "na pasta api, crie uma API REST em Node.js (sem dependências externas, só o módulo http) com cadastro de jogos: listar, criar, editar e apagar, guardando num arquivo JSON. Escreva testes com node:test e rode os testes." },
   { n: 3, ask: "na pasta python, crie um arquivo jogos.csv com 15 jogos (nome, gênero, ano, nota) e um script relatorio.py que lê o CSV e mostra a média de nota por gênero e o jogo mais bem avaliado. Rode o script e me mostre o resultado." },

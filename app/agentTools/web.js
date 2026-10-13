@@ -16,6 +16,39 @@ export function decodeEntities(text) {
   });
 }
 
+/**
+ * The excerpts of a text around what is looked for: "Art. 51" matches "Art. 51." and "Art. 51º" but not
+ * "Art. 510"; words match without accents or case. Up to 3 excerpts of ~1,200 characters.
+ */
+export function excerptsOf(text, find, { size = 1200, max = 3 } = {}) {
+  const fold = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const t = fold(text);
+  const art = fold(find).match(/^art(?:igo)?\.?\s*(\d+)/);
+  const re = art ? new RegExp(`\\bart(?:igo)?\\.?\\s*${art[1]}(?!\\d)`, "g") : new RegExp(fold(find).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+  const out = []; let last = -Infinity;
+  for (const m of t.matchAll(re)) {
+    if (m.index < last + size) continue;
+    const from = Math.max(0, m.index - 150);
+    out.push(String(text).slice(from, from + size).trim());
+    last = m.index;
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * A page's text in its own encoding: the header's charset, else the page's <meta charset>, else UTF-8
+ * (and windows-1252 when UTF-8 does not fit). planalto.gov.br's laws are windows-1252: read as UTF-8,
+ * "Parágrafo único" became "Par�grafo �nico" (13/10).
+ */
+export function decodeBody(bytes, contentType = "") {
+  const declared = /charset=["']?([\w-]+)/i.exec(contentType)?.[1]
+    || /<meta[^>]+charset=["']?([\w-]+)/i.exec(new TextDecoder("latin1").decode(bytes.slice(0, 4096)))?.[1];
+  const tryDecode = (label, fatal = false) => { try { return new TextDecoder(label, { fatal }).decode(bytes); } catch { return null; } };
+  if (declared && !/^utf-?8$/i.test(declared)) { const text = tryDecode(declared.toLowerCase() === "iso-8859-1" ? "windows-1252" : declared); if (text !== null) return text; }
+  return tryDecode("utf-8", true) ?? tryDecode("windows-1252") ?? tryDecode("utf-8");
+}
+
 export function htmlToText(html) {
   return decodeEntities(String(html)
     .replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, " ")
@@ -180,21 +213,28 @@ export const webTools = [
   },
   {
     name: "web_fetch",
-    description: "Baixa uma página da web e devolve o texto dela (sem abrir o navegador). Use para ler um resultado de pesquisa.",
-    parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+    description: "Baixa uma página da web e devolve o texto dela (sem abrir o navegador). Use para ler um resultado de pesquisa. Numa página longa (uma lei inteira), use find para trazer o trecho do que procura, ex.: find=\"Art. 51\".",
+    parameters: { type: "object", properties: { url: { type: "string" }, find: { type: "string", description: "o trecho a procurar na página (ex.: Art. 51, multa)" } }, required: ["url"] },
     risk: "safe",
     stage: (a) => `Lendo ${a.url}…`,
-    async run({ url }, ctx) {
+    async run({ url, find }, ctx) {
       // "F:\EmpresaIA\...\Tabela de Preços.pdf" sent here failed as "fetch failed" (empresa eval, 06/10).
       if (/^([a-z]:[\\/]|\\\\|file:)/i.test(String(url || "").trim())) throw new Error(`"${url}" é um arquivo do computador, não um site: leia com read_file usando esse caminho em path.`);
       const target = new URL(/^[a-z]+:\/\//i.test(url) ? url : `https://${url}`);
       if (!["http:", "https:"].includes(target.protocol)) throw new Error("Só é possível ler páginas HTTP/HTTPS.");
       const response = await get(target.href, ctx.signal, ctx.fetch);
       const type = response.headers.get("content-type") || "";
-      const body = await response.text();
+      const body = decodeBody(new Uint8Array(await response.arrayBuffer()), type);
       const title = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
       const text = /html/i.test(type) ? htmlToText(body) : body;
-      return `${title ? `Título: ${htmlToText(title[1])}\n` : ""}URL: ${response.finalUrl || target.href}\n\n${text.slice(0, 7000)}`;
+      const head = `${title ? `Título: ${htmlToText(title[1])}\n` : ""}URL: ${response.finalUrl || target.href}\n\n`;
+      // The part of a long page about what is looked for (the article of a law of 90 articles).
+      if (find && String(find).trim()) {
+        const parts = excerptsOf(text, String(find));
+        if (parts.length) return `${head}Trechos com "${find}":\n\n${parts.join("\n\n[…]\n\n")}`;
+        return `${head}Não achei "${find}" nesta página. Começo da página:\n${text.slice(0, 2500)}`;
+      }
+      return `${head}${text.slice(0, 7000)}`;
     },
   },
 ];

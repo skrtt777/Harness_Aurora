@@ -47,7 +47,7 @@ export function serviceOrder(request, { history = [] } = {}) {
     ...(official ? ["cada lei, artigo ou norma citada veio de fonte oficial consultada nesta resposta"] : []),
   ];
   const areaSure = Boolean(areaHit([...history.slice(-2), text].join("\n")));
-  return { area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
+  return { request: text.slice(0, 400), area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
 }
 
 /** The order as a block of the prompt (null when there is nothing to spell out). */
@@ -61,6 +61,26 @@ export function orderBlock(order) {
     ...(order.official ? ["- Citar só o que estiver em fonte oficial consultada agora (link)."] : []),
     ...(order.checks.length ? [`- Antes de responder, confira: ${order.checks.join("; ")}.`] : []),
   ].join("\n");
+}
+
+const LEGAL_CITE = /\b(lei\s+(?:complementar\s+)?(?:n[ºo°.]*\s*)?\d[\d.]*|art(?:igo)?\.?\s*\d+|s[úu]mula\s+(?:vinculante\s+)?(?:n[ºo°.]*\s*)?\d+|resp\s*n?[ºo°.]*\s*\d|recurso especial\s+n?[ºo°.]*\s*\d|hc\s+n?[ºo°.]*\s*\d|decreto(?:-lei)?\s+(?:n[ºo°.]*\s*)?\d)/i;
+export const CONSULT = /^(web_search|web_fetch|learn|browser_|read_file|knowledge_search|search_files|grep)/;
+/** The legal citations of a text: [{ kind: "art"|"lei"|"sumula"|"decreto", n, text }]. */
+export function citationsIn(text) {
+  const out = []; const seen = new Set();
+  const add = (kind, n, raw) => { const k = `${kind}:${n}`; if (!seen.has(k)) { seen.add(k); out.push({ kind, n, text: raw.trim() }); } };
+  for (const m of String(text).matchAll(/\b(art(?:igo)?s?\.?)\s*(\d+)/gi)) add("art", m[2], m[0]);
+  for (const m of String(text).matchAll(/\blei\s+(?:complementar\s+)?(?:n[ºo°.]*\s*)?(\d[\d.]*\d)/gi)) add("lei", m[1].replace(/\./g, ""), m[0]);
+  for (const m of String(text).matchAll(/\bs[úu]mula\s+(?:vinculante\s+)?(?:n[ºo°.]*\s*)?(\d+)/gi)) add("sumula", m[1], m[0]);
+  for (const m of String(text).matchAll(/\bdecreto(?:-lei)?\s+(?:n[ºo°.]*\s*)?(\d[\d.]*\d)/gi)) add("decreto", m[1].replace(/\./g, ""), m[0]);
+  return out;
+}
+/** Is this citation in the text read (the page of the law shows "Art. 4º", the number of the law)? */
+export function citationIn(read, c) {
+  const r = String(read);
+  if (c.kind === "art") return new RegExp(`\\bart(?:igo)?s?\\.?\\s*${c.n}(?!\\d)`, "i").test(r);
+  if (c.kind === "lei" || c.kind === "decreto") return r.replace(/\./g, "").includes(c.n);
+  return new RegExp(`s[úu]mula\\s+(?:vinculante\\s+)?(?:n[ºo°.]*\\s*)?${c.n}(?!\\d)`, "i").test(r);
 }
 
 const WROTE = new Set(["write_file", "edit_file", "write_document", "create_site", "create_api", "excel", "word", "powerpoint", "powerbi"]);
@@ -81,9 +101,32 @@ export function writtenFiles(steps = []) {
  * The Expedição: what the delivery still lacks against the order. Returns { fix: text to append | null,
  * missing: [..] (back to the agent) }.
  */
-export function dispatchCheck(order, { answer = "", steps = [] } = {}) {
-  if (!order?.makes) return { fix: null, missing: [] };
+export function dispatchCheck(order, { answer = "", steps = [], read = null } = {}) {
   const missing = [];
+  let unconfirmed = [];
+  // Jurídico (or "fonte oficial"): a law, an article, a súmula or a decision cited with nothing consulted
+  // in this answer — not a web page, not a document — is a citation from memory, the most dangerous
+  // error of a legal text (13/10, the Sede's Conferência).
+  // What was delivered: the answer and the text of the documents written in this turn (a legal opinion
+  // in Word cited "artigo 609 da Lei 8.245", a law of 90 articles, while the answer cited nothing).
+  const delivered = [String(answer), ...steps.filter((st) => st.ok && ["write_document", "write_file"].includes(st.tool)).map((st) => String(st.args?.content ?? st.args?.text ?? ""))].join("\n");
+  // A slip of the model into another script ("depende fundamentalmente da是否存在 justa causa").
+  const foreign = delivered.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff\u0600-\u06ff]+/g);
+  // Not when the request has that script or asks for another language ("traduza para o japon\u00eas").
+  if (foreign && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff\u0600-\u06ff]/.test(order?.request || "") && !/tradu|japon|chin[e\u00ea]s|mandarim|coreano|russo|[a\u00e1]rabe|ucraniano|kanji|hiragana|cir[i\u00ed]lico/i.test(order?.request || "")) {
+    missing.push(`o texto entregue tem trechos em outro alfabeto (${[...new Set(foreign)].slice(0, 3).join(", ")}): reescreva esses trechos em português${steps.some((st) => st.ok && st.tool === "write_document") ? " e grave o documento de novo no mesmo caminho" : ""}`);
+  }
+  const legal = order && ((order.area === "juridico" && order.areaSure) || order.official);
+  if (legal && LEGAL_CITE.test(delivered)) {
+    // The Conferência de citações: each article, law or súmula cited must be in what was read in this
+    // answer (a page, a document). A search that found nothing does not confirm "Art. 601" (13/10).
+    const seen = read ?? steps.filter((st) => st.ok && CONSULT.test(String(st.tool))).map((st) => String(st.result || st.summary || "")).join("\n");
+    unconfirmed = citationsIn(delivered).filter((c) => !citationIn(seen, c));
+    if (unconfirmed.length) {
+      missing.push(`${seen ? "estas citações não aparecem em nada que você leu nesta resposta" : "você citou sem consultar nada nesta resposta"}: ${unconfirmed.slice(0, 6).map((c) => c.text).join(", ")}. Confirme cada uma em fonte oficial (web_fetch da página da lei no planalto.gov.br com find="Art. N" para trazer o artigo) e cite com o link, ou tire a citação e diga que não confirmou`);
+    }
+  }
+  if (!order?.makes) return { fix: null, missing, unconfirmed };
   const written = writtenFiles(steps);
   if (order.format && order.deliver.length && !written.some((f) => f.toLowerCase().endsWith(`.${order.format}`)) && !steps.some((s) => s.ok && ["excel", "word", "powerpoint", "powerbi"].includes(s.tool))) {
     missing.push(`${FORMAT_NAME[order.format].replace(/^uma? /, "o arquivo pedido, ")} não foi gravado (grave com write_document em .${order.format})`);
@@ -92,5 +135,5 @@ export function dispatchCheck(order, { answer = "", steps = [] } = {}) {
   // Where the file is: appended when the answer does not say it (the person goes looking for it).
   const unsaid = written.filter((f) => !String(answer).toLowerCase().includes(basename(f).toLowerCase()));
   const fix = unsaid.length && order.deliver.length ? `\n\nArquivo${unsaid.length > 1 ? "s" : ""}: ${unsaid.slice(0, 5).join("; ")}` : null;
-  return { fix, missing };
+  return { fix, missing, unconfirmed };
 }

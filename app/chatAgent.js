@@ -1,5 +1,5 @@
 import { missingFiles, claimsRunWithoutRunning } from "./codeGuards.js";
-import { dispatchCheck } from "./serviceOrder.js";
+import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -481,7 +481,7 @@ export async function runChatAgent({
     // The Expedição (app/serviceOrder.js): the delivery against the Recepção's order — the format asked
     // was written, what had to run ran. Once back to the agent; the rest is fixed at the end.
     if (!toolCalls.length && offered.length && !dispatched && toolContext.order) {
-      const { missing } = dispatchCheck(toolContext.order, { answer: text, steps });
+      const { missing } = dispatchCheck(toolContext.order, { answer: text, steps, read: ctx.readText ?? null });
       if (missing.length) {
         dispatched = true;
         checks.push({ check: "dispatch", items: missing, answer: text.slice(0, 300) });
@@ -508,7 +508,15 @@ export async function runChatAgent({
         final += `\n\n> **Atenção:** nenhum arquivo foi gravado nesta resposta${failed ? ` (${String(failed.summary || "").replace(/^ERRO:\s*/, "").slice(0, 160)})` : ""}. Peça de novo ou autorize a gravação quando ela for pedida.`;
       }
       // Expedição: where the delivered file is, when the answer does not say it.
-      if (toolContext.order) { const { fix } = dispatchCheck(toolContext.order, { answer: final, steps }); if (fix) final += fix; }
+      if (toolContext.order) {
+        const { fix, unconfirmed } = dispatchCheck(toolContext.order, { answer: final, steps, read: ctx.readText ?? null });
+        if (fix) final += fix;
+        // Citations still not confirmed in anything read: said plainly, never delivered as if checked.
+        if (unconfirmed.length) {
+          checks.push({ check: "unconfirmed_citations", items: unconfirmed.map((c) => c.text) });
+          final += `\n\n> **Atenção:** estas citações não foram confirmadas numa fonte oficial nesta resposta: ${unconfirmed.slice(0, 8).map((c) => c.text).join(", ")}. Confira na lei ou no tribunal antes de usar.`;
+        }
+      }
       messages.push({ role: "assistant", content: final });
       return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
     }
@@ -556,6 +564,8 @@ export async function runChatAgent({
       if (call.arguments?.__salvaged && outcome.ok && !/completei a tabela/.test(outcome.result)) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
+      // The whole text of what was read (the Conferência de citações looks for each article in it).
+      if (outcome.ok && CONSULT.test(call.name)) { ctx.readText = `${ctx.readText || ""}\n${outcome.result}`.slice(-80000); }
       // What the subagents wrote is this turn's delivery too (the checks of "criei o arquivo" see it).
       if (call.name === "subagents" && ctx.subagentSteps?.length) { steps.push(...ctx.subagentSteps); ctx.subagentSteps = null; }
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
