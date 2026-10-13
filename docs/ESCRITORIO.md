@@ -153,3 +153,10 @@ Um escritório só, com departamentos, como numa planta baixa (`app/headquarters
 | Acabou de entregar | Expedição; depois o Café ou o Descanso |
 
 ![A Sede da Aurora](img/sede.png)
+
+### Recepção, Expedição e Conferência de verdade
+
+- **Recepção** (`app/serviceOrder.js`): antes de trabalhar, o pedido vira uma ordem de serviço. Ela traz o que entregar (arquivos, formato, pasta), as regras ("mais de 300 funcionários em cada linha"), se é para rodar e mostrar o resultado, e se a fonte precisa ser oficial. A ordem entra no prompt e aparece na ficha.
+- **Regras por departamento** (`app/runtime-policy/areas/*.md`): um checklist curto da área, só em pedido daquela área. Por exemplo, no Jurídico: leis só de fonte oficial, prazo em dias úteis ou corridos com a data final.
+- **Expedição:** antes de a resposta sair, a entrega é conferida contra a ordem. Volta uma vez se o formato pedido não foi gravado, se o que era para rodar não rodou ou se o texto escapou para outro alfabeto. Se a resposta não diz onde está o arquivo, o caminho é acrescentado.
+- **Conferência de citações:** cada artigo, lei, súmula ou decreto citado na resposta ou nos documentos gravados precisa aparecer no que foi lido nesta resposta. Um "art. X da Lei N" só vale numa página que tenha a lei N. O que não aparece volta para ser confirmado (o `web_fetch` com `find="Art. N"` traz o artigo de uma lei longa); o que sobrar no fim sai com um aviso claro.

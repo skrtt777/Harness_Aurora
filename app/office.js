@@ -22,6 +22,7 @@ const TEACHERS = { claude: "Claude", codex: "Codex" };
 // The guards (app/chatAgent.js), as the Conferência says them.
 const CHECK_LABEL = {
   requested_files_missing: "faltava um arquivo do pedido", claimed_run: "disse que rodou sem rodar", claimed_delivery: "disse que entregou sem gravar",
+  dispatch: "a entrega não estava completa", unconfirmed_citations: "citação não confirmada na fonte", requested_files_missing_final: "faltava um arquivo do pedido",
   uncited_source: "citou fonte sem consultar", invented_document: "documento que não existe", data_blanks: "campos em branco", asked_instead_of_doing: "perguntou em vez de fazer",
 };
 
