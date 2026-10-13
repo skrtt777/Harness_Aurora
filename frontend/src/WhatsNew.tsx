@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.45': {
+    title: 'Pedidos grandes não são mais recusados',
+    items: [
+      ['Projeto grande, computador menor', 'A mensagem "Requisitos ou dependências excedem o contexto" não barra mais os pedidos. Quando o projeto, os anexos e os documentos da empresa não cabem, a Aurora usa um trecho deles, avisa e lê o resto do arquivo quando precisar.'],
+      ['Leis direto da fonte', 'Em pedidos jurídicos e em perguntas sobre a CLT, a Aurora já começa pela página oficial da lei no Planalto e só cita artigos que leu ali.'],
+      ['A Conferência ensina', 'Cada erro que a Conferência segura vira uma lição curta na memória da Aurora, para o próximo pedido parecido.'],
+      ['Filtros mais certeiros', 'Listas por condição (férias em outubro, contas a pagar até uma data) saem com as linhas exatas do filtro.'],
+      ['A ordem de serviço à vista', 'Enquanto a Aurora trabalha, a conversa mostra o que ela entendeu que precisa entregar. No VS Code também (extensão 0.2.1).'],
+    ],
+  },
   '0.1.44': {
     title: 'Citações conferidas',
     items: [

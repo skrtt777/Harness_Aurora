@@ -70,6 +70,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.45 (13/10, publicada): pedidos grandes encaixados, fontes oficiais e lições da Conferência.**
+  - **Contexto** (`app/economy.js` fitBlocks): o último recurso encurta os blocos grandes (projeto, anexos, documentos da empresa) dizendo quanto faltou, em vez de recusar com "Requisitos ou dependências excedem o contexto" (notebook do trabalho).
+  - **Fontes oficiais** (`app/legalSources.js`): a página do Planalto das leis do pedido na ordem de serviço e na cobrança da Conferência; Pessoas com a CLT.
+  - **Lições da Conferência** (`app/conferenceLessons.js`), filtros normalizados, ordem de serviço no app e no VS Code (0.2.1), agentes sem "Quer ajustar?".
+  - Baterias: suíte 697/697, agentes de setor 32/32, conversas 41/43 (o formulário no navegador oscilou).
+
 - **0.1.44 (13/10, publicada): Conferência de citações e entregas mais firmes.**
   - **Conferência de citações** (`app/serviceOrder.js`): artigo, lei, súmula e decreto da resposta e dos documentos precisam estar no texto lido (por página, "art. X da Lei N" na página da lei N); volta uma vez, o resto sai com aviso. Texto em outro alfabeto volta.
   - **web_fetch**: `find` (o trecho de uma lei longa) e a codificação da página (windows-1252).
