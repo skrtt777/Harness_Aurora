@@ -658,7 +658,7 @@ export const eraseSubject = (term: string) => request<{ memoriesDeleted: number;
 // The agents' office (app/office.js): the rooms and who is in them, each a real session, agent or teacher.
 export type OfficeRoom = { id: string; name: string; kind: "equipe" | "projeto" | "geral"; actors: import("./officeSim").OfficeActor[] };
 // The Sede (app/headquarters.js): its departments, and each request's ficha through the delivery line.
-export type OfficeFicha = { id: string; title: string; area: string; areaName: string; who: string | null; step: 1 | 2 | 3; since?: number | null; endedAt?: number; stations: Array<{ id: string; label: string; state: "feito" | "agora" | "pulado" | "falta" | "falhou" }> };
+export type OfficeFicha = { id: string; title: string; area: string; areaName: string; who: string | null; step: 1 | 2 | 3; since?: number | null; endedAt?: number; order?: { deliver: string[]; rules: string[]; run: boolean } | null; stations: Array<{ id: string; label: string; state: "feito" | "agora" | "pulado" | "falta" | "falhou" }> };
 export const getOffice = () => request<{ rooms: OfficeRoom[]; departments?: import("./officeSim").Department[]; fichas?: OfficeFicha[]; updatedAt: string }>("/office");
 // The HR team (app/hr.js): each agent's grade from its real deliveries, and what HR decided.
 export type HrCard = { agentId: string; name: string; department: string | null; enabled: boolean; score: number | null; runs: number; delivered: number; corrected: number; failed: number; trend: number; stars: number; warnings: number; status: string; lessons: string[]; replacedBy: string | null; replaces: string | null };
