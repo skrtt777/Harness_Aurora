@@ -154,7 +154,8 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
               </ol>
               <button className="hq-ficha-title" onClick={() => onOpenConversation(f.id)} title="Abrir a conversa"><strong>{f.title}</strong><small>{f.who ? `${f.who} · ` : ""}{f.areaName}{f.endedAt ? ` · entregue ${since(f.endedAt)}` : f.since ? ` · ${since(f.since)}` : ""}</small></button>
             </header>
-            <ol className="hq-line" aria-label="Estações">
+            {f.order && (f.order.deliver.length > 0 || f.order.rules.length > 0 || f.order.run) && <p className="hq-order" title="Ordem de serviço da Recepção">{[f.order.deliver.length ? `Entregar: ${f.order.deliver.join(", ")}` : "", f.order.rules.length ? `Regras: ${f.order.rules.join("; ")}` : "", f.order.run ? "Rodar e mostrar a saída" : ""].filter(Boolean).join(" · ")}</p>}
+        <ol className="hq-line" aria-label="Estações">
               {f.stations.map((s) => <li key={s.id} className={`s-${s.state}`} title={s.state === "pulado" ? "Não precisou" : s.state}>{s.label}</li>)}
             </ol>
           </article>) : <p className="office-hint">Nenhum pedido na linha agora. Quando você pedir algo, a ficha aparece aqui e anda pelas salas.</p>}

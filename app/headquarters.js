@@ -39,6 +39,13 @@ const AREA_WORDS = [
   ["comercial", /\b(venda|vendedor|cliente|proposta|comercial|marketing|campanha|post|instagram|tiktok|lead|funil|meta de venda|anuncio|conteudo|e-?mail marketing|precificacao)s?\b/],
   ["operacoes", /\b(estoque|logistic\w*|entrega|compra|fornecedor|producao|frota|armazem|deposito|pedido de compra|oee|maquina|linha de producao|inventario)s?\b/],
 ];
+/** The area a text clearly speaks of (one of its words), or null. */
+export function areaHit(text) {
+  const t = fold(text);
+  let best = null, hits = 0;
+  for (const [id, re] of AREA_WORDS) { const n = (t.match(new RegExp(re.source, "g")) || []).length; if (n > hits) { best = id; hits = n; } }
+  return best;
+}
 /** The department of a request's area (the person's words, or an agent's sector). */
 export function areaOf(text) {
   const t = fold(text);

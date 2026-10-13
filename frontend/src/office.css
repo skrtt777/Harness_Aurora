@@ -91,3 +91,4 @@
 .app-shell .hq-line li.s-falhou { background: #f6d2cd; color: #7c231a; border-color: transparent; }
 @keyframes hq-pulse { 50% { box-shadow: 0 0 0 3px #e0a43a55; } }
 @media (prefers-reduced-motion: reduce) { .app-shell .hq-line li.s-agora { animation: none; } }
+.app-shell .hq-order { margin: 0; font-size: 11.5px; color: var(--text-2); border-left: 2px solid #e0a43a; padding-left: 7px; }

@@ -8,6 +8,8 @@ export const agentRules = readFileSync(fileURLToPath(new URL('./runtime-policy/A
 // Only for a code request (13/10: the code rules and tools in every prompt pushed a company's question
 // past the 16k-token slot, and the sector agents' battery fell from 90.6% to 43.8%).
 export const codeRules = readFileSync(fileURLToPath(new URL('./runtime-policy/CODE.md', import.meta.url)), 'utf8');
+// Each department's checklist (app/headquarters.js areas), only in a request of that area.
+export const areaRules = Object.fromEntries(['juridico', 'financeiro', 'pessoas', 'comercial', 'operacoes'].map((id) => [id, readFileSync(fileURLToPath(new URL(`./runtime-policy/areas/${id}.md`, import.meta.url)), 'utf8')]));
 export const rules = Object.fromEntries(['SOUL','RULES','ECONOMY','KERNEL'].map(name => [name, readFileSync(fileURLToPath(new URL(`./runtime-policy/${name}.md`, import.meta.url)), 'utf8')]));
 export const policyHash = digest(Object.values(rules).join('\n')+'\n'+(selectiveContext()?CONTEXT_SELECTION_VERSION:'legacy')+'\nrepair-v1');
 export const DEFAULT_BUDGET = Object.freeze({ maxCalls: 16, maxTokens: 60000, maxAttempts: 2, maxInputChars: 16000, maxOutputTokens: 2048, maxDurationMs: 600000 });

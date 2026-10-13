@@ -1,4 +1,5 @@
 import { missingFiles, claimsRunWithoutRunning } from "./codeGuards.js";
+import { dispatchCheck } from "./serviceOrder.js";
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -254,7 +255,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
-  let filesChecked = 0, ranChecked = false;
+  let filesChecked = 0, ranChecked = false, dispatched = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -477,6 +478,17 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: "O pedido é um arquivo, e nenhum foi gravado. Grave agora com write_document o que você levantou (no formato pedido: planilha é .xlsx, relatório é .docx) e responda com o caminho." });
       continue;
     }
+    // The Expedição (app/serviceOrder.js): the delivery against the Recepção's order — the format asked
+    // was written, what had to run ran. Once back to the agent; the rest is fixed at the end.
+    if (!toolCalls.length && offered.length && !dispatched && toolContext.order) {
+      const { missing } = dispatchCheck(toolContext.order, { answer: text, steps });
+      if (missing.length) {
+        dispatched = true;
+        checks.push({ check: "dispatch", items: missing, answer: text.slice(0, 300) });
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `Expedição: a entrega ainda não está completa: ${missing.join("; ")}. Faça agora e responda com o resultado real.` });
+        continue;
+      }
+    }
     if (!toolCalls.length && offered.length && !nudged && announcesAction(text)) {
       // Small models often stop at "vou rolar a página…" instead of doing it.
       nudged = true;
@@ -495,6 +507,8 @@ export async function runChatAgent({
         checks.push({ check: "claimed_delivery_final", answer: final.slice(0, 300) });
         final += `\n\n> **Atenção:** nenhum arquivo foi gravado nesta resposta${failed ? ` (${String(failed.summary || "").replace(/^ERRO:\s*/, "").slice(0, 160)})` : ""}. Peça de novo ou autorize a gravação quando ela for pedida.`;
       }
+      // Expedição: where the delivered file is, when the answer does not say it.
+      if (toolContext.order) { const { fix } = dispatchCheck(toolContext.order, { answer: final, steps }); if (fix) final += fix; }
       messages.push({ role: "assistant", content: final });
       return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
     }

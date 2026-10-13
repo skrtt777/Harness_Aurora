@@ -16,7 +16,8 @@ import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { refineLocalAnswer } from "./localRefine.js";
 import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
 import { diagnoseLocalArtifact } from "./localDiagnostics.js";
-import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan, setCheck } from "./pendingTurns.js";
+import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan, setCheck, setOrder } from "./pendingTurns.js";
+import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -42,7 +43,7 @@ import { computerRoots, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
-import { compactContext, rules, agentRules, codeRules } from "./economy.js";
+import { compactContext, rules, agentRules, codeRules, areaRules } from "./economy.js";
 import { findReusableWorkflow } from "./workflows.js";
 
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
@@ -620,6 +621,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
           // Code rules and code tools only for code (the request, the last messages, a VS Code conversation).
+          // The Recepção (app/serviceOrder.js): the order of this request, in the prompt and for the Expedição.
+          toolContext.order = serviceOrder(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")) });
+          setOrder(conversationId, toolContext.order);
           const codeTurn = isCodeRequest([...history.filter((m) => m.role === "user").slice(-2).map((m) => String(m.content || "")), trimmed].join("\n"), { title: conversation.title });
           // What the person said in this conversation (the rules of made-up data live in earlier messages).
           toolContext.conversationText = [...history.filter((m) => m.role === "user").slice(-6).map((m) => String(m.content || "")), trimmed].join("\n");
@@ -656,7 +660,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const sheet = autoDocs.find((d) => /\.(xlsx|csv|tsv)$/i.test(d.path));
           if (sheet) { const text = await extractText(sheet.path).catch(() => ""); if (text && text.length <= FULL_SHEET_CHARS) fullSheets.set(sheet.path, redactRestricted(text.split(/\r?\n/), trimmed, env).join("\n")); }
           const docsBlockOf = (whole) => (autoDocs.length ? `Trechos dos documentos da empresa encontrados automaticamente para este pedido (use se responderem à pergunta, copie datas e valores exatamente e cite "Fonte:" com o arquivo; se não servirem, use knowledge_search):\n${autoDocs.map((d, i) => `${i + 1}. Fonte: ${d.path} (${d.category})\n${whole && fullSheets.has(d.path) ? `PLANILHA INTEIRA (todas as linhas; conte e filtre a partir daqui):${totalRowsNote(fullSheets.get(d.path).split(/\r?\n/))}\n${fullSheets.get(d.path)}` : `${d.text.slice(0, 900)}${sheetHint(d.path)}`}`).join("\n\n")}` : "");
-          const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: codeTurn ? `${agentRules}\n${codeRules}` : agentRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
+          // The agent's rules: the code ones in a code turn, the department's in a request of one area
+          // (AURORA_AREA_RULES=off measures without them).
+          const areaText = env.AURORA_AREA_RULES !== "off" && toolContext.order?.areaSure ? areaRules[toolContext.order.area] : null;
+          const coreRules = codeTurn ? `${agentRules}\n${codeRules}` : areaText ? `${agentRules}\n${areaText}` : agentRules;
+          const buildContext = (docsBlock) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           agentContext = await buildContext(docsBlockOf(true)).catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)));
@@ -693,7 +701,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // history, a smaller step limit and its own files; it can't make subagents of its own.
           toolContext.runSubagent = (prompt, hooks = {}) => runAgent([], prompt, {
             question: prompt, deliverFirst: false, onText: null, maxSteps: Number(env.AURORA_SUBAGENT_STEPS) || 14,
-            toolContext: { ...toolContext, subagent: hooks.name || true, runSubagent: null, docBodies: new Map(), delegatedTo: null, delegatedAnswer: null },
+            toolContext: { ...toolContext, subagent: hooks.name || true, runSubagent: null, docBodies: new Map(), delegatedTo: null, delegatedAnswer: null, order: null },
             tools: (toolContext.agentTools ? [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") : [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools]).filter((t) => !["subagents", "team_request", "agent_delegate"].includes(t.name)),
             onStage: hooks.onStage || (() => {}), onStep: hooks.onStep || (() => {}),
           });

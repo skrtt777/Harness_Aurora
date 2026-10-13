@@ -214,7 +214,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
   for (const t of turns.active) {
     const c = conversations.get(t.conversationId);
     const owner = floor.actors.find((a) => a.conversationId === t.conversationId && (a.kind === "aurora" || a.kind === "agente"));
-    fichas.push({ ...fichaOf({ conversationId: t.conversationId, title: c?.title || owner?.task, request: owner?.task, steps: (t.tools || []).map((tool) => ({ tool })), station: owner?.station || "recepcao", review: t.reviewed, checks: t.checks }), who: owner?.name || null, since: t.since || null });
+    fichas.push({ ...fichaOf({ conversationId: t.conversationId, title: c?.title || owner?.task, request: owner?.task, steps: (t.tools || []).map((tool) => ({ tool })), station: owner?.station || "recepcao", review: t.reviewed, checks: t.checks }), who: owner?.name || null, since: t.since || null, order: t.order ? { deliver: t.order.deliver, rules: t.order.rules, run: t.order.run } : null });
   }
   for (const e of turns.ended.slice(0, 6)) {
     if (activeById.has(e.conversationId) || fichas.some((f) => f.id === e.conversationId) || now - e.endedAt > 10 * 60_000) continue;

@@ -37,6 +37,12 @@ export function setStage(conversationId, stage) {
  * A guard of the agent that fired (app/chatAgent.js checks): the Sede's Conferência, where the
  * delivery is held back and fixed (numbers per row, a file asked for, "rodou" without running…).
  */
+/** The Recepção's order of the turn (app/serviceOrder.js), for the Sede's ficha. */
+export function setOrder(conversationId, order) {
+  const entry = pending.get(conversationId);
+  if (entry && order) entry.order = { area: order.area, deliver: order.deliver.slice(0, 4), rules: order.rules.slice(0, 3), run: order.run };
+}
+
 export function setCheck(conversationId, check) {
   const entry = pending.get(conversationId);
   if (!entry) return;
@@ -170,7 +176,7 @@ export function turnSnapshots({ withinMs = 5 * 60_000, now = Date.now() } = {}) 
     steps: (e.steps || []).slice(-3).map((s) => ({ tool: s.tool, status: s.status || null, summary: String(s.summary || s.stage || "").slice(0, 160) })),
     approval: e.approval ? { tool: e.approval.tool, summary: String(e.approval.summary || "").slice(0, 160) } : null,
     plan: Array.isArray(e.plan) ? { done: e.plan.filter((p) => p.status === "done").length, total: e.plan.length } : null,
-    tools: e.tools || [], checks: (e.checks || []).length, checkedAt: e.checks?.at(-1)?.at || 0, lastCheck: e.checks?.at(-1)?.check || null, reviewed: !!e.reviewed,
+    order: e.order || null, tools: e.tools || [], checks: (e.checks || []).length, checkedAt: e.checks?.at(-1)?.at || 0, lastCheck: e.checks?.at(-1)?.check || null, reviewed: !!e.reviewed,
     subagents: [...(e.subagents?.values() || [])].map((sa) => ({ id: sa.id, name: sa.name, task: sa.task, stage: sa.stage || null, done: !!sa.done, ok: sa.ok ?? null, since: sa.since || null, endedAt: sa.endedAt || null,
       steps: sa.steps.map((st) => ({ tool: st.tool, status: st.status || null, summary: String(st.summary || st.stage || "").slice(0, 160) })) })),
   }));
