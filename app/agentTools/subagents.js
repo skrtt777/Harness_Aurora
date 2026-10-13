@@ -30,6 +30,11 @@ export function multiPart(text) {
   const existing = /\b(com|da|das|na|nas|usando|a partir d[ae]s?)\s+(as?\s+)?planilhas?\b|\b[\w-]+\.(xlsx|csv)\b/.test(t);
   const found = [];
   for (const [name, re] of PARTS) if (re.test(t) && !((name === "planilha" || name === "planilhas") && existing) && !(name === "planilha" && found.includes("planilhas"))) found.push(name);
+  // A website, app or system with several technologies (React, Three.js, Java, C++…): one part per area.
+  if (/\b(cri[ae]|fa[cz]a|desenvolv[ae]|mont[ae]|construa|gere|programe)\b/.test(t) && /\b(site|website|app|aplicativo|sistema|jogo|plataforma|api)\b/.test(t)) {
+    const techs = [...new Set((t.replace(/c\+\+/g, "cpp").match(/\b(react|vue|angular|three ?\.?js|java(?!script)|c\+\+|cpp|c#|python|node|express|spring|django|flask|typescript|html|css|sql|php|kotlin|swift|go|rust)\b/g) || []).map((x) => x.replace(/\s|\./g, "")))];
+    if (techs.length >= 3) return [...found, ...techs.map((x) => `código ${x}`)];
+  }
   const many = found.includes("planilhas") ? found.length + 1 : found.length;
   return many >= 2 ? found : null;
 }
@@ -55,6 +60,7 @@ export async function planParts({ request, history = [], folder = "Documentos", 
     "Divida em 2 a 5 partes INDEPENDENTES: UMA PARTE POR ARQUIVO A ENTREGAR (uma planilha por assunto: Departamentos, Funcionários, Frota…), o nome da parte é o assunto. Etapas como extrair, limpar, juntar ou modelar dados NÃO são partes. A parte que depende de todas as outras (ex.: o Power BI com as planilhas) NÃO é uma parte: diga em \"final\" o que a Aurora faz no fim com o que voltar.",
     "Cada tarefa traz tudo o que o subagente precisa saber: as colunas da planilha, quantas linhas, e as REGRAS DE NÚMERO de toda a conversa valendo para cada linha (ex.: \"mais de 300 funcionários em cada departamento\" = toda linha acima de 300, não o total). Se os dados que já existem na conversa não obedecem a uma regra pedida, a tarefa manda corrigir.",
     "Escreva o mesmo nome em todas as tarefas para o que liga as planilhas (ex.: a coluna Departamento com os mesmos departamentos).",
+    "Num projeto de código, uma parte por ÁREA (ex.: o front em React com Three.js; o módulo C++; o servidor Java), cada uma com os seus arquivos pequenos na pasta do projeto (caminhos relativos a ela) e o contrato entre elas (rotas, nomes de funções, formato dos dados) escrito igual em todas; juntar e conferir fica no \"final\".",
     `A entrega diz o arquivo com o caminho (na pasta ${folder}) e o formato (.xlsx para planilha, .docx para documento).`,
   ].join("\n");
   const user = `${recent ? `Conversa até aqui:\n${recent}\n\n` : ""}Pedido agora: ${request}`;
@@ -81,7 +87,7 @@ export function subagentPrompt({ name, task, deliver, request, others }) {
     `Sua parte: ${task}`,
     deliver ? `Entrega: ${deliver}` : "",
     others.length ? `Outros subagentes fazem: ${others.join("; ")}. Não faça essas partes.` : "",
-    "Entregue UM arquivo, no caminho da entrega, gravado uma vez (se a ferramenta recusar, corrija e grave de novo no MESMO caminho). Planilha é uma tabela (cabeçalho e linhas com | entre as células). Confira as regras de número do pedido em cada linha antes de gravar. Não pergunte nada à pessoa: decida o razoável e siga.",
+    "Entregue o que a sua parte pede (o arquivo, ou os arquivos pequenos da sua área de código), cada um gravado uma vez no caminho da entrega (se a ferramenta recusar, corrija e grave de novo no MESMO caminho). Planilha é uma tabela (cabeçalho e linhas com | entre as células). Confira as regras de número do pedido em cada linha antes de gravar. Não pergunte nada à pessoa: decida o razoável e siga.",
     "Termine com 2 ou 3 frases: o que você entregou, o caminho completo de cada arquivo e os números principais.",
   ].filter(Boolean).join("\n");
 }

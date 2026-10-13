@@ -878,6 +878,22 @@ export function undatedSlashes(path) {
   return String(path).replace(/(\d{1,2})[\\/](\d{1,2})[\\/](\d{4})(?=[^\\/]*$)/, "$1-$2-$3");
 }
 
+export const CODE_FILE = /\.(html?|css|scss|m?jsx?|tsx?|vue|svelte|json|java|kt|c|cc|cpp|cxx|h|hpp|cs|py|go|rs|rb|php|sh|ps1|sql|xml|ya?ml|toml|gradle)$/i;
+/**
+ * A code file as written, without what a model leaves after the code: a closing ``` fence, a stray
+ * tool call ("{"name": "write_file"…"), text after </html> (a website carried a fence and a tool
+ * fragment after its end, 13/10).
+ */
+export function cleanCode(file, content) {
+  let s = String(content ?? "");
+  if (!CODE_FILE.test(String(file))) return s;
+  if (/\.html?$/i.test(file)) { const end = s.toLowerCase().lastIndexOf("</html>"); if (end >= 0) s = s.slice(0, end + 7) + "\n"; }
+  s = s.replace(/^\s*```[\w+-]*\s*\n/, "");
+  s = s.replace(/\n\s*```\s*$/, "\n");
+  s = s.replace(/\n\s*(<\/?tool_call>|\{\s*"(name|tool|arguments)"\s*:)[\s\S]*$/, "\n");
+  return s;
+}
+
 function documentPath(args, ctx) {
   // Small models name the field after other tools ("file_path", "filename").
   const path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
@@ -1253,7 +1269,11 @@ export const fileTools = [
     async run({ path, content }, ctx) {
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
+      // Code of a project goes in the project's folder: "Documentos/game_website.html" made a Documentos
+      // folder inside the VS Code project (13/10).
+      if (ctx.workspace && CODE_FILE.test(String(path || "")) && /^(documentos|documents|area de trabalho|desktop)[\\/]/i.test(foldText(String(path || "")))) path = String(path).replace(/^[^\\/]+[\\/]/, "");
       const file = landing(full(path, ctx), ctx);
+      content = cleanCode(file, content);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
       if (/\.(xlsx|docx|pdf|pptx)$/i.test(file)) throw new Error(`write_file grava texto e ${extname(file)} é binário: use write_document com o mesmo caminho e o conteúdo em markdown (tabelas | a | b |).`);
       // A "planilha" typed as CSV text: title lines over the header and "R$ 69.062,05" split by its

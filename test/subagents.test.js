@@ -86,3 +86,28 @@ test("subagents: a request with several deliveries is planned in parts (held to 
   assert.deepEqual(JSON.parse(seen.schema), PARTS_SCHEMA); assert.match(seen.messages[1].content, /mais de 300 funcionários/); assert.match(seen.messages[0].content, /NÃO é uma parte/);
   assert.equal(await planParts({ request: "x", ask: async () => ({ ok: true, text: "{\"partes\":[],\"final\":\"\"}" }) }), null);
 });
+
+test("code projects: a website with several technologies is divided by area; code lands in the project folder, clean", async () => {
+  const { multiPart } = await import("../app/agentTools/subagents.js");
+  const { cleanCode, CODE_FILE } = await import("../app/agentTools/files.js");
+  // The VS Code test of 13/10.
+  assert.deepEqual(multiPart("crie um website usando three.js, c++,html, java e react, o site deve ser sobre video games, dete ter um menu interarivo, dinamico e responsivo"), ["código threejs", "código cpp", "código html", "código java", "código react"]);
+  assert.equal(multiPart("crie um site em html"), null);
+  assert.equal(multiPart("o que é react, java e c++?"), null);
+  assert.equal(cleanCode("C:\p\index.html", "<html><body>oi</body></html>\n```\n{\"name\":\"write_file\",\"arguments\""), "<html><body>oi</body></html>\n");
+  assert.equal(cleanCode("C:\p\a.js", "```js\nconst a = 1;\n```"), "const a = 1;\n");
+  assert.equal(cleanCode("C:\p\notas.txt", "```\nx\n```"), "```\nx\n```");
+  assert.ok(CODE_FILE.test("src/App.jsx") && CODE_FILE.test("server/Main.java") && CODE_FILE.test("engine.cpp") && !CODE_FILE.test("relatorio.docx"));
+});
+
+test("code projects: write_file puts a project's code in the project folder (not a Documentos folder inside it)", async () => {
+  const { fileTools } = await import("../app/agentTools/files.js");
+  const { mkdtempSync, existsSync, readFileSync } = await import("node:fs");
+  const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+  const project = mkdtempSync(join(tmpdir(), "aurora-code-"));
+  const write = fileTools.find((t) => t.name === "write_file");
+  const said = await write.run({ path: "Documentos/game_website.html", content: "<html><body>jogos</body></html>\n```" }, { workspace: project, request: "crie um site de video games", env: {} });
+  assert.match(said, /game_website\.html/);
+  assert.ok(existsSync(join(project, "game_website.html")) && !existsSync(join(project, "Documentos")));
+  assert.equal(readFileSync(join(project, "game_website.html"), "utf8"), "<html><body>jogos</body></html>\n");
+});
