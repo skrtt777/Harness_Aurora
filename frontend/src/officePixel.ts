@@ -215,7 +215,7 @@ export function drawEmptySeat(c: Ctx, x: number, y: number) { chair(c, x * T, y 
 export type Look = { skin: string; skinDark: string; hair: string; hairHi: string; style: number; shirt: string; shirtDark: string; pants: string; shoes: string };
 const SKINS = [["#f6d1b0", "#dca988"], ["#e5b48c", "#c4906a"], ["#c48a5f", "#9d6a45"], ["#8d5a3b", "#6b4229"], ["#f1c9a5", "#d1a27f"]];
 const HAIRS = [["#3b2a1e", "#5a4130"], ["#6e4325", "#8f5c35"], ["#c98a3d", "#e2a95a"], ["#1d1b22", "#3a3644"], ["#d9d4cc", "#f2eee8"], ["#a13d2d", "#c9583f"], ["#e6c35c", "#f5dd86"]];
-const ROLE: Record<OfficeActor["kind"], [string, string]> = { aurora: ["#8b55e8", "#6a3cc0"], agente: ["#25a691", "#1a7d6d"], copia: ["#7fd8cb", "#5bb3a6"], professor: ["#f0efe9", "#c9c6bd"], chefe: ["#2e3d6e", "#1f2a4f"] };
+const ROLE: Record<OfficeActor["kind"], [string, string]> = { aurora: ["#8b55e8", "#6a3cc0"], agente: ["#25a691", "#1a7d6d"], copia: ["#7fd8cb", "#5bb3a6"], subagente: ["#c4a3ff", "#9b7ae0"], professor: ["#f0efe9", "#c9c6bd"], chefe: ["#2e3d6e", "#1f2a4f"] };
 const hash = (s: string) => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 export function lookOf(a: OfficeActor): Look {
   const h = hash(a.id); const [skin, skinDark] = SKINS[h % SKINS.length]; const [hair, hairHi] = HAIRS[(h >>> 4) % HAIRS.length];
@@ -277,6 +277,7 @@ export function drawPerson(c: Ctx, fx: number, fy: number, a: OfficeActor, look:
     if (a.kind === "professor") { P_(7, by, 2, 5, a.teacher === "claude" ? "#d97757" : "#2b2f38", details); P_(4, by + 2, 2, 2, a.teacher === "claude" ? "#d97757" : "#5b6170", details); }
     if (a.kind === "aurora") P_(9, by + 2, 2, 2, "#e6d4ff", details);
     if (a.kind === "agente") P_(5, by + 2, 2, 1, "#e6fff9", details);
+    if (a.kind === "subagente") { P_(5, by + 2, 2, 2, "#8b55e8", details); P_(9, by + 2, 2, 2, "#fff6c9", details); }
   }
   // Legs and shoes (sitting at a desk: on the stool; sitting facing us: knees forward).
   if (pose === "sit") { P_(3, by + 6, 10, 3, P.stool); P_(3, by + 6, 10, 1, "#7cc48a"); P_(4, by + 9, 1, 2, OUT); P_(11, by + 9, 1, 2, OUT); }

@@ -24,6 +24,8 @@ import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
 import { AGENT_TOOLS, knownFolders, toolSchemas } from "./agentTools/index.js";
+import { runLlama } from "./localLlama.js";
+import { multiPart, planParts, subagentTools } from "./agentTools/subagents.js";
 import { mcpAgentTools } from "./mcp.js";
 import { mapOverview } from "./computerMap.js";
 import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
@@ -680,7 +682,33 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },
             ...overrides,
           });
-          let agent = await runAgent(agentHistory(history), trimmed);
+          // Subagents (agentTools/subagents.js): the same agent on one part of the delivery, with a fresh
+          // history, a smaller step limit and its own files; it can't make subagents of its own.
+          toolContext.runSubagent = (prompt, hooks = {}) => runAgent([], prompt, {
+            question: prompt, deliverFirst: false, onText: null, maxSteps: Number(env.AURORA_SUBAGENT_STEPS) || 14,
+            toolContext: { ...toolContext, subagent: hooks.name || true, runSubagent: null, docBodies: new Map(), delegatedTo: null, delegatedAnswer: null },
+            tools: (toolContext.agentTools ? [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") : [...AGENT_TOOLS, ...extensionTools]).filter((t) => !["subagents", "team_request", "agent_delegate"].includes(t.name)),
+            onStage: hooks.onStage || (() => {}), onStep: hooks.onStep || (() => {}),
+          });
+          // A delivery with several parts (planilhas + um Power BI, um relatório e uma apresentação): on the
+          // local model the parts are planned (held to a schema) and done by subagents first; the Aurora
+          // then checks them and does what needs them all. A 4B model did everything in one turn and
+          // lost its files, and did not pick the subagents tool by itself (12/10).
+          let agentInput = trimmed; let priorSteps = [];
+          if (conversation.provider === "local" && chatServer && !toolContext.agentTools && multiPart(trimmed) && env.AURORA_SUBAGENTS !== "off") {
+            setStage(conversationId, "Dividindo o trabalho entre subagentes…");
+            const ask = (messages, schema) => runLlama(messages, { ...agentEnv, LOCAL_ENGINE: "llama.cpp", LOCAL_BASE_URL: chatServer, LOCAL_OUTPUT_SCHEMA: schema, LOCAL_MAX_OUTPUT_TOKENS: "1500", LOCAL_CONTEXT_TOKENS: String(ollamaContextTokens(agentEnv)), LOCAL_TEMPERATURE: "0.3" }, controller.signal);
+            const parts = await planParts({ request: trimmed, history, folder: (toolContext.workspace || "Documentos"), ask }).catch(() => null);
+            if (parts) {
+              const ctx = { ...toolContext, env: agentEnv, conversationId, onStage: (stage) => setStage(conversationId, stage) };
+              const done = await subagentTools[0].run({ tasks: parts.tasks }, ctx).catch((error) => null);
+              if (done) {
+                priorSteps = [{ tool: "subagents", ok: true, args: { tasks: parts.tasks }, summary: `Subagentes: ${(ctx.subagentRuns || []).map((r) => `${r.name} (${r.ok ? "entregou" : "não terminou"})`).join(", ")}`, result: done.slice(0, 1200) }, ...(ctx.subagentSteps || [])];
+                agentInput = `${trimmed}\n\n[Os subagentes já fizeram as partes deste pedido]\n${done}${parts.final ? `\n\nFalta você fazer: ${parts.final}` : ""}`;
+              }
+            }
+          }
+          let agent = await runAgent(agentHistory(history), agentInput, { question: trimmed, priorSteps });
           // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026): make sure
           // it is up (it restarts if it died) and run the turn once more instead of failing it.
           if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {

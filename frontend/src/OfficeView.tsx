@@ -16,13 +16,13 @@ export const STATE_LABEL: Record<string, string> = {
   refazendo: "Refazendo", conferindo: "Conferindo", chegando: "Chegando", reuniao: "Em reunião", cafe: "No cafezinho",
   descanso: "Descansando", cobrado: "Sendo cobrado", desligado: "Fora do escritório", supervisionando: "Supervisionando", cobrando: "Cobrando",
 };
-const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (subagente)", professor: "Professor", chefe: "Chefe" };
+const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (conferência)", subagente: "Subagente", professor: "Professor", chefe: "Chefe" };
 /** How someone is called in the list and on hover: a session with its conversation ("Marina · Metas de outubro"). */
-const who = (a: OfficeActor) => (a.kind === "aurora" && a.task ? `${a.name} · ${a.task}` : a.name);
+const who = (a: OfficeActor) => ((a.kind === "aurora" || a.kind === "subagente") && a.task ? `${a.name} · ${a.task}` : a.name);
 const BUSY = new Set(["trabalhando", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
 
 // The shirt colours of the pixel people (officePixel.ts), for the legend and the list.
-const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", professor: "#d97757", chefe: "#2e3d6e" };
+const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", subagente: "#c4a3ff", professor: "#d97757", chefe: "#2e3d6e" };
 const since = (ms?: number | null) => {
   if (!ms) return "";
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -117,7 +117,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
           onMouseLeave={() => { hoverRef.current = null; }}
           onClick={(e) => setSelected(pick(e)?.id || null)} />
         <ul className="office-legend" aria-label="Legenda">
-          {(["aurora", "agente", "copia", "professor", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
+          {(["aurora", "subagente", "agente", "copia", "professor", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
         </ul>
       </div>
       <aside className="office-side" aria-label="Quem está na sala">

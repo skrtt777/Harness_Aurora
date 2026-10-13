@@ -122,6 +122,25 @@ export function endTurn(conversationId, controller) {
   }
 }
 
+/**
+ * A subagent of the turn (app/agentTools/subagents.js) and what it is doing, for the office:
+ * patch { name, task, stage, step, done, ok, since, endedAt }; a step joins its last steps.
+ */
+export function setSubagent(conversationId, id, patch) {
+  const entry = pending.get(conversationId);
+  if (!entry) return;
+  entry.subagents ||= new Map();
+  const sub = entry.subagents.get(id) || { id, steps: [] };
+  const { step, ...rest } = patch;
+  Object.assign(sub, rest);
+  if (step) {
+    const last = sub.steps.at(-1);
+    if (last?.status === "running" && step.status !== "running" && last.tool === step.tool) sub.steps[sub.steps.length - 1] = step; else sub.steps.push(step);
+    if (sub.steps.length > 3) sub.steps.splice(0, sub.steps.length - 3);
+  }
+  entry.subagents.set(id, sub);
+}
+
 // Turns that ended lately (the office shows who just delivered taking a coffee): in memory only.
 const recent = [];
 
@@ -136,6 +155,8 @@ export function turnSnapshots({ withinMs = 5 * 60_000, now = Date.now() } = {}) 
     steps: (e.steps || []).slice(-3).map((s) => ({ tool: s.tool, status: s.status || null, summary: String(s.summary || s.stage || "").slice(0, 160) })),
     approval: e.approval ? { tool: e.approval.tool, summary: String(e.approval.summary || "").slice(0, 160) } : null,
     plan: Array.isArray(e.plan) ? { done: e.plan.filter((p) => p.status === "done").length, total: e.plan.length } : null,
+    subagents: [...(e.subagents?.values() || [])].map((sa) => ({ id: sa.id, name: sa.name, task: sa.task, stage: sa.stage || null, done: !!sa.done, ok: sa.ok ?? null, since: sa.since || null, endedAt: sa.endedAt || null,
+      steps: sa.steps.map((st) => ({ tool: st.tool, status: st.status || null, summary: String(st.summary || st.stage || "").slice(0, 160) })) })),
   }));
   const ended = recent.filter((r) => now - r.endedAt <= withinMs && !pending.has(r.conversationId));
   return { active, ended };

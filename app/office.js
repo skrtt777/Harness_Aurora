@@ -6,6 +6,7 @@
 // - "agente": a task agent (app/agents.js), working on a run, resting, or called to account after a
 //   failed or corrected delivery;
 // - "copia": the extra copies of the local model checking an answer (app/copies.js);
+// - "subagente": a subagent the Aurora made for one part of a delivery (agentTools/subagents.js);
 // - "professor": Claude or Codex, only while reviewing (app/teachingLoop.js);
 // - "chefe": the orchestrator (app/orchestrator.js) and the delivery check: in the meeting while a
 //   team request runs, at the desk of whoever must redo, checking what was just delivered.
@@ -98,7 +99,13 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
   const runByConversation = new Map(runs.map((r) => [r.conversationId, r]));
   const activeById = new Map(turns.active.map((t) => [t.conversationId, t]));
   const add = (roomId, actor) => { rooms.get(roomId).actors.push(actor); return actor; };
-  const helpers = (r, owner, s) => {
+  const helpers = (r, owner, s, turn = null) => {
+    // The subagents of the turn: each one working on its part (as its own stage and steps say), or,
+    // its part delivered, at the café while the Aurora puts it together.
+    for (const sa of turn?.subagents || []) {
+      const st = sa.done ? (sa.ok ? { state: "cafe", activity: `Entregou a parte: ${sa.task}` } : { state: "cobrado", activity: `Não terminou a parte: ${sa.task}` }) : turnState({ stage: sa.stage, steps: sa.steps });
+      add(r, { id: `sub:${owner.id}:${sa.id}`, kind: "subagente", name: sa.name, task: short(sa.task, 80), ...st, activity: short(st.activity, 60), with: owner.id, since: sa.done ? sa.endedAt : sa.since });
+    }
     if (s.state === "revisao") add(r, { id: `prof:${owner.id}`, kind: "professor", name: TEACHERS[s.teacher], teacher: s.teacher, state: "revisao", activity: `Revisando a entrega de ${owner.name}`, with: owner.id, since: owner.since });
     if (s.state === "conferindo") for (let i = 1; i < Math.min(s.copies || 2, 4); i++) add(r, { id: `copia:${owner.id}:${i}`, kind: "copia", name: `Cópia ${i + 1} de ${owner.name}`, state: "conferindo", activity: `Conferindo a resposta de ${owner.name}`, with: owner.id, since: owner.since });
   };
@@ -120,7 +127,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
     else if (last?.status === "done" && age(last.finishedAt, now) < 10 * 60_000) actor = { ...base, state: "cafe", activity: `Entregou: ${short(last.files?.[0]?.split(/[\\/]/).pop() || last.request, 50)}`, since: new Date(last.finishedAt).getTime() };
     else actor = { ...base, state: "descanso", activity: last ? `Última entrega ${new Date(last.finishedAt || last.startedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "Ainda sem trabalho" };
     add(TEAM_ROOM, actor);
-    if (turn) helpers(TEAM_ROOM, actor, actor);
+    if (turn) helpers(TEAM_ROOM, actor, actor, turn);
   }
 
   // The Aurora in each conversation working now (agent runs are already on the team floor), each with
@@ -132,7 +139,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
     const c = conversations.get(t.conversationId); const r = roomOf(c);
     const s = turnState(t, c);
     const actor = add(r, { id: `aurora:${t.conversationId}`, kind: "aurora", name: nameIn(r, c, t.conversationId), conversationId: t.conversationId, task: short(c?.title || "Conversa", 60), ...s, activity: short(s.activity, 60), since: t.since, plan: t.plan });
-    helpers(r, actor, s);
+    helpers(r, actor, s, t);
   }
   // Just delivered: a coffee (once per conversation, the latest).
   const seen = new Set();

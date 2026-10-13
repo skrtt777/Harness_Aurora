@@ -5,7 +5,7 @@
 // the walk there (A* on the tiles) and the step of each frame. Pure: no React, no canvas (tests).
 
 export type OfficeActor = {
-  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "professor" | "chefe"; name: string; state: string; activity: string;
+  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "subagente" | "professor" | "chefe"; name: string; state: string; activity: string;
   since?: number | null; conversationId?: string | null; agentId?: string; task?: string; with?: string; teacher?: string; department?: string | null;
   plan?: { done: number; total: number } | null;
 };

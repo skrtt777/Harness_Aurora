@@ -1,5 +1,6 @@
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
+import { multiPart } from "./agentTools/subagents.js";
 import { runClaude } from "./claude.js";
 import { runCodex } from "./codex.js";
 import { runLocalChat } from "./local.js";
@@ -199,10 +200,11 @@ export async function runChatAgent({
   onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
   deliverFirst = false, coworking = false,
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
-  companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null,
+  companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null, priorSteps = [],
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
-  const steps = [];
+  // What was already done in this turn before the agent (the subagents' parts): it counts as done.
+  const steps = [...priorSteps];
   const calls = [];
   const seen = new Map();
   const ctx = { ...toolContext, env, signal, onStage, approve };
@@ -466,6 +468,11 @@ export async function runChatAgent({
           : `ERRO: cortada de novo. Grave a tabela com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: os argumentos de ${call.name} vieram com JSON inválido (começo: ${call.arguments.__raw}). Chame de novo com JSON válido: no texto, troque aspas duplas por aspas simples e não use barras invertidas soltas.`, ms: 0 };
+      } else if (!ctx.subagent && !ctx.subagentsNudged && WRITE_TOOLS.has(call.name) && offered.some((t) => t.name === "subagents") && multiPart(question) && !steps.some((s) => s.tool === "subagents")) {
+        // A delivery with several parts done all in one turn lost track of its own files (12/10): the
+        // first write goes back once, asking for the parts to be divided among subagents.
+        ctx.subagentsNudged = true;
+        outcome = { ok: false, result: `ERRO: este pedido tem várias partes (${multiPart(question).join(", ")}). Divida com subagents: uma tarefa por planilha ou parte, cada uma com tudo o que precisa (dados, regras do pedido) e o caminho completo do que entregar. Quando voltarem, confira as entregas e faça você o que depende de tudo pronto (ex.: o Power BI com todas as planilhas).`, ms: 0 };
       } else if (count >= REPEAT_LIMIT) {
         outcome = { ok: false, result: "ERRO: você já repetiu exatamente essa ação várias vezes sem progresso.", ms: 0 };
         offered = [];
@@ -481,6 +488,8 @@ export async function runChatAgent({
       if (call.arguments?.__salvaged && outcome.ok && !/completei a tabela/.test(outcome.result)) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
+      // What the subagents wrote is this turn's delivery too (the checks of "criei o arquivo" see it).
+      if (call.name === "subagents" && ctx.subagentSteps?.length) { steps.push(...ctx.subagentSteps); ctx.subagentSteps = null; }
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
       // Ten near-identical searches used up the step limit and the turn ended with
       // nothing delivered: after a few, the model is told to work with what it has.
