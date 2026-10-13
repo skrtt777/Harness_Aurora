@@ -25,7 +25,7 @@ export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: bool
 export type TeacherReview = { reason: "errors" | "actions" | null; ms?: number; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
 export type PlanItem = { text: string; status: "pending" | "in_progress" | "done" };
-export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null; partial?: string | null };
+export type PendingTurn = { stage: string | null; steps: AgentStep[]; approval: PendingApproval | null; plan: PlanItem[] | null; partial?: string | null; order?: { deliver: string[]; rules: string[]; run: boolean } | null };
 export type UsedSkill = { id: string; name: string; hash: string; partial: boolean };
 export type ChatMessage = {
   id: string;
@@ -177,7 +177,7 @@ export const correctMessage = (conversationId: string, messageId: string, note?:
 export const getPendingStage = (conversationId: string) =>
   request<{ stage: string | null }>(`/conversations/${conversationId}/pending`).then((r) => r.stage);
 export const getPendingTurn = (conversationId: string) =>
-  request<PendingTurn>(`/conversations/${conversationId}/pending`).then((r) => ({ stage: r.stage ?? null, steps: r.steps ?? [], approval: r.approval ?? null, plan: r.plan ?? null }));
+  request<PendingTurn>(`/conversations/${conversationId}/pending`).then((r) => ({ stage: r.stage ?? null, steps: r.steps ?? [], approval: r.approval ?? null, plan: r.plan ?? null, order: r.order ?? null }));
 export const resolveApproval = (conversationId: string, approvalId: string, approved: boolean, always = false) =>
   request<{ resolved: boolean }>(`/conversations/${conversationId}/approval`, { method: "POST", body: JSON.stringify({ id: approvalId, approved, always }) });
 export const cancelMessage = (conversationId: string) =>

@@ -904,3 +904,4 @@
 .adjust-option:hover { background: rgba(127,127,127,.12); }
 .adjust-option.recommended { border-color: var(--accent-line, var(--accent)); background: var(--accent-soft, transparent); }
 .adjust-star { color: var(--accent); margin-right: 6px; }
+.chat-order { margin: 0 0 6px; font-size: 12.5px; color: var(--text-2); border-left: 2px solid #e0a43a; padding-left: 8px; }
