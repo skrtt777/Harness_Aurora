@@ -150,7 +150,7 @@ function UndoChatMoves({ message }: { message: ChatMessage }) {
       .catch((e: Error) => setDone(e.message));
   };
   // Created files are in the edits too (created: true): "Desfazer" removes them, unless changed since.
-  const created = (message.execution?.edits || []).filter((e: { created?: boolean }) => e.created).length;
+  const created = (message.execution?.edits || []).filter((e) => (e as { created?: boolean }).created).length;
   const changed = edited - created;
   const what = [moved ? `moveu ${moved}` : '', changed ? `editou ${changed}` : '', created ? `criou ${created}` : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' e $1');
   const text = `${what.charAt(0).toUpperCase()}${what.slice(1)} arquivo(s).`;
