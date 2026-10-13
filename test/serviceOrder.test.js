@@ -123,3 +123,10 @@ test("Conferência: 'artigo X da Lei N' must be in a page of that law (art. 613 
   assert.match(missing.join(), /não aparecem em nada que você leu/);
   assert.match(dispatchCheck(order, { answer, steps: [], read: [] }).missing.join(), /sem consultar nada/);
 });
+
+test("a filter written like the hint's example works (Coluna=\"Situação\"=\"A pagar\")", async () => {
+  const { normalizeFilter } = await import("../app/agentTools/files.js");
+  assert.equal(normalizeFilter('Coluna="Situação"="A pagar"; Coluna="Vencimento"<=15/10/2026'), "Situação=A pagar; Vencimento<=15/10/2026");
+  assert.equal(normalizeFilter('"Setor"="TI"'), "Setor=TI");
+  assert.equal(normalizeFilter("Situação=A pagar"), "Situação=A pagar");
+});

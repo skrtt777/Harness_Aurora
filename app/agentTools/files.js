@@ -493,7 +493,22 @@ export function periodEnd(request, now = new Date()) {
   return null;
 }
 
+/**
+ * A filter as small models write it, made plain: the hint's own example copied ("Coluna=\"Situação\"=\"A
+ * pagar\"; Coluna=\"Vencimento\"<=15/10/2026", 13/10) and quotes around names and values.
+ */
+export function normalizeFilter(filter) {
+  if (typeof filter !== "string") return filter;
+  return filter.split(/\s*;\s*/).filter(Boolean).map((part) => {
+    let p = part.replace(/["“”'`]/g, "").trim();
+    const m = p.match(/^colunas?\s*[:=]\s*(.+?)\s*(>=|<=|!=|>|<|=)\s*(.+)$/i);
+    if (m && /[^\s]/.test(m[1]) && !/^(>=|<=|!=|>|<|=)/.test(m[1])) p = `${m[1]}${m[2]}${m[3]}`;
+    return p;
+  }).join("; ");
+}
+
 export function filterRows(lines, filter, { sort, request } = {}) {
+  filter = normalizeFilter(filter);
   sort = typeof sort === "string" ? parseSort(sort) : sort;
   // "Coluna=15/10/2026", or "Coluna>=15/10/2026; Coluna<=15/10/2026", for a request that says
   // "até 15/10": the person's words decide the operator of a condition on that date.
@@ -1207,7 +1222,7 @@ export const fileTools = [
   {
     name: "read_file",
     description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\"), diferente (\"Situação!=Resolvido\"), entre duas colunas (\"Saldo<Estoque mínimo\") ou só um texto; condições separadas por \";\" valem juntas. Para \"qual vence primeiro\", \"o maior\", \"os 3 mais caros\" use sort: \"Coluna\" (crescente) ou \"-Coluna\" (decrescente), com ou sem filter. Devolve o cabeçalho, as linhas que batem, a soma das colunas numéricas e o total: use esse resultado em vez de comparar, ordenar ou somar de cabeça.",
-    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional: \"Coluna=texto\", \"Coluna>30\", \"Coluna>=01/10/2026\" (várias com ;) ou texto que a linha precisa conter" }, sort: { type: "string", description: "opcional: \"Coluna\" para ordem crescente, \"-Coluna\" para decrescente" } }, required: ["path"] },
+    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional, com o nome da coluna: \"Situação=A pagar\", \"Dias em atraso>30\", \"Vencimento<=15/10/2026\" (várias com ;) ou texto que a linha precisa conter" }, sort: { type: "string", description: "opcional: \"Coluna\" para ordem crescente, \"-Coluna\" para decrescente" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
       const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
@@ -1395,7 +1410,7 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // (a cut write replaced a correct 16-row sheet with a 2-row one, 06/10).
       if (args.__salvaged) {
         const short = [...new Set([...missingRows(ctx.lastRows, body), ...missingRows(ctx.anchorRows, body)])];
-        if (short.length || existsSync(file)) throw new Error(`Sua chamada foi cortada no limite de saída e o que chegou ${short.length ? `não tem todas as linhas (faltam ${short.slice(0, 12).join(", ")})` : "substituiria um arquivo que já existe"}: nada foi gravado. Grave de novo só a tabela, sem introdução nem análise.`);
+        if (short.length || existsSync(file)) throw new Error(`Sua chamada foi cortada no limite de saída e o que chegou ${short.length ? `não tem todas as linhas (faltam ${short.slice(0, 12).join(", ")})` : "substituiria um arquivo que já existe"}: nada foi gravado. Não copie linhas à mão: se o pedido tem uma condição (um mês, uma situação, um valor), leia a planilha de novo com read_file e filter (ex.: filter="Início>=01/10/2026; Início<=31/10/2026"), e então grave com write_document escrevendo só {{linhas}} no lugar das linhas (ou {{linhas: Coluna, Coluna}} para escolher as colunas): a ferramenta copia todas, exatas.`);
       }
       const totals = wrongTotals(body);
       if (totals.length && !ctx.heldDocuments.has(`${file.toLowerCase()}|total`)) {
