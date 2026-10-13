@@ -2,6 +2,33 @@ import { getBrowserPage, setActivePage } from "../browserBackend.js";
 import { normalizeGotoUrl } from "../browserAgent.js";
 import { centerOf, findTextBox, recognizeImage } from "../ocr.js";
 import { assertAllowedUrl } from "./netGuard.js";
+import { existsSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+/**
+ * A page of the project opened by its path ("f:\\site\\index.html", "site/index.html",
+ * "file:///F:/site/index.html"): a file:// address, only for a file inside the project folder. The
+ * model opened https://f/site_aurora_teste/index.html and the check of a website stopped (13/10).
+ */
+export function projectPage(target, workspace) {
+  if (!workspace) return null;
+  let p = String(target || "").trim();
+  if (/^file:\/\//i.test(p)) { try { p = decodeURIComponent(new URL(p).pathname).replace(/^\/([a-z]:)/i, "$1"); } catch { return null; } }
+  else if (/^https?:\/\//i.test(p)) {
+    // https://f/site/index.html: a drive letter taken for a host.
+    const m = p.match(/^https?:\/\/([a-z])\/(.+\.html?)$/i);
+    if (!m) return null;
+    p = `${m[1]}:/${m[2]}`;
+  }
+  if (!/\.html?$/i.test(p)) return null;
+  const file = isAbsolute(p) || /^[a-z]:/i.test(p) ? resolve(p) : resolve(workspace, p);
+  const inside = relative(resolve(workspace), file);
+  if (inside.startsWith("..") || isAbsolute(inside)) return null;
+  // The bare name of the project folder repeated ("site_aurora_teste/index.html").
+  if (!existsSync(file)) { const again = resolve(workspace, p.split(/[\\/]/).slice(1).join("/")); if (p.split(/[\\/]/)[0] === resolve(workspace).split(/[\\/]/).pop() && existsSync(again)) return pathToFileURL(again); return null; }
+  return pathToFileURL(file);
+}
 import { CHALLENGE_STOP, challengeFrom, clearWall, countAction, hostOf, isWebSearchUrl, markWall, noteAction, paceDelay, pageSignals, siteSearchUrl, wallAt } from "../browserPace.js";
 
 const MAX_ELEMENTS = 60;
@@ -197,6 +224,20 @@ export const browserTools = [
     async run({ url, search }, ctx) {
       let target = String(url || "").trim();
       if (!target) throw new Error("Informe a URL.");
+      const local = projectPage(target, ctx.workspace) || projectPage(target.replace(/^https?:\/\/[^/]+\//i, ""), ctx.workspace);
+      if (local) {
+        const { page } = await current(ctx);
+        await page.bringToFront().catch(() => {});
+        const problems = [];
+        const listen = (m) => { if (m.type() === "error") problems.push(m.text()); };
+        const failed = (e) => problems.push(e.message);
+        page.on("console", listen); page.on("pageerror", failed);
+        await page.goto(local.href, { waitUntil: "load", timeout: 20000 });
+        await page.waitForTimeout(1200);
+        page.off("console", listen); page.off("pageerror", failed);
+        const errors = problems.length ? `\n\nERROS DA PÁGINA (console): ${[...new Set(problems)].slice(0, 8).join(" | ")}` : "\n\nSem erros no console.";
+        return `Abri ${local.href}.${errors}\n\n${await snapshotText(page)}`;
+      }
       if (!/[.:/]/.test(target)) target = `${target}.com`;
       // A search inside a known site: straight to its results (open + type + Enter were three actions).
       const results = search ? siteSearchUrl(target, search) : null;

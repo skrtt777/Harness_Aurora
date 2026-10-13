@@ -152,6 +152,31 @@ export function compactOldToolResults(messages, { atChars = 0, keep = KEEP_FULL_
  * Keeps only the last `keep` tool exchanges (the assistant call and its result); the older ones
  * become one line saying what was done, so the model doesn't repeat it.
  */
+/**
+ * A full context that looks like an empty answer: the prompt took the whole slot (16.351 of 16.384
+ * tokens) and nothing was left to write (the 4th request of a VS Code conversation, 13/10).
+ */
+export function contextFull(result, env = process.env) {
+  if (result.ok) return false;
+  if (/exceeds the available context|context size|context length|too many tokens/i.test(String(result.error))) return true;
+  const slot = Number(env.LOCAL_CONTEXT_TOKENS) || 16384;
+  return /resposta vazia/i.test(String(result.error)) && Number(result.usage?.input_tokens) >= slot * 0.9;
+}
+
+/**
+ * The earlier messages of the conversation, shortened: the long answers and pasted code of earlier
+ * requests filled 14.853 tokens before this request's first action (13/10). The system prompt and the
+ * last `keep` messages stay whole.
+ */
+export function shortenHistory(messages, { keep = 6, max = 700 } = {}) {
+  const end = Math.max(0, messages.length - keep);
+  for (let i = 0; i < end; i += 1) {
+    const m = messages[i];
+    if (m.role === "system" || typeof m.content !== "string" || m.content.length <= max) continue;
+    messages[i] = { ...m, content: `${m.content.slice(0, max)}… (encurtado para caber no contexto)` };
+  }
+}
+
 export function dropOldToolExchanges(messages, keep = 2) {
   const toolIndexes = messages.flatMap((m, i) => (m.role === "tool" ? [i] : []));
   const old = toolIndexes.slice(0, Math.max(0, toolIndexes.length - keep));
@@ -252,10 +277,12 @@ export async function runChatAgent({
     let result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
     // "request (16450 tokens) exceeds the available context size (16384 tokens)" ended a company
     // question (empresa ti-1, 05/10/2026). Old results get summarized, then all of them, and it goes again.
-    for (let shrink = 1; !result.ok && shrink <= 3 && /exceeds the available context|context size|context length|too many tokens/i.test(String(result.error)); shrink += 1) {
+    for (let shrink = 1; shrink <= 4 && contextFull(result, env); shrink += 1) {
       // Third time: the old actions leave the history (a Controladoria started at 14k of 16k tokens,
-      // read 10 times and still didn't fit with every result summarized, 06/10).
-      if (shrink === 3) dropOldToolExchanges(messages, 2);
+      // read 10 times and still didn't fit with every result summarized, 06/10). Fourth: the earlier
+      // messages of the conversation are shortened too.
+      if (shrink === 4) { dropOldToolExchanges(messages, 1); shortenHistory(messages, { keep: 4, max: 500 }); }
+      else if (shrink === 3) { dropOldToolExchanges(messages, 2); shortenHistory(messages); }
       else compactOldToolResults(messages, { keep: shrink === 1 ? KEEP_FULL_TOOL_RESULTS : 0 });
       onStage("Resumindo resultados antigos para caber no contexto…");
       result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
@@ -466,7 +493,7 @@ export async function runChatAgent({
         outcome = { ok: false, result: count === 1
           ? (call.name === "write_file" || call.name === "edit_file") ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o arquivo passou do limite de saída. Código: divida em arquivos menores (um componente, uma seção ou um módulo por arquivo, até umas 150 linhas cada) e grave um de cada vez; o arquivo principal só junta os outros.`
           : `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras)${call.name === "write_document" ? ". Se o texto longo eram as linhas de uma planilha que você leu, escreva {{linhas}} no lugar delas (a ferramenta copia todas, exatas); num documento longo de outro tipo, grave a primeira metade agora e depois chame write_document com o mesmo path, append=true e o restante" : ""}.`
-          : `ERRO: cortada de novo. Grave a tabela com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
+          : `ERRO: cortada de novo. ${call.name === "write_file" || call.name === "edit_file" ? "Grave um arquivo de no máximo 80 linhas agora (só uma parte: um componente, o CSS ou um script) e os outros depois, um por chamada; o arquivo principal só junta os outros com <script src> ou import." : "Grave a tabela"} com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: `ERRO: os argumentos de ${call.name} vieram com JSON inválido (começo: ${call.arguments.__raw}). Chame de novo com JSON válido: no texto, troque aspas duplas por aspas simples e não use barras invertidas soltas.`, ms: 0 };
       } else if (!ctx.subagent && !ctx.subagentsNudged && WRITE_TOOLS.has(call.name) && offered.some((t) => t.name === "subagents") && multiPart(question) && !steps.some((s) => s.tool === "subagents")) {
@@ -475,7 +502,7 @@ export async function runChatAgent({
         ctx.subagentsNudged = true;
         outcome = { ok: false, result: `ERRO: este pedido tem várias partes (${multiPart(question).join(", ")}). Divida com subagents: uma tarefa por planilha ou parte, cada uma com tudo o que precisa (dados, regras do pedido) e o caminho completo do que entregar. Quando voltarem, confira as entregas e faça você o que depende de tudo pronto (ex.: o Power BI com todas as planilhas).`, ms: 0 };
       } else if (count >= REPEAT_LIMIT) {
-        outcome = { ok: false, result: "ERRO: você já repetiu exatamente essa ação várias vezes sem progresso.", ms: 0 };
+        outcome = { ok: false, result: `ERRO: você já repetiu exatamente essa ação várias vezes sem progresso.${tools.some((t) => t.name === "learn") ? " Faça diferente: divida em partes menores, leia o erro e corrija outra coisa, ou chame learn com o erro exato para aprender como resolver." : ""}`, ms: 0 };
         offered = [];
         forced = "repeat";
         forcedNote = "Você repetiu a mesma ação sem progresso.";

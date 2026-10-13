@@ -98,7 +98,30 @@ let nextProcess = 1;
 
 // UTF-8 output: PowerShell otherwise prints in the console codepage and the
 // model reads "n\uFFFDo" instead of "não".
+/**
+ * "cd api && node --test" in Windows PowerShell 5.1, which has no && or || (the API's tests never ran:
+ * "o PowerShell bloqueia o operador &", 13/10): "a && b" runs b only when a worked, "a || b" when it
+ * failed. Text inside quotes is left alone.
+ */
+export function psChain(command) {
+  const s = String(command);
+  if (!/&&|\|\|/.test(s.replace(/"[^"]*"|'[^']*'/g, ""))) return s;
+  const parts = []; let cur = ""; let q = null;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (q) { cur += c; if (c === q) q = null; continue; }
+    if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    if ((c === "&" || c === "|") && s[i + 1] === c) { parts.push(cur.trim(), c + c); cur = ""; i += 1; continue; }
+    cur += c;
+  }
+  parts.push(cur.trim());
+  let out = parts[0];
+  for (let i = 1; i < parts.length; i += 2) out = parts[i] === "&&" ? `${out}; if ($?) { ${parts[i + 1]} }` : `${out}; if (-not $?) { ${parts[i + 1]} }`;
+  return out;
+}
+
 function shellFor(command) {
+  if (IS_WINDOWS) command = psChain(command);
   return IS_WINDOWS ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncoding=[Text.Encoding]::UTF8; ${command}`]] : ["/bin/sh", ["-c", command]];
 }
 
@@ -113,7 +136,7 @@ export function commandEnv(env = process.env) {
   const windowsDirs = [join(root, "System32"), root, join(root, "System32", "Wbem"), join(root, "System32", "WindowsPowerShell", "v1.0")];
   const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "Path";
   const rest = String(env[key] || "").split(";").filter((p) => p && !windowsDirs.some((w) => w.toLowerCase() === p.toLowerCase().replace(/\\$/, "")));
-  return { ...env, [key]: [...windowsDirs, ...rest].join(";") };
+  return { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", ...env, [key]: [...windowsDirs, ...rest].join(";") };
 }
 
 function stopTree(child) {

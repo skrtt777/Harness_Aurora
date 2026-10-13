@@ -178,21 +178,23 @@ export function makePdfDocument(blocks) {
   return Buffer.from(pdf, "latin1");
 }
 
-function csvOf(blocks) {
+function csvOf(blocks, { plain = false } = {}) {
   const tables = blocks.filter((b) => b.type === "table");
   // A .csv is one table (a "Fonte:" line or a title after it would be a row of garbage in Power BI).
   if (tables.length) checkTable(tables[0].rows, tables[0].title || "CSV");
   const rows = tables.length ? tables[0].rows : blocks.map((b) => [b.text]);
+  // For a program: commas, no BOM, \n. For Excel in Portuguese: semicolons and the BOM.
+  if (plain) return `${rows.map((row) => row.map((c) => (/[,"\n]/.test(c) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(",")).join("\n")}\n`;
   return `﻿${rows.map((row) => row.map((c) => (/[;"\n]/.test(c) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(";")).join("\r\n")}\r\n`;
 }
 
 /** Bytes of the document in the given format. */
-export async function renderDocument(format, markdown) {
+export async function renderDocument(format, markdown, { plainCsv = false } = {}) {
   const blocks = parseBlocks(markdown, { sheet: format === "xlsx" || format === "csv" });
   if (!blocks.length) throw new Error("O conteúdo está vazio.");
   if (format === "docx") return makeDocument(blocks);
   if (format === "xlsx") return makeSheet(blocks);
   if (format === "pdf") return makePdfDocument(blocks);
-  if (format === "csv") return Buffer.from(csvOf(blocks), "utf8");
+  if (format === "csv") return Buffer.from(csvOf(blocks, { plain: plainCsv }), "utf8");
   return Buffer.from(String(markdown), "utf8");
 }

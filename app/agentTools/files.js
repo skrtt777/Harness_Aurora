@@ -878,6 +878,35 @@ export function undatedSlashes(path) {
   return String(path).replace(/(\d{1,2})[\\/](\d{1,2})[\\/](\d{4})(?=[^\\/]*$)/, "$1-$2-$3");
 }
 
+/**
+ * The folder the request names ("na pasta api, crie…", "crie tudo dentro da pasta site"), inside the
+ * project: a file written at the top of the project goes there (the API and the website of 13/10 were
+ * written next to it, in the project root).
+ */
+export function askedFolder(request) {
+  const m = String(request || "").match(/\b(?:na|dentro da|para a|numa|em uma|crie a|na sub)\s*pasta\s+["'`]?([\w][\w.-]*)["'`]?/i);
+  if (!m || /^(do|da|de|dos|das|o|a|que|onde|certa|correta|atual|aberta|projeto)$/i.test(m[1])) return null;
+  return m[1].replace(/[.]+$/, "");
+}
+function inAskedFolder(path, ctx) {
+  const folder = ctx.workspace ? askedFolder(ctx.request) : null;
+  let p = String(path || "");
+  if (!folder || !p) return path;
+  // An absolute path inside the project counts as relative to it (F:/proj/api-node/src/app.js, 13/10).
+  if (isAbsolute(p) || /^[a-z]:/i.test(p)) {
+    const inside = relative(resolve(ctx.workspace), resolve(p));
+    if (!inside || inside.startsWith("..") || isAbsolute(inside)) return path;
+    p = inside;
+  }
+  // Every relative path of the request goes there (the website's areas made backend-java/, module-cpp/
+  // next to the "site" folder the person named, 13/10).
+  const first = p.split(/[\\/]/)[0];
+  if (first.toLowerCase() === folder.toLowerCase() || first === "..") return path;
+  return `${folder}/${p.replace(/^\.[\\/]/, "")}`;
+}
+/** A request for code (a script, an API, a site): its CSV is read by a program, not by Excel. */
+export const CODE_REQUEST = /\b(script|python|\.py|node(\.js)?|javascript|api|codigo|programa|site|website|app|react|java|c\+\+|funcao|classe|teste)\b/;
+
 export const CODE_FILE = /\.(html?|css|scss|m?jsx?|tsx?|vue|svelte|json|java|kt|c|cc|cpp|cxx|h|hpp|cs|py|go|rs|rb|php|sh|ps1|sql|xml|ya?ml|toml|gradle)$/i;
 /**
  * A code file as written, without what a model leaves after the code: a closing ``` fence, a stray
@@ -1272,6 +1301,7 @@ export const fileTools = [
       // Code of a project goes in the project's folder: "Documentos/game_website.html" made a Documentos
       // folder inside the VS Code project (13/10).
       if (ctx.workspace && CODE_FILE.test(String(path || "")) && /^(documentos|documents|area de trabalho|desktop)[\\/]/i.test(foldText(String(path || "")))) path = String(path).replace(/^[^\\/]+[\\/]/, "");
+      path = inAskedFolder(path, ctx);
       const file = landing(full(path, ctx), ctx);
       content = cleanCode(file, content);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
@@ -1368,7 +1398,10 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
         const breaks = rules.length ? parseBlocks(String(args.content ?? args.text ?? args.markdown ?? ""), { sheet: true }).filter((b) => b.type === "table").flatMap((t) => ruleBreaks(t.rows, rules)) : [];
         if (breaks.length) throw new Error(`Não gravei ainda: ${breaksMessage(breaks)}`);
       }
-      const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "");
+      // A CSV for a script ("jogos.csv … e um relatorio.py que lê o CSV"): commas, UTF-8 without the BOM
+      // Excel wants; Python's csv module read "\ufeffnome;gênero" as one column (13/10).
+      const plainCsv = format === "csv" && CODE_REQUEST.test(foldText(ctx.request));
+      const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "", { plainCsv });
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, bytes);
       OWN_DOCUMENTS.add(file.toLowerCase());

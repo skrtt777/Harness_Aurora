@@ -111,3 +111,61 @@ test("code projects: write_file puts a project's code in the project folder (not
   assert.ok(existsSync(join(project, "game_website.html")) && !existsSync(join(project, "Documentos")));
   assert.equal(readFileSync(join(project, "game_website.html"), "utf8"), "<html><body>jogos</body></html>\n");
 });
+
+test("code projects: the folder the request names, a plain CSV for scripts, no report brief, project pages open as files", async () => {
+  const { askedFolder, CODE_REQUEST } = await import("../app/agentTools/files.js");
+  const { pickBrief } = await import("../app/briefs.js");
+  const { renderDocument } = await import("../app/documentWriter.js");
+  const { projectPage } = await import("../app/agentTools/browser.js");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { join, sep } = await import("node:path"); const { tmpdir } = await import("node:os");
+  assert.equal(askedFolder("na pasta api, crie uma API REST em Node.js"), "api");
+  assert.equal(askedFolder("crie um website … Crie tudo dentro da pasta site."), "site");
+  assert.equal(askedFolder("salve na pasta do projeto"), null);
+  assert.ok(CODE_REQUEST.test("crie um arquivo jogos.csv e um script relatorio.py que le o csv"));
+  assert.equal(pickBrief("na pasta python, crie um arquivo jogos.csv com 15 jogos e um script relatorio.py que lê o CSV e mostra a média"), null);
+  assert.equal(pickBrief("faça um relatório de vendas do mês")?.name, "relatorio");
+  assert.equal(String(await renderDocument("csv", "| nome | gênero |\n|---|---|\n| Elden Ring | Ação, RPG |\n| Hades | Roguelike |\n| Celeste | Plataforma |", { plainCsv: true })), 'nome,gênero\nElden Ring,"Ação, RPG"\nHades,Roguelike\nCeleste,Plataforma\n');
+  const project = mkdtempSync(join(tmpdir(), "aurora-page-")); writeFileSync(join(project, "index.html"), "<html></html>");
+  assert.match(String(projectPage("index.html", project)), /^file:\/\/\/.*index\.html$/);
+  assert.match(String(projectPage(`https://${project[0].toLowerCase()}/${project.slice(3).split(sep).join("/")}/index.html`, project)), /^file:/);
+  assert.equal(projectPage("C:/Windows/win.html", project), null);
+  assert.equal(projectPage("youtube.com", project), null);
+});
+
+test("code projects: && in Windows PowerShell, a full context that looks empty, earlier messages shortened", async () => {
+  const { psChain } = await import("../app/agentTools/system.js");
+  const { contextFull, shortenHistory } = await import("../app/chatAgent.js");
+  assert.equal(psChain("cd api && node --test"), "cd api; if ($?) { node --test }");
+  assert.equal(psChain("npm ci || echo falhou"), "npm ci; if (-not $?) { echo falhou }");
+  assert.equal(psChain('echo "a && b"'), 'echo "a && b"');
+  const empty = "O modelo local retornou uma resposta vazia ou inválida.";
+  assert.equal(contextFull({ ok: false, error: empty, usage: { input_tokens: 16351 } }, {}), true);
+  assert.equal(contextFull({ ok: false, error: empty, usage: { input_tokens: 3000 } }, {}), false);
+  assert.equal(contextFull({ ok: false, error: "request (16458 tokens) exceeds the available context size (16384 tokens)" }, {}), true);
+  const m = [{ role: "system", content: "s".repeat(2000) }, { role: "user", content: "u".repeat(2000) }, { role: "user", content: "agora" }];
+  shortenHistory(m, { keep: 1 });
+  assert.deepEqual(m.map((x) => x.content.length < 800), [false, true, true]);
+});
+
+test("learning: learn picks documentation pages and the relevant part; code guides are seeded", async () => {
+  const { pickPages, relevantText } = await import("../app/agentTools/learn.js");
+  const { GUIDES } = await import("../app/guides.js");
+  const { AGENT_TOOLS } = await import("../app/agentTools/index.js");
+  const results = "1. Vídeo\n   https://www.youtube.com/watch?v=1\n   x\n2. Blog\n   https://blog.exemplo.com/three\n   y\n3. Docs\n   https://threejs.org/docs/#manual/en/introduction/Installation\n   z";
+  assert.deepEqual(pickPages(results), ["https://threejs.org/docs/#manual/en/introduction/Installation", "https://blog.exemplo.com/three"]);
+  const page = "Menu do site e rodapé com links.\n\nInstalação com importmap: use <script type=\"importmap\"> com three e three/addons/ para OrbitControls.\n\nOutro assunto sem relação nenhuma aqui.";
+  assert.match(relevantText(page, "three.js importmap OrbitControls"), /importmap/);
+  assert.ok(AGENT_TOOLS.some((t) => t.name === "learn"));
+  assert.deepEqual(["codigo-projeto", "codigo-testar", "aprender-sozinha"].filter((id) => GUIDES.some((g) => g.id === id)).length, 3);
+});
+
+test("search: Bing results when DuckDuckGo blocks (its links decoded); learn ranks pages by the topic", async () => {
+  const { parseBing } = await import("../app/agentTools/web.js");
+  const { pickPages } = await import("../app/agentTools/learn.js");
+  const real = Buffer.from("https://nodejs.org/api/test.html").toString("base64").replace(/=+$/, "");
+  const html = `<li class="b_algo"><h2><a href="https://www.bing.com/ck/a?!&amp;p=x&amp;u=a1${real}&amp;ntb=1">Test runner | Node.js</a></h2><p>The node:test module</p></li><li class="b_algo"><h2><a href="https://example.com/x">Outro</a></h2></li>`;
+  assert.deepEqual(parseBing(html).map((r) => r.url), ["https://nodejs.org/api/test.html", "https://example.com/x"]);
+  const results = "1. Node.js — Run JavaScript Everywhere\n   https://nodejs.org/\n   runtime\n2. Test runner | Node.js v24 Documentation\n   https://nodejs.org/api/test.html\n   The node:test module facilitates the creation of tests, http server";
+  assert.deepEqual(pickPages(results, 2, "node:test http server"), ["https://nodejs.org/api/test.html"]);
+});

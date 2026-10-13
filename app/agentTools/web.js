@@ -47,6 +47,43 @@ export function parseDuckDuckGo(html, max = 8) {
   return results;
 }
 
+/**
+ * Bing's results page: DuckDuckGo answered every search with its "anomaly" robot page (13/10) and the
+ * Aurora had no internet. The links are Bing redirects (…/ck/a?…&u=a1<base64url>); the real address is
+ * in u.
+ */
+export function parseBing(html, max = 8) {
+  const results = [];
+  for (const block of String(html).split(/<li class="b_algo"/).slice(1)) {
+    const link = block.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!link) continue;
+    let url = decodeEntities(link[1]);
+    const u = url.match(/[?&]u=a1([^&]+)/);
+    if (u) { try { url = Buffer.from(u[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"); } catch { continue; } }
+    if (!/^https?:\/\//.test(url) || /bing\.com\//.test(url)) continue;
+    const snippet = block.match(/<p[^>]*>([\s\S]*?)<\/p>/) || block.match(/class="b_caption"[^>]*>([\s\S]*?)<\/div>/);
+    results.push({ title: htmlToText(link[2]), url, snippet: snippet ? htmlToText(snippet[1]).slice(0, 300) : "" });
+    if (results.length >= max) break;
+  }
+  return results;
+}
+
+/** The results of a search: DuckDuckGo, and Bing when DuckDuckGo blocks or finds nothing. */
+export async function searchWeb(query, ctx = {}) {
+  let results = [];
+  try {
+    const response = await get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=br-pt`, ctx.signal, ctx.fetch);
+    results = parseDuckDuckGo(await response.text());
+  } catch {}
+  if (!results.length) {
+    try {
+      const response = await get(`https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=pt-br`, ctx.signal, ctx.fetch);
+      results = parseBing(await response.text());
+    } catch {}
+  }
+  return results;
+}
+
 // Redirects are followed by hand so each hop is checked: a public page must
 // not be able to bounce the fetch onto Aurora's own local API.
 async function get(url, signal, fetchImpl = fetch) {
@@ -135,8 +172,7 @@ export const webTools = [
       // The person's own paper: only their files (the web results led to an "average" light bill).
       const personal = await personalFirst(ctx).catch(() => "");
       if (personal) return personal.replace(/\n\nNa internet \(provavelmente não serve\):\n$/, "\n(A internet não tem os documentos da pessoa: leia estes arquivos com read_file.)");
-      const response = await get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=br-pt`, ctx.signal, ctx.fetch);
-      const results = parseDuckDuckGo(await response.text());
+      const results = await searchWeb(query, ctx);
       const internal = await companyFirst(query, ctx).catch(() => "");
       if (!results.length) return `${internal}Nenhum resultado para "${query}".`;
       return internal + results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n");

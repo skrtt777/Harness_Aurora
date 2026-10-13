@@ -181,7 +181,7 @@ export function toOpenAiMessages(messages){
  */
 async function readStream(response,onText){
   const decoder=new TextDecoder();
-  let buffer='',content='',finish=null,usage=null,timings=null;
+  let buffer='',content='',finish=null,usage=null,timings=null,streamError=null;
   const calls=[];
   for await(const chunk of response.body){
     buffer+=decoder.decode(chunk,{stream:true});
@@ -192,6 +192,8 @@ async function readStream(response,onText){
       const payload=line.slice(5).trim();
       if(payload==='[DONE]')continue;
       let event;try{event=JSON.parse(payload);}catch{continue;}
+      // An error inside the stream ("request (17435 tokens) exceeds the available context size").
+      if(event.error){streamError=event.error.message||String(event.error);continue;}
       if(event.usage)usage=event.usage;
       if(event.timings)timings=event.timings;
       const choice=event.choices?.[0];
@@ -209,6 +211,7 @@ async function readStream(response,onText){
       }
     }
   }
+  if(streamError&&!content&&!calls.length)return {error:{message:streamError},streamFailed:true};
   return {choices:[{message:{content,tool_calls:calls.filter(Boolean)},finish_reason:finish}],usage,timings};
 }
 
@@ -226,7 +229,7 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
       ...(env.LOCAL_THINK==='true'?{}:{reasoning_effort:'low'}),
       ...(tools.length?{tools,tool_choice:'auto'}:{}),...sampling(env)})});
     const data=!response.ok||!stream?await response.json().catch(()=>({})):await readStream(response,onText);
-    if(!response.ok){
+    if(!response.ok||data.streamFailed){
       const error=data.error?.message||`Executor local: HTTP ${response.status}`;
       return {ok:false,status:502,unsupported:/tools? (is )?not supported|jinja/i.test(error),error,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};
     }

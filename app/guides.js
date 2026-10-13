@@ -5,6 +5,47 @@ import { createMemory, listMemories, updateMemory } from "./store.js";
 
 export const GUIDES = [
   {
+    id: "codigo-projeto",
+    title: "Como criar um projeto de código (site, API, app, script) sem se perder",
+    tags: ["guia", "codigo", "programacao", "site", "api", "projeto"],
+    content: [
+      "Vale para \"crie um site/uma API/um app/um script\" numa pasta de projeto (VS Code). Erros de 13/10: um site inteiro num arquivo só, cortado 4 vezes; arquivos fora da pasta pedida; testes que nunca rodaram; resposta \"deseja prosseguir?\" no lugar da entrega.",
+      "1. Pasta: tudo dentro da pasta que a pessoa citou (\"na pasta api\" = api/...). Caminhos relativos à pasta do projeto (api/server.js, site/index.html), nunca Documentos.",
+      "2. Planeje a estrutura antes (update_plan): a lista de arquivos, cada um com uma função. Arquivos pequenos: até umas 150 linhas cada (um componente, uma seção, um módulo, o CSS separado). O arquivo principal só junta os outros.",
+      "3. Grave um arquivo por chamada de write_file. Se a ferramenta disser que foi cortado, divida esse arquivo em dois menores; nunca repita o mesmo arquivo grande.",
+      "4. Tecnologias pedidas: cada uma de verdade. React e Three.js num site sem build: carregue pelo CDN (React UMD com Babel standalone, ou um importmap com three e three/addons) e diga isso. Java e C++ não rodam no navegador: um servidor Java (com.sun.net.httpserver, sem dependências) e um módulo C++ compilável (g++), cada um com um README de como rodar.",
+      "5. Rode o que fez e corrija até funcionar (guia \"Como testar e corrigir código\"). Só depois responda.",
+      "6. A resposta: o que foi feito, a árvore de arquivos com uma linha cada, como rodar (os comandos) e o que você conferiu rodando. Nada de \"deseja prosseguir?\" no meio do trabalho: termine o que foi pedido.",
+    ].join("\n"),
+  },
+  {
+    id: "codigo-testar",
+    title: "Como testar e corrigir código (Node, Python, Java, C++, páginas)",
+    tags: ["guia", "codigo", "teste", "erro", "node", "python", "powershell"],
+    content: [
+      "1. O terminal é o PowerShell do Windows: para dois comandos use ; (ou cd pasta; comando). A ferramenta já entende &&.",
+      "2. Node: testes com const { test } = require(\"node:test\") e const assert = require(\"node:assert\"), rodando node --test pasta/. Não existe describe/it global sem importar. Servidor: exporte o servidor e só chame listen quando require.main === module; o teste sobe na porta 0 e fecha no fim.",
+      "3. Python: open(caminho, encoding=\"utf-8\", newline=\"\"); ache arquivos pela pasta do script: Path(__file__).parent / \"jogos.csv\". Rode com python pasta/script.py.",
+      "4. Java: javac -d out (arquivos .java) e java -cp out Classe. C++: g++ -std=c++17 -o programa arquivo.cpp. Se o compilador não existir, diga isso e como instalar; não finja que rodou.",
+      "5. Página: abra com browser_navigate em file:///C:/pasta/index.html; a ferramenta devolve os erros do console. Erro de módulo/CORS em file://: use um importmap com CDN ou rode npx serve.",
+      "6. Falhou: leia a mensagem de erro inteira, ache o arquivo e a linha, corrija com edit_file e rode de novo. Repita até passar. O mesmo erro duas vezes e você não sabe por quê: chame learn com o erro exato e a tecnologia.",
+      "7. Na resposta, mostre a saída real do teste ou do script (ex.: \"5 testes passaram\"), nunca um resultado imaginado.",
+    ].join("\n"),
+  },
+  {
+    id: "aprender-sozinha",
+    title: "Como aprender sozinha o que você não sabe",
+    tags: ["guia", "aprender", "pesquisa", "documentacao", "erro"],
+    content: [
+      "Você não precisa saber tudo: precisa saber pesquisar. Antes de usar algo que você não domina (uma biblioteca, uma linguagem, um formato, um programa) ou quando um erro se repete:",
+      "1. memory_search com o assunto: talvez você já aprendeu (as lições ficam como \"Aprendi: ...\").",
+      "2. Não achou: chame learn com topic = a tecnologia + o objetivo ou o erro exato (ex.: \"node:test servidor http porta 0\", \"three.js importmap OrbitControls\", \"PowerShell Start-Process sem janela\"). Ela pesquisa a documentação oficial, lê, escreve a lição com exemplo e guarda na memória.",
+      "3. Aplique a lição na hora e rode de novo para ver se resolveu.",
+      "4. Aprendeu algo da pessoa ou do projeto (uma preferência, onde ficam os arquivos, um jeito certo de fazer): memory_save em uma frase.",
+      "5. Nunca invente uma API, uma opção ou um resultado: se não achou na documentação, diga o que tentou.",
+    ].join("\n"),
+  },
+  {
     id: "powerbi-montar",
     title: "Como montar um Power BI (passo a passo)",
     tags: ["guia", "power bi", "bi", "dashboard"],

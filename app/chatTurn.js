@@ -661,6 +661,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           if (conversation.provider === "local" && warming) { setStage(conversationId, "Carregando o modelo local…"); await warming.catch(() => {}); }
           const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
           const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
+          // The local model for a tool that writes something short (learn writes its lesson with it).
+          if (conversation.provider === "local" && chatServer) toolContext.ask = (messages) => runLlama(messages, { ...agentEnv, LOCAL_ENGINE: "llama.cpp", LOCAL_BASE_URL: chatServer, LOCAL_MAX_OUTPUT_TOKENS: "700", LOCAL_CONTEXT_TOKENS: String(ollamaContextTokens(agentEnv)), LOCAL_TEMPERATURE: "0.2" }, controller.signal);
           const runAgent = (agentHistoryMessages, input, { question = input, ...overrides } = {}) => runChatAgent({
             provider: conversation.provider, system: agentContext.prompt, history: agentHistoryMessages, input, question, grounded: autoDocs.length > 0 || attached.length > 0,
             // Local answers citing a company document that exists nowhere go back once.
