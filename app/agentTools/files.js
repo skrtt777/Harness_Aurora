@@ -1408,7 +1408,7 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
           ...(gaps.length ? [`o último filtro trouxe ${reference.length} linha(s) e o documento tem só ${reference.length - gaps.length}. Faltam: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? "…" : ""}`] : []),
           ...(extras.length ? [`o documento tem linha(s) que não atendem à condição do pedido: ${extras.slice(0, 20).join(", ")}${extras.length > 20 ? "…" : ""}. Tire essas`] : []),
         ];
-        throw new Error(`Não gravei ainda: ${problems.join("; ")}. Chame write_document de novo com o mesmo caminho e só as linhas certas (as do filtro); se o pedido é mesmo assim, repita igual que eu gravo.`);
+        throw new Error(`Não gravei ainda: ${problems.join("; ")}. O jeito certo: chame write_document de novo com o mesmo caminho e, no lugar das linhas da tabela, escreva só {{linhas}} (eu copio as ${reference.length} linhas do filtro, exatas, com o cabeçalho). Se o pedido é mesmo outra coisa, repita igual que eu gravo.`);
       }
       // A file Aurora created is updated in place (a redo made "... (2).md" next to its own first try).
       for (let n = 2; existsSync(file) && !OWN_DOCUMENTS.has(file.toLowerCase()); n += 1) file = documentPath(args, ctx).replace(/(\.[^.\\/]+)$/, ` (${n})$1`);
