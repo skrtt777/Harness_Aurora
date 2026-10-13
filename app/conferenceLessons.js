@@ -32,7 +32,8 @@ export async function rememberConference(checks, { request, projectId = null, co
   const lessons = conferenceLessons(checks, request);
   const saved = [];
   for (const l of lessons) {
-    try { saved.push(await createMemory({ scope: projectId ? "project" : "global", projectId: projectId || undefined, conversationId, title: l.title, content: l.content, tags: l.tags, kind: "extracted", source: "Lição da Conferência (Sede)", env })); }
+    // Lessons of method (fixed texts, no data of the person): global, for every project.
+    try { saved.push(await createMemory({ scope: "global", conversationId, title: l.title, content: l.content, tags: l.tags, kind: "extracted", source: "Lição da Conferência (Sede)", env })); }
     catch { /* a lesson that cannot be saved is skipped */ }
   }
   return saved;

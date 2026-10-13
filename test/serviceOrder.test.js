@@ -130,3 +130,14 @@ test("a filter written like the hint's example works (Coluna=\"Situação\"=\"A 
   assert.equal(normalizeFilter('"Setor"="TI"'), "Setor=TI");
   assert.equal(normalizeFilter("Situação=A pagar"), "Situação=A pagar");
 });
+
+test("official pages of the laws a legal request speaks of: by name (Lei do Inquilinato, CLT, Código Civil) or number", async () => {
+  const { officialPages, lawPage } = await import("../app/legalSources.js");
+  assert.deepEqual(officialPages("parecer sobre multa de contrato de locação residencial").map((p) => p.url), ["https://www.planalto.gov.br/ccivil_03/leis/l8245.htm"]);
+  assert.deepEqual(officialPages("art. 413 do Código Civil e a CLT").map((p) => p.name), ["Código Civil (Lei 10.406/2002)", "CLT (Decreto-Lei 5.452/1943)"]);
+  assert.equal(lawPage("lei", "8.078").url, "https://www.planalto.gov.br/ccivil_03/leis/l8078.htm");
+  assert.equal(lawPage("lei", "13.467"), null, "an address with the year in it is searched, not guessed");
+  const order = serviceOrder("Faça um parecer curto em Word sobre multa por rescisão antecipada de contrato de locação residencial.");
+  assert.match(orderBlock(order), /Páginas oficiais: Lei do Inquilinato \(Lei 8\.245\/1991\): https:\/\/www\.planalto\.gov\.br\/ccivil_03\/leis\/l8245\.htm/);
+  assert.match(dispatchCheck(order, { answer: "Pelo Artigo 609 da Lei 8.245.", steps: [], read: [] }).missing[0], /l8245\.htm/);
+});

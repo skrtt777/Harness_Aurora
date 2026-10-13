@@ -10,6 +10,7 @@ import { basename } from "node:path";
 import { areaOf, areaHit, DEPARTMENTS } from "./headquarters.js";
 import { numberRules } from "./numberRules.js";
 import { requestedFiles } from "./codeGuards.js";
+import { officialPages, pagesLine } from "./legalSources.js";
 import { askedFolder, requestedFormat } from "./agentTools/files.js";
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -50,18 +51,22 @@ export function serviceOrder(request, { history = [] } = {}) {
     ...(official ? ["cada lei, artigo ou norma citada veio de fonte oficial consultada nesta resposta"] : []),
   ];
   const areaSure = Boolean(areaHit([...history.slice(-2), text].join("\n")));
-  return { request: text.slice(0, 400), bi, area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
+  // Jurídico: the official pages of the laws the request speaks of, handed to the agent (it searched
+  // ten times and opened invented addresses, 13/10).
+  const sources = (area === "juridico" && areaSure) || official ? officialPages([...history.slice(-2), text].join("\n")) : [];
+  return { request: text.slice(0, 400), sources, bi, area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
 }
 
 /** The order as a block of the prompt (null when there is nothing to spell out). */
 export function orderBlock(order) {
-  if (!order || (!order.deliver.length && !order.rules.length && !order.run && !order.official && !order.folder)) return null;
+  if (!order || (!order.deliver.length && !order.rules.length && !order.run && !order.official && !order.folder && !order.sources?.length)) return null;
   return [
     `ORDEM DE SERVIÇO (Recepção, área ${order.areaName}):`,
     ...(order.deliver.length ? [`- Entregar: ${order.deliver.join("; ")}${order.folder ? ` na pasta ${order.folder}` : ""}.`] : order.folder ? [`- Trabalhar na pasta ${order.folder}.`] : []),
     ...(order.rules.length ? [`- Regras: ${order.rules.join("; ")}.`] : []),
     ...(order.run ? ["- Rodar o que fizer e mostrar a saída real (não diga que rodou sem rodar)."] : []),
     ...(order.official ? ["- Citar só o que estiver em fonte oficial consultada agora (link)."] : []),
+    ...(order.sources?.length ? [`- ${pagesLine(order.sources)}`] : []),
     ...(order.checks.length ? [`- Antes de responder, confira: ${order.checks.join("; ")}.`] : []),
   ].join("\n");
 }
@@ -134,7 +139,7 @@ export function dispatchCheck(order, { answer = "", steps = [], read = null } = 
     const seen = read ?? steps.filter((st) => st.ok && CONSULT.test(String(st.tool))).map((st) => String(st.result || st.summary || "")).join("\n");
     unconfirmed = citationsIn(delivered).filter((c) => !citationIn(seen, c));
     if (unconfirmed.length) {
-      missing.push(`${seen.length ? "estas citações não aparecem em nada que você leu nesta resposta" : "você citou sem consultar nada nesta resposta"}: ${unconfirmed.slice(0, 6).map((c) => c.text).join(", ")}. Confirme cada uma em fonte oficial (web_fetch da página da lei no planalto.gov.br com find="Art. N" para trazer o artigo) e cite com o link, ou tire a citação e diga que não confirmou`);
+      missing.push(`${seen.length ? "estas citações não aparecem em nada que você leu nesta resposta" : "você citou sem consultar nada nesta resposta"}: ${unconfirmed.slice(0, 6).map((c) => c.text).join(", ")}. Confirme cada uma em fonte oficial (web_fetch da página da lei no planalto.gov.br com find="Art. N" para trazer o artigo) e cite com o link, ou tire a citação e diga que não confirmou.${pagesLine(officialPages(`${order?.request || ""}\n${delivered}`)) ? ` ${pagesLine(officialPages(`${order?.request || ""}\n${delivered}`))}` : ""}`);
     }
   }
   if (!order?.makes) return { fix: null, missing, unconfirmed };
