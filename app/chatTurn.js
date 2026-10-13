@@ -622,7 +622,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.request = trimmed;
           // Code rules and code tools only for code (the request, the last messages, a VS Code conversation).
           // The Recepção (app/serviceOrder.js): the order of this request, in the prompt and for the Expedição.
-          toolContext.order = serviceOrder(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")) });
+          // Not when the request is divided among subagents (planilhas + Power BI): they have their own plan, and the order on top made the run go round (A/B 13/10: 2,75 of 5 with it, 4,0 without).
+          toolContext.order = env.AURORA_RECEPCAO === "off" || multiPart(trimmed) ? null : serviceOrder(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")) });
           setOrder(conversationId, toolContext.order);
           const codeTurn = isCodeRequest([...history.filter((m) => m.role === "user").slice(-2).map((m) => String(m.content || "")), trimmed].join("\n"), { title: conversation.title });
           // What the person said in this conversation (the rules of made-up data live in earlier messages).

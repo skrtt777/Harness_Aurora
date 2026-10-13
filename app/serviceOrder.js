@@ -33,21 +33,24 @@ export function serviceOrder(request, { history = [] } = {}) {
   // The file names out first: "relatorio.py" is not a request for a Word report.
   const format = makes ? requestedFormat(text.replace(FILE_NAMES, " ")) : null;
   const folder = askedFolder(text);
-  const rules = !makes ? [] : numberRules([...history.slice(-4), text].join("\n")).map((r) => (r.op === "between" ? `entre ${r.n} e ${r.m} ${plural(r.unit)}` : `${{ ">": "mais de", ">=": "pelo menos", "<": "menos de", "<=": "até" }[r.op]} ${r.n} ${plural(r.unit)}`) + " em CADA linha");
+  const rules = !makes ? [] : numberRules([...history.slice(-4), text].join("\n")).map((r) => (r.op === "between" ? `entre ${r.n} e ${r.m} ${plural(r.unit)}` : `${{ ">": "mais de", ">=": "pelo menos", "<": "menos de", "<=": "até" }[r.op]} ${r.n} ${plural(r.unit)}`) + " em cada item (não no total)");
   const run = RUN.test(t);
   const official = OFFICIAL.test(t);
+  // A Power BI asked with the data ("faça planilhas e monte um POWERBI"): the panel is part of the delivery.
+  const bi = makes && /\bpower ?bi\b|\bpbix\b|\bdashboard\b|\bpainel de bi\b/.test(t);
   const deliver = [
     ...files.map((f) => `o arquivo ${f}`),
     ...(format && !files.some((f) => f.toLowerCase().endsWith(`.${format}`)) ? [FORMAT_NAME[format]] : []),
+    ...(bi ? ["o painel do Power BI montado com as planilhas (powerbi action=build, com o caminho completo de cada planilha)"] : []),
   ];
   const checks = [
     ...(deliver.length ? ["o arquivo existe e a resposta diz o caminho completo"] : []),
-    ...(rules.length ? ["cada linha obedece às regras de número"] : []),
+    ...(rules.length ? ["cada item obedece às regras de número"] : []),
     ...(run ? ["o que foi pedido rodou de verdade e a resposta mostra a saída real"] : []),
     ...(official ? ["cada lei, artigo ou norma citada veio de fonte oficial consultada nesta resposta"] : []),
   ];
   const areaSure = Boolean(areaHit([...history.slice(-2), text].join("\n")));
-  return { request: text.slice(0, 400), area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
+  return { request: text.slice(0, 400), bi, area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
 }
 
 /** The order as a block of the prompt (null when there is nothing to spell out). */
@@ -139,6 +142,7 @@ export function dispatchCheck(order, { answer = "", steps = [], read = null } = 
   if (order.format && order.deliver.length && !written.some((f) => f.toLowerCase().endsWith(`.${order.format}`)) && !steps.some((s) => s.ok && ["excel", "word", "powerpoint", "powerbi"].includes(s.tool))) {
     missing.push(`${FORMAT_NAME[order.format].replace(/^uma? /, "o arquivo pedido, ")} não foi gravado (grave com write_document em .${order.format})`);
   }
+  if (order.bi && !steps.some((s) => s.ok && s.tool === "powerbi")) missing.push("o Power BI pedido não foi montado: chame powerbi com action=build, files com o caminho completo de TODAS as planilhas que você e os subagentes gravaram (os caminhos estão nos resultados) e goal com o pedido");
   if (order.run && !steps.some((s) => s.ok && RAN.has(s.tool))) missing.push("o pedido manda rodar, e nada rodou: rode com run_command e mostre a saída real");
   // Where the file is: appended when the answer does not say it (the person goes looking for it).
   const unsaid = written.filter((f) => !String(answer).toLowerCase().includes(basename(f).toLowerCase()));

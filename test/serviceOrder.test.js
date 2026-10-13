@@ -8,7 +8,7 @@ const { areaRules, agentRules } = await import("../app/economy.js");
 test("Recepção: the order of a request (what to deliver, the rules, run it, official sources); none for a question", () => {
   const empresa = serviceOrder("quero que você crie dados sobre uma empresa aleatoria, com todos os departamentos com mais de 300 funcionarios e faça planilhas em excel");
   assert.deepEqual(empresa.deliver, ["uma planilha Excel (.xlsx)"]);
-  assert.deepEqual(empresa.rules, ["mais de 300 funcionarios em CADA linha"]);
+  assert.deepEqual(empresa.rules, ["mais de 300 funcionarios em cada item (não no total)"]);
   assert.match(orderBlock(empresa), /^ORDEM DE SERVIÇO \(Recepção, área Pessoas\):\n- Entregar: uma planilha Excel/);
   const python = serviceOrder("na pasta python, crie um arquivo jogos.csv com 15 jogos e um script relatorio.py. Rode o script e me mostre o resultado.");
   assert.deepEqual(python.deliver, ["o arquivo jogos.csv", "o arquivo relatorio.py"], "relatorio.py is not a Word report");
@@ -16,7 +16,7 @@ test("Recepção: the order of a request (what to deliver, the rules, run it, of
   assert.match(orderBlock(python), /na pasta python[\s\S]*Rodar o que fizer/);
   assert.equal(orderBlock(serviceOrder("Quais clientes estão inadimplentes há mais de 30 dias?")), null);
   assert.equal(serviceOrder("faça um parecer sobre a Lei do Inquilinato citando fonte oficial").official, true);
-  assert.deepEqual(serviceOrder("crie uma planilha com preços entre 10 e 50 reais").rules, ["entre 10 e 50 reais em CADA linha"]);
+  assert.deepEqual(serviceOrder("crie uma planilha com preços entre 10 e 50 reais").rules, ["entre 10 e 50 reais em cada item (não no total)"]);
   assert.equal(serviceOrder("oi, tudo bem?").areaSure, false);
   assert.equal(serviceOrder("Liste os contratos vigentes em 2026").area, "juridico");
 });
