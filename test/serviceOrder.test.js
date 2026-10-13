@@ -141,3 +141,11 @@ test("official pages of the laws a legal request speaks of: by name (Lei do Inqu
   assert.match(orderBlock(order), /Páginas oficiais: Lei do Inquilinato \(Lei 8\.245\/1991\): https:\/\/www\.planalto\.gov\.br\/ccivil_03\/leis\/l8245\.htm/);
   assert.match(dispatchCheck(order, { answer: "Pelo Artigo 609 da Lei 8.245.", steps: [], read: [] }).missing[0], /l8245\.htm/);
 });
+
+test("Pessoas speaking of the law (CLT) gets the CLT's page and the citation check; a list of employees does not", () => {
+  const ask = serviceOrder("Quantos dias de férias o funcionário tem direito pela CLT?");
+  assert.equal(ask.legalAsk, true);
+  assert.deepEqual(ask.sources.map((s) => s.name), ["CLT (Decreto-Lei 5.452/1943)"]);
+  assert.match(dispatchCheck(ask, { answer: "Pelo art. 130 da CLT são 30 dias.", steps: [], read: [] }).missing.join(), /sem consultar nada/);
+  assert.equal(serviceOrder("Liste numa planilha os funcionários que começam férias em outubro").legalAsk, false);
+});

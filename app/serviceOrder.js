@@ -53,8 +53,10 @@ export function serviceOrder(request, { history = [] } = {}) {
   const areaSure = Boolean(areaHit([...history.slice(-2), text].join("\n")));
   // Jurídico: the official pages of the laws the request speaks of, handed to the agent (it searched
   // ten times and opened invented addresses, 13/10).
-  const sources = (area === "juridico" && areaSure) || official ? officialPages([...history.slice(-2), text].join("\n")) : [];
-  return { request: text.slice(0, 400), sources, bi, area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
+  // Pessoas too when it speaks of the law (CLT, direitos, legislação): "art. 130 da CLT" is cited from memory as easily.
+  const legalAsk = (area === "juridico" && areaSure) || official || (area === "pessoas" && /\b(clt|lei|legisla|direito|trabalhist|art(igo)?\.?\s*\d)/.test(t));
+  const sources = legalAsk ? officialPages([...history.slice(-2), text, ...(area === "pessoas" ? ["CLT"] : [])].join("\n")) : [];
+  return { request: text.slice(0, 400), legalAsk, sources, bi, area, areaSure, areaName: DEPARTMENTS.find((d) => d.id === area)?.name || "Operações", deliver, files, format, folder, rules, run, official, checks, makes };
 }
 
 /** The order as a block of the prompt (null when there is nothing to spell out). */
@@ -132,7 +134,7 @@ export function dispatchCheck(order, { answer = "", steps = [], read = null } = 
   if (foreign && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff\u0600-\u06ff]/.test(order?.request || "") && !/tradu|japon|chin[e\u00ea]s|mandarim|coreano|russo|[a\u00e1]rabe|ucraniano|kanji|hiragana|cir[i\u00ed]lico/i.test(order?.request || "")) {
     missing.push(`o texto entregue tem trechos em outro alfabeto (${[...new Set(foreign)].slice(0, 3).join(", ")}): reescreva esses trechos em português${steps.some((st) => st.ok && st.tool === "write_document") ? " e grave o documento de novo no mesmo caminho" : ""}`);
   }
-  const legal = order && ((order.area === "juridico" && order.areaSure) || order.official);
+  const legal = order && ((order.area === "juridico" && order.areaSure) || order.official || order.legalAsk);
   if (legal && LEGAL_CITE.test(delivered)) {
     // The Conferência de citações: each article, law or súmula cited must be in what was read in this
     // answer (a page, a document). A search that found nothing does not confirm "Art. 601" (13/10).
