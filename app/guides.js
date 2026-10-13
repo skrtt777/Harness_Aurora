@@ -10,6 +10,7 @@ export const GUIDES = [
     tags: ["guia", "codigo", "programacao", "site", "api", "projeto"],
     content: [
       "Vale para \"crie um site/uma API/um app/um script\" numa pasta de projeto (VS Code). Erros de 13/10: um site inteiro num arquivo só, cortado 4 vezes; arquivos fora da pasta pedida; testes que nunca rodaram; resposta \"deseja prosseguir?\" no lugar da entrega.",
+      "0. Site, página ou portal: chame create_site com o conteúdo (8 a 16 itens reais, 3 recursos, o tema) — ele faz o HTML, o CSS, o React, o Three.js e, se pedirem, o Java e o C++. Depois abra com browser_navigate e ajuste o conteúdo chamando create_site de novo. Os passos abaixo valem para os outros projetos.",
       "1. Pasta: tudo dentro da pasta que a pessoa citou (\"na pasta api\" = api/...). Caminhos relativos à pasta do projeto (api/server.js, site/index.html), nunca Documentos.",
       "2. Planeje a estrutura antes (update_plan): a lista de arquivos, cada um com uma função. Arquivos pequenos: até umas 150 linhas cada (um componente, uma seção, um módulo, o CSS separado). O arquivo principal só junta os outros.",
       "3. Grave um arquivo por chamada de write_file. Se a ferramenta disser que foi cortado, divida esse arquivo em dois menores; nunca repita o mesmo arquivo grande.",

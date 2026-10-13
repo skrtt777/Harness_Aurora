@@ -91,7 +91,9 @@ test("code projects: a website with several technologies is divided by area; cod
   const { multiPart } = await import("../app/agentTools/subagents.js");
   const { cleanCode, CODE_FILE } = await import("../app/agentTools/files.js");
   // The VS Code test of 13/10.
-  assert.deepEqual(multiPart("crie um website usando three.js, c++,html, java e react, o site deve ser sobre video games, dete ter um menu interarivo, dinamico e responsivo"), ["código threejs", "código cpp", "código html", "código java", "código react"]);
+  // A website goes to create_site in one action (13/10); a system with several technologies is divided.
+  assert.equal(multiPart("crie um website usando three.js, c++,html, java e react, o site deve ser sobre video games, dete ter um menu interarivo, dinamico e responsivo"), null);
+  assert.deepEqual(multiPart("crie um sistema com react, java e python"), ["código react", "código java", "código python"]);
   assert.equal(multiPart("crie um site em html"), null);
   assert.equal(multiPart("o que é react, java e c++?"), null);
   assert.equal(cleanCode("C:\p\index.html", "<html><body>oi</body></html>\n```\n{\"name\":\"write_file\",\"arguments\""), "<html><body>oi</body></html>\n");
@@ -168,4 +170,17 @@ test("search: Bing results when DuckDuckGo blocks (its links decoded); learn ran
   assert.deepEqual(parseBing(html).map((r) => r.url), ["https://nodejs.org/api/test.html", "https://example.com/x"]);
   const results = "1. Node.js — Run JavaScript Everywhere\n   https://nodejs.org/\n   runtime\n2. Test runner | Node.js v24 Documentation\n   https://nodejs.org/api/test.html\n   The node:test module facilitates the creation of tests, http server";
   assert.deepEqual(pickPages(results, 2, "node:test http server"), ["https://nodejs.org/api/test.html"]);
+});
+
+test("create_site: a website from the content, with the technologies the person named", async () => {
+  const { siteTools } = await import("../app/agentTools/site.js");
+  const { mkdtempSync, readFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+  const project = mkdtempSync(join(tmpdir(), "aurora-site-"));
+  const items = ["Elden Ring", "Hades", "Celeste"].map((name, i) => ({ name, category: ["RPG", "Roguelike", "Plataforma"][i], detail: "2020", score: 9 + i / 10, description: "Um jogo." }));
+  const said = await siteTools[0].run({ title: "GameVerse", tagline: "Os melhores jogos", items, theme: "neon" }, { workspace: project, request: "crie um website usando three.js, c++, html, java e react sobre video games", env: {} });
+  assert.match(said, /Criei o site "GameVerse"/);
+  for (const f of ["index.html", "css/style.css", "js/catalog.js", "js/scene.js", "js/menu.js", "server/Servidor.java", "cpp/ranking.cpp"]) assert.ok(existsSync(join(project, "site", f)), f);
+  assert.match(readFileSync(join(project, "site", "index.html"), "utf8"), /react-dom[\s\S]*three\.min\.js/);
+  await assert.rejects(siteTools[0].run({ title: "X", tagline: "y", items: items.slice(0, 1) }, { workspace: project, request: "crie um site", env: {} }), /pelo menos 3 itens/);
 });

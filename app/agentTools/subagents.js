@@ -31,7 +31,9 @@ export function multiPart(text) {
   const found = [];
   for (const [name, re] of PARTS) if (re.test(t) && !((name === "planilha" || name === "planilhas") && existing) && !(name === "planilha" && found.includes("planilhas"))) found.push(name);
   // A website, app or system with several technologies (React, Three.js, Java, C++…): one part per area.
-  if (/\b(cri[ae]|fa[cz]a|desenvolv[ae]|mont[ae]|construa|gere|programe)\b/.test(t) && /\b(site|website|app|aplicativo|sistema|jogo|plataforma|api)\b/.test(t)) {
+  // A website is made by create_site (app/siteBuilder.js) in one action, not divided (13/10).
+  if (/\b(site|website|pagina web|landing page|portal)\b/.test(t) && !/\b(planilhas?|power ?bi|relatorio|apresentacao)\b/.test(t)) return null;
+  if (/\b(cri[ae]|fa[cz]a|desenvolv[ae]|mont[ae]|construa|gere|programe)\b/.test(t) && /\b(app|aplicativo|sistema|jogo|plataforma|api)\b/.test(t)) {
     const techs = [...new Set((t.replace(/c\+\+/g, "cpp").match(/\b(react|vue|angular|three ?\.?js|java(?!script)|c\+\+|cpp|c#|python|node|express|spring|django|flask|typescript|html|css|sql|php|kotlin|swift|go|rust)\b/g) || []).map((x) => x.replace(/\s|\./g, "")))];
     if (techs.length >= 3) return [...found, ...techs.map((x) => `código ${x}`)];
   }
