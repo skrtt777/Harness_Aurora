@@ -48,3 +48,22 @@ export function claimsRunWithoutRunning(answer, steps, request) {
   if (!ASKED_RUN.test(fold(request)) && !/\b(script|codigo|teste|programa)\b/.test(fold(request))) return false;
   return !steps.some((s) => s.ok && RUNNERS.has(s.tool));
 }
+
+
+/**
+ * "Pronto! Tema do BI: Escuro… aplicado às 4 páginas" with nothing done (13/10: six answers in a row
+ * said they applied or updated something, one call each, no tool). An answer that says it did a change
+ * while no tool that acts or writes ran in this turn.
+ */
+const DID = /^\W*(pronto|feito|conclu[ií]d[oa]|(atualizad|aplicad|criad|gerad|montad|configurad|alterad)[oa]s?|salv[oa])\b|\b(apliquei|atualizei|criei|gerei|montei|configurei|mudei|alterei|salvei|ajustei|troquei|adicionei|inclu[ií]|removi|apaguei)\b|\bfoi (aplicad|atualizad|criad|gerad|montad|salv)/i;
+const NOT_DONE = /\b(n[aã]o (fiz|criei|apliquei|executei|consegui|alterei|foi (feito|criado|aplicado))|nada foi (executado|criado|alterado|feito)|modo plano|vou (fazer|criar|aplicar)|posso (fazer|criar|aplicar)|quer que eu)\b/i;
+export function claimsActionWithoutAction(answer, steps, actionTools) {
+  const text = String(answer || "");
+  if (!DID.test(text.slice(0, 600)) || NOT_DONE.test(text.slice(0, 400))) return false;
+  // About something that needs an action (a text written in the chat, "Pronto, aqui está o e-mail", is fine).
+  if (!/\b(bi|power ?bi|painel|dashboard|planilha|documento|arquivo|relat[oó]rio|p[aá]ginas?|tema|gr[aá]fico|tabela|apresenta[cç][aã]o|slides?|site|pasta|programa|excel|word)\b/i.test(text.slice(0, 800))) return false;
+  return !steps.some((s) => s.ok && actionTools.has(s.tool));
+}
+
+/** The conversation allows made-up data ("é fictício, pode gerar números", "dados de exemplo"). */
+export const FICTIONAL = /\bfict[ií]ci|\binvent(e|ar|ado|ados)\b.{0,20}(dados|n[uú]meros|valores)|pode (inventar|gerar|criar) (os )?(n[uú]meros|dados|valores)|dados (de exemplo|aleat|falsos|simulados|ficticios)|aleat[oó]ri|simulad[oa]s?\b/i;

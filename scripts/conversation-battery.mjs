@@ -1,5 +1,5 @@
 // Bateria de conversas reais (app/conversationBattery.js) contra o modelo local.
-//   npm run battery -- [--only kit-midia,planilha] [--runs 2] [--teacher] [--db <copia.db>] [--label nome]
+//   npm run battery -- [--set novos|todos] [--only kit-midia,planilha] [--runs 2] [--teacher] [--db <copia.db>] [--label nome]
 // Sem --db, usa um banco novo (sem memórias do usuário): o resultado depende só do código e do modelo.
 // --teacher liga o professor pago (gasta chamadas). Relatório em reports/battery/<label>.json;
 // sai com código 1 se a nota cair mais de 5 pontos em relação à rodada anterior.
@@ -22,8 +22,11 @@ process.env.BROWSER_AGENT_HEADLESS = "1";
 process.env.BROWSER_AGENT_PROFILE_DIR ||= join(base, "browser-profile");
 setInterval(() => {}, 60_000);
 
-const { BATTERY_TODAY, SCENARIOS, scoreTurn, startBatterySite, summarizeBattery, writeBatteryFixtures } = await import("../app/conversationBattery.js");
+const { BATTERY_TODAY, SCENARIOS: OLD, scoreTurn, startBatterySite, summarizeBattery, writeBatteryFixtures } = await import("../app/conversationBattery.js");
 process.env.HARNESS_NOW ||= BATTERY_TODAY;
+const { FRESH_SCENARIOS } = await import("../app/freshBattery.js");
+const set = arg("set", "antigos");
+const SCENARIOS = set === "novos" ? FRESH_SCENARIOS : set === "todos" ? [...OLD, ...FRESH_SCENARIOS] : OLD;
 const store = await import("../app/store.js");
 const { handleChatTurn } = await import("../app/server.js");
 const { resolveLocalModel } = await import("../app/ollamaSetup.js");
@@ -38,10 +41,11 @@ for (let run = 1; run <= runs; run += 1) {
   for (const scenario of SCENARIOS.filter((s) => !only || only.includes(s.id))) {
     const dir = join(base, `${scenario.id}-${run}`);
     mkdirSync(dir, { recursive: true });
-    await writeBatteryFixtures(dir);
+    if (!scenario.ownFiles) await writeBatteryFixtures(dir);
     const site = await startBatterySite();
     const project = await store.createProject({ name: `Bateria ${scenario.id}`, workspaceDir: dir });
     const extra = scenario.setup ? await scenario.setup({ dir }) : {};
+    await store.setSetting("agent_mode", scenario.mode || "auto");
     let conversation = await store.createConversation({ provider: "local", projectId: project.id, teacherProvider: "claude" });
     const turns = [];
     console.log(`\n## ${scenario.id} (rodada ${run}): ${scenario.title}`);
@@ -67,8 +71,8 @@ for (let run = 1; run <= runs; run += 1) {
 const summary = summarizeBattery(results);
 const outDir = join(process.cwd(), "reports", "battery");
 mkdirSync(outDir, { recursive: true });
-const previous = readdirSync(outDir).filter((f) => f.endsWith(".json")).map((f) => { try { return JSON.parse(readFileSync(join(outDir, f), "utf8")); } catch { return null; } }).filter((r) => r?.model === model).sort((a, b) => String(a.date).localeCompare(String(b.date))).at(-1);
-writeFileSync(join(outDir, `${label}.json`), JSON.stringify({ model, label, date: new Date().toISOString(), summary, results }, null, 2));
+const previous = readdirSync(outDir).filter((f) => f.endsWith(".json")).map((f) => { try { return JSON.parse(readFileSync(join(outDir, f), "utf8")); } catch { return null; } }).filter((r) => r?.model === model && (r.set || "antigos") === set).sort((a, b) => String(a.date).localeCompare(String(b.date))).at(-1);
+writeFileSync(join(outDir, `${label}.json`), JSON.stringify({ model, set, label, date: new Date().toISOString(), summary, results }, null, 2));
 console.log(`\nNota: ${summary.passed}/${summary.total} (${summary.score}%)${previous ? `; anterior ${previous.summary.score}% (${previous.label})` : ""}`);
 for (const s of summary.scenarios) console.log(`  ${s.id}: ${s.passed}/${s.total}`);
 process.exit(previous && summary.score < previous.summary.score - 5 ? 1 : 0);

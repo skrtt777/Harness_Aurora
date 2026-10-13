@@ -3,7 +3,7 @@ name: powerbi
 title: Power BI (painel, dashboard, BI) a partir de planilhas
 triggers: [power bi, powerbi, bi, dashboard, painel de indicadores, painel de vendas, painel financeiro, painel da operacao, indicadores, kpi, modelo semantico, dax, medida, tmdl, pbix, pbip]
 avoid: [painel solar, painel do carro]
-options: [Mudar o estilo (claro, escuro ou a cor da marca), Juntar ou separar páginas, Criar uma medida nova]
+options: ["Mudar o estilo (claro, escuro ou a cor da marca)", "Juntar ou separar páginas", "Criar uma medida nova"]
 ---
 Decida sozinho: a planilha (.xlsx/.csv) é a que a pessoa citou; senão, a do assunto nos Documentos/Downloads (find_files). Chame powerbi action=build com files e goal = o pedido inteiro nas palavras da pessoa (o que quer ver, para quem, o tom). Não escolha páginas nem gráficos: a IA local planeja um BI único para esse goal.
 Pergunte só se: não houver nenhuma planilha do assunto.

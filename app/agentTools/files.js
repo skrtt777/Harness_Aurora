@@ -34,7 +34,9 @@ export function cellValue(text) {
   if (date) return Date.UTC(Number(date[3]), Number(date[2]) - 1, Number(date[1]));
   // "1.234,56", "8,07%", "69062.05", "-3.12%"
   const plain = s.replace(/%$/, "");
-  const number = /,\d+$/.test(plain) ? plain.replace(/\./g, "").replace(",", ".") : plain;
+  // "2.800.000" (thousands only, no decimals) was no number: the budget column was never summed nor
+  // compared, and the model added it by heart (R$ 10,65 mi for 14,55; 13/10).
+  const number = /,\d+$/.test(plain) ? plain.replace(/\./g, "").replace(",", ".") : /^-?\d{1,3}(\.\d{3})+$/.test(plain) ? plain.replace(/\./g, "") : plain;
   return /^-?\d+(\.\d+)?$/.test(number) ? Number(number) : null;
 }
 const COMPARE = { ">": (a, b) => a > b, ">=": (a, b) => a >= b, "<": (a, b) => a < b, "<=": (a, b) => a <= b };
@@ -338,6 +340,33 @@ export function redactRestricted(lines, request, env = {}) {
 }
 
 /** The sheet's TOTAL row with its column names, as a note ("" when there is none). */
+/**
+ * The sums, the largest and the smallest of each number column, done here (13/10: "qual o orçamento total
+ * e quantos funcionários" — 2.695 for 2.305 and R$ 10,65 mi for 14,55, the model adding 8 numbers by heart).
+ * Only for a sheet without its own TOTAL row, and not for code columns.
+ */
+export function columnSums(lines) {
+  const out = [];
+  for (const s of parseSheets(lines).filter((x) => x.header)) {
+    const names = s.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+    const rows = s.rows.map((r) => r.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1);
+    if (!rows.length || rows.length > 2000 || rows.some((c) => c.some((x) => /^total\b/i.test(x)))) continue;
+    const label = names.findIndex((n, j) => !ID_COLUMN.test(n) && rows.every((c) => cellValue(c[j] || "") === null));
+    const parts = [];
+    names.forEach((n, j) => {
+      if (ID_COLUMN.test(n) || DATE.test(rows[0][j] || "")) return;
+      const values = rows.map((c) => cellValue(c[j] || ""));
+      if (values.some((v) => v === null)) return;
+      const sum = values.reduce((a, b) => a + b, 0);
+      const name = (i) => (label >= 0 ? ` (${rows[i][label]})` : "");
+      const max = values.indexOf(Math.max(...values)), min = values.indexOf(Math.min(...values));
+      parts.push(`${n}: soma ${brNumber(sum)}, maior ${rows[max][j]}${name(max)}, menor ${rows[min][j]}${name(min)}`);
+    });
+    if (parts.length) out.push(`${s.name.replace(/^##\s*/, "") || "Tabela"}, ${rows.length} linhas: ${parts.slice(0, 6).join("; ")}`);
+  }
+  return out.length ? `\n(Contas prontas, feitas pela ferramenta sobre todas as linhas: ${out.slice(0, 2).join(" | ")}. Use estes números; não some de cabeça.)` : "";
+}
+
 export function totalRowsNote(lines) {
   const totals = parseSheets(lines).filter((s) => s.header).flatMap((s) => s.rows
     .filter((r) => /(^|\|)\s*total\s*(\||$)/i.test(r.line))
@@ -1315,7 +1344,9 @@ export const fileTools = [
         tip = categoryCounts(table, ctx.request) + tip;
         // "Como está o budget esse ano?" got every area and no total (empresa eval controladoria-1):
         // the sheet's TOTAL row, with its column names, goes first.
-        ready = totalRowsNote(table) + ready;
+        const own = totalRowsNote(table);
+        const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
+        ready = own + ready + sums;
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).

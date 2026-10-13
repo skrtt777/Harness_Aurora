@@ -14,7 +14,7 @@ import { sceneColumn, vehicleVars } from "./powerbiScene.js";
 import { kpiTile } from "./powerbiKpi.js";
 import { headerMeasure } from "./powerbiSummary.js";
 import { composePage } from "./powerbiLayout.js";
-import { COLORS, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
+import { COLORS, askedStyle, autoPlan, materialize, normalizePlan } from "./powerbiPlanner.js";
 
 // ---- Reading -------------------------------------------------------------------------------------
 
@@ -577,6 +577,8 @@ export function finish(prep, rawPlan = null) {
     return name;
   };
   const plan = (rawPlan && (rawPlan.planner ? rawPlan : normalizePlan(rawPlan, cat, goal))) || autoPlan(cat, goal);
+  const asked = askedStyle(goal);
+  if (asked) plan.estilo = { ...plan.estilo, ...asked };
   const reportTitle = prep.userTitle || plan.titulo || prep.reportTitle;
   const dark = plan.estilo.tema === "escuro";
   const style = { dark, text: dark ? "#FFFFFF" : "#1B2A4A", soft: dark ? "#8FA3BF" : "#5B6B85", pin: COLORS[plan.estilo.cor] || "#4F9BFF" };

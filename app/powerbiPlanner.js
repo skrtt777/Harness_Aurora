@@ -17,7 +17,7 @@ export const CHARTS = {
   funil: "funil: etapas que vão afunilando",
   medidor: "medidor: um número contra o máximo",
 };
-export const COLORS = { azul: "#2F6FDB", verde: "#1E9E62", teal: "#0F9AA0", roxo: "#7A4FD6", laranja: "#E8772E", vermelho: "#D94B4B", dourado: "#C99A2E", grafite: "#4A5568", rosa: "#D6457E" };
+export const COLORS = { amarelo: "#E9B824", azul: "#2F6FDB", verde: "#1E9E62", teal: "#0F9AA0", roxo: "#7A4FD6", laranja: "#E8772E", vermelho: "#D94B4B", dourado: "#C99A2E", grafite: "#4A5568", rosa: "#D6457E" };
 export const TONES = { sobrio: "sóbrio, poucas cores", vibrante: "cores fortes", executivo: "elegante, para diretoria", tecnico: "denso, para quem opera", acolhedor: "leve, cantos arredondados" };
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
@@ -271,6 +271,24 @@ export function normalizePlan(raw, cat, goal = "") {
     paginas: pages,
     planner: "modelo",
   };
+}
+
+/**
+ * The style the person asked for, over the plan's: "tema azul e amarelo", "escuro", "fundo claro" (13/10:
+ * "deixe o tema azul e amarelo" answered "Aplicado!" while every plan picked its own colours). The first
+ * colour named is the accent; null when the request names none.
+ */
+export function askedStyle(goal = "") {
+  const g = fold(goal);
+  const out = {};
+  if (/\b(escuro|dark|noturno|preto)\b/.test(g)) out.tema = "escuro";
+  else if (/\b(claro|light|branco)\b/.test(g)) out.tema = "claro";
+  const names = { amarelo: "amarelo", azul: "azul", verde: "verde", roxo: "roxo", lilas: "roxo", laranja: "laranja", vermelho: "vermelho", dourado: "dourado", ouro: "dourado", cinza: "grafite", grafite: "grafite", rosa: "rosa", "verde-agua": "teal", turquesa: "teal" };
+  const hits = [...g.matchAll(/\b(amarelo|azul|verde-agua|verde|roxo|lilas|laranja|vermelho|dourado|ouro|cinza|grafite|rosa|turquesa)\b/g)].map((m) => names[m[1]]);
+  // "azul e amarelo": the blue is the frame (dark), the yellow the accent that stands out on it.
+  if (hits.length >= 2 && hits[0] === "azul") { out.cor = hits[1]; out.tema ||= "escuro"; }
+  else if (hits.length) out.cor = hits[0];
+  return Object.keys(out).length ? out : null;
 }
 
 /** A plan without the model: from what the data are about and the words of the request, varied by both. */

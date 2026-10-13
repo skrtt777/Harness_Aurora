@@ -1,5 +1,7 @@
-import { missingFiles, claimsRunWithoutRunning } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
+// The tools that change something (the files, the programs, the BI, the computer).
+const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -256,7 +258,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
-  let filesChecked = 0, ranChecked = false, dispatched = false;
+  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -313,7 +315,7 @@ export async function runChatAgent({
     // Not when the answer says it CREATED the file without writing it: that is a delivery claim, and
     // the delivery guard asks for the file. Called "invented", the RH agent apologized and wrote
     // nothing (agent battery, 07/10 and 08/10).
-    if (!toolCalls.length && offered.length && !inventionChecked && checkCitations && !claimsDelivery(text, steps, { context: contextText(messages) })) {
+    if (!toolCalls.length && offered.length && !inventionChecked && checkCitations && !FICTIONAL.test(contextText(messages)) && !claimsDelivery(text, steps, { context: contextText(messages) })) {
       inventionChecked = true;
       const invented = await checkCitations(text, steps).catch(() => []);
       if (invented.length) {
@@ -441,6 +443,17 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você disse que rodou ou testou, mas nenhum comando rodou nesta resposta: o resultado foi inventado. Rode agora com run_command (ex.: python pasta/script.py ou node --test) e responda só com a saída real." });
       continue;
     }
+    // "Pronto! Aplicado às 4 páginas" with no tool that acts: done for real, or said plainly (in the
+    // Plano mode: that nothing runs there and how to leave it).
+    if (!toolCalls.length && !actionChecked && claimsActionWithoutAction(text, steps, ACTION_OR_WRITE) && !claimsDelivery(text, steps, { context: contextText(messages) })) {
+      actionChecked = true;
+      checks.push({ check: "claimed_action", answer: text.slice(0, 300) });
+      const plan = toolContext.mode === "plan";
+      messages.push({ role: "assistant", content: text }, { role: "user", content: plan
+        ? "Você disse que fez ou aplicou algo, mas está no modo Plano: nada foi executado. Responda de novo começando com \"Nada foi executado: o modo Plano está ligado (troque para Auto no seletor ao lado da caixa de mensagem).\" e depois mostre só o plano do que faria, sem dizer que fez."
+        : offered.length ? "Você disse que fez, aplicou ou atualizou algo, mas nenhuma ferramenta mudou nada nesta resposta. Faça agora de verdade com as ferramentas (ex.: powerbi, write_document, excel) e responda com o resultado; se não for possível, diga claramente que não fez e por quê." : "Você disse que fez algo, mas nada foi executado nesta resposta: diga claramente que não fez." });
+      continue;
+    }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.
     if (!toolCalls.length && offered.length && !deliveryChecked && claimsDelivery(text, steps, { context: contextText(messages) })) {
       deliveryChecked = true;
@@ -534,7 +547,8 @@ export async function runChatAgent({
       // (After the repetition guard: 8 cut calls in a row went by it, each one 4096 tokens, 06/10.)
       if (call.arguments?.__cut && count < REPEAT_LIMIT) {
         outcome = { ok: false, result: count === 1
-          ? (call.name === "write_file" || call.name === "edit_file") ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o arquivo passou do limite de saída. Se é um script ou arquivo pequeno, você repetiu linhas ou embutiu dados: escreva de novo o arquivo inteiro com até 60 linhas, sem dados embutidos (leia do arquivo de dados), sem comentários longos e sem repetir blocos. Se é um projeto grande, divida em arquivos menores (um componente, seção ou módulo por arquivo, até umas 150 linhas) e grave um de cada vez.`
+          ? call.name === "powerbi" ? "ERRO: sua chamada de powerbi foi cortada no meio: ela levava texto demais. Chame de novo só com action=build, files com os caminhos completos das planilhas e goal com UMA frase do que a pessoa quer ver. Não ponha dados, tabelas nem a descrição das páginas na chamada: a ferramenta lê as planilhas e desenha as páginas sozinha."
+          : (call.name === "write_file" || call.name === "edit_file") ? `ERRO: sua chamada de ${call.name} foi cortada no meio: o arquivo passou do limite de saída. Se é um script ou arquivo pequeno, você repetiu linhas ou embutiu dados: escreva de novo o arquivo inteiro com até 60 linhas, sem dados embutidos (leia do arquivo de dados), sem comentários longos e sem repetir blocos. Se é um projeto grande, divida em arquivos menores (um componente, seção ou módulo por arquivo, até umas 150 linhas) e grave um de cada vez.`
           : `ERRO: sua chamada de ${call.name} foi cortada no meio: o texto passou do limite de saída. Chame de novo com um conteúdo mais curto (o essencial, tabelas em vez de parágrafos longos, até umas 600 palavras)${call.name === "write_document" ? ". Se o texto longo eram as linhas de uma planilha que você leu, escreva {{linhas}} no lugar delas (a ferramenta copia todas, exatas); num documento longo de outro tipo, grave a primeira metade agora e depois chame write_document com o mesmo path, append=true e o restante" : ""}.`
           : `ERRO: cortada de novo. ${call.name === "write_file" || call.name === "edit_file" ? "Grave um arquivo de no máximo 80 linhas agora (só uma parte: um componente, o CSS ou um script) e os outros depois, um por chamada; o arquivo principal só junta os outros com <script src> ou import." : "Grave a tabela"} com as linhas pedidas (sem repetir linhas) e, antes dela, só um resumo de 3 frases com os números principais; termine com "Fonte:" e o arquivo. No máximo 350 palavras.`, ms: 0 };
       } else if (call.arguments?.__badjson && count < REPEAT_LIMIT) {

@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
 import { desktopRequest } from "../desktop.js";
-import { groundedName, localPlanAsk } from "../powerbiPlanner.js";
+import { askedStyle, groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
 
 const ok = (reply) => { if (!reply.ok) throw new Error(reply.error); return reply.text; };
@@ -134,6 +134,10 @@ async function columnValues(ref) {
 }
 
 const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b|medida|\.pbix|\.pbip/i;
+// "deixe o tema azul e amarelo": colours for the report, with no ops for them (13/10: the model made up
+// {"format":"colors","settings":{...}} three times, each asking the person's permission for nothing).
+const COLOR_CHANGE = (a) => a.action === "change" && /colou?r|\bcor(es)?\b|tema|theme|palet|#[0-9a-f]{6}|fundo|background/i.test(JSON.stringify(a.ops || a));
+const THEME_TIP = "O tema e as cores de um painel que a Aurora montou mudam com um build novo: chame powerbi com action=build, os MESMOS files do build anterior e goal com as cores pedidas (ex.: goal=\"tema azul e amarelo\"). A ferramenta monta o painel de novo com essas cores.";
 
 export const powerBiTools = [
   {
@@ -145,7 +149,7 @@ export const powerBiTools = [
       note: { type: "string", description: "show: a frase curta que aparece na cena (ex.: \"Doca 03 parada há 40 min\")" },
       files: { type: "array", items: { type: "string" }, description: "build: TODAS as planilhas .xlsx/.csv do pedido, com o caminho completo que a ferramenta que as criou ou achou devolveu; cada uma é uma tabela (cabeçalho e linhas, uma célula por coluna)" },
       name: { type: "string", description: "título do painel (build)" },
-      goal: { type: "string", description: "o que o painel deve mostrar, nas palavras da pessoa (build)" },
+      goal: { type: "string", description: "build: UMA frase curta (até 25 palavras) com o que a pessoa quer ver; pode omitir (usa o pedido dela). Nunca descreva páginas, gráficos, cores ou dados aqui: a ferramenta lê as planilhas e monta tudo." },
       folder: { type: "string", description: "onde criar o projeto (build; padrão Documentos/Power BI)" },
       window: { type: "string", description: "parte do título do Power BI aberto (connect)" },
       measure: { type: "string" }, by: { type: "string" }, top: { type: "number" }, filter: { type: "string" },
@@ -161,6 +165,7 @@ export const powerBiTools = [
       // Changing or saving the person's open report: their authorization, once per turn.
       if (a.action === "vr") return { kind: "desktop", program: "PBIDesktop", summary: "Abrir o gêmeo digital do Power BI em 3D/VR: um endereço só de leitura nesta rede (para o óculos) e neste computador" };
       if (a.action === "show") return { kind: "desktop", program: "PBIDesktop", summary: `Destacar no Power BI: ${[a.values].flat().filter(Boolean).join(", ") || "(apagar o destaque)"}` };
+      if (COLOR_CHANGE(a)) return { kind: "meta" };
       if (a.action === "change" || a.action === "save" || a.action === "refresh") return { kind: "desktop", program: "PBIDesktop", summary: a.action === "change" ? `Alterar o modelo do Power BI: ${(a.ops || []).map((o) => `${o.op} ${o.name || o.column || o.from || ""}`).join(", ")}` : a.action === "save" ? "Salvar o arquivo do Power BI" : "Atualizar os dados do Power BI" };
       return { kind: "meta" };
     },
@@ -168,14 +173,14 @@ export const powerBiTools = [
       const action = args.action;
       const conversation = ctx.conversationId || "";
       if (action === "build") {
-        if (!ASKS_PBI.test(String(ctx.request || "")) && !args.__fromOpen) throw new Error("A pessoa não pediu um Power BI/painel: para uma planilha ou relatório comum, use write_document.");
+        if (!ASKS_PBI.test(String(ctx.request || "")) && !askedStyle(ctx.request) && !args.__fromOpen) throw new Error("A pessoa não pediu um Power BI/painel: para uma planilha ou relatório comum, use write_document.");
         const files = [args.files].flat().filter(Boolean);
         if (!files.length) throw new Error("Diga as planilhas em files (ex.: [\"Documentos/vendas.xlsx\"]).");
         const paths = [];
         for (const f of files) paths.push(await resolveFile(f, ctx));
         const folder = expandPath(args.folder || "Documentos/Power BI", ctx.knownFolders, ctx.workspace);
         // The pages follow what was asked: the goal, or the request itself.
-        const r = await buildReport({ files: paths, folder, name: groundedName(args.name, `${ctx.request || ""} ${args.goal || ""} ${files.join(" ")}`), goal: args.goal || ctx.request || "", conversationId: conversation, onStage: (s) => ctx.onStage?.(s),
+        const r = await buildReport({ files: paths, folder, name: groundedName(args.name, `${ctx.request || ""} ${args.goal || ""} ${files.join(" ")}`), goal: `${args.goal || ctx.request || ""}${askedStyle(ctx.request) && !askedStyle(args.goal) ? ` (${ctx.request})` : ""}`, conversationId: conversation, onStage: (s) => ctx.onStage?.(s),
           // The local model plans this BI's pages, layout and style (ctx.ask in tests).
           planner: { ask: ctx.planAsk || await localPlanAsk(ctx.env || process.env).catch(() => null), env: ctx.env || process.env } });
         const pages = r.plan.pages.map((p) => `${p.displayName} (${p.visuals.filter((v) => v.type !== "textbox").length} visuais)`).join(", ");
@@ -221,6 +226,7 @@ export const powerBiTools = [
         if (!reply.ok) throw new Error(`${reply.error}\n${args.dax ? simpleHint() : ""}`);
         return `${reply.text}\n(DAX: ${dax})\nResponda com estes números, sem arredondar e sem inventar outros. A primeira linha depois dos títulos é a maior.`;
       }
+      if (COLOR_CHANGE(args)) throw new Error(THEME_TIP);
       if (action === "change") {
         const ops = [args.ops].flat().filter(Boolean);
         if (!ops.length) throw new Error("Mande as mudanças em ops (ex.: [{\"op\":\"measure\",\"name\":\"Margem\",\"expression\":\"DIVIDE([Lucro], [Faturamento])\",\"format\":\"0.0%\"}]).");

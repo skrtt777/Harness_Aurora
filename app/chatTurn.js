@@ -842,6 +842,12 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };
 
     if (result.ok && agentSteps.length) result.text = withDeliveryPath(result.text, agentSteps);
+    // The Plano mode said plainly, by the Harness: six answers in a row claimed "Pronto! Aplicado" with
+    // the mode on and nothing run, and the person only found out at the sixth (13/10).
+    if (result.ok && conversation.provider === "local" && (await agentMode()) === "plan" && !/modo plano/i.test(String(result.text).slice(0, 400))
+      && (agentSteps.some((s) => /modo Plano/i.test(String(s.summary || ""))) || /\b(fa[cç]a|fazer|monte|montar|crie|criar|gere|gerar|pode fazer|aplique|execute|salve|organize|abra)\b/i.test(trimmed))) {
+      result.text = `> **Modo Plano ligado:** nada foi executado nesta resposta, só planejado. Para a Aurora fazer, troque o modo para **Auto** no seletor ao lado da caixa de mensagem e peça de novo.\n\n${result.text}`;
+    }
     // "Quer ajustar?" options are for a person in the conversation, not for a task agent's run.
     if (result.ok && brief && !env.AGENT_RUN_TRIGGER) result.text = withAdjustOptions(result.text, brief);
     if (!result.ok) {
