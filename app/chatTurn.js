@@ -619,6 +619,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
+          // What the person said in this conversation (the rules of made-up data live in earlier messages).
+          toolContext.conversationText = [...history.filter((m) => m.role === "user").slice(-6).map((m) => String(m.content || "")), trimmed].join("\n");
           const extensionTools = await mcpAgentTools().catch(() => []);
           toolContext.extensions = [...new Set(extensionTools.map((t) => t.mcp.server))];
           toolContext.computerMap = (await mapEnabled().catch(() => false)) ? await mapOverview().catch(() => null) : null;

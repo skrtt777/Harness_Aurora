@@ -47,3 +47,15 @@ test("BI data: an empty data table after the refresh is caught; numbers and the 
   assert.equal(cellNumber("12,5%"), 12.5); assert.equal(cellNumber("0001"), null); assert.equal(cellNumber("05/01/2008"), null); assert.equal(cellNumber("14.892.763/0001-85"), null);
   assert.equal(requestedFormat("certo faça planilhas em execel e use os dados para montar um POWERBI"), "xlsx");
 });
+
+test("BI data: made-up data follows the person's number rules in every row (the conversation of 12/10)", async () => {
+  const { numberRules, ruleBreaks, breaksMessage } = await import("../app/numberRules.js");
+  const rules = numberRules("quero que tenha informações de todos os departamentos com mais de 300 funcionarios, carros e etc..");
+  assert.deepEqual(rules, [{ op: ">", n: 300, unit: "funcionario" }]);
+  const rows = [["ID", "Nome do Departamento", "Quantidade de Funcionários"], [1, "Logística", 250], [2, "RH", 320], [3, "Vendas", 280]];
+  const breaks = ruleBreaks(rows, rules);
+  assert.deepEqual(breaks.map((b) => [b.row, b.value]), [["Logística", 250], ["Vendas", 280]]);
+  assert.match(breaksMessage(breaks), /Logística 250, Vendas 280/);
+  assert.deepEqual(ruleBreaks([["Departamento", "Orçamento"], ["RH", 10]], rules), []);       // no column of that unit
+  assert.deepEqual(numberRules("preços entre 10 e 50 reais e pelo menos 5 carros"), [{ op: "between", n: 10, m: 50, unit: "real" }, { op: ">=", n: 5, unit: "carro" }]);
+});

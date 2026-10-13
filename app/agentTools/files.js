@@ -4,7 +4,8 @@ import { mkdir, open, readFile, readdir, realpath, rename, stat, writeFile } fro
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
-import { DOCUMENT_FORMATS, renderDocument } from "../documentWriter.js";
+import { DOCUMENT_FORMATS, renderDocument, parseBlocks } from "../documentWriter.js";
+import { numberRules, ruleBreaks, breaksMessage } from "../numberRules.js";
 import { requestsFile } from "../teacher.js";
 
 // Binary office formats are read as their text; everything else as UTF-8.
@@ -1340,6 +1341,13 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // A file Aurora created is updated in place (a redo made "... (2).md" next to its own first try).
       for (let n = 2; existsSync(file) && !OWN_DOCUMENTS.has(file.toLowerCase()); n += 1) file = documentPath(args, ctx).replace(/(\.[^.\\/]+)$/, ` (${n})$1`);
       if (format === "xlsx" && CONTROL_SHEET.test(foldText(ctx.request))) args = { ...args, content: withTotalRow(String(args.content ?? args.text ?? args.markdown ?? "")) };
+      // Made-up data follows the person's number rules in every row ("mais de 300 funcionários em cada
+      // departamento": a subagent wrote 250 and 280, 12/10). The rules come from the whole conversation.
+      if (format === "xlsx" || format === "csv") {
+        const rules = numberRules(ctx.conversationText || ctx.request || "");
+        const breaks = rules.length ? parseBlocks(String(args.content ?? args.text ?? args.markdown ?? ""), { sheet: true }).filter((b) => b.type === "table").flatMap((t) => ruleBreaks(t.rows, rules)) : [];
+        if (breaks.length) throw new Error(`Não gravei ainda: ${breaksMessage(breaks)}`);
+      }
       const bytes = await renderDocument(format, args.content ?? args.text ?? args.markdown ?? "");
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, bytes);

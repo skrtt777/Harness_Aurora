@@ -1,0 +1,40 @@
+{
+  "name": "aurora-harness",
+  "displayName": "Aurora (Harness)",
+  "description": "A Aurora do seu PC no chat do VS Code: @aurora conversa com o Harness Aurora local, com a pasta aberta como projeto.",
+  "version": "0.1.0",
+  "publisher": "harness-aurora",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["AI", "Chat"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "aurora.chat",
+        "name": "aurora",
+        "fullName": "Aurora",
+        "description": "Pergunte à Aurora do seu PC",
+        "isSticky": true,
+        "commands": [
+          { "name": "nova", "description": "Começa uma conversa nova com a Aurora" }
+        ]
+      }
+    ],
+    "commands": [
+      { "command": "aurora.newConversation", "title": "Aurora: Nova conversa" },
+      { "command": "aurora.openHarness", "title": "Aurora: Abrir o Harness" }
+    ],
+    "configuration": {
+      "title": "Aurora",
+      "properties": {
+        "aurora.harnessUrl": { "type": "string", "default": "http://127.0.0.1:8787", "description": "Endereço do Harness Aurora neste computador (só endereços locais)." },
+        "aurora.provider": { "type": "string", "enum": ["local", "codex", "claude"], "default": "local", "description": "Quem responde nas conversas novas: o modelo local da Aurora (padrão) ou um professor." },
+        "aurora.useWorkspaceProject": { "type": "boolean", "default": true, "description": "Usar a pasta aberta no VS Code como pasta do projeto no Harness (a Aurora lê e grava nela)." },
+        "aurora.harnessPath": { "type": "string", "default": "", "description": "Caminho do Harness Aurora.exe (para o botão Abrir o Harness)." }
+      }
+    }
+  }
+}

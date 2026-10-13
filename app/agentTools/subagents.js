@@ -52,8 +52,9 @@ export async function planParts({ request, history = [], folder = "Documentos", 
   const recent = history.slice(-4).map((m) => `${m.role === "user" ? "Pessoa" : "Aurora"}: ${String(m.content || "").slice(0, 1500)}`).join("\n");
   const system = [
     "Você é a Aurora planejando como dividir um pedido entre subagentes (cópias suas, cada uma faz uma parte sozinha, com as ferramentas).",
-    "Divida em 2 a 5 partes INDEPENDENTES, cada uma com uma entrega própria (de preferência um arquivo). A parte que depende de todas as outras (ex.: o Power BI com as planilhas) NÃO é uma parte: diga em \"final\" o que a Aurora faz no fim com o que voltar.",
-    "Cada tarefa traz tudo o que o subagente precisa saber: os dados e regras do pedido e da conversa (ex.: todos os departamentos acima de 300 funcionários; a coluna Departamento escrita igual em todas as planilhas), as colunas de cada planilha e quantas linhas.",
+    "Divida em 2 a 5 partes INDEPENDENTES: UMA PARTE POR ARQUIVO A ENTREGAR (uma planilha por assunto: Departamentos, Funcionários, Frota…), o nome da parte é o assunto. Etapas como extrair, limpar, juntar ou modelar dados NÃO são partes. A parte que depende de todas as outras (ex.: o Power BI com as planilhas) NÃO é uma parte: diga em \"final\" o que a Aurora faz no fim com o que voltar.",
+    "Cada tarefa traz tudo o que o subagente precisa saber: as colunas da planilha, quantas linhas, e as REGRAS DE NÚMERO de toda a conversa valendo para cada linha (ex.: \"mais de 300 funcionários em cada departamento\" = toda linha acima de 300, não o total). Se os dados que já existem na conversa não obedecem a uma regra pedida, a tarefa manda corrigir.",
+    "Escreva o mesmo nome em todas as tarefas para o que liga as planilhas (ex.: a coluna Departamento com os mesmos departamentos).",
     `A entrega diz o arquivo com o caminho (na pasta ${folder}) e o formato (.xlsx para planilha, .docx para documento).`,
   ].join("\n");
   const user = `${recent ? `Conversa até aqui:\n${recent}\n\n` : ""}Pedido agora: ${request}`;
@@ -80,7 +81,7 @@ export function subagentPrompt({ name, task, deliver, request, others }) {
     `Sua parte: ${task}`,
     deliver ? `Entrega: ${deliver}` : "",
     others.length ? `Outros subagentes fazem: ${others.join("; ")}. Não faça essas partes.` : "",
-    "Use caminhos completos. Planilha é uma tabela (cabeçalho e linhas com | entre as células). Não pergunte nada à pessoa: decida o razoável e siga.",
+    "Entregue UM arquivo, no caminho da entrega, gravado uma vez (se a ferramenta recusar, corrija e grave de novo no MESMO caminho). Planilha é uma tabela (cabeçalho e linhas com | entre as células). Confira as regras de número do pedido em cada linha antes de gravar. Não pergunte nada à pessoa: decida o razoável e siga.",
     "Termine com 2 ou 3 frases: o que você entregou, o caminho completo de cada arquivo e os números principais.",
   ].filter(Boolean).join("\n");
 }

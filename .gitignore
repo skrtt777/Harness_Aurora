@@ -26,3 +26,6 @@ __pycache__/
 # OCR language data tesseract.js caches in the working directory when run from source
 *.traineddata
 release-*/
+
+# VS Code extension package (built with vsce)
+vscode/*.vsix
