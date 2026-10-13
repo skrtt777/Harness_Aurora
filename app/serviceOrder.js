@@ -69,7 +69,12 @@ export const CONSULT = /^(web_search|web_fetch|learn|browser_|read_file|knowledg
 export function citationsIn(text) {
   const out = []; const seen = new Set();
   const add = (kind, n, raw) => { const k = `${kind}:${n}`; if (!seen.has(k)) { seen.add(k); out.push({ kind, n, text: raw.trim() }); } };
-  for (const m of String(text).matchAll(/\b(art(?:igo)?s?\.?)\s*(\d+)/gi)) add("art", m[2], m[0]);
+  for (const m of String(text).matchAll(/\b(art(?:igo)?s?\.?)\s*(\d+)/gi)) {
+    // "art. 4º da Lei nº 8.245": the article of that law (its page must have both).
+    const law = /^[^.;\n]{0,40}?\b(?:da|do)\s+(?:lei|decreto)(?:-lei)?\s+(?:complementar\s+)?(?:n[ºo°.]*\s*)?(\d[\d.]*\d)/i.exec(String(text).slice(m.index + m[0].length, m.index + m[0].length + 80));
+    const k = `art:${m[2]}:${law ? law[1].replace(/\./g, "") : ""}`;
+    if (!seen.has(k)) { seen.add(k); out.push({ kind: "art", n: m[2], law: law ? law[1].replace(/\./g, "") : null, text: m[0].trim() + (law ? ` da Lei ${law[1]}` : "") }); }
+  }
   for (const m of String(text).matchAll(/\blei\s+(?:complementar\s+)?(?:n[ºo°.]*\s*)?(\d[\d.]*\d)/gi)) add("lei", m[1].replace(/\./g, ""), m[0]);
   for (const m of String(text).matchAll(/\bs[úu]mula\s+(?:vinculante\s+)?(?:n[ºo°.]*\s*)?(\d+)/gi)) add("sumula", m[1], m[0]);
   for (const m of String(text).matchAll(/\bdecreto(?:-lei)?\s+(?:n[ºo°.]*\s*)?(\d[\d.]*\d)/gi)) add("decreto", m[1].replace(/\./g, ""), m[0]);
@@ -77,8 +82,11 @@ export function citationsIn(text) {
 }
 /** Is this citation in the text read (the page of the law shows "Art. 4º", the number of the law)? */
 export function citationIn(read, c) {
-  const r = String(read);
-  if (c.kind === "art") return new RegExp(`\\bart(?:igo)?s?\\.?\\s*${c.n}(?!\\d)`, "i").test(r);
+  // read: the texts read (one per page or document), or all of them in one string.
+  const pages = Array.isArray(read) ? read.map(String) : [String(read)];
+  const hasArt = (r) => new RegExp(`\\bart(?:igo)?s?\\.?\\s*${c.n}(?!\\d)`, "i").test(r);
+  if (c.kind === "art") return pages.some((r) => hasArt(r) && (!c.law || r.replace(/\./g, "").includes(c.law)));
+  const r = pages.join("\n");
   if (c.kind === "lei" || c.kind === "decreto") return r.replace(/\./g, "").includes(c.n);
   return new RegExp(`s[úu]mula\\s+(?:vinculante\\s+)?(?:n[ºo°.]*\\s*)?${c.n}(?!\\d)`, "i").test(r);
 }
@@ -123,7 +131,7 @@ export function dispatchCheck(order, { answer = "", steps = [], read = null } = 
     const seen = read ?? steps.filter((st) => st.ok && CONSULT.test(String(st.tool))).map((st) => String(st.result || st.summary || "")).join("\n");
     unconfirmed = citationsIn(delivered).filter((c) => !citationIn(seen, c));
     if (unconfirmed.length) {
-      missing.push(`${seen ? "estas citações não aparecem em nada que você leu nesta resposta" : "você citou sem consultar nada nesta resposta"}: ${unconfirmed.slice(0, 6).map((c) => c.text).join(", ")}. Confirme cada uma em fonte oficial (web_fetch da página da lei no planalto.gov.br com find="Art. N" para trazer o artigo) e cite com o link, ou tire a citação e diga que não confirmou`);
+      missing.push(`${seen.length ? "estas citações não aparecem em nada que você leu nesta resposta" : "você citou sem consultar nada nesta resposta"}: ${unconfirmed.slice(0, 6).map((c) => c.text).join(", ")}. Confirme cada uma em fonte oficial (web_fetch da página da lei no planalto.gov.br com find="Art. N" para trazer o artigo) e cite com o link, ou tire a citação e diga que não confirmou`);
     }
   }
   if (!order?.makes) return { fix: null, missing, unconfirmed };

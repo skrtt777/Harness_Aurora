@@ -112,3 +112,14 @@ test("Expedição: citations still unconfirmed at the end are said plainly in th
   assert.match(result.text, /\*\*Atenção:\*\* estas citações não foram confirmadas[\s\S]*Artigo 36[\s\S]*Lei 8\.245/);
   assert.ok(result.checks.some((c) => c.check === "unconfirmed_citations"));
 });
+
+test("Conferência: 'artigo X da Lei N' must be in a page of that law (art. 613 of the Civil Code does not confirm it in the Lei do Inquilinato)", () => {
+  const order = serviceOrder("explique a multa por rescisão antecipada do contrato de locação");
+  const inquilinato = "Lei nº 8.245, de 18 de outubro de 1991 … Art. 4º Durante o prazo estipulado … multa pactuada, proporcionalmente";
+  const codigoCivil = "Lei nº 10.406, de 10 de janeiro de 2002 … Art. 613. Sendo a empreitada unicamente de lavor";
+  const answer = "Pelo Art. 4º da Lei nº 8.245, a multa é proporcional; e pelo Artigo 613 da Lei 8.245, é integral.";
+  const { missing, unconfirmed } = dispatchCheck(order, { answer, steps: [], read: [inquilinato, codigoCivil] });
+  assert.deepEqual(unconfirmed.map((c) => c.text), ["Artigo 613 da Lei 8.245"]);
+  assert.match(missing.join(), /não aparecem em nada que você leu/);
+  assert.match(dispatchCheck(order, { answer, steps: [], read: [] }).missing.join(), /sem consultar nada/);
+});

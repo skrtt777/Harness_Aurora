@@ -481,7 +481,7 @@ export async function runChatAgent({
     // The Expedição (app/serviceOrder.js): the delivery against the Recepção's order — the format asked
     // was written, what had to run ran. Once back to the agent; the rest is fixed at the end.
     if (!toolCalls.length && offered.length && !dispatched && toolContext.order) {
-      const { missing } = dispatchCheck(toolContext.order, { answer: text, steps, read: ctx.readText ?? null });
+      const { missing } = dispatchCheck(toolContext.order, { answer: text, steps, read: ctx.readTexts ?? null });
       if (missing.length) {
         dispatched = true;
         checks.push({ check: "dispatch", items: missing, answer: text.slice(0, 300) });
@@ -509,7 +509,7 @@ export async function runChatAgent({
       }
       // Expedição: where the delivered file is, when the answer does not say it.
       if (toolContext.order) {
-        const { fix, unconfirmed } = dispatchCheck(toolContext.order, { answer: final, steps, read: ctx.readText ?? null });
+        const { fix, unconfirmed } = dispatchCheck(toolContext.order, { answer: final, steps, read: ctx.readTexts ?? null });
         if (fix) final += fix;
         // Citations still not confirmed in anything read: said plainly, never delivered as if checked.
         if (unconfirmed.length) {
@@ -565,7 +565,7 @@ export async function runChatAgent({
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };
       steps.push(step);
       // The whole text of what was read (the Conferência de citações looks for each article in it).
-      if (outcome.ok && CONSULT.test(call.name)) { ctx.readText = `${ctx.readText || ""}\n${outcome.result}`.slice(-80000); }
+      if (outcome.ok && CONSULT.test(call.name)) { ctx.readTexts = [...(ctx.readTexts || []), String(outcome.result)].slice(-30); }
       // What the subagents wrote is this turn's delivery too (the checks of "criei o arquivo" see it).
       if (call.name === "subagents" && ctx.subagentSteps?.length) { steps.push(...ctx.subagentSteps); ctx.subagentSteps = null; }
       onStep({ ...step, stage: stageFor(call.name, call.arguments, tools), status: outcome.ok ? "done" : "failed" });
