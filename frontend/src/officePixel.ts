@@ -27,11 +27,26 @@ const P = {
 };
 
 // ---------------- Floors and walls ----------------
-const zoneOf = (x: number, y: number) =>
+// In the Sede, the floor of each room by what it is: the delivery line on blue carpet, the areas'
+// departments on wood, the support rooms green, the café checkered, the corridors in stone.
+const ROOM_FLOOR: Record<string, string> = { linha: "meet", area: "wood", apoio: "green" };
+const zoneOf = (x: number, y: number) => PLAN.rooms ? hqZone(x, y) :
   x >= 1 && x <= 8 && y >= 1 && y <= 6 ? "meet" : x >= 11 && x <= 17 && y >= 1 && y <= 4 ? "boss" : x >= 21 && x <= 28 && y >= 1 && y <= 6 ? "cafe" : x >= 21 && x <= 28 && y >= PLAN.lounge.y0 && y <= PLAN.lounge.y1 ? "lounge" : "wood";
 
+function hqZone(x: number, y: number) {
+  const r = PLAN.rooms!.find((r) => x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1);
+  if (!r) return "stone";
+  if (r.id === "cafe") return "cafe";
+  if (r.id === "chefe") return "boss";
+  return ROOM_FLOOR[r.kind] || "wood";
+}
 function floorTile(c: Ctx, tx: number, ty: number) {
   const x = tx * T, y = ty * T; const z = zoneOf(tx, ty);
+  if (z === "stone") {
+    px(c, x, y, T, T, "#8f949c"); px(c, x, y, T, 1, "#a3a8b0"); px(c, x, y, 1, T, "#a3a8b0"); px(c, x + T - 1, y, 1, T, "#7b8088"); px(c, x, y + T - 1, T, 1, "#7b8088");
+    if ((tx * 7 + ty * 3) % 5 === 0) px(c, x + 5, y + 6, 2, 1, "#80858d");
+    return;
+  }
   if (z === "wood") {
     // Planks 4 px tall, seams staggered.
     for (let r = 0; r < 4; r++) {
@@ -53,6 +68,7 @@ function floorTile(c: Ctx, tx: number, ty: number) {
 export function drawRoom(c: Ctx) {
   const { W, H } = size();
   for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < COLS; tx++) floorTile(c, tx, ty);
+  if (PLAN.rooms) { drawHQWalls(c, W, H); return; }
   // Back wall: cap, face with panels, baseboard.
   px(c, 0, 0, W, 3, P.wallCap); px(c, 0, 3, W, T - 3, P.wallFace);
   for (let x = 0; x < W; x += 32) px(c, x, 3, 1, T - 5, P.wallFace2);
@@ -72,6 +88,25 @@ export function drawRoom(c: Ctx) {
   }
   // Door frame of the meeting room.
   px(c, 5 * T - 1, 7 * T + 2, 2, 13, P.wallCap); px(c, 6 * T - 1, 7 * T + 2, 2, 13, P.wallCap);
+}
+
+/** The Sede's walls: the outer ones, the walls between rooms (a door in each) and the name plates' boards. */
+function drawHQWalls(c: Ctx, W: number, H: number) {
+  px(c, 0, 0, W, 3, P.wallCap); px(c, 0, 3, W, T - 3, P.wallFace);
+  for (let x = 0; x < W; x += 32) px(c, x, 3, 1, T - 5, P.wallFace2);
+  px(c, 0, T - 2, W, 2, P.wallBase);
+  px(c, 0, 0, 4, H, P.wallCap); px(c, W - 4, 0, 4, H, P.wallCap); px(c, 0, H - 5, W, 5, P.wallCap);
+  const isWall = (x: number, y: number) => PLAN.furniture.some((f) => f.kind === "wall" && f.x === x && f.y === y);
+  for (const f of PLAN.furniture) if (f.kind === "wall") {
+    const x = f.x * T, y = f.y * T;
+    const vertical = isWall(f.x, f.y - 1) || isWall(f.x, f.y + 1) ? !(isWall(f.x - 1, f.y) || isWall(f.x + 1, f.y)) : false;
+    if (vertical) { px(c, x + 5, y, 6, T, P.wallCap); px(c, x + 5, y, 1, T, P.trim); }
+    else { px(c, x, y + 2, T, 4, P.wallCap); px(c, x, y + 6, T, 8, P.wallFace); px(c, x, y + 13, T, 2, P.wallBase); }
+  }
+  // The board where each room's name goes (the name itself is written sharp by the view).
+  for (const r of PLAN.rooms!) { const x = r.x * T + 10, y = r.y * T + (r.y === 0 ? 3 : 4); px(c, x - 1, y - 1, 6 * T + 2, 10, OUT); px(c, x, y, 6 * T, 8, r.kind === "linha" ? "#2f4f7a" : r.kind === "area" ? "#6b4428" : "#2f5a3e"); px(c, x, y, 6 * T, 1, "#ffffff22"); }
+  // The way out (the Descanso's door to the street).
+  px(c, PLAN.door.x * T + 2, H - 5, T - 4, 5, P.plankLine);
 }
 
 // ---------------- Furniture ----------------
@@ -168,6 +203,7 @@ export function drawFurniture(c: Ctx, f: Furniture, working: Set<number>, t: num
       break;
     }
     case "glass": break;            // drawn as walls with the room
+    case "wall": break;
   }
 }
 /** The sky through the windows at this hour: day, sunset, night with stars. */

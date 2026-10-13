@@ -11,7 +11,7 @@
 .app-shell .office-room-tab.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text-1); }
 .app-shell .office-busy { font-size: 12px; color: var(--accent-strong); font-variant-numeric: tabular-nums; }
 .app-shell .office-error { color: var(--red); }
-.app-shell .office-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.app-shell .office-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .app-shell .office-body { grid-template-columns: minmax(0, 1fr); } }
 .app-shell .office-stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .app-shell .office-canvas { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--stroke-2); display: block; background: #d9c6a5; }
@@ -66,3 +66,28 @@
 .app-shell .office-hr-kind.k-advertencia { background: #fbe0c8; color: #7a3b0c; }
 .app-shell .office-hr-kind.k-demissao { background: #f6d2cd; color: #7c231a; }
 .app-shell .office-hr-kind.k-contratacao, .app-shell .office-hr-kind.k-recontratacao { background: #d2efe2; color: #11553a; }
+
+/* The Sede: the requests' fichas over the floor (app/headquarters.js). */
+.app-shell .hq-fichas { display: grid; gap: 8px; max-height: 46vh; overflow-y: auto; padding-right: 2px; }
+.app-shell .hq-side-title { margin: 4px 0 0; font-size: 13px; color: var(--text-2); font-weight: 700; }
+.app-shell .hq-ficha { border: 1px solid var(--stroke-2); border-radius: 10px; padding: 8px 10px; display: grid; gap: 6px; background: var(--fill-hover); min-width: 0; }
+.app-shell .hq-ficha.done { opacity: .78; }
+.app-shell .hq-ficha header { display: grid; gap: 6px; }
+.app-shell .hq-ficha-title { all: unset; cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.app-shell .hq-ficha-title strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-shell .hq-ficha-title small { font-size: 12px; color: var(--text-3); }
+.app-shell .hq-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; flex-wrap: wrap; font-size: 10.5px; color: var(--text-3); }
+.app-shell .hq-steps li { display: flex; align-items: center; gap: 5px; }
+.app-shell .hq-steps li:not(:last-child)::after { content: "—"; margin-left: 4px; color: var(--stroke-2); }
+.app-shell .hq-steps b { display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--stroke-2); font-size: 10.5px; }
+.app-shell .hq-steps li.feito b { background: #1f9d6b; color: #fff; border-color: #1f9d6b; }
+.app-shell .hq-steps li.agora { color: var(--text-1); font-weight: 600; }
+.app-shell .hq-steps li.agora b { background: #e0a43a; color: #1b1405; border-color: #e0a43a; }
+.app-shell .hq-line { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.app-shell .hq-line li { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--stroke-2); color: var(--text-3); }
+.app-shell .hq-line li.s-feito { background: #d2efe2; color: #11553a; border-color: transparent; }
+.app-shell .hq-line li.s-agora { background: #e0a43a; color: #1b1405; border-color: transparent; font-weight: 700; animation: hq-pulse 1.4s ease-in-out infinite; }
+.app-shell .hq-line li.s-pulado { text-decoration: line-through; opacity: .55; }
+.app-shell .hq-line li.s-falhou { background: #f6d2cd; color: #7c231a; border-color: transparent; }
+@keyframes hq-pulse { 50% { box-shadow: 0 0 0 3px #e0a43a55; } }
+@media (prefers-reduced-motion: reduce) { .app-shell .hq-line li.s-agora { animation: none; } }

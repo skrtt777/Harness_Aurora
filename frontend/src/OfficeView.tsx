@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getOffice, getHr, reviewHr, rehireAgent, type OfficeRoom, type HrSnapshot } from "./api";
-import { PLAN, step, sync, stroll, usePlan, desksFor, type OfficeActor, type Walker } from "./officeSim";
+import { getOffice, getHr, reviewHr, rehireAgent, type OfficeRoom, type HrSnapshot, type OfficeFicha } from "./api";
+import { PLAN, step, sync, stroll, usePlan, useHQ, desksFor, type OfficeActor, type Walker, type Department } from "./officeSim";
 import { T, size, drawRoom, drawFurniture, drawClock, drawWindows, drawLight, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks, type Sign } from "./officePixel";
 import "./office.css";
 
@@ -35,6 +35,8 @@ const since = (ms?: number | null) => {
 
 export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpenConversation: (id: string) => void; onOpenAgents: () => void }) {
   const [rooms, setRooms] = useState<OfficeRoom[]>([]);
+  const [departments, setDepartments] = useState<Department[] | null>(null);
+  const [fichas, setFichas] = useState<OfficeFicha[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
   const [hrBusy, setHrBusy] = useState(false);
   const [hrOpen, setHrOpen] = useState(() => { try { return localStorage.getItem("aurora-office-hr") !== "0"; } catch { return true; } });
@@ -51,7 +53,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
     let stop = false; let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       if (document.visibilityState === "visible") {
-        try { const o = await getOffice(); if (!stop) { setRooms(o.rooms); setError(""); } }
+        try { const o = await getOffice(); if (!stop) { setRooms(o.rooms); setFichas(o.fichas || []); if (o.departments) setDepartments((d) => (d && d.length === o.departments!.length ? d : o.departments!)); setError(""); } }
         catch (e) { if (!stop) setError(e instanceof Error ? e.message : String(e)); }
       }
       if (!stop) timer = setTimeout(load, 1500);
@@ -74,11 +76,11 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
   useEffect(() => {
     if (!room) return;
     const actors = room.actors.filter((a) => a.state !== "desligado");
-    // The room has a desk for each one (a row of seven more when the team grows): a new plan is a new floor.
-    const grew = usePlan(desksFor(actors.filter((a) => a.kind !== "chefe").length));
+    // The Sede when the Harness sends its departments; else the room that grows with the team.
+    const grew = departments ? useHQ(departments) : usePlan(desksFor(actors.filter((a) => a.kind !== "chefe").length));
     if (grew || lastRoom.current !== room.id) { walkersRef.current = sync([], actors, Date.now()); lastRoom.current = room.id; setRows(size().H / T); }
     else walkersRef.current = sync(walkersRef.current, actors, Date.now());
-  }, [room]);
+  }, [room, departments]);
 
   // The animation: walk, then draw (fewer frames when the person prefers less motion).
   useEffect(() => {
@@ -114,13 +116,13 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
     <header className="page-header-row">
       <div>
         <h1 className="page-title">Escritório</h1>
-        <p className="office-lede">Um escritório só para todos: cada pessoa é uma sessão, um agente, um professor ou alguém do RH de verdade, no estado em que está agora.{busy > 0 ? ` ${busy} trabalhando agora.` : ""}</p>
+        <p className="office-lede">A Sede da Aurora: cada pedido percorre a linha (Recepção, Arquivo, Biblioteca, o departamento da área, Revisão, Conferência, Expedição), e cada pessoa está na sala do que está fazendo agora.{busy > 0 ? ` ${busy} trabalhando agora.` : ""}</p>
       </div>
     </header>
     {error && <p role="alert" className="office-error">Não consegui ler o escritório: {error}</p>}
     <div className="office-body">
       <div className="office-stage">
-        <canvas ref={canvasRef} className="office-canvas" style={{ aspectRatio: `30 / ${rows}` }} width={size().W * 3} height={size().H * 3} aria-label={`${room?.name || "Escritório"}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
+        <canvas ref={canvasRef} className="office-canvas" style={{ aspectRatio: `${PLAN.cols} / ${rows}` }} width={size().W * 3} height={size().H * 3} aria-label={`${room?.name || "Escritório"}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
           onMouseMove={(e) => { const w = pick(e); hoverRef.current = w?.id || null; e.currentTarget.style.cursor = w ? "pointer" : "default"; }}
           onMouseLeave={() => { hoverRef.current = null; }}
           onClick={(e) => setSelected(pick(e)?.id || null)} />
@@ -143,11 +145,26 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
             <button className="ghost" onClick={() => setSelected(null)}>Fechar</button>
           </div>
         </div> : <p className="office-hint">Clique numa pessoa para ver o que ela está fazendo.</p>}
+        <section className="hq-fichas" aria-label="Pedidos na linha">
+          <h2 className="hq-side-title">Pedidos na linha</h2>
+          {fichas.length ? fichas.map((f) => <article key={f.id} className={`hq-ficha ${f.step === 3 ? "done" : ""}`}>
+            <header>
+              <ol className="hq-steps" aria-label="Etapa">
+                {["O pedido", "O time trabalha", "A entrega"].map((s, i) => <li key={s} className={i + 1 < f.step ? "feito" : i + 1 === f.step ? "agora" : ""}><b>{i + 1 < f.step ? "✓" : i + 1}</b>{s}</li>)}
+              </ol>
+              <button className="hq-ficha-title" onClick={() => onOpenConversation(f.id)} title="Abrir a conversa"><strong>{f.title}</strong><small>{f.who ? `${f.who} · ` : ""}{f.areaName}{f.endedAt ? ` · entregue ${since(f.endedAt)}` : f.since ? ` · ${since(f.since)}` : ""}</small></button>
+            </header>
+            <ol className="hq-line" aria-label="Estações">
+              {f.stations.map((s) => <li key={s.id} className={`s-${s.state}`} title={s.state === "pulado" ? "Não precisou" : s.state}>{s.label}</li>)}
+            </ol>
+          </article>) : <p className="office-hint">Nenhum pedido na linha agora. Quando você pedir algo, a ficha aparece aqui e anda pelas salas.</p>}
+        </section>
+        <h2 className="hq-side-title">Pessoas</h2>
         <ul className="office-people">
           {people.map((a) => <li key={a.id}>
             <button className={a.id === selected ? "active" : ""} onClick={() => setSelected(a.id)}>
               <span className="office-dot" style={{ background: BODY[a.kind] }} />
-              <span className="office-who">{a.stars ? `${who(a)} ★${a.stars}` : who(a)}{a.project && a.kind !== "rh" && a.kind !== "chefe" ? <small className="office-proj">{a.project}</small> : null}</span>
+              <span className="office-who">{a.stars ? `${who(a)} ★${a.stars}` : who(a)}{a.room && PLAN.rooms ? <small className="office-proj">{`${PLAN.rooms.find((r) => r.id === a.room)?.name || a.room}${a.project && a.kind !== "rh" && a.kind !== "chefe" && a.project !== "Conversas soltas" ? ` · ${a.project}` : ""}`}</small> : a.project && a.kind !== "rh" && a.kind !== "chefe" ? <small className="office-proj">{a.project}</small> : null}</span>
               <span className={`office-state s-${a.state}`}>{STATE_LABEL[a.state] || a.state}</span>
             </button>
           </li>)}
@@ -212,7 +229,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   const c = low.getContext("2d")!;
   c.imageSmoothingEnabled = false;
   c.drawImage(room, 0, 0);
-  const now = new Date(); drawWindows(c, now); drawClock(c, now);
+  const now = new Date(); if (!PLAN.rooms) { drawWindows(c, now); drawClock(c, now); }
   const working = workingDesks(walkers);
   // Furniture, empty chairs and people in depth order (lower on the floor is drawn later).
   const items: Array<{ y: number; draw: () => void }> = [];
@@ -248,6 +265,17 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
   ctx.drawImage(low, 0, 0, canvas.width, canvas.height);
   const k = canvas.width / W;
+  // The Sede: each room's name on its board, and the name of each desk of the areas.
+  if (PLAN.rooms) {
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    for (const r of PLAN.rooms) {
+      ctx.font = `700 ${Math.round(6.2 * k)}px "Segoe UI", sans-serif`; ctx.fillStyle = "#f4f1e8";
+      ctx.fillText(r.name, (r.x * T + 13) * k, (r.y * T + (r.y === 0 ? 7 : 8)) * k);
+    }
+    ctx.font = `600 ${Math.round(4 * k)}px "Segoe UI", sans-serif`; ctx.textAlign = "center";
+    for (const f of PLAN.furniture) if (f.kind === "desk" && f.label) { const tx = (f.x * T + T) * k, ty = (f.y * T + 21) * k; const wd = ctx.measureText(f.label).width + 3 * k; ctx.fillStyle = "rgba(23,20,31,0.72)"; ctx.fillRect(tx - wd / 2, ty - 2.6 * k, wd, 5.2 * k); ctx.fillStyle = "#f2d9a0"; ctx.fillText(f.label, tx, ty); }
+    ctx.textBaseline = "alphabetic";
+  }
   ctx.textAlign = "center";
   for (const w of walkers) {
     const lit = w.id === hover || w.id === selected; const a = w.actor; const p = feet(w);

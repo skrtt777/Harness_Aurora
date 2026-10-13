@@ -223,7 +223,7 @@ const DELETE_ASKED = /\b(apag|exclu|delet|limp|remov|jog(a|ue) fora|lixeira|livr
 
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
-  onStage = () => {}, onStep = () => {}, approve = async () => false, toolContext = {},
+  onStage = () => {}, onStep = () => {}, onCheck = null, approve = async () => false, toolContext = {},
   deliverFirst = false, coworking = false,
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null, priorSteps = [],
@@ -245,6 +245,8 @@ export async function runChatAgent({
   let groundingNudged = false;
   // Answers sent back by a guard, with what triggered it (telemetry and the battery).
   const checks = [];
+  // Each guard that fires is also told (the Sede's Conferência shows it as it happens).
+  if (onCheck) checks.push = (...items) => { for (const item of items) { Array.prototype.push.call(checks, item); try { onCheck(item?.check || "conferência"); } catch { /* the office is only a view */ } } return checks.length; };
   let factsChecked = false;
   // Everything the answer may rely on, kept whole (old tool results get compacted).
   const evidence = [system, ...history.map((m) => m.content), input];

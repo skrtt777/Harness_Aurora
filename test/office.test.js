@@ -105,3 +105,39 @@ test('office: the live registry gives each turn\'s stage, steps, approval and th
   snap = turnSnapshots();
   assert.ok(!snap.active.some((x) => x.conversationId === 'office-1')); assert.ok(snap.ended.some((x) => x.conversationId === 'office-1'));
 });
+
+test('Sede: the area of a request, the station of what each one does, the ficha of a request through the line', async () => {
+  const { areaOf, stationOf, fichaOf, DEPARTMENTS } = await import('../app/headquarters.js');
+  assert.equal(DEPARTMENTS.length, 18);
+  assert.equal(areaOf('Quais clientes estão inadimplentes há mais de 30 dias?'), 'financeiro');
+  assert.equal(areaOf('revise o contrato de locação e os prazos'), 'juridico');
+  assert.equal(areaOf('férias de outubro dos funcionários'), 'pessoas');
+  assert.equal(areaOf('crie um site sobre jogos'), 'ti');
+  assert.equal(areaOf('campanha de instagram para a loja'), 'comercial');
+  assert.equal(areaOf('oi, tudo bem?'), 'operacoes');
+  assert.deepEqual(stationOf({ state: 'trabalhando', tool: 'read_file', area: 'financeiro' }), { room: 'arquivo', station: 'arquivo' });
+  assert.deepEqual(stationOf({ state: 'trabalhando', tool: 'web_search', area: 'juridico' }), { room: 'biblioteca', station: 'biblioteca' });
+  assert.deepEqual(stationOf({ state: 'trabalhando', tool: 'write_document', area: 'pessoas' }), { room: 'pessoas', station: 'area' });
+  assert.deepEqual(stationOf({ state: 'revisao' }), { room: 'revisao', station: 'revisao' });
+  assert.deepEqual(stationOf({ state: 'pensando', checkedAt: now - 5000, now }), { room: 'conferencia', station: 'conferencia' });
+  assert.equal(stationOf({ state: 'cafe' }).room, 'cafe');
+  const f = fichaOf({ conversationId: 'c', title: 'Clientes inadimplentes', steps: [{ tool: 'read_file' }, { tool: 'write_document' }], station: 'conferencia', checks: 1 });
+  assert.equal(f.areaName, 'Financeiro'); assert.equal(f.step, 2);
+  assert.deepEqual(f.stations.map((s) => [s.label, s.state]), [['Recepção', 'feito'], ['Arquivo', 'feito'], ['Biblioteca', 'pulado'], ['Financeiro', 'feito'], ['Revisão', 'pulado'], ['Conferência', 'agora'], ['Expedição', 'falta']]);
+  assert.equal(fichaOf({ conversationId: 'd', title: 'Campanha', steps: [{ tool: 'web_search' }], ended: true }).step, 3);
+});
+
+test('Sede: the office puts each one in its room and sends the fichas, a guard that fired puts the session in the Conferência', () => {
+  const turns = { active: [
+    { conversationId: 'c1', stage: 'x', steps: [{ tool: 'read_file', status: 'running', summary: 'Lendo contas.xlsx' }], tools: ['read_file'], since: now - 5000 },
+    { conversationId: 'c2', stage: 'x', steps: [], tools: ['write_document'], checks: 1, checkedAt: now - 3000, lastCheck: 'requested_files_missing', since: now - 9000 },
+  ], ended: [{ conversationId: 'c3', endedAt: now - 20000, tools: ['web_search', 'write_document'] }] };
+  const conversations = new Map([['c1', { id: 'c1', title: 'Clientes inadimplentes' }], ['c2', { id: 'c2', title: 'Planilha de férias' }], ['c3', { id: 'c3', title: 'Campanha de Instagram' }]]);
+  const office = buildOffice({ conversations, turns, now });
+  const a = (id) => office.rooms[0].actors.find((x) => x.id === id);
+  assert.equal(a('aurora:c1').room, 'arquivo');
+  assert.equal(a('aurora:c2').room, 'conferencia'); assert.match(a('aurora:c2').activity, /faltava um arquivo do pedido/);
+  assert.equal(a('aurora:c3').room, 'expedicao');
+  assert.equal(office.departments.length, 18);
+  assert.deepEqual(office.fichas.map((f) => [f.title, f.step]), [['Clientes inadimplentes', 2], ['Planilha de férias', 2], ['Campanha de Instagram', 3]]);
+});

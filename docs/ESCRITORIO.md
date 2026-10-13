@@ -126,3 +126,30 @@ Depois de 3 entregas:
 Na sala, a Helena vai até quem ganhou estrela ou plano, e o Otávio recebe o contratado na sala de reunião.
 
 ![Escritório com o RH](img/escritorio-rh.png)
+
+## A Sede da Aurora: a linha de produção de entrega (13/10)
+
+Um escritório só, com departamentos, como numa planta baixa (`app/headquarters.js`, `makeHQ` em `frontend/src/officeSim.ts`). A ideia veio de um escritório de advocacia de agentes, com salas de Leitura do processo, Provas, Prazos, Biblioteca, Redação, Revisão e Conferência de citações; aqui ela vale para qualquer área.
+
+| Faixa | Salas |
+| --- | --- |
+| Entrada e apoio | Recepção, Arquivo, Biblioteca, Sala de reunião, Diretoria, Café |
+| Departamentos | Jurídico, Financeiro, Pessoas, Comercial e Marketing, TI e Código, Operações (cada um com quatro mesas nomeadas, como Prazos ou Conciliação) |
+| Qualidade e apoio | Revisão, Conferência, Expedição, RH dos agentes, Servidores, Descanso |
+
+**Cada pedido é uma ficha** que percorre a linha: Recepção → Arquivo → Biblioteca → o departamento da área → Revisão → Conferência → Expedição. No painel ao lado, cada ficha mostra a etapa (① O pedido, ② O time trabalha, ③ A entrega) e as estações (feita, agora, pulada, falta).
+
+**Nada é encenação.** A sala de cada pessoa vem do que ela está fazendo de verdade:
+
+| O que ela faz | Onde fica |
+| --- | --- |
+| Entendendo o pedido, ou esperando autorização | Recepção |
+| Lendo arquivos, a busca da empresa, as memórias, o `code_map` | Arquivo (estantes) |
+| Pesquisando na web, documentação, `learn`, navegador | Biblioteca |
+| Escrevendo a entrega | Departamento da área do pedido, que sai das palavras ("inadimplentes" vai para o Financeiro, "contrato" para o Jurídico, "site" para TI e Código) |
+| Rodando comandos | Servidores |
+| Com o professor, as cópias ou refazendo | Revisão |
+| Uma trava acabou de disparar | Conferência, com o motivo ("faltava um arquivo do pedido", "disse que rodou sem rodar") |
+| Acabou de entregar | Expedição; depois o Café ou o Descanso |
+
+![A Sede da Aurora](img/sede.png)

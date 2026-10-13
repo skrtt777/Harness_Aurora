@@ -13,10 +13,17 @@
 // buildOffice is pure (tests); officeSnapshot gathers the data.
 import { turnSnapshots } from "./pendingTurns.js";
 
+import { DEPARTMENTS, areaOf, stationOf, fichaOf } from "./headquarters.js";
+
 export const OFFICE_ROOM = "escritorio";
 // The HR team (app/hr.js HR_TEAM), here without importing the store.
 const HR_PEOPLE = [{ id: "rh:helena", name: "Helena", role: "Avaliação e prêmios" }, { id: "rh:otavio", name: "Otávio", role: "Contratação e desligamento" }];
 const TEACHERS = { claude: "Claude", codex: "Codex" };
+// The guards (app/chatAgent.js), as the Conferência says them.
+const CHECK_LABEL = {
+  requested_files_missing: "faltava um arquivo do pedido", claimed_run: "disse que rodou sem rodar", claimed_delivery: "disse que entregou sem gravar",
+  uncited_source: "citou fonte sem consultar", invented_document: "documento que não existe", data_blanks: "campos em branco", asked_instead_of_doing: "perguntou em vez de fazer",
+};
 
 const TOOL_ACTIVITY = [
   [/^(browser|web_fetch|web_search|open_url|navigate)/, "Pesquisando na web"],
@@ -184,7 +191,37 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
   else if (delivered) Object.assign(boss, { state: "conferindo", activity: `Conferindo a entrega de ${delivered.name}`, with: delivered.id });
   else if (floor.actors.some((a) => a.state === "aguardando")) Object.assign(boss, { activity: "Esperando sua autorização junto com a equipe" });
   floor.actors.push(boss);
-  return { rooms: [floor], updatedAt: new Date(now).toISOString() };
+
+  // The Sede: each person in the room of its station, each request with its ficha (headquarters.js).
+  const areaOfConversation = new Map();
+  const areaFor = (a) => {
+    if (a.kind === "agente") return areaOf(`${a.department || ""} ${a.name || ""} ${a.task || ""}`);
+    const owner = a.with ? floor.actors.find((o) => o.id === a.with) : null;
+    if (owner && owner !== a) return areaFor(owner);
+    if (!a.conversationId) return "operacoes";
+    if (!areaOfConversation.has(a.conversationId)) { const c = conversations.get(a.conversationId); areaOfConversation.set(a.conversationId, areaOf(`${c?.title || ""} ${a.task || ""}`)); }
+    return areaOfConversation.get(a.conversationId);
+  };
+  const turnOf = (a) => activeById.get(a.conversationId) || null;
+  for (const a of floor.actors) {
+    const t = turnOf(a);
+    const area = areaFor(a);
+    const just = a.state === "cafe" && now - (a.since || 0) < 60_000 && (a.kind === "aurora" || a.kind === "agente");
+    Object.assign(a, just ? { room: "expedicao", station: "expedicao", area } : { ...stationOf({ state: a.state, tool: a.tool, kind: a.kind, area, checkedAt: a.kind === "aurora" || a.kind === "agente" ? t?.checkedAt || 0 : 0, now }), area });
+    if (a.room === "conferencia" && t?.lastCheck) a.activity = `Na Conferência: ${CHECK_LABEL[t.lastCheck] || t.lastCheck}`;
+  }
+  const fichas = [];
+  for (const t of turns.active) {
+    const c = conversations.get(t.conversationId);
+    const owner = floor.actors.find((a) => a.conversationId === t.conversationId && (a.kind === "aurora" || a.kind === "agente"));
+    fichas.push({ ...fichaOf({ conversationId: t.conversationId, title: c?.title || owner?.task, request: owner?.task, steps: (t.tools || []).map((tool) => ({ tool })), station: owner?.station || "recepcao", review: t.reviewed, checks: t.checks }), who: owner?.name || null, since: t.since || null });
+  }
+  for (const e of turns.ended.slice(0, 6)) {
+    if (activeById.has(e.conversationId) || fichas.some((f) => f.id === e.conversationId) || now - e.endedAt > 10 * 60_000) continue;
+    const c = conversations.get(e.conversationId);
+    fichas.push({ ...fichaOf({ conversationId: e.conversationId, title: c?.title, steps: (e.tools || []).map((tool) => ({ tool })), review: e.reviewed, checks: e.checks, ended: true, ok: !e.cancelled }), who: floor.actors.find((a) => a.conversationId === e.conversationId)?.name || null, endedAt: e.endedAt });
+  }
+  return { rooms: [floor], departments: DEPARTMENTS, fichas, updatedAt: new Date(now).toISOString() };
 }
 
 /** The office now, from the store, the agents and the running turns. */

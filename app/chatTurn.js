@@ -16,7 +16,7 @@ import { extractAndStoreMemories } from "./memoryExtractor.js";
 import { refineLocalAnswer } from "./localRefine.js";
 import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
 import { diagnoseLocalArtifact } from "./localDiagnostics.js";
-import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan } from "./pendingTurns.js";
+import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan, setCheck } from "./pendingTurns.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -683,6 +683,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
               : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools] }),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
+            onCheck: (check) => setCheck(conversationId, check),
             // The answer appears as it is written (local model on llama-server).
             onText: conversation.provider === "local" ? (text) => setPartial(conversationId, text) : null,
             approve: (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }); },

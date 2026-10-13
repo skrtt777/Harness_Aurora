@@ -95,3 +95,43 @@ test("office: the room grows with the team (20 working, a meeting of 20, 40 at r
     const grid = walkable(); for (const s of resting.values()) if (!s.sit) assert.ok(grid[s.y][s.x], `em pé num móvel ${s.x},${s.y}`);
   } finally { usePlan(14); }
 });
+
+// The Sede (last: it changes the plan in use).
+const DEPTS = [
+  ["recepcao", 0, "linha"], ["arquivo", 0, "linha"], ["biblioteca", 0, "linha"], ["reuniao", 0, "apoio"], ["chefe", 0, "apoio"], ["cafe", 0, "apoio"],
+  ["juridico", 1, "area"], ["financeiro", 1, "area"], ["pessoas", 1, "area"], ["comercial", 1, "area"], ["ti", 1, "area"], ["operacoes", 1, "area"],
+  ["revisao", 2, "linha"], ["conferencia", 2, "linha"], ["expedicao", 2, "linha"], ["rh", 2, "apoio"], ["servidores", 2, "apoio"], ["lounge", 2, "apoio"],
+].map(([id, band, kind]) => ({ id, name: id, band, kind, ...(kind === "area" ? { desks: ["A", "B", "C", "D"] } : {}) }));
+
+test("Sede: 18 rooms, every spot of every room reachable from the door through the corridors", () => {
+  assert.equal(sim.useHQ(DEPTS), true);
+  assert.equal(sim.useHQ(DEPTS), false);
+  const plan = sim.PLAN;
+  assert.equal(plan.rooms.length, 18);
+  const grid = walkable();
+  for (const s of plan.spots) {
+    const path = findPath(sim.DOOR, s);
+    assert.ok(path.length > 0 || (s.x === sim.DOOR.x && s.y === sim.DOOR.y), `${s.room} ${s.kind} ${s.x},${s.y}`);
+    for (const t of path.slice(0, -1)) assert.ok(grid[t.y][t.x], `passa por móvel em ${t.x},${t.y}`);
+  }
+  for (const d of DEPTS) assert.ok(plan.spots.some((s) => s.room === d.id), `sala ${d.id} sem lugar`);
+  assert.equal(plan.furniture.filter((f) => f.kind === "desk" && f.label).length, 24);       // 6 areas × 4 named desks
+});
+
+test("Sede: each person goes to the room of its station (the shelf of the Arquivo, a desk of the Financeiro, the Revisão)", () => {
+  const people = [
+    actor("leitor", "trabalhando", { kind: "aurora", tool: "read_file", room: "arquivo" }),
+    actor("escritor", "trabalhando", { kind: "aurora", tool: "write_document", room: "financeiro" }),
+    actor("revisto", "revisao", { kind: "aurora", room: "revisao" }),
+    { ...actor("prof", "revisao", { room: "revisao", with: "revisto" }), kind: "professor" },
+    actor("folga", "descanso", { room: "lounge" }),
+    { ...actor("boss", "conferindo", { room: "chefe", with: "escritor" }), kind: "chefe" },
+  ];
+  const spots = assignSpots(people);
+  assert.equal(spots.get("leitor").room, "arquivo"); assert.equal(spots.get("leitor").kind, "shelf");
+  assert.equal(spots.get("escritor").room, "financeiro"); assert.equal(spots.get("escritor").kind, "desk");
+  assert.equal(spots.get("revisto").room, "revisao"); assert.equal(spots.get("prof").room, "revisao");
+  assert.equal(spots.get("folga").room, "lounge");
+  // The boss goes beside whoever it checks, in that person's room.
+  assert.ok(Math.abs(spots.get("boss").x - spots.get("escritor").x) <= 1);
+});

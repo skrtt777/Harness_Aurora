@@ -253,3 +253,12 @@ test("an answer that says it created a file it never wrote is asked for the file
   assert.deepEqual(result.checks.map((c) => c.check), ["claimed_delivery"]);
   assert.ok(result.steps.some((s) => s.tool === "write_document" && s.ok));
 });
+
+test("a guard that fires is told as it happens (the Sede's Conferência), and still recorded in checks", async () => {
+  const told = [];
+  const replies = [{ ok: true, text: "Consegui criar um novo documento com valores atualizados." }, { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "x.docx", content: "# x" } }] }, { ok: true, text: "Criei C:/x.docx." }];
+  const writer = { name: "write_document", description: "cria documento", parameters: { type: "object", properties: {} }, run: async () => "Criei C:/x.docx (DOCX, 10 bytes)." };
+  const result = await runChatAgent({ system: "s", input: "crie um novo documento", tools: [writer], onCheck: (c) => told.push(c), callModel: async () => replies.shift() });
+  assert.deepEqual(told, ["claimed_delivery"]);
+  assert.deepEqual(result.checks.map((c) => c.check), ["claimed_delivery"]);
+});

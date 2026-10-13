@@ -30,7 +30,19 @@ export function startTurn(conversationId) {
 
 export function setStage(conversationId, stage) {
   const entry = pending.get(conversationId);
-  if (entry) entry.stage = stage;
+  if (entry) { entry.stage = stage; if (/revis|professor|c[oó]pias|refazendo/i.test(String(stage))) entry.reviewed = true; }
+}
+
+/**
+ * A guard of the agent that fired (app/chatAgent.js checks): the Sede's Conferência, where the
+ * delivery is held back and fixed (numbers per row, a file asked for, "rodou" without running…).
+ */
+export function setCheck(conversationId, check) {
+  const entry = pending.get(conversationId);
+  if (!entry) return;
+  entry.checks ||= [];
+  entry.checks.push({ check: String(check || "conferência"), at: Date.now() });
+  if (entry.checks.length > 20) entry.checks.shift();
 }
 
 export function getStage(conversationId) {
@@ -57,6 +69,9 @@ export function pushTurnStep(conversationId, step) {
   if (last?.status === "running" && step.status !== "running" && last.tool === step.tool) entry.steps[entry.steps.length - 1] = step;
   else entry.steps.push(step);
   if (entry.steps.length > 40) entry.steps.splice(0, entry.steps.length - 40);
+  // Every tool the turn used, in order (the ficha's stations; the steps above keep only the last 40).
+  entry.tools ||= [];
+  if (step.tool && entry.tools.at(-1) !== step.tool) { entry.tools.push(step.tool); if (entry.tools.length > 80) entry.tools.shift(); }
 }
 
 export function getTurnSteps(conversationId) {
@@ -117,7 +132,7 @@ export function endTurn(conversationId, controller) {
   const entry = pending.get(conversationId);
   if (!controller || entry?.controller === controller) {
     entry?.approval?.resolve(false);
-    if (entry) { recent.unshift({ conversationId, since: entry.since, endedAt: Date.now(), cancelled: entry.controller.signal.aborted }); recent.length = Math.min(recent.length, 30); }
+    if (entry) { recent.unshift({ conversationId, since: entry.since, endedAt: Date.now(), cancelled: entry.controller.signal.aborted, tools: entry.tools || [], checks: (entry.checks || []).length, reviewed: !!entry.reviewed }); recent.length = Math.min(recent.length, 30); }
     pending.delete(conversationId);
   }
 }
@@ -155,6 +170,7 @@ export function turnSnapshots({ withinMs = 5 * 60_000, now = Date.now() } = {}) 
     steps: (e.steps || []).slice(-3).map((s) => ({ tool: s.tool, status: s.status || null, summary: String(s.summary || s.stage || "").slice(0, 160) })),
     approval: e.approval ? { tool: e.approval.tool, summary: String(e.approval.summary || "").slice(0, 160) } : null,
     plan: Array.isArray(e.plan) ? { done: e.plan.filter((p) => p.status === "done").length, total: e.plan.length } : null,
+    tools: e.tools || [], checks: (e.checks || []).length, checkedAt: e.checks?.at(-1)?.at || 0, lastCheck: e.checks?.at(-1)?.check || null, reviewed: !!e.reviewed,
     subagents: [...(e.subagents?.values() || [])].map((sa) => ({ id: sa.id, name: sa.name, task: sa.task, stage: sa.stage || null, done: !!sa.done, ok: sa.ok ?? null, since: sa.since || null, endedAt: sa.endedAt || null,
       steps: sa.steps.map((st) => ({ tool: st.tool, status: st.status || null, summary: String(st.summary || st.stage || "").slice(0, 160) })) })),
   }));
