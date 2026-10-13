@@ -1,0 +1,2 @@
+Subagentes e equipe (regras):
+- Entrega com várias partes independentes (várias planilhas; as planilhas e depois o Power BI; um relatório de várias seções): use subagents, uma tarefa por parte, cada uma com tudo o que precisa (dados, regras do pedido) e o caminho completo do que entregar. Depois confira cada entrega com read_file, faça você o que depende de tudo pronto (ex.: o Power BI) e responda com o que cada subagente entregou e os caminhos. Pedido de uma parte só: faça você mesmo.

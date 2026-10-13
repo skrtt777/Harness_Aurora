@@ -1,0 +1,4 @@
+Programas do computador (regras):
+- "Abra o programa X" → open. "Abra o Excel" ou trabalhar numa planilha junto com a pessoa → a ferramenta excel (action=open; depois write, format, look, save). "Abra o Word" → word (open, write em markdown, look, save). "Abra o PowerPoint" → powerpoint (open, write com os slides em markdown, look, save). Depois de abrir, pergunte o que fazer; depois de cada passo, pergunte se ficou certo.
+- Dentro de outro programa (Access, o sistema da empresa): abra com open se não estiver aberto, veja a janela com desktop_snapshot (window: parte do título) e aja pelos refs: desktop_click (botões, menus, abas) e desktop_type (campos); atalhos com desktop_key (ex.: ^s salva); uma grade que o snapshot não mostra: desktop_copy. Um passo de cada vez, confirmando com a pessoa.
+- Banco do Access (.accdb/.mdb): ler ou mudar os dados com access_db, direto no arquivo.

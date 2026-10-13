@@ -25,7 +25,8 @@ import { WHERE_IS, requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
 import { contentWords, listSources, searchKnowledge, sourceForPath, unknownCitations } from "./knowledge.js";
 import { asksAboutCompany } from "./grounding.js";
-import { AGENT_TOOLS, knownFolders, toolSchemas, isCodeRequest, toolsFor } from "./agentTools/index.js";
+import { AGENT_TOOLS, knownFolders, toolSchemas, isCodeRequest, toolsFor, CODE_TOOL_NAMES } from "./agentTools/index.js";
+import { routeTools, activeGroups, BASE_TOOLS } from "./toolRouter.js";
 import { runLlama } from "./localLlama.js";
 import { multiPart, planParts, subagentTools } from "./agentTools/subagents.js";
 import { mcpAgentTools } from "./mcp.js";
@@ -44,7 +45,7 @@ import { computerRoots, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
 import { extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
-import { compactContext, rules, agentRules, codeRules, areaRules } from "./economy.js";
+import { compactContext, rules, agentRules, codeRules, areaRules, topicRules } from "./economy.js";
 import { findReusableWorkflow } from "./workflows.js";
 
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
@@ -220,7 +221,8 @@ export function warmLocalChat(env = process.env) {
   warming ||= (async () => {
     const url = await localChatServer(env);
     if (!url) return null;
-    const tools = toolSchemas([...toolsFor(AGENT_TOOLS, false), ...(await mcpAgentTools().catch(() => []))]);
+    // The most common turn's tools (the base set; app/toolRouter.js) and the person's MCP extensions.
+    const tools = toolSchemas([...AGENT_TOOLS.filter((t) => BASE_TOOLS.includes(t.name)), ...(await mcpAgentTools().catch(() => []))]);
     await fetch(`${url}/v1/chat/completions`, {
       method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(180_000),
       body: JSON.stringify({ messages: [{ role: "system", content: agentRules }, { role: "user", content: "." }], tools, max_tokens: 1, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }),
@@ -665,7 +667,12 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // The agent's rules: the code ones in a code turn, the department's in a request of one area
           // (AURORA_AREA_RULES=off measures without them).
           const areaText = env.AURORA_AREA_RULES !== "off" && toolContext.order?.areaSure ? areaRules[toolContext.order.area] : null;
-          const coreRules = codeTurn ? `${agentRules}\n${codeRules}` : areaText ? `${agentRules}\n${areaText}` : agentRules;
+          // The rules of the tool groups this request gets (AURORA_TOOL_ROUTER=off: all of them, as before).
+          const userTexts = history.filter((m) => m.role === "user").map((m) => String(m.content || ""));
+          const groups = env.AURORA_TOOL_ROUTER === "off" ? Object.keys(topicRules) : activeGroups(trimmed, { history: userTexts, also: [...(codeTurn ? ["comandos"] : []), ...(multiPart(trimmed) ? ["equipe"] : [])] });
+          const topics = groups.map((g) => topicRules[g]).filter(Boolean).join("\n");
+          const base = topics ? `${agentRules}\n${topics}` : agentRules;
+          const coreRules = codeTurn ? `${base}\n${codeRules}` : areaText ? `${base}\n${areaText}` : base;
           const buildContext = (docsBlock, lean = false, fit = false) => compactContext({ fit, ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(!lean && orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: lean ? (codeTurn ? `${agentRules}\n${codeRules}` : agentRules) : coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
@@ -696,7 +703,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             // The person's MCP extensions join the built-in tools (an agent with its own list gets the ones it names).
             ...(toolContext.agentTools
               ? { tools: [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") }
-              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools] }),
+              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools], ...(env.AURORA_TOOL_ROUTER === "off" ? {} : { offer: routeTools(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")), extra: [...(codeTurn ? CODE_TOOL_NAMES : []), ...extensionTools.map((t) => t.name), ...(multiPart(trimmed) ? ["subagents"] : [])] }) }) }),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             onCheck: (check) => setCheck(conversationId, check),

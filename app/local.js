@@ -1,5 +1,6 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
+import { llamaServerInfo } from './llamaServer.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
@@ -12,6 +13,10 @@ export const AGENT_MIN_CONTEXT_TOKENS = 12288;
 export const ollamaContextTokens = (env = process.env) => Math.min(LOCAL_CONTEXT_TOKENS_RANGE.max, Math.max(LOCAL_CONTEXT_TOKENS_RANGE.min, AGENT_MIN_CONTEXT_TOKENS, Number(env.LOCAL_CONTEXT_TOKENS) || LOCAL_SETTINGS_DEFAULTS.contextTokens));
 // Includes loading the model: a large one takes minutes on a cold start.
 const LOCAL_TIMEOUT_DEFAULT_MS = 300_000;
+// On the CPU only (a work laptop) a 7k-token prompt alone takes 2-4 minutes to read: 5 minutes was
+// cut in the middle and the turn fell back to a chat without tools ("write_document não está
+// disponível", 13/10).
+const CPU_TIMEOUT_MS = 900_000;
 export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
 export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
 
@@ -124,7 +129,7 @@ function localErrorDetail(error, externalSignal) {
 export async function runLocalChat(messages, tools = [], env = process.env, externalSignal, options = {}) {
   if (env.LOCAL_ENGINE === 'llama.cpp') return runLlamaChat(messages, tools, env, externalSignal, options);
   // Desktop agent on llama-server (llamaServer.js): same model, parallel slots for the copies.
-  if (env.LOCAL_CHAT_BASE_URL) return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: await resolveLocalModel(env), LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, options);
+  if (env.LOCAL_CHAT_BASE_URL) return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: await resolveLocalModel(env), LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(llamaServerInfo()?.gpu === false ? CPU_TIMEOUT_MS : LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, options);
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);

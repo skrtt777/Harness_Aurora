@@ -17,6 +17,18 @@ const ensureDir = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
  */
 
 const SLOTS = 4;
+/**
+ * The parallel slots for this machine: each one reserves its context in memory (4 × 16k tokens of KV
+ * cache are ~4.7 GB for a 4B model). Only a good GPU runs copies side by side; on a CPU they queue
+ * anyway (copies.js turns them off), so one slot: a work laptop kept 4 GB it never used (13/10).
+ * LLAMA_SLOTS overrides.
+ */
+export function slotsFor({ gpu = false, device = null } = {}, env = process.env) {
+  if (Number(env.LLAMA_SLOTS) >= 1) return Math.min(8, Math.floor(Number(env.LLAMA_SLOTS)));
+  if (!gpu) return 1;
+  const vram = Number(device?.memoryGb) || 0;
+  return vram >= 10 ? SLOTS : vram >= 6 ? 2 : 1;
+}
 // Ollama unloads an idle model; this server must too, or it keeps ~4 GB of video memory while the
 // person plays a game with the app open. It comes back in ~3 s at the next question.
 const IDLE_STOP_MS = 10 * 60_000;
@@ -135,9 +147,11 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   const entry = { model, baseUrl, child: null, ready: null, lastUsed: Date.now() };
   server = entry;
   entry.ready = (async () => {
-    const { dir, gpu } = await pickDeviceDir(libDir, { env });
+    const { dir, gpu, device } = await pickDeviceDir(libDir, { env });
+    const slots = slotsFor({ gpu, device }, env);
+    entry.slots = slots;
     const args = ["-m", blob, "--jinja", "--host", "127.0.0.1", "--port", String(port), "--alias", model,
-      "-np", String(SLOTS), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * SLOTS), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),
+      "-np", String(slots), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * slots), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),
       // Speculative decoding from n-grams already in the context (no draft model): the agent copies
       // rows from tool results into documents, and those come out 2.5x faster on GPU and ~5x on CPU,
       // same text (scripts/spec-bench.mjs, 05/10/2026). LLAMA_SPEC=off turns it off.
@@ -155,7 +169,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
     if (!ok) { child.kill(); if (server === entry) server = null; failedAt = Date.now(); return null; }
     entry.gpu = gpu;
     entry.cacheKey = snapshotKey(model, blob, bin(libDir));
-    if (env.LLAMA_CACHE !== "off") entry.restored = await restoreSnapshot(baseUrl, { key: entry.cacheKey, slots: SLOTS, env });
+    if (env.LLAMA_CACHE !== "off") entry.restored = await restoreSnapshot(baseUrl, { key: entry.cacheKey, slots, env });
     entry.env = env;
     return baseUrl;
   })();
@@ -186,7 +200,7 @@ export function afterLlamaAnswer(baseUrl, body, cachedTokens) {
   void learnPrefix(baseUrl, body, { key: current.cacheKey, env: current.env });
 }
 
-export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), slots: SLOTS, restoredTokens: server.restored || 0 } : null);
+export const llamaServerInfo = () => (server ? { model: server.model, baseUrl: server.baseUrl, gpu: Boolean(server.gpu), slots: server.slots || SLOTS, restoredTokens: server.restored || 0 } : null);
 
 // The server belongs to this app: it closes with it.
 process.once("exit", stopLlamaServer);

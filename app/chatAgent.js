@@ -225,7 +225,7 @@ const DELETE_ASKED = /\b(apag|exclu|delet|limp|remov|jog(a|ue) fora|lixeira|livr
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, onCheck = null, approve = async () => false, toolContext = {},
-  deliverFirst = false, coworking = false,
+  deliverFirst = false, coworking = false, offer = null,
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null, priorSteps = [],
 }) {
@@ -237,7 +237,8 @@ export async function runChatAgent({
   const ctx = { ...toolContext, env, signal, onStage, approve };
   // Web content already in the conversation (a redo, a follow-up) counts too: commands then ask (agentPolicy.js).
   ctx.untrustedSeen ||= history.some((m) => m.role === "tool" && WEB_TOOL.test(String(m.tool_name || "")));
-  let offered = tools;
+  // offer: the names the model reads (app/toolRouter.js); it can still run any of `tools` by name.
+  let offered = offer ? tools.filter((t) => offer.has(t.name)) : tools;
   let forcedNote = "";
   let forced = null;
   let nudged = false;
@@ -560,6 +561,8 @@ export async function runChatAgent({
         onStep({ tool: call.name, args: call.arguments, stage, status: "running" });
         try { outcome = await executeTool(call.name, call.arguments, ctx, tools); }
         catch { return { ok: false, status: 499, cancelled: true, error: "Mensagem cancelada.", steps, calls }; }
+        // A tool it knew by name and was not offered: from now on it is (its description helps the next call).
+        if (offer && offered.length && !offered.some((t) => t.name === call.name)) { const known = tools.find((t) => t.name === call.name); if (known) offered = [...offered, known]; }
       }
       if (call.arguments?.__salvaged && outcome.ok && !/completei a tabela/.test(outcome.result)) outcome = { ...outcome, result: `${outcome.result}\n(Sua chamada foi cortada no limite de saída: gravei o conteúdo até o corte, sem linhas repetidas. Confira se está completo; se faltar algo, grave de novo no mesmo caminho só com a tabela.)` };
       const step = { tool: call.name, args: call.arguments, ok: outcome.ok, ...(outcome.denied ? { denied: true } : {}), summary: outcome.result.split("\n")[0].slice(0, 200), result: outcome.result.slice(0, 1200), ms: outcome.ms };

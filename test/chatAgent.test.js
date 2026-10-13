@@ -208,7 +208,11 @@ test("chat turns run the agent end to end: tool call, approval-free file read, s
     assert.deepEqual(result.usage, { input_tokens: 90, output_tokens: 16 });
     assert.match(bodies[0].messages[0].content, /Você é a Aurora/);
     assert.match(bodies[0].messages[0].content, new RegExp(folder.replace(/\\/g, "\\\\")));
-    assert.ok(bodies[0].tools.some((t) => t.function.name === "browser_navigate"));
+    // Only the tools of what the request speaks of (app/toolRouter.js): a file question gets read_file,
+    // not the browser's nine tools.
+    assert.ok(bodies[0].tools.some((t) => t.function.name === "read_file"));
+    assert.ok(!bodies[0].tools.some((t) => t.function.name === "browser_navigate"));
+    assert.ok(bodies[0].tools.length <= 14, String(bodies[0].tools.length));
     assert.ok(bodies[0].options.num_ctx >= 12288);
     assert.equal(bodies[0].messages.at(-1).content, "o que diz a nota.txt?");
 
