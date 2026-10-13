@@ -41,3 +41,28 @@
 .app-shell .office-state.s-aguardando, .app-shell .office-state.s-cobrando { color: var(--yellow); }
 .app-shell .office-state.s-cobrado { color: var(--red); }
 .app-shell .office-state.s-revisao, .app-shell .office-state.s-reuniao { color: var(--blue); }
+
+/* One floor; the HR panel under it (app/hr.js). */
+.app-shell .office-proj { display: block; font-size: 11px; color: var(--text-3); font-weight: 400; }
+.app-shell .office-hr { margin-top: 18px; border-top: 1px solid var(--stroke-2); padding-top: 14px; display: grid; gap: 12px; }
+.app-shell .office-hr-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.app-shell .office-hr-head h2 { margin: 0 0 4px; font-size: 16px; }
+.app-shell .office-hr-body { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+@media (max-width: 900px) { .app-shell .office-hr-body { grid-template-columns: minmax(0, 1fr); } }
+.app-shell .office-hr-table { overflow-x: auto; min-width: 0; }
+.app-shell .office-hr-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.app-shell .office-hr-table th { text-align: left; font-weight: 600; color: var(--text-3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--stroke-2); }
+.app-shell .office-hr-table td { padding: 7px 8px; border-bottom: 1px solid var(--stroke-2); vertical-align: middle; }
+.app-shell .office-hr-table td small { color: var(--text-3); }
+.app-shell .office-hr-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.app-shell .office-hr-table .up { color: #1f9d6b; }
+.app-shell .office-hr-table .down { color: #c2493d; }
+.app-shell .office-hr-table tr.off td { opacity: .6; }
+.app-shell .office-hr-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; min-width: 0; }
+.app-shell .office-hr-events li { display: flex; gap: 8px; align-items: baseline; }
+.app-shell .office-hr-events small { color: var(--text-3); white-space: nowrap; }
+.app-shell .office-hr-kind { flex: none; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--fill-hover); color: var(--text-2); }
+.app-shell .office-hr-kind.k-premio, .app-shell .office-hr-kind.k-elogio { background: #f6e3b4; color: #6b4a07; }
+.app-shell .office-hr-kind.k-advertencia { background: #fbe0c8; color: #7a3b0c; }
+.app-shell .office-hr-kind.k-demissao { background: #f6d2cd; color: #7c231a; }
+.app-shell .office-hr-kind.k-contratacao, .app-shell .office-hr-kind.k-recontratacao { background: #d2efe2; color: #11553a; }

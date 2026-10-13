@@ -5,7 +5,8 @@
 // the walk there (A* on the tiles) and the step of each frame. Pure: no React, no canvas (tests).
 
 export type OfficeActor = {
-  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "subagente" | "professor" | "chefe"; name: string; state: string; activity: string;
+  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "subagente" | "professor" | "chefe" | "rh"; name: string; state: string; activity: string;
+  project?: string; stars?: number; warnings?: number;
   since?: number | null; conversationId?: string | null; agentId?: string; task?: string; with?: string; teacher?: string; department?: string | null;
   plan?: { done: number; total: number } | null;
 };
@@ -123,6 +124,8 @@ const hash = (s: string) => { let h = 2166136261; for (const c of s) { h ^= c.ch
 /** Where a state sends someone: the kind of spot. */
 export function placeOf(a: OfficeActor): SpotKind | "beside" | "gone" {
   if (a.kind === "chefe") return a.state === "reuniao" ? "meeting" : a.state === "cobrando" || a.state === "conferindo" ? "beside" : "boss";
+  // HR: beside whoever it rewards, guides or dismisses; in the meeting room with a new hire; else at a desk.
+  if (a.kind === "rh") return a.state === "premiando" || a.state === "orientando" || a.state === "desligando" ? "beside" : a.state === "entrevistando" ? "meeting" : "desk";
   // Working, the tool decides where: reading files and documents at the shelves, commands at the
   // server, the rest (writing, the web, the BI) at the computer.
   if (a.state === "trabalhando" && a.tool) {

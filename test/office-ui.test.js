@@ -17,7 +17,7 @@ await setSetting("onboarding_completed", "true");
 const executable = process.env.CHROMIUM_EXECUTABLE_PATH || (process.platform === "win32" && existsSync("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe") ? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" : chromium.executablePath());
 const skip = !existsSync(executable) || !existsSync(new URL("../frontend/dist/index.html", import.meta.url)) ? "Build do frontend e Chromium necessários para teste de UI." : false;
 
-test("office: each project's room shows its real sessions, and a click opens the conversation", { skip, timeout: 40000 }, async () => {
+test("office: one floor shows the real sessions with their project, the HR panel, and a click opens the conversation", { skip, timeout: 40000 }, async () => {
   const project = await createProject({ name: "Sala de Vendas" });
   const c = await createConversation({ title: "Metas do mês", provider: "local", projectId: project.id });
   const controller = turns.startTurn(c.id); turns.pushTurnStep(c.id, { tool: "web_search", status: "running", summary: "Pesquisando a concorrência" });
@@ -28,10 +28,14 @@ test("office: each project's room shows its real sessions, and a click opens the
     const errors = []; page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.getByRole("button", { name: "Escritório" }).click();
-    await page.locator(".office-room-tab", { hasText: "Sala de Vendas" }).click();
     const person = page.locator(".office-people button", { hasText: "Metas do mês" });
     await person.waitFor();
-    assert.match(await person.textContent(), /Trabalhando/);
+    assert.match(await person.textContent(), /Sala de Vendas[\s\S]*Trabalhando/);
+    // The HR team is on the floor and its panel is below.
+    await page.locator(".office-people button", { hasText: "Helena" }).waitFor();
+    await page.getByRole("heading", { name: "RH dos agentes" }).waitFor();
+    await page.getByRole("button", { name: "Avaliar agora" }).click();
+    await page.getByText("Ainda não há agentes de tarefa").waitFor();
     await person.click();
     await page.getByText("Pesquisando a concorrência").waitFor();
     // The room is drawn (the canvas has pixels) and the session leads to its conversation.

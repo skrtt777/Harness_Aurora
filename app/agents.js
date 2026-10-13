@@ -140,7 +140,12 @@ export async function updateAgent(id, patch = {}) {
   const db = await ready();
   db.prepare("UPDATE agents SET name = ?, mission = ?, department = ?, tools = ?, trigger = ?, enabled = ?, updated_at = ? WHERE id = ?")
     .run(String(next.name).slice(0, 80), String(next.mission).slice(0, 4000), next.department || null, next.tools ? JSON.stringify(next.tools) : null, JSON.stringify(cleanTrigger(next.trigger)), next.enabled ? 1 : 0, new Date().toISOString(), id);
-  if (agent.projectId && (await getProject(agent.projectId))) await updateProject(agent.projectId, { instructions: agentInstructions(next) });
+  // The HR's improvement plan (app/hr.js) stays at the end of the instructions when the agent is edited.
+  const project = agent.projectId ? await getProject(agent.projectId) : null;
+  if (project) {
+    const at = String(project.instructions || "").indexOf("\nPlano de melhoria do RH");
+    await updateProject(agent.projectId, { instructions: agentInstructions(next) + (at >= 0 ? String(project.instructions).slice(at) : "") });
+  }
   // A new folder (or pattern) is a new watch: its existing files are backlog, not arrivals.
   if (patch.trigger && JSON.stringify(cleanTrigger(patch.trigger)) !== JSON.stringify(agent.trigger)) {
     try { db.prepare("DELETE FROM agent_seen_files WHERE agent_id = ?").run(id); } catch { /* never watched */ }

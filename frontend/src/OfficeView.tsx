@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getOffice, type OfficeRoom } from "./api";
+import { getOffice, getHr, reviewHr, rehireAgent, type OfficeRoom, type HrSnapshot } from "./api";
 import { PLAN, step, sync, stroll, usePlan, desksFor, type OfficeActor, type Walker } from "./officeSim";
 import { T, size, drawRoom, drawFurniture, drawClock, drawWindows, drawLight, drawEmptySeat, drawPerson, drawBubble, lookOf, signOf, workingDesks, type Sign } from "./officePixel";
 import "./office.css";
 
 /**
- * The agents' office (app/office.js): each project has its room and the task agents share the team
- * floor; every little person is a real session, agent, copy, teacher or the boss, in the state it is
- * really in. They walk to their desks to work, sit with the teacher to review, meet with the boss on
+ * The agents' office (app/office.js): one floor for everyone, each person with the project it works
+ * on; every little person is a real session, agent, copy, teacher, the HR team or the boss, in the
+ * state it is really in. They walk to their desks to work, sit with the teacher to review, meet with the boss on
  * team requests, take a coffee after a delivery and rest on the sofa when there is nothing to do.
  */
 
@@ -15,14 +15,18 @@ export const STATE_LABEL: Record<string, string> = {
   trabalhando: "Trabalhando", pensando: "Pensando", aguardando: "Esperando sua autorização", revisao: "Em revisão com o professor",
   refazendo: "Refazendo", conferindo: "Conferindo", chegando: "Chegando", reuniao: "Em reunião", cafe: "No cafezinho",
   descanso: "Descansando", cobrado: "Sendo cobrado", desligado: "Fora do escritório", supervisionando: "Supervisionando", cobrando: "Cobrando",
+  premiando: "Premiando", orientando: "Orientando", desligando: "Desligando", entrevistando: "Recebendo um contratado", avaliando: "Avaliando a equipe",
 };
-const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (conferência)", subagente: "Subagente", professor: "Professor", chefe: "Chefe" };
+const HR_KIND: Record<string, string> = { premio: "Prêmio", elogio: "Elogio", advertencia: "Plano de melhoria", demissao: "Desligamento", contratacao: "Contratação", recontratacao: "Recontratação", avaliacao: "Avaliação" };
+const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (conferência)", subagente: "Subagente", professor: "Professor", chefe: "Chefe", rh: "RH" };
 /** How someone is called in the list and on hover: a session with its conversation ("Marina · Metas de outubro"). */
 const who = (a: OfficeActor) => ((a.kind === "aurora" || a.kind === "subagente") && a.task ? `${a.name} · ${a.task}` : a.name);
+/** The name on the floor, with the HR stars ("Cobrança ★2"). */
+const tag = (a: OfficeActor) => (a.stars ? `${a.name} ★${a.stars}` : a.name);
 const BUSY = new Set(["trabalhando", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
 
 // The shirt colours of the pixel people (officePixel.ts), for the legend and the list.
-const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", subagente: "#c4a3ff", professor: "#d97757", chefe: "#2e3d6e" };
+const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", subagente: "#c4a3ff", professor: "#d97757", chefe: "#2e3d6e", rh: "#e0a43a" };
 const since = (ms?: number | null) => {
   if (!ms) return "";
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -31,7 +35,9 @@ const since = (ms?: number | null) => {
 
 export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpenConversation: (id: string) => void; onOpenAgents: () => void }) {
   const [rooms, setRooms] = useState<OfficeRoom[]>([]);
-  const [roomId, setRoomId] = useState<string>(() => { try { return localStorage.getItem("aurora-office-room") || "equipe"; } catch { return "equipe"; } });
+  const [hr, setHr] = useState<HrSnapshot | null>(null);
+  const [hrBusy, setHrBusy] = useState(false);
+  const [hrOpen, setHrOpen] = useState(() => { try { return localStorage.getItem("aurora-office-hr") !== "0"; } catch { return true; } });
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [rows, setRows] = useState(() => size().H / T);
@@ -53,9 +59,16 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
     load();
     return () => { stop = true; clearTimeout(timer); };
   }, []);
-  const room = rooms.find((r) => r.id === roomId) || rooms[0];
-  useEffect(() => { if (room && room.id !== roomId) setRoomId(room.id); }, [room, roomId]);
-  useEffect(() => { try { localStorage.setItem("aurora-office-room", roomId); } catch { /* private window */ } }, [roomId]);
+  const room = rooms[0];
+  // The HR report card, every 10 s.
+  useEffect(() => {
+    let stop = false; let timer: ReturnType<typeof setTimeout>;
+    const load = async () => { if (document.visibilityState === "visible") { try { const h = await getHr(); if (!stop) setHr(h); } catch { /* the office still works */ } } if (!stop) timer = setTimeout(load, 10000); };
+    load();
+    return () => { stop = true; clearTimeout(timer); };
+  }, []);
+  useEffect(() => { try { localStorage.setItem("aurora-office-hr", hrOpen ? "1" : "0"); } catch { /* private window */ } }, [hrOpen]);
+  const hrAct = async (run: () => Promise<HrSnapshot>) => { setHrBusy(true); try { setHr(await run()); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setHrBusy(false); } };
   // Another room: a fresh floor (everyone at their place); the same room: they walk to the new spots.
   const lastRoom = useRef<string | null>(null);
   useEffect(() => {
@@ -95,35 +108,30 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
   };
   const people = useMemo(() => (room?.actors || []).slice().sort((a, b) => Number(BUSY.has(b.state)) - Number(BUSY.has(a.state)) || a.name.localeCompare(b.name)), [room]);
   const chosen = people.find((a) => a.id === selected) || null;
-  const counts = (r: OfficeRoom) => r.actors.filter((a) => a.kind !== "chefe" && BUSY.has(a.state)).length;
+  const busy = (room?.actors || []).filter((a) => a.kind !== "chefe" && a.kind !== "rh" && BUSY.has(a.state)).length;
 
   return <section className="office-view page-skin" aria-label="Escritório dos agentes">
     <header className="page-header-row">
       <div>
         <h1 className="page-title">Escritório</h1>
-        <p className="office-lede">Cada pessoa aqui é uma sessão, um agente ou um professor de verdade, no estado em que está agora.</p>
+        <p className="office-lede">Um escritório só para todos: cada pessoa é uma sessão, um agente, um professor ou alguém do RH de verdade, no estado em que está agora.{busy > 0 ? ` ${busy} trabalhando agora.` : ""}</p>
       </div>
     </header>
-    <nav className="office-rooms" aria-label="Salas">
-      {rooms.map((r) => <button key={r.id} className={`office-room-tab ${r.id === room?.id ? "active" : ""}`} aria-pressed={r.id === room?.id} onClick={() => { setRoomId(r.id); setSelected(null); }}>
-        <span>{r.name}</span>{counts(r) > 0 && <span className="office-busy">{counts(r)} trabalhando</span>}
-      </button>)}
-    </nav>
     {error && <p role="alert" className="office-error">Não consegui ler o escritório: {error}</p>}
     <div className="office-body">
       <div className="office-stage">
-        <canvas ref={canvasRef} className="office-canvas" style={{ aspectRatio: `30 / ${rows}` }} width={size().W * 3} height={size().H * 3} aria-label={`Sala ${room?.name || ""}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
+        <canvas ref={canvasRef} className="office-canvas" style={{ aspectRatio: `30 / ${rows}` }} width={size().W * 3} height={size().H * 3} aria-label={`${room?.name || "Escritório"}: ${people.filter((a) => a.state !== "desligado").length} pessoas`}
           onMouseMove={(e) => { const w = pick(e); hoverRef.current = w?.id || null; e.currentTarget.style.cursor = w ? "pointer" : "default"; }}
           onMouseLeave={() => { hoverRef.current = null; }}
           onClick={(e) => setSelected(pick(e)?.id || null)} />
         <ul className="office-legend" aria-label="Legenda">
-          {(["aurora", "subagente", "agente", "copia", "professor", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
+          {(["aurora", "subagente", "agente", "copia", "professor", "rh", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
         </ul>
       </div>
       <aside className="office-side" aria-label="Quem está na sala">
         {chosen ? <div className="office-card">
-          <p className="office-kind">{KIND_LABEL[chosen.kind]}{chosen.department ? ` · ${chosen.department}` : ""}</p>
-          <h2>{chosen.name}</h2>
+          <p className="office-kind">{KIND_LABEL[chosen.kind]}{chosen.department ? ` · ${chosen.department}` : ""}{chosen.project ? ` · ${chosen.project}` : ""}</p>
+          <h2>{tag(chosen)}</h2>
           {chosen.kind === "aurora" && chosen.task && <p className="office-task">Conversa: {chosen.task}</p>}
           <p className={`office-state s-${chosen.state}`}>{STATE_LABEL[chosen.state] || chosen.state}{chosen.since ? ` · ${since(chosen.since)}` : ""}</p>
           <p>{chosen.activity}</p>
@@ -139,13 +147,46 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
           {people.map((a) => <li key={a.id}>
             <button className={a.id === selected ? "active" : ""} onClick={() => setSelected(a.id)}>
               <span className="office-dot" style={{ background: BODY[a.kind] }} />
-              <span className="office-who">{who(a)}</span>
+              <span className="office-who">{a.stars ? `${who(a)} ★${a.stars}` : who(a)}{a.project && a.kind !== "rh" && a.kind !== "chefe" ? <small className="office-proj">{a.project}</small> : null}</span>
               <span className={`office-state s-${a.state}`}>{STATE_LABEL[a.state] || a.state}</span>
             </button>
           </li>)}
         </ul>
       </aside>
     </div>
+    <section className="office-hr" aria-label="RH dos agentes">
+      <header className="office-hr-head">
+        <div>
+          <h2>RH dos agentes</h2>
+          <p className="office-lede">{hr ? `${hr.team.map((m) => `${m.name} (${m.role.toLowerCase()})`).join(" e ")} avaliam cada agente pelas entregas reais: estrela para nota ${hr.rules.reward}+, plano de melhoria abaixo de ${hr.rules.warn}, desligamento e substituto abaixo de ${hr.rules.dismiss} depois do plano.${hr.lastReview ? ` Última avaliação ${since(Date.parse(hr.lastReview))}.` : ""}` : "Carregando…"}</p>
+        </div>
+        <div className="office-actions">
+          <button disabled={hrBusy} onClick={() => hrAct(reviewHr)}>{hrBusy ? "Avaliando…" : "Avaliar agora"}</button>
+          <button className="ghost" aria-expanded={hrOpen} onClick={() => setHrOpen(!hrOpen)}>{hrOpen ? "Esconder" : "Mostrar"}</button>
+        </div>
+      </header>
+      {hrOpen && hr && <div className="office-hr-body">
+        <div className="office-hr-table">
+          {hr.report.length ? <table>
+            <thead><tr><th>Agente</th><th>Nota</th><th>Entregas</th><th>Estrelas</th><th>Situação</th></tr></thead>
+            <tbody>{hr.report.map((c) => <tr key={c.agentId} className={c.status === "demitido" ? "off" : ""}>
+              <td>{c.name}{c.department ? <small> · {c.department}</small> : null}</td>
+              <td className="num">{c.score === null ? "—" : c.score}{c.trend ? <small className={c.trend > 0 ? "up" : "down"}> {c.trend > 0 ? "▲" : "▼"}{Math.abs(c.trend)}</small> : null}</td>
+              <td className="num">{c.runs ? `${c.delivered}/${c.runs}${c.failed ? ` · ${c.failed} falha${c.failed > 1 ? "s" : ""}` : ""}` : "—"}</td>
+              <td className="num">{c.stars ? "★".repeat(Math.min(c.stars, 5)) + (c.stars > 5 ? `+${c.stars - 5}` : "") : "—"}</td>
+              <td>{c.status === "demitido" ? <button className="ghost" disabled={hrBusy} onClick={() => hrAct(() => rehireAgent(c.agentId))}>Recontratar</button> : !c.enabled ? "Desligado" : c.score === null || c.runs < hr.rules.minRuns ? "Em experiência" : c.warnings ? `Em plano de melhoria` : "Ativo"}</td>
+            </tr>)}</tbody>
+          </table> : <p className="office-hint">Ainda não há agentes de tarefa. Crie um em Agentes para o RH começar a avaliar.</p>}
+        </div>
+        <ul className="office-hr-events" aria-label="Decisões do RH">
+          {hr.events.filter((e) => e.kind !== "avaliacao").slice(0, 8).map((e) => <li key={e.id}>
+            <span className={`office-hr-kind k-${e.kind}`}>{HR_KIND[e.kind] || e.kind}</span>
+            <span><strong>{e.title}</strong>{e.detail ? ` — ${e.detail}` : ""}<small> {e.by ? `${e.by}, ` : ""}{since(Date.parse(e.at))}</small></span>
+          </li>)}
+          {!hr.events.some((e) => e.kind !== "avaliacao") && <li className="office-hint">Nenhuma decisão ainda: o RH avalia a cada hora, depois de 3 entregas de cada agente.</li>}
+        </ul>
+      </div>}
+    </section>
   </section>;
 }
 
@@ -211,7 +252,8 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, walkers:
   for (const w of walkers) {
     const lit = w.id === hover || w.id === selected; const a = w.actor; const p = feet(w);
     if (!lit && w.spot?.kind === "meeting" && !w.path.length && meeting.length > 6 && w.id !== speaker) continue;      // a crowd: only who speaks
-    const text = lit ? `${who(a)}: ${STATE_LABEL[a.state] || a.state}` : a.kind === "copia" ? a.name.replace(/ de .*/, "") : a.name.length > 14 ? `${a.name.slice(0, 13)}…` : a.name;
+    const short = a.kind === "copia" ? a.name.replace(/ de .*/, "") : a.name.length > 14 ? `${a.name.slice(0, 13)}…` : a.name;
+    const text = lit ? `${who(a)}: ${STATE_LABEL[a.state] || a.state}` : a.stars ? `${short} ★${a.stars}` : short;
     const size = Math.round((lit ? 4.6 : 3.6) * k); ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
     const x = p.x * k, y = (p.y + 5) * k + size * 0.6;
     if (lit) { const wd = ctx.measureText(text).width + size; ctx.fillStyle = "rgba(23,20,31,0.88)"; ctx.fillRect(x - wd / 2, y - size, wd, size * 1.4); ctx.fillStyle = "#ffffff"; ctx.fillText(text, x, y); continue; }

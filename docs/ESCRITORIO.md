@@ -102,3 +102,27 @@ Clicar numa pessoa mostra:
 - Testes:
   - `test/office.test.js`: estados e salas;
   - `test/office-ui.test.js`: a tela aberta num servidor de teste.
+
+## Um escritório só, e o RH dos agentes (13/10)
+
+Todos ficam na mesma sala: cada pessoa leva o projeto em que trabalha (na lista e no cartão), com um chefe para o andar inteiro.
+
+O RH (`app/hr.js`) tem duas pessoas na sala: **Helena** (avaliação e prêmios) e **Otávio** (contratação e desligamento). A cada hora, ou no botão **Avaliar agora**, elas dão uma nota a cada agente de tarefa pelas últimas 10 entregas reais, com as recentes pesando mais:
+
+| Entrega | Pontos |
+| --- | --- |
+| Entregue sem correção | 100 |
+| Segurada várias vezes pelas travas | 80 |
+| Corrigida pelo professor | 60 |
+| Desfeita pela pessoa | 30 |
+| Falhou | 0 |
+
+Depois de 3 entregas:
+- **Nota 85 ou mais:** uma estrela (no máximo uma por semana). A estrela aparece no nome, na sala.
+- **Nota abaixo de 60:** plano de melhoria. Os problemas que o professor apontou e os erros das execuções viram regras nas instruções do agente, e as regras continuam lá quando o agente é editado.
+- **Nota abaixo de 40, com pelo menos 5 entregas e 2 delas depois do plano:** desligamento. O agente é desligado, sem ser apagado, e um substituto ("Cobrança · Bruna") é contratado para o mesmo trabalho, com a mesma missão, pasta e gatilho, já com todas as lições. **Recontratar** desfaz.
+- **Nota que sobe 15 pontos depois do plano:** um elogio.
+
+Na sala, a Helena vai até quem ganhou estrela ou plano, e o Otávio recebe o contratado na sala de reunião.
+
+![Escritório com o RH](img/escritorio-rh.png)

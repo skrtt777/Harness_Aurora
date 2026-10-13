@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOffice, turnState, sessionName, TEAM_ROOM } from '../app/office.js';
+import { buildOffice, turnState, sessionName, OFFICE_ROOM } from '../app/office.js';
 import { startTurn, setStage, pushTurnStep, endTurn, turnSnapshots, requestApproval } from '../app/pendingTurns.js';
 
 const now = Date.parse('2026-10-12T22:00:00Z');
 const iso = (msAgo) => new Date(now - msAgo).toISOString();
-const find = (office, roomId, id) => office.rooms.find((r) => r.id === roomId).actors.find((a) => a.id === id);
+const find = (office, id) => office.rooms[0].actors.find((a) => a.id === id);
 
 test('office: what a running turn is doing, from its stage, steps and approval', () => {
   assert.deepEqual(turnState({ stage: 'Pensando…', steps: [] }), { state: 'pensando', activity: 'Pensando…' });
@@ -43,27 +43,40 @@ test('office: every character is something real, in its real state, in its proje
   };
   const conversations = new Map([['ca', { id: 'ca', projectId: 'pa' }], ['c1', { id: 'c1', title: 'Metas do mês', projectId: 'p1' }], ['c2', { id: 'c2', title: 'Pergunta', projectId: null }], ['c3', { id: 'c3', title: 'Resumo', projectId: 'p1' }]]);
   const office = buildOffice({ projects, conversations, turns, agents, runs, now });
-  assert.deepEqual(office.rooms.map((r) => r.id), [TEAM_ROOM, 'p1', 'p2', 'geral']);
-  // The team floor: one per agent, in the state of its run; the teacher is there only while reviewing.
-  const team = office.rooms[0].actors;
-  assert.equal(find(office, TEAM_ROOM, 'agente:a1').state, 'revisao');
-  assert.equal(find(office, TEAM_ROOM, 'prof:agente:a1').name, 'Claude');
-  assert.equal(find(office, TEAM_ROOM, 'agente:a2').state, 'cafe'); assert.match(find(office, TEAM_ROOM, 'agente:a2').activity, /Relatorio\.docx/);
-  assert.equal(find(office, TEAM_ROOM, 'agente:a3').state, 'cobrado');
-  assert.equal(find(office, TEAM_ROOM, 'agente:a4').state, 'desligado');
-  assert.equal(find(office, TEAM_ROOM, 'agente:a5').state, 'descanso');
-  assert.equal(find(office, TEAM_ROOM, 'chefe:equipe').state, 'cobrando'); assert.equal(find(office, TEAM_ROOM, 'chefe:equipe').with, 'agente:a3');
-  assert.equal(team.filter((a) => a.kind === 'aurora').length, 0);
-  // A project's room: the Aurora of each conversation working (or that just answered: a coffee).
-  assert.equal(find(office, 'p1', 'aurora:c1').state, 'trabalhando'); assert.equal(find(office, 'p1', 'aurora:c1').activity, 'Pesquisando na web');
-  assert.equal(find(office, 'p1', 'aurora:c3').state, 'cafe');
-  assert.equal(find(office, 'p1', 'chefe:p1').state, 'conferindo');
-  // Copies checking an answer, in the loose conversations' room; a quiet room keeps its Aurora resting.
-  assert.equal(office.rooms.find((r) => r.id === 'geral').actors.filter((a) => a.kind === 'copia').length, 2);
-  assert.deepEqual(office.rooms.find((r) => r.id === 'p2').actors.map((a) => [a.kind, a.state]), [['aurora', 'descanso'], ['chefe', 'supervisionando']]);
+  // One floor for everyone (13/10), each person with the project it works on.
+  assert.deepEqual(office.rooms.map((r) => r.id), [OFFICE_ROOM]);
+  const all = office.rooms[0].actors;
+  assert.equal(find(office, 'agente:a1').state, 'revisao');
+  assert.equal(find(office, 'prof:agente:a1').name, 'Claude');
+  assert.equal(find(office, 'agente:a2').state, 'cafe'); assert.match(find(office, 'agente:a2').activity, /Relatorio\.docx/);
+  assert.equal(find(office, 'agente:a3').state, 'cobrado');
+  assert.equal(find(office, 'agente:a4').state, 'desligado');
+  assert.equal(find(office, 'agente:a5').state, 'descanso');
+  assert.equal(all.filter((a) => a.kind === 'chefe').length, 1);
+  assert.equal(find(office, 'chefe').state, 'cobrando'); assert.equal(find(office, 'chefe').with, 'agente:a3');
+  assert.equal(find(office, 'aurora:c1').state, 'trabalhando'); assert.equal(find(office, 'aurora:c1').activity, 'Pesquisando na web'); assert.equal(find(office, 'aurora:c1').project, 'Vendas');
+  assert.equal(find(office, 'aurora:c3').state, 'cafe');
+  assert.equal(find(office, 'aurora:c2').project, 'Conversas soltas');
+  assert.equal(all.filter((a) => a.kind === 'copia').length, 2);
   // A team request: the boss and its agents in the meeting.
   const meeting = buildOffice({ agents: [{ id: 'a5', name: 'Estoque', enabled: true, projectId: 'pe' }], runs: [], orchestrations: [{ status: 'running', request: 'Fechar o mês', startedAt: iso(1000), plan: [{ agentId: 'a5' }] }], now });
-  assert.equal(find(meeting, TEAM_ROOM, 'agente:a5').state, 'reuniao'); assert.equal(find(meeting, TEAM_ROOM, 'chefe:equipe').state, 'reuniao');
+  assert.equal(find(meeting, 'agente:a5').state, 'reuniao'); assert.equal(find(meeting, 'chefe').state, 'reuniao');
+  // Nobody working: the Aurora resting.
+  assert.deepEqual(buildOffice({ now }).rooms[0].actors.map((a) => [a.kind, a.state]), [['aurora', 'descanso'], ['chefe', 'supervisionando']]);
+});
+
+test('office: the HR team at work (a prize, a warning, a new hire) and the agents stars', () => {
+  const agents = [{ id: 'a1', name: 'Cobrança', enabled: true, projectId: 'pa' }, { id: 'a2', name: 'Estoque', enabled: true, projectId: 'pb' }, { id: 'a3', name: 'Velho', enabled: false, projectId: 'pc' }];
+  const badges = new Map([['a1', { stars: 2, warnings: 0, status: 'ativo' }], ['a3', { stars: 0, warnings: 1, status: 'demitido' }]]);
+  const events = [{ agentId: 'a1', kind: 'premio', by: 'Helena', at: now - 60000 }, { agentId: 'a2', kind: 'contratacao', by: 'Otávio', at: now - 30000 }];
+  const office = buildOffice({ agents, runs: [], hr: { events, badges }, now });
+  assert.equal(find(office, 'rh:helena').state, 'premiando'); assert.equal(find(office, 'rh:helena').with, 'agente:a1');
+  assert.equal(find(office, 'rh:otavio').state, 'entrevistando'); assert.equal(find(office, 'agente:a2').state, 'reuniao');
+  assert.equal(find(office, 'agente:a1').stars, 2);
+  assert.equal(find(office, 'agente:a3').activity, 'Desligado pelo RH');
+  // Quiet: HR at their desks.
+  const quiet = buildOffice({ agents, runs: [], hr: { events: [], badges }, now });
+  assert.deepEqual(['rh:helena', 'rh:otavio'].map((id) => find(quiet, id).state), ['trabalhando', 'trabalhando']);
 });
 
 test('office: each session has a name of its own, from its conversation (same letter, same name every time, none twice in a room)', () => {
@@ -74,11 +87,11 @@ test('office: each session has a name of its own, from its conversation (same le
   const turns = { active: ['a', 'b', 'c'].map((id, i) => ({ conversationId: id, stage: 'Pensando…', steps: [], since: now - 1000 * (3 - i) })), ended: [] };
   const conversations = new Map(['a', 'b', 'c'].map((id) => [id, { id, title: 'Metas', projectId: 'p1' }]));
   const office = buildOffice({ projects: [{ id: 'p1', name: 'Vendas' }], conversations, turns, now });
-  const names = office.rooms.find((r) => r.id === 'p1').actors.filter((a) => a.kind === 'aurora').map((a) => a.name);
+  const names = office.rooms[0].actors.filter((a) => a.kind === 'aurora').map((a) => a.name);
   assert.equal(new Set(names).size, 3); assert.ok(names.every((x) => /^M/.test(x)), names.join());
   // A newcomer never takes the name of who was already there.
   const later = buildOffice({ projects: [{ id: 'p1', name: 'Vendas' }], conversations: new Map([...conversations, ['z', { id: 'z', title: 'Metas', projectId: 'p1' }]]), turns: { active: [...turns.active, { conversationId: 'z', stage: 'x', steps: [], since: now }], ended: [] }, now });
-  const again = later.rooms.find((r) => r.id === 'p1').actors.filter((a) => a.kind === 'aurora' && a.conversationId !== 'z').map((a) => a.name);
+  const again = later.rooms[0].actors.filter((a) => a.kind === 'aurora' && a.conversationId !== 'z').map((a) => a.name);
   assert.deepEqual(again, names);
 });
 

@@ -658,3 +658,10 @@ export const eraseSubject = (term: string) => request<{ memoriesDeleted: number;
 // The agents' office (app/office.js): the rooms and who is in them, each a real session, agent or teacher.
 export type OfficeRoom = { id: string; name: string; kind: "equipe" | "projeto" | "geral"; actors: import("./officeSim").OfficeActor[] };
 export const getOffice = () => request<{ rooms: OfficeRoom[]; updatedAt: string }>("/office");
+// The HR team (app/hr.js): each agent's grade from its real deliveries, and what HR decided.
+export type HrCard = { agentId: string; name: string; department: string | null; enabled: boolean; score: number | null; runs: number; delivered: number; corrected: number; failed: number; trend: number; stars: number; warnings: number; status: string; lessons: string[]; replacedBy: string | null; replaces: string | null };
+export type HrEvent = { id: string; agentId: string | null; kind: string; title: string; detail: string | null; score: number | null; by: string | null; relatedId: string | null; at: string };
+export type HrSnapshot = { team: Array<{ id: string; name: string; role: string }>; rules: Record<string, number>; report: HrCard[]; events: HrEvent[]; lastReview: string | null };
+export const getHr = () => request<HrSnapshot>("/hr");
+export const reviewHr = () => request<HrSnapshot>("/hr/review", { method: "POST", body: "{}" });
+export const rehireAgent = (agentId: string) => request<HrSnapshot>("/hr/rehire", { method: "POST", body: JSON.stringify({ agentId }) });
