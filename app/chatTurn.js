@@ -666,14 +666,16 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // (AURORA_AREA_RULES=off measures without them).
           const areaText = env.AURORA_AREA_RULES !== "off" && toolContext.order?.areaSure ? areaRules[toolContext.order.area] : null;
           const coreRules = codeTurn ? `${agentRules}\n${codeRules}` : areaText ? `${agentRules}\n${areaText}` : agentRules;
-          const buildContext = (docsBlock, lean = false) => compactContext({ ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(!lean && orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: lean ? (codeTurn ? `${agentRules}\n${codeRules}` : agentRules) : coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
+          const buildContext = (docsBlock, lean = false, fit = false) => compactContext({ fit, ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(!lean && orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: lean ? (codeTurn ? `${agentRules}\n${codeRules}` : agentRules) : coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           // Too big: first the whole sheets go, then the extras of the Sede (the order and the department's
           // rules) — a file that arrived with the request no longer makes the turn fail (13/10).
           agentContext = await buildContext(docsBlockOf(true))
             .catch((error) => (error.status === 413 && fullSheets.size ? buildContext(docsBlockOf(false)) : Promise.reject(error)))
-            .catch((error) => (error.status === 413 ? buildContext(docsBlockOf(false), true) : Promise.reject(error)));
+            .catch((error) => (error.status === 413 ? buildContext(docsBlockOf(false), true) : Promise.reject(error)))
+            // Still too big (a big company project on a small context): the big blocks are shortened, saying so.
+            .catch((error) => (error.status === 413 ? buildContext(docsBlockOf(false), true, true) : Promise.reject(error)));
           if (conversation.provider === "local" && warming) { setStage(conversationId, "Carregando o modelo local…"); await warming.catch(() => {}); }
           const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
           const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
@@ -779,7 +781,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           }
         }
         if (!result) {
-          localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, required: [...promptArgs.required, ...(fallbackFiles ? [fallbackFiles] : [])], scope, limit: contextLimit || 12000 }) : null;
+          localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, required: [...promptArgs.required, ...(fallbackFiles ? [fallbackFiles] : [])], scope, limit: contextLimit || 12000, fit: true }) : null;
           const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
           result = conversation.provider === "local"
             ? await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) })

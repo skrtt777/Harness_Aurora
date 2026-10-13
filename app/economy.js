@@ -25,11 +25,41 @@ export function budgetFrom(input = {}) {
   return out;
 }
 
-// Complete blocks only: never silently cut requirements, code or dependency artifacts.
-export async function compactContext({ input, instructions = '', memories = [], history = [], required = [], limit = 16000, skillQuery = input, includeOptional = true, includeSkills = true, scope = {}, allowSkillRequests = false, core = rules.KERNEL, withTask = true }) {
+/**
+ * The essential blocks made to fit, as the last resort (fit: true): the biggest blocks between the rules
+ * and the task (attached files, the company's documents, long project instructions) are shortened,
+ * each saying so and where the rest is; the rules (first) and the task (last) are never cut. A work
+ * laptop with a big company project refused almost every request with "Requisitos ou dependências
+ * excedem o contexto" (13/10).
+ */
+export function fitBlocks(blocks, max) {
+  const out = blocks.slice();
+  const sep = 2 * (out.length - 1);
+  const total = () => out.reduce((n, b) => n + b.length, 0) + sep;
+  const note = (cut) => `\n… (cortado para caber no contexto: faltam ${cut} caracteres; o conteúdo completo está no arquivo ou no projeto — leia com read_file o trecho que precisar)`;
+  // Shrink the middle blocks, the biggest first, down to what fits (at least 300 characters each).
+  for (let guard = 0; guard < 50 && total() > max; guard++) {
+    const middle = out.map((b, i) => [i, b.length]).slice(1, -1).filter(([, n]) => n > 700).sort((a, b) => b[1] - a[1]);
+    if (!middle.length) break;
+    const [i, n] = middle[0];
+    const over = total() - max;
+    const keep = Math.max(300, n - over - 260);
+    const text = out[i].replace(/\n… \(cortado para caber no contexto:[^)]*\)$/, '');
+    out[i] = text.slice(0, keep) + note(text.length - keep);
+  }
+  if (total() > max) throw httpError(413, 'O pedido e as regras da Aurora sozinhos já passam do contexto deste computador. Aumente o tamanho do contexto nas configurações do modelo local ou encurte o pedido.');
+  return out;
+}
+
+// Complete blocks only: never silently cut requirements, code or dependency artifacts (fit: true, the
+// last resort, shortens them saying so).
+export async function compactContext({ input, instructions = '', memories = [], history = [], required = [], limit = 16000, skillQuery = input, includeOptional = true, includeSkills = true, scope = {}, allowSkillRequests = false, core = rules.KERNEL, withTask = true, fit = false }) {
   const max = Math.min(24000, Math.max(6000, limit));
-  const essential = [core, instructions && `Projeto:\n${instructions}`, ...required, `Tarefa atual:\n${input}`].filter(Boolean);
-  if (essential.join('\n\n').length > max) throw httpError(413, 'Requisitos ou dependências excedem o contexto. Divida a etapa; nenhum conteúdo foi truncado.');
+  let essential = [core, instructions && `Projeto:\n${instructions}`, ...required, `Tarefa atual:\n${input}`].filter(Boolean);
+  if (essential.join('\n\n').length > max) {
+    if (!fit) throw httpError(413, 'Requisitos ou dependências excedem o contexto. Divida a etapa; nenhum conteúdo foi truncado.');
+    essential = fitBlocks(essential, max);
+  }
   const selectedSkills = includeOptional && includeSkills ? await selectSkills(skillQuery, Math.min(3600, max - essential.join('\n\n').length),3,scope) : [];
   const optional = []; let remaining = max - essential.join('\n\n').length;
   const add = text => { if (text.length + 2 > remaining) return false; optional.push(text); remaining -= text.length + 2; return true; };

@@ -149,3 +149,17 @@ test("Pessoas speaking of the law (CLT) gets the CLT's page and the citation che
   assert.match(dispatchCheck(ask, { answer: "Pelo art. 130 da CLT são 30 dias.", steps: [], read: [] }).missing.join(), /sem consultar nada/);
   assert.equal(serviceOrder("Liste numa planilha os funcionários que começam férias em outubro").legalAsk, false);
 });
+
+test("a big company project on a small context is fitted, never refused: big blocks shortened saying so, rules and task whole", async () => {
+  const { compactContext, fitBlocks, agentRules } = await import("../app/economy.js");
+  const instructions = "Regras do setor: ".padEnd(9000, "x");
+  const files = "Arquivo anexado C:/empresa/Relatorio.xlsx:\n".padEnd(14000, "y");
+  await assert.rejects(compactContext({ input: "faça o relatório", instructions, required: [files], limit: 20000, core: agentRules, includeOptional: false }), /excedem o contexto/);
+  const ctx = await compactContext({ input: "faça o relatório", instructions, required: [files], limit: 20000, core: agentRules, includeOptional: false, fit: true });
+  assert.ok(ctx.prompt.length <= 20000, String(ctx.prompt.length));
+  assert.ok(ctx.prompt.startsWith(agentRules), "the rules stay whole");
+  assert.match(ctx.prompt, /Tarefa atual:\nfaça o relatório$/);
+  assert.match(ctx.prompt, /cortado para caber no contexto: faltam \d+ caracteres[\s\S]*read_file/);
+  assert.match(ctx.prompt, /Arquivo anexado C:\/empresa\/Relatorio\.xlsx/);
+  assert.throws(() => fitBlocks(["r".repeat(9000), "t".repeat(9000)], 6000), /aumente o tamanho do contexto/i);
+});
