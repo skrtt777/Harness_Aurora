@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import {afterLlamaAnswer} from "./llamaServer.js";
 // Android execution adapter. Context, memory, correction and persistence stay in Harness.
 // A text prompt gets the same template, sampling and output limit the desktop Ollama
@@ -234,7 +235,7 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
       return {ok:false,status:502,unsupported:/tools? (is )?not supported|jinja/i.test(error),error,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};
     }
     const choice=data.choices?.[0],message=choice?.message||{};
-    const toolCalls=(message.tool_calls||[]).map((c)=>{let args=parseToolArguments(c.function?.arguments,choice?.finish_reason);if(choice?.finish_reason==='length'&&!Object.keys(args).length)args={__cut:true};return {name:c.function?.name,arguments:args};}).filter((c)=>c.name);
+    const toolCalls=(message.tool_calls||[]).map((c)=>{let args=parseToolArguments(c.function?.arguments,choice?.finish_reason);if(choice?.finish_reason==='length'&&!Object.keys(args).length){args={__cut:true};if(env.AURORA_DEBUG_CUT)try{appendFileSync(env.AURORA_DEBUG_CUT,`\n===== ${new Date().toISOString()} ${c.function?.name} (${String(c.function?.arguments||'').length} chars)\n${String(c.function?.arguments||'').slice(0,6000)}\n`);}catch{}}return {name:c.function?.name,arguments:args};}).filter((c)=>c.name);
     const text=typeof message.content==='string'?message.content:'';
     const usage=data.usage?{input_tokens:data.usage.prompt_tokens,output_tokens:data.usage.completion_tokens}:null;
     const timings=data.timings;
