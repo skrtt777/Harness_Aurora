@@ -8,6 +8,17 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.43': {
+    title: 'A Sede da Aurora',
+    items: [
+      ['Um escritório com departamentos', 'O Escritório virou a Sede: Recepção, Arquivo, Biblioteca, os departamentos (Jurídico, Financeiro, Pessoas, Comercial e Marketing, TI e Código, Operações), Revisão, Conferência e Expedição. Cada pessoa fica na sala do que está fazendo de verdade.'],
+      ['Cada pedido é uma ficha', 'Ao lado da planta, cada pedido mostra a etapa (o pedido, o time trabalha, a entrega), as estações por onde passou e a ordem de serviço: o que entregar e as regras.'],
+      ['Recepção de verdade', 'Antes de trabalhar, a Aurora monta a ordem de serviço do pedido: arquivos e formato, a pasta, regras como "mais de 300 em cada linha", rodar e mostrar o resultado, citar só fonte oficial.'],
+      ['Expedição de verdade', 'Antes de responder, a entrega é conferida: o formato pedido foi gravado, o que era para rodar rodou e a resposta diz onde está o arquivo.'],
+      ['Regras de cada departamento', 'Jurídico, Financeiro, Pessoas, Comercial e Operações têm o próprio checklist: no Jurídico, leis só de fonte oficial e prazo com a data final; no Financeiro, valores exatos e vencido separado do a vencer.'],
+      ['Menos entregas perdidas', 'Nome de arquivo com > ou : não falha mais, tabelas longas não aparecem como "cortadas" no meio, e quando a Aurora lê demais ela é levada a gravar a entrega.'],
+    ],
+  },
   '0.1.42': {
     title: 'A Aurora programa, aprende e tem um RH',
     items: [

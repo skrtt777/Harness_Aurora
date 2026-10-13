@@ -70,6 +70,13 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.43 (13/10, publicada): a Sede da Aurora.**
+  - **Sede** (`app/headquarters.js`, `docs/ESCRITORIO.md`): 18 salas em três faixas; a estação de cada pessoa pelo que ela faz de verdade; a ficha de cada pedido.
+  - **Recepção e Expedição** (`app/serviceOrder.js`): ordem de serviço no prompt e na ficha; a entrega conferida contra ela.
+  - **Regras por departamento** (`runtime-policy/areas`), só em pedido da área; prompt enxuto quando não cabe.
+  - **Entrega mais firme:** corte em fim de linha, nome de arquivo válido, gravar depois de ler demais.
+  - Baterias: conversas 42/43 (a falha passou 3/3 ao repetir), agentes de setor 90,6% em 2 rodadas, código e VS Code verdes.
+
 - **0.1.42 (13/10, publicada): Aurora em código e no VS Code, aprendizado, escritório único com RH.**
   - **VS Code** (`vscode/aurora` 0.2.0): `@aurora` com /explicar, /corrigir (painel Problemas), /testes, /revisar (git diff); diferenças e desfazer; barra de status; lâmpada "Corrigir com a Aurora".
   - **Código:** `create_site` e `create_api` (o modelo escreve o conteúdo, o Harness o resto); sintaxe checada ao gravar; `check_page` (computador e celular); `code_map`; travas de arquivo pedido e de "rodou sem rodar"; regras e ferramentas de código só em pedido de código.
