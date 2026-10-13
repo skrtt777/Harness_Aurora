@@ -9,7 +9,7 @@
 const vscode = require("vscode");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
-const { createClient, HarnessError, stepLine, composeMessage, commandPrompt } = require("./lib/client");
+const { createClient, HarnessError, stepLine, composeMessage, commandPrompt, orderLine } = require("./lib/client");
 
 const KEY = "aurora.conversations";       // workspaceState: folder -> conversation id
 
@@ -121,10 +121,12 @@ function activate(context) {
       if (request.command === "revisar" && !ctx.diff) { stream.markdown("Não há mudanças para revisar (o `git diff` está vazio, ou a pasta não é um repositório git)."); return {}; }
       if (request.command === "corrigir" && !ctx.problems.length && !ctx.selection && !request.prompt.trim()) { stream.markdown("O painel Problemas está vazio. Selecione o trecho com defeito ou diga o que está errado: `@aurora /corrigir o botão não salva`."); return {}; }
       stream.progress("A Aurora está pensando…");
-      const shownSteps = new Set(); const askedFor = new Set();
+      const shownSteps = new Set(); const askedFor = new Set(); let orderShown = false;
       const result = await harness.send(conversationId, composeMessage(commandPrompt(request.command, request.prompt), ctx), {
         signal: controller.signal,
         onProgress: (p) => {
+          // What the Recepção understood the request to be, once, before the steps.
+          if (!orderShown && p.order) { orderShown = true; const line = orderLine(p.order); if (line) stream.markdown(`${line}\n\n`); }
           for (const s of p.steps || []) {
             const line = stepLine(s); const k = `${s.tool}:${line}`;
             if (s.status !== "running" && line && !shownSteps.has(k)) { shownSteps.add(k); stream.markdown(`${s.ok === false || s.status === "failed" ? "✗" : "✓"} ${line.replace(/[*_`]/g, "")}\n\n`); }

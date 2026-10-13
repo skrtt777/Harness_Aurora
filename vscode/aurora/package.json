@@ -2,7 +2,7 @@
   "name": "aurora-harness",
   "displayName": "Aurora (Harness)",
   "description": "A Aurora do seu PC no chat do VS Code: @aurora conversa com o Harness Aurora local, com a pasta aberta como projeto, os erros do painel Problemas, diferenças e desfazer.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "harness-aurora",
   "license": "UNLICENSED",
   "private": true,

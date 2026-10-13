@@ -93,6 +93,11 @@ export function getTurnPlan(conversationId) {
   return pending.get(conversationId)?.plan || null;
 }
 
+/** The Recepção's order of the running turn (what to deliver, the rules), for the clients. */
+export function getOrder(conversationId) {
+  return pending.get(conversationId)?.order || null;
+}
+
 /**
  * Pauses the turn until the user clicks Permitir/Negar in the chat. The
  * pending request is exposed through /pending (which the UI already polls);

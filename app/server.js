@@ -29,7 +29,7 @@ import { CURATED_MODELS, getLocalStatus, runOllamaSetup, setLocalModel } from ".
 import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting, setSetting } from "./store.js";
 import { correctLocalAnswer } from "./correction.js";
 import { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl } from "./community.js";
-import { activeTurns, startTurn, setStage, getStage, getPartial, endTurn, cancelTurn, getTurnSteps, getApproval, resolveApproval, getTurnPlan } from "./pendingTurns.js";
+import { activeTurns, startTurn, setStage, getStage, getPartial, endTurn, cancelTurn, getTurnSteps, getApproval, resolveApproval, getTurnPlan, getOrder } from "./pendingTurns.js";
 import { AGENT_MODES } from "./agentPolicy.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { createSource, deleteSource, knowledgeMap, listSources, startIndexing, updateSource } from "./knowledge.js";
@@ -721,7 +721,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/pending$/);
       if (match && method === "GET") {
         const [, id] = match;
-        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id), steps: getTurnSteps(id), approval: getApproval(id), plan: getTurnPlan(id) });
+        return sendJson(response, 200, { stage: getStage(id), partial: getPartial(id), steps: getTurnSteps(id), approval: getApproval(id), plan: getTurnPlan(id), order: getOrder(id) });
       }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/approval$/);
       if (match && method === "POST") {

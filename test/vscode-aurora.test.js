@@ -100,3 +100,11 @@ test("Harness: created files are recorded and undone (desktop and VS Code), edit
   writeFileSync(join(dir, "mine.js"), "meu\n");
   assert.equal((await undoEdits(later)).skipped[0].reason, "mudou depois de criado");
 });
+
+test("VS Code: the Recepção's order as one line at the start of the answer", () => {
+  const { orderLine } = require("../vscode/aurora/lib/client.js");
+  assert.equal(orderLine({ deliver: ["uma planilha Excel (.xlsx)"], rules: ["mais de 300 funcionarios em cada item (não no total)"], run: false }), "**Ordem de serviço:** Entregar: uma planilha Excel (.xlsx) · Regras: mais de 300 funcionarios em cada item (não no total)");
+  assert.equal(orderLine({ deliver: [], rules: [], run: true }), "**Ordem de serviço:** rodar e mostrar a saída");
+  assert.equal(orderLine({ deliver: [], rules: [], run: false }), "");
+  assert.equal(orderLine(null), "");
+});

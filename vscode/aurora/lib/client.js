@@ -75,7 +75,7 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
           if (done) break;
           const p = await call(`/conversations/${encodeURIComponent(id)}/pending`, { timeoutMs: 5000 }).catch(() => null);
           if (!p) continue;
-          const key = JSON.stringify([p.stage, p.steps?.length, p.steps?.at?.(-1)?.status, p.approval?.id, String(p.partial || "").length]);
+          const key = JSON.stringify([p.stage, p.steps?.length, p.steps?.at?.(-1)?.status, p.approval?.id, String(p.partial || "").length, Boolean(p.order)]);
           if (key !== last) { last = key; onProgress(p); }
         }
       })();
@@ -114,6 +114,17 @@ function problemsText(problems = [], max = 40) {
   const order = { erro: 0, aviso: 1 };
   return problems.slice().sort((a, b) => (order[a.severity] ?? 2) - (order[b.severity] ?? 2)).slice(0, max)
     .map((p) => `${p.file}:${p.line} ${p.severity}: ${String(p.message).replace(/\s+/g, " ").slice(0, 200)}${p.source ? ` (${p.source})` : ""}`).join("\n");
+}
+
+/** The Recepção's order as one line for the chat ("Entregar: …; Regras: …"), or "". */
+function orderLine(order) {
+  if (!order) return "";
+  const parts = [
+    ...(order.deliver?.length ? [`Entregar: ${order.deliver.join("; ")}`] : []),
+    ...(order.rules?.length ? [`Regras: ${order.rules.join("; ")}`] : []),
+    ...(order.run ? ["rodar e mostrar a saída"] : []),
+  ];
+  return parts.length ? `**Ordem de serviço:** ${parts.join(" · ")}` : "";
 }
 
 /** What a step looks like in the chat while it runs ("Lendo src/app.js"). */
@@ -156,4 +167,4 @@ function commandPrompt(command, prompt) {
   return make ? make(String(prompt || "").trim()) : String(prompt || "");
 }
 
-module.exports = { createClient, HarnessError, filesIn, stepLine, composeMessage, changesOf, problemsText, commandPrompt, COMMANDS };
+module.exports = { createClient, HarnessError, filesIn, stepLine, composeMessage, changesOf, problemsText, commandPrompt, COMMANDS, orderLine };
