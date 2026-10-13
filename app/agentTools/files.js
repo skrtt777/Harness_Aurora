@@ -6,6 +6,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
 import { DOCUMENT_FORMATS, renderDocument, parseBlocks } from "../documentWriter.js";
 import { numberRules, ruleBreaks, breaksMessage } from "../numberRules.js";
+import { checkCode, checkNote } from "../codeCheck.js";
 import { requestsFile } from "../teacher.js";
 
 // Binary office formats are read as their text; everything else as UTF-8.
@@ -900,8 +901,10 @@ function inAskedFolder(path, ctx) {
   }
   // Every relative path of the request goes there (the website's areas made backend-java/, module-cpp/
   // next to the "site" folder the person named, 13/10).
+  const parts = p.split(/[\\/]/);
+  if (new RegExp(`^pasta[ _-]?${folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i").test(foldText(parts[0]))) { parts[0] = folder; p = parts.join("/"); }
   const first = p.split(/[\\/]/)[0];
-  if (first.toLowerCase() === folder.toLowerCase() || first === "..") return path;
+  if (first.toLowerCase() === folder.toLowerCase() || first === "..") return p;
   return `${folder}/${p.replace(/^\.[\\/]/, "")}`;
 }
 /** A request for code (a script, an API, a site): its CSV is read by a program, not by Excel. */
@@ -925,7 +928,9 @@ export function cleanCode(file, content) {
 
 function documentPath(args, ctx) {
   // Small models name the field after other tools ("file_path", "filename").
-  const path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
+  let path = args.path || args.file_path || args.filePath || args.filename || args.file || args.name;
+  // A data file of a code request goes in the folder the request names, like write_file's (13/10).
+  if (ctx.workspace && path && CODE_REQUEST.test(foldText(ctx.request))) path = inAskedFolder(path, ctx);
   const format = args.format;
   // "planilha-1/contratos.xlsx" inside the folder planilha-1 meant the folder itself,
   // not a new planilha-1\planilha-1 (a small model repeats the project's name).
@@ -1312,7 +1317,7 @@ export const fileTools = [
       await mkdir(dirname(file), { recursive: true });
       // Replacing a file the person had loses what was there: a copy goes to Desfazer.
       await changeFile(file, String(content ?? ""), ctx);
-      return `Salvei ${file} (${Buffer.byteLength(String(content ?? ""))} bytes).`;
+      return `Salvei ${file} (${Buffer.byteLength(String(content ?? ""))} bytes).${CODE_FILE.test(file) ? checkNote(file, await checkCode(file)) : ""}`;
     },
   },
   {
@@ -1326,6 +1331,9 @@ export const fileTools = [
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
       let file = documentPath(args, ctx);
       const format = extname(file).slice(1).toLowerCase();
+      if (["docx", "pdf", "md"].includes(format) && CODE_REQUEST.test(foldText(ctx.request)) && !/\b(docx?|word|pdf|documento|relatorio em|manual|apresentacao)\b/.test(foldText(ctx.request).replace(/relatorio\.py/g, ""))) {
+        throw new Error(`O pedido é de código e não pediu documento ${format}: não crie ${basename(file)}. Responda com o que foi feito no código (arquivos, como rodar, o resultado real).`);
+      }
       // The document the person is watching in Word/Excel is saved from there: a file written anew
       // here would not be the one on their screen (Word cowork, 10/10).
       if (process.platform === "win32" && ["docx", "pdf", "xlsx", "pptx"].includes(format)) {
@@ -1595,14 +1603,14 @@ async function editFile({ path, before, after }, ctx) {
   if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
   if (before && count === 1) {
     await changeFile(file, text.replace(String(before), () => String(after ?? "")), ctx);
-    return `Editei ${file}.`;
+    return `Editei ${file}.${CODE_FILE.test(file) ? checkNote(file, await checkCode(file)) : ""}`;
   }
   // The model copies code with its own indentation (4 spaces for a 2-space file) and never
   // matched: the same lines, ignoring leading spaces, found once, are replaced re-indented.
   const loose = before ? looseReplace(text, String(before), String(after ?? "")) : null;
   if (loose) {
     await changeFile(file, loose, ctx);
-    return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).`;
+    return `Editei ${file} (o trecho batia ignorando a indentação; mantive a do arquivo).${CODE_FILE.test(file) ? checkNote(file, await checkCode(file)) : ""}`;
   }
   throw new Error("O trecho 'before' não existe no arquivo. Leia o arquivo e copie o trecho exato (sem os números de linha).");
 }

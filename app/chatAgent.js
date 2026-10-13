@@ -1,3 +1,4 @@
+import { missingFiles, claimsRunWithoutRunning } from "./codeGuards.js";
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -251,6 +252,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
+  let filesChecked = 0, ranChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -417,6 +419,22 @@ export async function runChatAgent({
       blanksChecked = true;
       checks.push({ check: "data_blanks", answer: blanks.join(" ") });
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Você deixou para preencher ${blanks.join(", ")}, mas esses dados estão ${readSheet ? "no que você leu" : "nos documentos que a busca achou: leia o documento com read_file (filter/sort para achar o cliente ou o valor)"}. Reescreva o texto com os nomes, números, datas e valores reais (só a assinatura pode ficar em branco).` });
+      continue;
+    }
+    // Code: the files the request names exist, and "o script rodou" only when something ran (13/10:
+    // only the CSV was written and the answer gave the result of a script that did not exist).
+    const root = toolContext.workspace;
+    const missing = !toolCalls.length && offered.length && root && filesChecked < 2 ? missingFiles(question, root) : [];
+    if (missing.length) {
+      filesChecked += 1;
+      checks.push({ check: "requested_files_missing", items: missing, answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `O pedido pede ${missing.map((m) => `"${m}"`).join(", ")} e ${missing.length > 1 ? "esses arquivos não existem" : "esse arquivo não existe"} na pasta do projeto. Crie agora com write_file (código curto e completo), rode se o pedido mandar rodar, e só então responda com o resultado real.` });
+      continue;
+    }
+    if (!toolCalls.length && offered.length && !ranChecked && offered.some((t) => t.name === "run_command") && claimsRunWithoutRunning(text, steps, question)) {
+      ranChecked = true;
+      checks.push({ check: "claimed_run", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Você disse que rodou ou testou, mas nenhum comando rodou nesta resposta: o resultado foi inventado. Rode agora com run_command (ex.: python pasta/script.py ou node --test) e responda só com a saída real." });
       continue;
     }
     // "Documento criado com sucesso" with nothing written: the person goes looking for it.

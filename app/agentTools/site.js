@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildSite, SITE_THEMES } from "../siteBuilder.js";
 import { askedFolder } from "./files.js";
+import { checkPage, shotsFolder } from "../pageCheck.js";
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -48,6 +49,9 @@ export const siteTools = [
       let compiled = null;
       if (content.java) compiled = await new Promise((done) => execFile("javac", ["server/Servidor.java", "-d", "server/out"], { cwd: dir, windowsHide: true, timeout: 60000 }, (error, _out, err) => done(error ? `não compilou (${String(err || error.message).split(/\r?\n/)[0].slice(0, 120)})` : "compilado")));
       const index = join(dir, "index.html");
+      // Looked at like a person would, at a computer's and a phone's size.
+      ctx.onStage?.("Conferindo o site no computador e no celular…");
+      const check = await checkPage(pathToFileURL(index).href, { shotsDir: shotsFolder(pathToFileURL(index).href), env: ctx.env }).catch((e) => ({ report: `Não consegui conferir: ${e.message}` }));
       return [
         `Criei o site "${content.title}" em ${dir} (tema ${content.theme}, ${content.items.length} itens):`,
         `O que ele tem (descreva só isto): menu fixo com as seções ${["Início", content.itemsTitle, ...(content.features.length ? ["Recursos"] : []), "Sobre", "Contato"].join(", ")}, que vira um menu ☰ no celular e acende a seção na tela;${content.three ? " no topo, uma cena 3D em Three.js com formas geométricas flutuando nas cores do tema, que segue o mouse;" : ""} os ${content.items.length} ${content.itemsTitle.toLowerCase()} em cartões React com filtro por categoria (${[...new Set(content.items.map((i) => i.category))].join(", ")}), busca, ordenação e um painel de detalhes ao clicar; ranking dos 5 de maior nota; formulário de contato.`,
@@ -55,7 +59,8 @@ export const siteTools = [
         `Para ver: dois cliques em ${index} (ou browser_navigate em ${pathToFileURL(index).href}).`,
         ...(content.java ? [compiled === "compilado" ? "Java: já compilado; para rodar, na pasta do site: java -cp server/out Servidor (http://localhost:8080)." : `Java: ${compiled} — na pasta do site: javac server/Servidor.java -d server/out e depois java -cp server/out Servidor (http://localhost:8080).`] : []),
         ...(content.cpp ? ["C++: g++ -std=c++17 -O2 -o ranking cpp/ranking.cpp e ./ranking."] : []),
-        "Confira abrindo a página com browser_navigate; para mudar o conteúdo, chame create_site de novo com a mesma pasta. Na resposta, diga o que tem o site e como abrir.",
+        `Conferência: ${check.report}`,
+        "Para mudar o conteúdo, chame create_site de novo com a mesma pasta. Na resposta, diga o que tem o site, o resultado da conferência e como abrir.",
       ].join("\n");
     },
   },

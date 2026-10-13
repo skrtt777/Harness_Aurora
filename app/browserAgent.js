@@ -93,7 +93,7 @@ export async function installChromium(onProgress = () => {}) {
  * window on purpose, so the user can see what an experimental local-model
  * agent is doing and intervene (close it, or use the cancel endpoint).
  */
-function installedChannel(env) {
+export function installedChannel(env) {
   const programs = [env.PROGRAMFILES || "C:\\Program Files", env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)", env.LOCALAPPDATA].filter(Boolean);
   const has = (...parts) => programs.some((base) => existsSync(join(base, ...parts)));
   if (has("Google", "Chrome", "Application", "chrome.exe")) return "chrome";
@@ -104,10 +104,12 @@ function installedChannel(env) {
 async function launchBrowserContext(env) {
   const userDataDir = defaultProfileDir(env);
   await mkdir(userDataDir, { recursive: true });
-  const launchOptions = {
-    headless: env.BROWSER_AGENT_HEADLESS === "1",
-    viewport: { width: 1280, height: 800 },
-  };
+  const headless = env.BROWSER_AGENT_HEADLESS === "1";
+  // A visible window: the page follows the window (a fixed 1280×800 page sat in a corner of a
+  // maximized window, the rest black, 13/10); it opens at that size. Headless keeps a fixed page.
+  const launchOptions = headless
+    ? { headless, viewport: { width: 1280, height: 800 } }
+    : { headless, viewport: null, args: ["--window-size=1280,860"] };
   if (env.CHROMIUM_EXECUTABLE_PATH) launchOptions.executablePath = env.CHROMIUM_EXECUTABLE_PATH;
   // Without Playwright's own Chromium (not downloaded yet, or a Playwright
   // upgrade moved to a new build), drive an installed Chrome or Edge — Edge

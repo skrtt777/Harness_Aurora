@@ -184,3 +184,43 @@ test("create_site: a website from the content, with the technologies the person 
   assert.match(readFileSync(join(project, "site", "index.html"), "utf8"), /react-dom[\s\S]*three\.min\.js/);
   await assert.rejects(siteTools[0].run({ title: "X", tagline: "y", items: items.slice(0, 1) }, { workspace: project, request: "crie um site", env: {} }), /pelo menos 3 itens/);
 });
+
+test("code tools: syntax check on write, the code map, create_api with tests that pass", async () => {
+  const { fileTools } = await import("../app/agentTools/files.js");
+  const { codeTools, codeMap, symbolsOf } = await import("../app/agentTools/code.js");
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+  const project = mkdtempSync(join(tmpdir(), "aurora-code2-"));
+  const write = fileTools.find((t) => t.name === "write_file");
+  const ctx = { workspace: project, request: "crie um script", env: {} };
+  assert.match(await write.run({ path: "a.js", content: "const x = {;" }, ctx), /ATENÇÃO[\s\S]*linha 1/);
+  assert.match(await write.run({ path: "c.json", content: '{"a":1,}' }, ctx), /ATENÇÃO/);
+  assert.doesNotMatch(await write.run({ path: "ok.js", content: "const a = 1;\n" }, ctx), /ATENÇÃO/);
+  assert.match(await write.run({ path: "i.html", content: '<html><script src="js/main.js"></script></html>' }, ctx), /Falta criar: js\/main\.js/);
+  assert.deepEqual(symbolsOf("export async function load(a, b) {}\nclass Store {}\nconst add = (x) => x;\napp.get('/jogos', h);", ".js"), ["export function load(a, b)", "class Store", "add(x)", "GET /jogos"]);
+  assert.deepEqual(symbolsOf("class Jogo:\n    def nota(self):\n        pass\ndef main():\n  for x in y: pass", ".py"), ["class Jogo", "def Jogo.nota(self)", "def main()"]);
+  mkdirSync(join(project, "node_modules", "x"), { recursive: true }); writeFileSync(join(project, "node_modules", "x", "i.js"), "function hidden() {}");
+  const map = codeMap(project).text;
+  assert.match(map, /ok\.js \(2 linhas\)/); assert.doesNotMatch(map, /hidden/);
+  const api = codeTools.find((t) => t.name === "create_api");
+  const said = await api.run({ resource: "jogos", fields: [{ name: "nome" }, { name: "gênero" }, { name: "ano", type: "inteiro" }] }, { workspace: project, request: "na pasta api, crie uma API REST em Node.js com cadastro de jogos", env: process.env });
+  assert.match(said, /Testes \(node --test\): 2 testes passaram, 0 falharam/);
+  assert.match(said, /api[\/]?:?/);
+});
+
+test("code guards: the files a request names must exist; 'o script rodou' only when something ran", async () => {
+  const { requestedFiles, missingFiles, claimsRunWithoutRunning } = await import("../app/codeGuards.js");
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+  const ask = "na pasta python, crie um arquivo jogos.csv com 15 jogos (nome, gênero, ano, nota) e um script relatorio.py que lê o CSV. Rode o script e me mostre o resultado.";
+  assert.deepEqual(requestedFiles(ask), ["jogos.csv", "relatorio.py"]);
+  assert.deepEqual(requestedFiles("leia o vendas.csv e me diga o total"), []);
+  assert.deepEqual(requestedFiles("crie um website usando three.js e react"), []);
+  const project = mkdtempSync(join(tmpdir(), "aurora-guard-")); mkdirSync(join(project, "python")); writeFileSync(join(project, "python", "jogos.csv"), "a,b\n");
+  assert.deepEqual(missingFiles(ask, project), ["relatorio.py"]);
+  writeFileSync(join(project, "python", "relatorio.py"), "print(1)\n");
+  assert.deepEqual(missingFiles(ask, project), []);
+  assert.equal(claimsRunWithoutRunning("O script rodou e encontrou God of War (nota 100)", [{ tool: "write_document", ok: true }], ask), true);
+  assert.equal(claimsRunWithoutRunning("O script rodou: média 8,7", [{ tool: "run_command", ok: true }], ask), false);
+  assert.equal(claimsRunWithoutRunning("Criei os arquivos.", [], ask), false);
+});

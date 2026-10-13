@@ -11,6 +11,7 @@ export const GUIDES = [
     content: [
       "Vale para \"crie um site/uma API/um app/um script\" numa pasta de projeto (VS Code). Erros de 13/10: um site inteiro num arquivo só, cortado 4 vezes; arquivos fora da pasta pedida; testes que nunca rodaram; resposta \"deseja prosseguir?\" no lugar da entrega.",
       "0. Site, página ou portal: chame create_site com o conteúdo (8 a 16 itens reais, 3 recursos, o tema) — ele faz o HTML, o CSS, o React, o Three.js e, se pedirem, o Java e o C++. Depois abra com browser_navigate e ajuste o conteúdo chamando create_site de novo. Os passos abaixo valem para os outros projetos.",
+      "0b. API, backend ou CRUD em Node: create_api com o recurso e os campos — ela cria as rotas, a validação e os testes, e já roda os testes. Projeto que já existe: code_map primeiro (o mapa dos arquivos e funções), depois leia só o arquivo que vai mudar e mude com edit_file só o trecho.",
       "1. Pasta: tudo dentro da pasta que a pessoa citou (\"na pasta api\" = api/...). Caminhos relativos à pasta do projeto (api/server.js, site/index.html), nunca Documentos.",
       "2. Planeje a estrutura antes (update_plan): a lista de arquivos, cada um com uma função. Arquivos pequenos: até umas 150 linhas cada (um componente, uma seção, um módulo, o CSS separado). O arquivo principal só junta os outros.",
       "3. Grave um arquivo por chamada de write_file. Se a ferramenta disser que foi cortado, divida esse arquivo em dois menores; nunca repita o mesmo arquivo grande.",
@@ -28,7 +29,7 @@ export const GUIDES = [
       "2. Node: testes com const { test } = require(\"node:test\") e const assert = require(\"node:assert\"), rodando node --test pasta/. Não existe describe/it global sem importar. Servidor: exporte o servidor e só chame listen quando require.main === module; o teste sobe na porta 0 e fecha no fim.",
       "3. Python: open(caminho, encoding=\"utf-8\", newline=\"\"); ache arquivos pela pasta do script: Path(__file__).parent / \"jogos.csv\". Rode com python pasta/script.py.",
       "4. Java: javac -d out (arquivos .java) e java -cp out Classe. C++: g++ -std=c++17 -o programa arquivo.cpp. Se o compilador não existir, diga isso e como instalar; não finja que rodou.",
-      "5. Página: abra com browser_navigate em file:///C:/pasta/index.html; a ferramenta devolve os erros do console. Erro de módulo/CORS em file://: use um importmap com CDN ou rode npx serve.",
+      "5. Página: confira com check_page (abre escondida no computador e no celular e aponta erros do console, CSS/JS faltando, rolagem para o lado, seções vazias). Para a pessoa ver, browser_navigate em file:///C:/pasta/index.html. Erro de módulo/CORS em file://: use um importmap com CDN ou rode npx serve.",
       "6. Falhou: leia a mensagem de erro inteira, ache o arquivo e a linha, corrija com edit_file e rode de novo. Repita até passar. O mesmo erro duas vezes e você não sabe por quê: chame learn com o erro exato e a tecnologia.",
       "7. Na resposta, mostre a saída real do teste ou do script (ex.: \"5 testes passaram\"), nunca um resultado imaginado.",
     ].join("\n"),
