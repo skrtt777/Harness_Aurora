@@ -187,6 +187,31 @@ export function monthRange(request, now = new Date()) {
  * sheet has a column for. Read whole, the Financeiro agent picked the rows by eye and sent 22 bills
  * instead of 16 (orchestrator eval, 05/10/2026). The ready filter, with the columns of that unit.
  */
+/**
+ * "Os pedidos que ainda não foram entregues": every row whose status is not "Entregue" (13/10: a deck of
+ * the undelivered orders kept 3 of 5, Em trânsito and Aguardando left out as if "pendente" were one value).
+ */
+export function notStatusHint(lines, request) {
+  const text = String(request || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const m = /\bn[aã]o (?:foram |foi |estao |esta |ainda |tenham sido |tem sido )*([a-z]{4,})/.exec(text) || /\bainda n[aã]o (?:foram |foi )?([a-z]{4,})/.exec(text);
+  if (!m) return "";
+  const stem = m[1].replace(/(as|os|a|o|s)$/, "").slice(0, 6);
+  for (const sheet of parseSheets(lines).filter((x) => x.header)) {
+    const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+    const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1);
+    for (let j = 0; j < names.length; j += 1) {
+      const values = [...new Set(rows.map((c) => c[j] || ""))];
+      if (values.length < 2 || values.length > 12) continue;
+      const hit = values.find((v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().startsWith(stem));
+      if (!hit) continue;
+      const filter = `${names[j]}!=${hit}`;
+      const result = appliedRows(lines, filter);
+      if (result) return `\n(O pedido diz "${m[0]}": são TODAS as linhas com ${names[j]} diferente de "${hit}" (${values.filter((v) => v !== hit).join(", ")}). Já apliquei filter="${filter}"; a lista certa é esta, inteira:\n${result}\n)`;
+    }
+  }
+  return "";
+}
+
 export function numberFilterHint(lines, request) {
   const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
@@ -340,6 +365,34 @@ export function redactRestricted(lines, request, env = {}) {
 }
 
 /** The sheet's TOTAL row with its column names, as a note ("" when there is none). */
+/**
+ * Days between each date of the rows and today, counted here (13/10: "há quantos dias o pedido 1042 foi
+ * feito?" — 15/09 to 04/10 answered 23 days, counting September as 15 + October 4 + guesswork).
+ */
+const ASKS_DAYS = /\b(quantos dias|h[aá] quanto tempo|faz quanto tempo|dias (de |em )?atraso|dias desde|dias at[eé]|quantos dias faltam|prazo)\b/i;
+export function daysNote(lines, request, now = new Date()) {
+  if (!ASKS_DAYS.test(String(request || "").normalize("NFC"))) return "";
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const out = [];
+  for (const sheet of parseSheets(lines).filter((x) => x.header)) {
+    const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+    const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1);
+    if (!rows.length || rows.length > 30) continue;
+    const dates = names.map((n, j) => (rows.every((c) => DATE.test(c[j] || "")) ? j : -1)).filter((j) => j >= 0);
+    if (!dates.length) continue;
+    for (const c of rows) {
+      const parts = dates.map((j) => {
+        const d = Math.round((cellValue(c[j]) - today) / 864e5);
+        return `${names[j]} ${c[j]} = ${d === 0 ? "hoje" : d < 0 ? `${-d} dia(s) atrás` : `daqui a ${d} dia(s)`}`;
+      });
+      out.push(`${c[0]}: ${parts.join(", ")}`);
+    }
+  }
+  if (!out.length) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `\n(Hoje é ${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}. Dias contados pela ferramenta: ${out.slice(0, 30).join("; ")}. Use estes números; não conte de cabeça.)`;
+}
+
 /**
  * How a CSV is written, for code that reads it: "media.py" opened a ";" file with BOM as commas and
  * plain utf-8, got KeyError 'Funcionários' and ran the same script until the repetition guard (13/10).
@@ -1026,6 +1079,8 @@ function documentPath(args, ctx) {
   if (asked === "docx" && wanted === "xlsx") wanted = "docx";
   // "Gere uma planilha…" delivered as a PDF (agent battery, 06/10): unless PDF or Word was named too.
   if (asked === "xlsx" && ["pdf", "docx", "csv"].includes(wanted) && !/\b(pdf|word|docx|csv)\b/i.test(String(ctx.request || ""))) wanted = "xlsx";
+  // "Faça uma apresentação (3 slides)" saved as Presentacao_Pedidos.docx (13/10): slides unless Word or PDF was named.
+  if (asked === "pptx" && ["pdf", "docx", "md", "txt"].includes(wanted) && !/\b(pdf|word|docx)\b/i.test(String(ctx.request || ""))) wanted = "pptx";
   return ext === wanted ? file : `${DOCUMENT_FORMATS.includes(ext) ? file.slice(0, -ext.length - 1) : file}.${wanted}`;
 }
 
@@ -1035,6 +1090,7 @@ export function requestedFormat(request) {
   if (/\b(markdown|\.md|texto puro|\.txt)\b/.test(text)) return null;
   // "planilhas", and Excel as people type it ("execel", "exel", 12/10).
   if (/\b(planilhas?|excel|execel|exel|exell|xlsx)\b/.test(text)) return "xlsx";
+  if (/\b(apresentacao|apresentacoes|slides?|powerpoint|pptx)\b/.test(text)) return "pptx";
   if (/\bpdf\b/.test(text)) return "pdf";
   if (/\b(word|docx|relatorio|documento)\b/.test(text)) return "docx";
   return null;
@@ -1300,7 +1356,7 @@ export const fileTools = [
         if (corrected) ctx.correctedFilters.add(key);
         // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows
         // (Atacadão's biggest bill beat Empório's bigger total, 2 of 2 runs, 06/10).
-        let found = `${file}\n${rows}${filter ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}`;
+        let found = `${file}\n${rows}${filter ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}${daysNote(rows.split(/\r?\n/), ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date())}`;
         // Asked again as written after the correction ("=15/10/2026" for "até 15/10"), the rows the
         // request means stay the ones the document is checked against: an agent copied the 2 rows of
         // the literal re-read instead of the 7 (agent battery, 2 runs in 5, 06/10).
@@ -1337,7 +1393,7 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
+        const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || notStatusHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
         // Totals per client over the rows the request's condition keeps ("acima de 30 dias"), when one was applied.
         const appliedFilter = /Já apliquei filter="([^"]+)"/.exec(filtered)?.[1];
         ready = filtered + groupHint(appliedFilter ? filterRows(table, appliedFilter).split(/\r?\n/) : table, ctx.request);
@@ -1364,7 +1420,7 @@ export const fileTools = [
         // the sheet's TOTAL row, with its column names, goes first.
         const own = totalRowsNote(table);
         const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
-        ready = own + ready + sums;
+        ready = own + ready + sums + daysNote(table, ctx.request, now);
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
@@ -1400,7 +1456,7 @@ export const fileTools = [
   },
   {
     name: "write_document",
-    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. As linhas da última planilha lida com read_file: escreva {{linhas}} (ou {{linhas: Coluna, Coluna}}) e a ferramenta copia todas, exatas. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
+    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PowerPoint .pptx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Numa apresentação (.pptx) cada # ou ## começa um slide. As linhas da última planilha lida com read_file: escreva {{linhas}} (ou {{linhas: Coluna, Coluna}}) e a ferramenta copia todas, exatas. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
     parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" }, append: { type: "boolean", description: "true para ACRESCENTAR este conteúdo ao fim do documento que você gravou antes nesta resposta (documento longo em partes)" } }, required: ["path", "content"] },
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),

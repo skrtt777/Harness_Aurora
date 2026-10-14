@@ -5,7 +5,7 @@
  * lists, tables); this turns it into .docx, .xlsx, .pdf, .md or .csv.
  */
 
-export const DOCUMENT_FORMATS = ["docx", "xlsx", "pdf", "md", "csv", "txt", "html"];
+export const DOCUMENT_FORMATS = ["docx", "xlsx", "pptx", "pdf", "md", "csv", "txt", "html"];
 
 const clean = (text) => String(text).replace(/^>\s?/, "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1$2").replace(/__(.+?)__/g, "$1").replace(/`([^`]+)`/g, "$1").trim();
 const cells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => clean(c));
@@ -195,6 +195,7 @@ export async function renderDocument(format, markdown, { plainCsv = false } = {}
   if (format === "docx") return makeDocument(blocks);
   if (format === "xlsx") return makeSheet(blocks);
   if (format === "pdf") return makePdfDocument(blocks);
+  if (format === "pptx") return (await import("./pptxWriter.js")).makePresentation(blocks);
   if (format === "csv") return Buffer.from(csvOf(blocks, { plain: plainCsv }), "utf8");
   return Buffer.from(String(markdown), "utf8");
 }

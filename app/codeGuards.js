@@ -67,3 +67,23 @@ export function claimsActionWithoutAction(answer, steps, actionTools) {
 
 /** The conversation allows made-up data ("é fictício, pode gerar números", "dados de exemplo"). */
 export const FICTIONAL = /\bfict[ií]ci|\binvent(e|ar|ado|ados)\b.{0,20}(dados|n[uú]meros|valores)|pode (inventar|gerar|criar) (os )?(n[uú]meros|dados|valores)|dados (de exemplo|aleat|falsos|simulados|ficticios)|aleat[oó]ri|simulad[oa]s?\b/i;
+
+/**
+ * "totalizando **7 pessoas**" over a table of 4 names (13/10, cross-sheet count): the number said does not
+ * match the list right beside it. Returns { said, listed } when no number said equals the list's size.
+ */
+const COUNTED = /\b(\d{1,3})\s+(?:\*\*)?\s*(pessoas|funcion[aá]rios|colaboradores|pedidos|itens|produtos|clientes|contratos|departamentos|fornecedores|vendedores|t[ií]tulos|registros|linhas)\b/gi;
+export function countMismatch(answer) {
+  const text = String(answer || "").replace(/\*\*/g, "");
+  const said = [...text.matchAll(COUNTED)].map((m) => Number(m[1]));
+  if (!said.length) return null;
+  // "Dos 12 funcionários, 4 trabalham lá": the 4 is a count too.
+  for (const m of text.matchAll(/\b(\d{1,3})\s+(trabalham|est[ãa]o|s[ãa]o|atendem|ficam|t[êe]m|aparecem|vencem|precisam)\b/gi)) said.push(Number(m[1]));
+  const lines = text.split(/\r?\n/);
+  const tableRows = lines.filter((l) => /^\s*\|/.test(l) && !/^\s*\|[\s:|-]+\|\s*$/.test(l));
+  const table = tableRows.length >= 2 ? tableRows.length - 1 : 0;
+  const bullets = lines.filter((l) => /^\s*([-*•]|\d+[.)])\s+\S/.test(l)).length;
+  const listed = table || bullets;
+  if (listed < 2 || said.includes(listed)) return null;
+  return { said, listed };
+}

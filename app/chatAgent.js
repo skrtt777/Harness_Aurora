@@ -1,4 +1,4 @@
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
 const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
@@ -258,7 +258,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
-  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false;
+  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false, countChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -441,6 +441,14 @@ export async function runChatAgent({
       ranChecked = true;
       checks.push({ check: "claimed_run", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você disse que rodou ou testou, mas nenhum comando rodou nesta resposta: o resultado foi inventado. Rode agora com run_command (ex.: python pasta/script.py ou node --test) e responda só com a saída real." });
+      continue;
+    }
+    // "7 pessoas" over a list of 4: the count is redone against the list (and the data).
+    const mismatch = !toolCalls.length && !countChecked ? countMismatch(text) : null;
+    if (mismatch) {
+      countChecked = true;
+      checks.push({ check: "count_mismatch", said: mismatch.said, listed: mismatch.listed });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Sua resposta diz ${mismatch.said.join(" e ")}, mas a lista que você mostrou tem ${mismatch.listed} item(ns). Confira item por item com os dados lidos: deixe na lista só os que atendem ao pedido e diga o número igual ao da lista. Responda de novo, direto, sem narrar a revisão.` });
       continue;
     }
     // "Pronto! Aplicado às 4 páginas" with no tool that acts: done for real, or said plainly (in the
