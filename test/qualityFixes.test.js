@@ -165,3 +165,10 @@ test("Gemma 4's own call syntax is read", async () => {
   assert.deepEqual(parseTextToolCall('<|tool_call>call:write_document{path:<|"|>r.docx<|"|>,content:<|"|>a, b<|"|>,append:false}<tool_call|>', known), { name: "write_document", arguments: { path: "r.docx", content: "a, b", append: false } });
   assert.equal(parseTextToolCall("Texto com {chaves} comum.", known), null);
 });
+
+test("each row's share of the total comes ready for a percent question", async () => {
+  const { shareNote } = await import("../app/agentTools/files.js");
+  const t = ["## D", "Departamento | Orçamento", "Tecnologia | 2.800.000", "Vendas | 1.950.000", "Jurídico | 9.800.000"];
+  assert.match(shareNote(t, "que porcentagem do orçamento vai para Tecnologia?"), /Tecnologia 19,2%/);
+  assert.equal(shareNote(t, "qual o maior orçamento?"), "");
+});

@@ -522,6 +522,31 @@ export async function csvFormatNote(file) {
  * e quantos funcionários" — 2.695 for 2.305 and R$ 10,65 mi for 14,55, the model adding 8 numbers by heart).
  * Only for a sheet without its own TOTAL row, and not for code columns.
  */
+/**
+ * "Que porcentagem do orçamento vai para Tecnologia?": each row's share of its column's total, done here
+ * (14/10: qwen3.5:2b read the sheet and answered with a PowerShell formula for the person to run).
+ */
+export function shareNote(lines, request) {
+  if (!/\b(porcentagem|percentual|propor[cç][aã]o|fatia|participa[cç][aã]o|quanto por cento|% d[oa])\b|%/i.test(String(request || ""))) return "";
+  const out = [];
+  for (const s of parseSheets(lines).filter((x) => x.header)) {
+    const names = s.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+    const rows = s.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1 && !c.some((v) => /^total\b/i.test(v)));
+    if (!rows.length || rows.length > 40) continue;
+    const label = names.findIndex((n, j) => !ID_COLUMN.test(n) && rows.every((c) => cellValue(c[j] || "") === null));
+    if (label < 0) continue;
+    names.forEach((n, j) => {
+      if (ID_COLUMN.test(n) || DATE.test(rows[0][j] || "")) return;
+      const values = rows.map((c) => cellValue(c[j] || ""));
+      if (values.some((v) => v === null)) return;
+      const total = values.reduce((a, b) => a + b, 0);
+      if (!total) return;
+      out.push(`${n} (total ${brNumber(total)}): ${rows.map((c, i) => `${c[label]} ${(Math.round((values[i] / total) * 1000) / 10).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`).join("; ")}`);
+    });
+  }
+  return out.length ? `\n(Participação de cada linha no total, calculada pela ferramenta: ${out.slice(0, 3).join(" | ")}. Use estes percentuais.)` : "";
+}
+
 export function columnSums(lines) {
   const out = [];
   for (const s of parseSheets(lines).filter((x) => x.header)) {
@@ -1528,8 +1553,8 @@ export const fileTools = [
         // "Como está o budget esse ano?" got every area and no total (empresa eval controladoria-1):
         // the sheet's TOTAL row, with its column names, goes first.
         const own = totalRowsNote(table);
-        const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
-        ready = own + ready + sums + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request);
+        const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|porcentagem|percentual|propor[cç][aã]o|fatia|participa[cç][aã]o|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
+        ready = own + ready + sums + shareNote(table, ctx.request) + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request);
         ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table }].slice(-4);
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's

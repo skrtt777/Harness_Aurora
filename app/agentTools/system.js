@@ -241,6 +241,9 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
       const text = String(command || "").trim();
       if (!text) throw new Error("Informe o comando.");
       const dir = commandDir(cwd, ctx);
+      // A folder that does not exist made the spawn fail as "código -4058" and the model tried 12 other
+      // commands (14/10, qwen3.5:2b with cwd "./novo-python-1"): said plainly, with the right one.
+      if (!existsSync(dir)) throw new Error(`A pasta "${cwd}" não existe (${dir}). Rode de novo sem cwd: o comando já roda na pasta do projeto (${ctx.workspace || homedir()}).`);
       const [cmd, args] = shellFor(text);
       const child = spawn(cmd, args, { cwd: dir, windowsHide: true, env: commandEnv() });
       // Nothing is ever typed into these commands: without EOF, anything that
