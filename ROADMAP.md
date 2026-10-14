@@ -77,7 +77,7 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - **Leitura de planilhas:** "2.800.000" é número; soma, maior e menor; dias até hoje; ordem pedida; estoque abaixo do mínimo; "não entregues"; cruzamento de duas planilhas; formato do CSV para código; números de linha trocados pelos códigos.
   - **Power BI:** roteador com "bi/painel/indicadores"; goal curto; cores pedidas (askedStyle); tema por build novo; planilha do assunto incluída.
   - **write_document .pptx** (`app/pptxWriter.js`).
-  - Baterias antigas: conversas 43/43, agentes de setor 32/32; suíte 717/717.
+  - Baterias antigas: conversas 43/43, agentes de setor 32/32; suíte 716/716.
 
 - **0.1.46 (13/10, publicada): a Aurora leve (notebook sem placa de vídeo).**
   - **Ferramentas por assunto** (`app/toolRouter.js`): de ~8.700 para 1.900-3.700 tokens; **AGENT.md** 10.670 → 3.900 caracteres com as regras de cada grupo em `runtime-policy/topics`.
