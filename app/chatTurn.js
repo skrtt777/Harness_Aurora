@@ -227,6 +227,7 @@ export function warmLocalChat(env = process.env) {
       method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(180_000),
       body: JSON.stringify({ messages: [{ role: "system", content: agentRules }, { role: "user", content: "." }], tools, max_tokens: 1, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }),
     }).catch(() => {});
+    (await import("./llamaServer.js")).beforeLlamaRequest(url, { tools: [] }).catch(() => 0);
     return url;
   })().finally(() => { warming = null; });
   return warming;

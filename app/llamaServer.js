@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, s
 import { homedir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { protectPort } from "./agentTools/netGuard.js";
-import { cacheDir, learnPrefix, noteCacheUse, restoreSnapshot, snapshotKey } from "./llamaCache.js";
+import { cacheDir, learnPrefix, markSlotUnknown, noteCacheUse, prepareSlot, restoreSnapshot, snapshotKey } from "./llamaCache.js";
 
 const ensureDir = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
 
@@ -28,10 +28,13 @@ const SLOTS = 4;
  * battery it grew to 10.6 GB and the PC ran out of memory; on an 8-16 GB work laptop that alone is
  * half the machine (13/10). By the machine's RAM; LLAMA_CACHE_RAM (MiB) overrides.
  */
-export function cacheRamFor(env = process.env, total = totalmem()) {
+// HARNESS_RAM_GB: the RAM to plan for (a weaker machine, simulated: scripts/low-end-bench.mjs).
+export const machineRam = (env = process.env) => (Number(env.HARNESS_RAM_GB) > 0 ? Number(env.HARNESS_RAM_GB) * 1024 ** 3 : totalmem());
+export function cacheRamFor(env = process.env, total = machineRam(env)) {
   if (env.LLAMA_CACHE_RAM !== undefined && env.LLAMA_CACHE_RAM !== "") return Math.max(0, Math.floor(Number(env.LLAMA_CACHE_RAM) || 0));
   const gb = total / 1024 ** 3;
-  return gb <= 16.5 ? 512 : gb <= 32.5 ? 2048 : 4096;
+  // 8 GB: the model needs ~2.8 GB and the app ~0.5; what is left after Windows and a browser is ~3.5 (14/10).
+  return gb <= 8.5 ? 256 : gb <= 16.5 ? 512 : gb <= 32.5 ? 2048 : 4096;
 }
 
 export function slotsFor({ gpu = false, device = null } = {}, env = process.env) {
@@ -202,6 +205,14 @@ export function stopLlamaServer() {
   const current = server;
   server = null;
   current?.child?.kill();
+}
+
+/** Before an agent request to this server: the slot gets the saved start of its tool set back if it holds another. */
+export async function beforeLlamaRequest(baseUrl, body) {
+  const current = server;
+  if (!current || current.baseUrl !== baseUrl || !current.cacheKey || current.env?.LLAMA_CACHE === "off") return 0;
+  if (!body?.tools?.length) { markSlotUnknown(baseUrl); return 0; }
+  return prepareSlot(baseUrl, body, { key: current.cacheKey, slots: current.slots || 1, env: current.env });
 }
 
 /** After an answer from this server: was the restored start used, and learn it if none is saved. */

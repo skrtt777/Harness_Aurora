@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs";
-import {afterLlamaAnswer} from "./llamaServer.js";
+import {afterLlamaAnswer,beforeLlamaRequest} from "./llamaServer.js";
 // Android execution adapter. Context, memory, correction and persistence stay in Harness.
 // A text prompt gets the same template, sampling and output limit the desktop Ollama
 // path uses (app/local.js), so identical weights behave the same on both platforms.
@@ -88,6 +88,8 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
     }
     const schema=env.LOCAL_OUTPUT_SCHEMA?JSON.parse(env.LOCAL_OUTPUT_SCHEMA):env.LOCAL_OUTPUT_FORMAT==='json'?{type:'object'}:null;
     let text,usage=null,truncated,timings,cached=null;
+    // A title or a summary takes the one slot: the agent's next request puts its start back.
+    beforeLlamaRequest(base,{tools:[]}).catch(()=>0);
     if(format){
       const stream=typeof onText==='function';
       const response=await fetch(base+'/completion',{method:'POST',signal,headers,body:JSON.stringify({
@@ -222,6 +224,8 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
   const signal=externalSignal?AbortSignal.any([timeout,externalSignal]):timeout;
   const stream=typeof onText==='function';
   try{
+    // One slot (a processor): the saved start of this tool set back in it first (app/llamaCache.js).
+    await beforeLlamaRequest(endpoint(env),{messages:toOpenAiMessages(messages),tools,chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'}}).catch(()=>0);
     const response=await fetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
       model,messages:toOpenAiMessages(messages),stream,...(stream?{stream_options:{include_usage:true}}:{}),cache_prompt:true,
       // With tools, 4096: a Word report in one write_document call passed 2048 and arrived cut, as {} (06/10).

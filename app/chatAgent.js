@@ -1,3 +1,4 @@
+import { BASE_TOOLS } from "./toolRouter.js";
 import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, shortList } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
@@ -240,7 +241,9 @@ export async function runChatAgent({
   // Web content already in the conversation (a redo, a follow-up) counts too: commands then ask (agentPolicy.js).
   ctx.untrustedSeen ||= history.some((m) => m.role === "tool" && WEB_TOOL.test(String(m.tool_name || "")));
   // offer: the names the model reads (app/toolRouter.js); it can still run any of `tools` by name.
-  let offered = offer ? tools.filter((t) => offer.has(t.name)) : tools;
+  // The base tools first, always in the same order, then the subject's: the tools open the prompt, and a
+  // start that never changes is what the saved start (app/llamaCache.js) can give back (14/10).
+  let offered = (offer ? tools.filter((t) => offer.has(t.name)) : tools).slice().sort((a, b) => Number(!BASE_TOOLS.includes(a.name)) - Number(!BASE_TOOLS.includes(b.name)));
   let forcedNote = "";
   let forced = null;
   let nudged = false;

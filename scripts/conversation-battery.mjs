@@ -62,6 +62,8 @@ for (let run = 1; run <= runs; run += 1) {
         // What each step got and gave: a failure is diagnosed from the report, not by running again.
         detail: turn.steps.map((s) => ({ tool: s.tool, args: JSON.stringify(s.args || {}).slice(0, 200), result: String(s.summary || "").slice(0, 200) })) });
       console.log(`- "${message}" (${((Date.now() - started) / 1000).toFixed(1)} s) ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
+      // A person reads the answer before the next message (the model server learns its start in that pause).
+      if (Number(process.env.BATTERY_PAUSE_MS) > 0) await new Promise((r) => setTimeout(r, Number(process.env.BATTERY_PAUSE_MS)));
     }
     await site.close();
     results.push({ id: scenario.id, run, files: readdirSync(dir), turns });
