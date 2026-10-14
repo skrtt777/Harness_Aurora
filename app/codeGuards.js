@@ -103,3 +103,15 @@ export function shortList(answer, request, readRows) {
   const listed = tableRows.length >= 2 ? tableRows.length - 1 : lines.filter((l) => /^\s*([-*•]|\d+[.)])\s+\S/.test(l)).length;
   return listed >= 1 && listed < readRows ? { listed, readRows } : null;
 }
+
+/**
+ * The rows came sorted by the tool and the answer lists them in another order (14/10: qwen3.5:2b put
+ * Tecnologia 420 before Vendas 610 under "do maior para o menor"). The right order, when it differs.
+ */
+export function orderMismatch(answer, order) {
+  if (!Array.isArray(order) || order.length < 3) return null;
+  const text = String(answer || "").toLowerCase();
+  const at = order.map((k) => text.indexOf(k.toLowerCase()));
+  if (at.some((p) => p < 0)) return null;
+  return at.every((p, i) => !i || p > at[i - 1]) ? null : order;
+}

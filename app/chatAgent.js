@@ -1,5 +1,5 @@
 import { BASE_TOOLS } from "./toolRouter.js";
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, shortList } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, shortList, orderMismatch } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
 const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
@@ -30,8 +30,51 @@ const stripThinking = (text) => String(text || "").replace(/<think>[\s\S]*?<\/th
  * the Claude/Codex CLIs only have text. Returns null for ordinary prose, so
  * an answer that merely *contains* braces isn't mistaken for an action.
  */
+/**
+ * Gemma 4's own call syntax, written as text when the server does not parse it (14/10: the model study
+ * lost most of gemma4's calls): <|tool_call>call:name{key:<|"|>text<|"|>,n:5}<tool_call|>, or the
+ * <execute_tool>name{…}</execute_tool> it also writes. Keys bare, strings between <|"|>.
+ */
+export function gemmaToolCall(rawText, known) {
+  const m = /(?:<\|tool_call>|<execute_tool>)\s*(?:call:)?([A-Za-z_]\w*)\s*([\s\S]*?)\s*(?:<tool_call\|>|<\/execute_tool>|$)/.exec(String(rawText || ""));
+  if (!m || !known.includes(m[1])) return null;
+  const src = m[2].trim();
+  let i = 0;
+  const QUOTE = '<|"|>';
+  const space = () => { while (i < src.length && /\s/.test(src[i])) i += 1; };
+  const value = () => {
+    space();
+    if (src.startsWith(QUOTE, i)) { const end = src.indexOf(QUOTE, i + QUOTE.length); const v = src.slice(i + QUOTE.length, end < 0 ? src.length : end); i = end < 0 ? src.length : end + QUOTE.length; return v; }
+    if (src[i] === '"') { let j = i + 1; while (j < src.length && (src[j] !== '"' || src[j - 1] === "\\")) j += 1; const v = src.slice(i + 1, j); i = j + 1; try { return JSON.parse(`"${v}"`); } catch { return v; } }
+    if (src[i] === "{") return object();
+    if (src[i] === "[") { i += 1; const out = []; space(); while (i < src.length && src[i] !== "]") { out.push(value()); space(); if (src[i] === ",") i += 1; space(); } i += 1; return out; }
+    let j = i; while (j < src.length && !/[,}\]]/.test(src[j])) j += 1;
+    const raw = src.slice(i, j).trim(); i = j;
+    if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+    if (raw === "true" || raw === "false") return raw === "true";
+    return raw === "null" ? null : raw;
+  };
+  const object = () => {
+    const out = {};
+    i += 1; space();
+    while (i < src.length && src[i] !== "}") {
+      const k = /^\s*"?([A-Za-z_][\w-]*)"?\s*:/.exec(src.slice(i));
+      if (!k) break;
+      i += k[0].length;
+      out[k[1]] = value();
+      space(); if (src[i] === ",") i += 1; space();
+    }
+    i += 1;
+    return out;
+  };
+  if (!src.startsWith("{")) return { name: m[1], arguments: {} };
+  try { return { name: m[1], arguments: object() }; } catch { return null; }
+}
+
 export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name)) {
   if (!rawText) return null;
+  const gemma = /<\|tool_call>|<execute_tool>/.test(String(rawText)) ? gemmaToolCall(rawText, known) : null;
+  if (gemma) return gemma;
   let text = String(rawText).trim();
   const tagged = text.match(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/i);
   const fence = text.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
@@ -261,7 +304,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
-  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false, countChecked = false, listChecked = false;
+  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false, countChecked = false, listChecked = false, orderChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -444,6 +487,14 @@ export async function runChatAgent({
       ranChecked = true;
       checks.push({ check: "claimed_run", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você disse que rodou ou testou, mas nenhum comando rodou nesta resposta: o resultado foi inventado. Rode agora com run_command (ex.: python pasta/script.py ou node --test) e responda só com a saída real." });
+      continue;
+    }
+    // Sorted by the tool, listed in another order: the tool's order.
+    const wrongOrder = !toolCalls.length && !orderChecked ? orderMismatch(text, ctx.readyOrder) : null;
+    if (wrongOrder) {
+      orderChecked = true;
+      checks.push({ check: "order_mismatch" });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `A ordem da sua lista não é a que a ferramenta deu. A ordem certa é: ${wrongOrder.join(", ")}. Responda de novo com os itens exatamente nessa ordem, com os mesmos números da leitura.` });
       continue;
     }
     // "Liste os departamentos" with 8 rows read and 2 shown: the whole list.

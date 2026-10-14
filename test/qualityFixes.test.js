@@ -144,3 +144,24 @@ test("a document written with the read's line numbers gets the real codes", asyn
   assert.match(text, /Pedido 1041 - Beta/);
   assert.match(text, /Pedido 1042 - Gama/);
 });
+
+test("the sort column is the one after \"do maior para o menor\", a number first", async () => {
+  const { sortHint } = await import("../app/agentTools/files.js");
+  const t = ["## D", "Departamento | Funcionários | Orçamento", "Tecnologia | 420 | 2.800.000", "Vendas | 610 | 1.950.000", "Jurídico | 60 | 1.100.000"];
+  assert.match(sortHint(t, "liste os departamentos do maior para o menor número de funcionários"), /ordem por Funcionários[\s\S]*Vendas[\s\S]*Tecnologia[\s\S]*Jurídico/);
+  assert.match(sortHint(t, "ordene os departamentos por orçamento"), /ordem por Orçamento[\s\S]*Tecnologia[\s\S]*Vendas[\s\S]*Jurídico/);
+});
+
+test("a list in another order than the tool's is caught", async () => {
+  const { orderMismatch } = await import("../app/codeGuards.js");
+  assert.ok(orderMismatch("Tecnologia 420\nVendas 610\nJurídico 60", ["Vendas", "Tecnologia", "Jurídico"]));
+  assert.equal(orderMismatch("Vendas 610\nTecnologia 420\nJurídico 60", ["Vendas", "Tecnologia", "Jurídico"]), null);
+});
+
+test("Gemma 4's own call syntax is read", async () => {
+  const { parseTextToolCall } = await import("../app/chatAgent.js");
+  const known = ["read_file", "write_document"];
+  assert.deepEqual(parseTextToolCall('Vou ler. <execute_tool>read_file{path:<|"|>Dados.csv<|"|>}</execute_tool>', known), { name: "read_file", arguments: { path: "Dados.csv" } });
+  assert.deepEqual(parseTextToolCall('<|tool_call>call:write_document{path:<|"|>r.docx<|"|>,content:<|"|>a, b<|"|>,append:false}<tool_call|>', known), { name: "write_document", arguments: { path: "r.docx", content: "a, b", append: false } });
+  assert.equal(parseTextToolCall("Texto com {chaves} comum.", known), null);
+});

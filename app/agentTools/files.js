@@ -255,15 +255,24 @@ export function minimumHint(lines, request) {
  */
 export function sortHint(lines, request) {
   const text = String(request || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const m = /\b(do maior para o menor|do menor para o maior|em ordem (de|por)|ordene (por|pel[oa])|ordenad[oa]s? (por|pel[oa])|ranking (de|por))\b(.{0,60})/.exec(text);
+  let m = /\b(do maior para o menor|do menor para o maior|em ordem (de|por)|ordene (por|pel[oa])|ordenad[oa]s? (por|pel[oa])|ranking (de|por))\b(.{0,60})/.exec(text);
+  // "Ordene os departamentos por orçamento": words between the verb and "por".
+  const loose = !m && /\b(ordene|ordenar|ordenad[oa]s?|organize|classifique)\b.{0,40}?\b(?:por|pel[oa])\s+(.{0,60})/.exec(text);
+  if (loose) m = [loose[0], loose[1], null, null, null, null, loose[2]];
   if (!m) return "";
-  const desc = !/do menor para o maior/.test(m[1]);
+  const desc = !/do menor para o maior|crescente|ascendente/.test(text);
   const sheet = parseSheets(lines).find((x) => x.header);
   if (!sheet) return "";
   const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
   const fold = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const rest = fold(m[5] || "") + " " + text;
-  const col = names.find((n) => rest.includes(fold(n)) || rest.includes(fold(n).replace(/s$/, "")));
+  // The column named right after "do maior para o menor" ("número de funcionários"), a number column
+  // first: "liste os departamentos do maior para o menor número de funcionários" was sorted by the
+  // Departamento names (14/10), the order the answer was then told to follow.
+  const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim()));
+  const numeric = (n) => { const j = names.indexOf(n); return rows.length > 0 && rows.every((c) => cellValue(c[j] || "") !== null); };
+  const said = (where, n) => where.includes(fold(n)) || where.includes(fold(n).replace(/s$/, ""));
+  const tail = fold(m[6] || "");
+  const col = names.find((n) => numeric(n) && said(tail, n)) || names.find((n) => said(tail, n)) || names.find((n) => numeric(n) && said(text, n));
   if (!col) return "";
   const sorted = filterRows(lines, "", { sort: `${desc ? "-" : ""}${col}` });
   return `\n(O pedido pede a ordem por ${col}, ${desc ? "do maior para o menor" : "do menor para o maior"}. Já ordenei aqui; use esta ordem, todas as linhas:\n${sorted}\n)`;
@@ -1492,6 +1501,8 @@ export const fileTools = [
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || sortHint(table, ctx.request) || minimumHint(table, ctx.request) || notStatusHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
+        // The order the tool put the rows in, for the answer to be checked against (codeGuards orderMismatch).
+        ctx.readyOrder = /Já ordenei aqui/.test(filtered) ? [...filtered.matchAll(/^\s*\d+ {2}([^|\n]+?) \|/gm)].map((x) => x[1].trim()) : null;
         // Totals per client over the rows the request's condition keeps ("acima de 30 dias"), when one was applied.
         const appliedFilter = /Já apliquei filter="([^"]+)"/.exec(filtered)?.[1];
         ready = filtered + groupHint(appliedFilter ? filterRows(table, appliedFilter).split(/\r?\n/) : table, ctx.request);
