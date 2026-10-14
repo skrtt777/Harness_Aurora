@@ -822,6 +822,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         }
       }
     } catch (error) {
+      if (env.AURORA_DEBUG_STACK) { try { (await import("node:fs")).appendFileSync(env.AURORA_DEBUG_STACK, `${new Date().toISOString()} ${error.stack}
+
+`); } catch { /* debug only */ } }
       result = { ok: false, status: error.status || 502, error: error.message };
     }
     const usedContext = agentContext || localContext;

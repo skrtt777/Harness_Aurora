@@ -17,7 +17,7 @@ const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toL
 const RUN = /\b(rode|rodar|execute|executar|roda o|rode os testes|teste e|me mostre o resultado|mostre a saida)\b/;
 const OFFICIAL = /\b(fonte oficial|fontes oficiais|site oficial|planalto|diario oficial|receita federal|lei n|legislacao)\b/;
 const MAKES = /\b(cri[ae]|criar|fa[cz]a|fazer|gere|gerar|monte|montar|escrev[ae]|prepar[ae]|elabor[ae]|redija|atualiz[ae]|organiz[ae]|separe|list[ae]|listar|relacion[ae]|levant[ae]|compil[ae]|exporte|salve|grave)\b/;
-const FORMAT_NAME = { xlsx: "uma planilha Excel (.xlsx)", docx: "um documento Word (.docx)", pdf: "um PDF" };
+const FORMAT_NAME = { xlsx: "uma planilha Excel (.xlsx)", docx: "um documento Word (.docx)", pptx: "uma apresentação PowerPoint (.pptx)", pdf: "um PDF", md: "um arquivo Markdown (.md)", csv: "um arquivo CSV (.csv)" };
 const FILE_NAMES = /\b[\w-]+\.(?:py|js|ts|jsx|tsx|java|cpp|html|css|json|csv|md|txt|sql|c)\b/gi;
 const plural = (w) => (w.endsWith("s") ? w : w === "real" ? "reais" : /[aeiou]l$/.test(w) ? `${w.slice(0, -1)}is` : /[rz]$/.test(w) ? `${w}es` : `${w}s`);
 
@@ -147,7 +147,7 @@ export function dispatchCheck(order, { answer = "", steps = [], read = null } = 
   if (!order?.makes) return { fix: null, missing, unconfirmed };
   const written = writtenFiles(steps);
   if (order.format && order.deliver.length && !written.some((f) => f.toLowerCase().endsWith(`.${order.format}`)) && !steps.some((s) => s.ok && ["excel", "word", "powerpoint", "powerbi"].includes(s.tool))) {
-    missing.push(`${FORMAT_NAME[order.format].replace(/^uma? /, "o arquivo pedido, ")} não foi gravado (grave com write_document em .${order.format})`);
+    missing.push(`${(FORMAT_NAME[order.format] || `o arquivo .${order.format}`).replace(/^uma? /, "o arquivo pedido, ")} não foi gravado (grave com write_document em .${order.format})`);
   }
   if (order.bi && !steps.some((s) => s.ok && s.tool === "powerbi")) missing.push("o Power BI pedido não foi montado: chame powerbi com action=build, files com o caminho completo de TODAS as planilhas que você e os subagentes gravaram (os caminhos estão nos resultados) e goal com o pedido");
   if (order.run && !steps.some((s) => s.ok && RAN.has(s.tool))) missing.push("o pedido manda rodar, e nada rodou: rode com run_command e mostre a saída real");

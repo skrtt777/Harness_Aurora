@@ -172,3 +172,11 @@ test("each row's share of the total comes ready for a percent question", async (
   assert.match(shareNote(t, "que porcentagem do orçamento vai para Tecnologia?"), /Tecnologia 19,2%/);
   assert.equal(shareNote(t, "qual o maior orçamento?"), "");
 });
+
+test("the dispatch check knows a presentation (it crashed on .pptx)", async () => {
+  const { serviceOrder, dispatchCheck } = await import("../app/serviceOrder.js");
+  const order = serviceOrder("faça uma apresentação curta (3 slides) sobre os pedidos");
+  assert.equal(order.format, "pptx");
+  const out = dispatchCheck(order, { answer: "Pronto", steps: [] });
+  assert.ok(out.missing.some((m) => /apresentação PowerPoint/.test(m)));
+});
