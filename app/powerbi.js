@@ -248,7 +248,9 @@ export async function openInDesktop(file, { timeoutMs = 150_000 } = {}) {
  * planner: { ask, env } to have the local model plan the BI (its pages, layout, scenes, style) from the
  * catalog of the data; without it, or when it gives nothing usable, the automatic plan.
  */
-export async function buildReport({ files, folder, name, goal, conversationId, open = true, onStage = () => {}, adjust = null, planner = null }) {
+// HARNESS_PBI_OPEN=off: the project is built but Power BI Desktop is not opened (the batteries: two
+// windows left open from a run held ~2 GB of the person's RAM, 14/10).
+export async function buildReport({ files, folder, name, goal, conversationId, open = process.env.HARNESS_PBI_OPEN !== "off", onStage = () => {}, adjust = null, planner = null }) {
   onStage("Lendo os dados…");
   const tables = files.flatMap((f) => readSources(f)).map(profile);
   const prep = prepare(tables, { title: name, goal });

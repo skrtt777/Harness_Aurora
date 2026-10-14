@@ -208,7 +208,7 @@ export const powerBiTools = [
           planner: { ask: ctx.planAsk || await localPlanAsk(ctx.env || process.env).catch(() => null), env: ctx.env || process.env } });
         const pages = r.plan.pages.map((p) => `${p.displayName} (${p.visuals.filter((v) => v.type !== "textbox").length} visuais)`).join(", ");
         return [
-          `Pronto: o painel "${r.plan.name}" está aberto no Power BI Desktop, na frente da pessoa (projeto em ${r.folder}).`,
+          r.opened ? `Pronto: o painel "${r.plan.name}" está aberto no Power BI Desktop, na frente da pessoa (projeto em ${r.folder}).` : `Pronto: o painel "${r.plan.name}" foi criado em ${r.pbip} (o Power BI Desktop não foi aberto; a pessoa abre esse arquivo).`,
           // The plan first: the result is cut when stored, and the pages are what the person should hear.
           `Plano (${r.plan.plan.planner === "modelo" ? "feito pela IA local" : "automático"}): ${r.plan.plan.paginas.map((p) => `"${p.nome}" (${p.pergunta}${p.cena !== "nenhuma" ? `; cena ${p.cena}` : ""})`).join("; ")}.`,
           r.refreshed,

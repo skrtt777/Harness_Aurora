@@ -5,6 +5,9 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Evaluations never open the person's Power BI Desktop (it stayed open after the battery, ~1 GB each).
+process.env.HARNESS_PBI_OPEN ||= "off";
+
 if (!process.env.HARNESS_KNOWN_FOLDERS) {
   const home = mkdtempSync(join(tmpdir(), "aurora-pessoa-"));
   const folders = { desktop: join(home, "Desktop"), documents: join(home, "Documents"), downloads: join(home, "Downloads"), home };

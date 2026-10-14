@@ -13,6 +13,21 @@ import {automaticLocalModel} from './localModelRelease.js';
 // (wins over everything, for packaging/dev) or by picking one of
 // CURATED_MODELS in the UI, which is stored via setSetting/local_model.
 export const DEFAULT_LOCAL_MODEL = "qwen3.5:4b";
+// A machine without a video card and with up to ~10 GB of RAM (14/10/2026, scripts/low-end-bench.mjs, 8 GB
+// and 4 threads simulated): qwen3.5:4b needs 2.8 GB and took 79 s per request (median), more than what is
+// left after Windows and a browser; qwen3.5:2b needs 1.3 GB, 50 s, and kept 81-85% on the new battery
+// (4b: 96-100%). Gemma 4 e2b/e4b and Granite 4.1 3B scored 48-71% there.
+export const LIGHT_LOCAL_MODEL = "qwen3.5:2b-q4_K_M";
+
+/** The model for this machine when the person chose none: the light one only on a weak machine. */
+export async function hardwareDefaultModel(env = process.env) {
+  if (env.HARNESS_MODEL_TIER === "light") return LIGHT_LOCAL_MODEL;
+  if (env.HARNESS_MODEL_TIER === "default") return DEFAULT_LOCAL_MODEL;
+  const { detectGpu, machineRam } = await import("./llamaServer.js");
+  if (machineRam(env) / 1024 ** 3 > 10.5) return DEFAULT_LOCAL_MODEL;
+  const gpu = await detectGpu(env).catch(() => null);
+  return gpu ? DEFAULT_LOCAL_MODEL : LIGHT_LOCAL_MODEL;
+}
 
 // Shown as a "trocar modelo" picker for users who want a stronger model and
 // know they have the RAM for it. Sizes are the approximate download size of
@@ -20,7 +35,7 @@ export const DEFAULT_LOCAL_MODEL = "qwen3.5:4b";
 // planning targets, not measured compatibility guarantees on those machines.
 export const CURATED_MODELS = [
   { id: "qwen3.5:0.8b", label: "Qwen3.5 0,8B — mínimo", size: "~1 GB", recommendedRamGb: 8 },
-  { id: "qwen3.5:2b", label: "Qwen3.5 2B — leve", size: "~2.7 GB", recommendedRamGb: 8 },
+  { id: "qwen3.5:2b-q4_K_M", label: "Qwen3.5 2B — leve (computador sem placa de vídeo, 8 GB)", size: "~1.9 GB", recommendedRamGb: 8 },
   { id: "qwen3.5:4b", label: "Qwen3.5 4B — padrão", size: "~3.4 GB", recommendedRamGb: 16 },
   { id: "qwen3.5:9b", label: "Qwen3.5 9B — mais memória", size: "~6.6 GB", recommendedRamGb: 16 },
   { id: "qwen3-coder:30b", label: "Qwen3-Coder 30B — avançado", size: "~19 GB", recommendedRamGb: 32 },
@@ -49,9 +64,9 @@ function defaultBaseUrl(env) {
 export async function resolveLocalModel(env = process.env) {
   if (env.LOCAL_MODEL) return env.LOCAL_MODEL;
   const stored = await getSetting("local_model");
-  if(stored && stored!=='auto')return isRetiredLocalModel(stored) || LEGACY_DEFAULTS.has(stored) ? DEFAULT_LOCAL_MODEL : stored;
+  if(stored && stored!=='auto')return isRetiredLocalModel(stored) || LEGACY_DEFAULTS.has(stored) ? hardwareDefaultModel(env) : stored;
   const approved = await automaticLocalModel(env);
-  return approved && !isRetiredLocalModel(approved) ? approved : DEFAULT_LOCAL_MODEL;
+  return approved && !isRetiredLocalModel(approved) ? approved : hardwareDefaultModel(env);
 }
 
 export async function setLocalModel(model) {
