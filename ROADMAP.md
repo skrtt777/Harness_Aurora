@@ -70,6 +70,15 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.47 (13/10, publicada): a bateria nova (inédita) e o que ela achou.**
+  - Nasceu da conversa "monte um BI interativo sobre departamentos": o BI nunca saiu, seis respostas disseram "Pronto! Aplicado" com o modo Plano ligado, e o total saiu errado.
+  - **Bateria "novos"** (`app/freshBattery.js`, `npm run battery -- --set novos`): 20 cenários, 58 checagens, empresa fictícia própria. 0.1.46: 66,7% no lote 1; agora 69/69 (lotes 1 a 3, 100%).
+  - **Travas:** claimed_action (disse que fez sem ferramenta), count_mismatch (número ≠ lista), short_list (lista inteira pedida, parte mostrada), aviso do modo Plano.
+  - **Leitura de planilhas:** "2.800.000" é número; soma, maior e menor; dias até hoje; ordem pedida; estoque abaixo do mínimo; "não entregues"; cruzamento de duas planilhas; formato do CSV para código; números de linha trocados pelos códigos.
+  - **Power BI:** roteador com "bi/painel/indicadores"; goal curto; cores pedidas (askedStyle); tema por build novo; planilha do assunto incluída.
+  - **write_document .pptx** (`app/pptxWriter.js`).
+  - Baterias antigas: conversas 43/43, agentes de setor 32/32; suíte 717/717.
+
 - **0.1.46 (13/10, publicada): a Aurora leve (notebook sem placa de vídeo).**
   - **Ferramentas por assunto** (`app/toolRouter.js`): de ~8.700 para 1.900-3.700 tokens; **AGENT.md** 10.670 → 3.900 caracteres com as regras de cada grupo em `runtime-policy/topics`.
   - **llama-server**: 1 vaga sem placa de vídeo (2 até 10 GB, 4 acima), `--cache-ram` pela RAM (padrão de 8 GB chegou a 10,6 GB), gerações simples no mesmo servidor (o Ollama carregava o modelo de novo).

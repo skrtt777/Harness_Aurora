@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.47': {
+    title: 'Respostas que conferem: contas, listas e entregas',
+    items: [
+      ['Faz o que diz que fez', 'Se a resposta diz "Pronto, aplicado" sem nenhuma ferramenta ter rodado, a Aurora faz de verdade ou diz que não fez. No modo Plano, um aviso no topo diz que nada foi executado e como sair dele.'],
+      ['BI do começo ao fim', '"BI", "painel" e "indicadores" trazem o Power BI. O tema e as cores pedidas (ex.: azul e amarelo) são aplicados montando o painel de novo, e a planilha do assunto entra junto.'],
+      ['Contas feitas pela ferramenta', 'Somas, maior e menor, dias entre datas, ordenação, estoque abaixo do mínimo, "não entregues" e cruzamento de duas planilhas chegam prontos para a Aurora. Ela não soma de cabeça.'],
+      ['Apresentações .pptx', 'Pedidos de apresentação viram um arquivo do PowerPoint de verdade, com um slide por título e tabelas.'],
+      ['Código que confere a saída', 'CSV com ";" e BOM vem com o jeito certo de abrir em Python. Rodar de novo depois de corrigir não é mais barrado, e a saída que não bate com os dados é tratada como erro do código.'],
+    ],
+  },
   '0.1.46': {
     title: 'A Aurora leve: roda em notebook',
     items: [
