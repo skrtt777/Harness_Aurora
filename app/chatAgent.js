@@ -1,4 +1,4 @@
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, shortList } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
 const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
@@ -258,7 +258,7 @@ export async function runChatAgent({
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;
   let deliveryChecked = false;
-  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false, countChecked = false;
+  let filesChecked = 0, ranChecked = false, dispatched = false, actionChecked = false, countChecked = false, listChecked = false;
   let deleteChecked = false;
   let blanksChecked = false;
   let askedFirstChecked = false;
@@ -441,6 +441,14 @@ export async function runChatAgent({
       ranChecked = true;
       checks.push({ check: "claimed_run", answer: text.slice(0, 300) });
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Você disse que rodou ou testou, mas nenhum comando rodou nesta resposta: o resultado foi inventado. Rode agora com run_command (ex.: python pasta/script.py ou node --test) e responda só com a saída real." });
+      continue;
+    }
+    // "Liste os departamentos" with 8 rows read and 2 shown: the whole list.
+    const short = !toolCalls.length && !listChecked ? shortList(text, question, ctx.lastTable?.rows?.length) : null;
+    if (short) {
+      listChecked = true;
+      checks.push({ check: "short_list", ...short });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `O pedido é a lista inteira e a leitura trouxe ${short.readRows} linhas, mas sua resposta mostra ${short.listed}. Nenhum filtro foi pedido. Responda de novo com as ${short.readRows} linhas, na ordem pedida, sem comentar filtros.` });
       continue;
     }
     // "7 pessoas" over a list of 4: the count is redone against the list (and the data).

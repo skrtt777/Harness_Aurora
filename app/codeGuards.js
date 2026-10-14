@@ -87,3 +87,19 @@ export function countMismatch(answer) {
   if (listed < 2 || said.includes(listed)) return null;
   return { said, listed };
 }
+
+/**
+ * "Liste os departamentos do maior para o menor": a read of 8 rows answered with a table of 2 and a
+ * filter nobody applied (13/10). The rows of the answer's list, when the request asks for all of them.
+ */
+export function shortList(answer, request, readRows) {
+  if (!readRows || readRows < 3) return null;
+  const req = String(request || "");
+  if (!/\b(liste|listar|lista|todos|todas|cada|ordem|ordene|ordenar|do maior para o menor|do menor para o maior)\b/i.test(req)) return null;
+  if (/\b(top|primeir[oa]s|[uú]ltim[oa]s|\d+ (maiores|menores|mais|primeiros))\b|\b\d+\b/i.test(req.replace(/\b\w+\.(csv|xlsx)\b/gi, ""))) return null;
+  if (/\b(acima|abaixo|mais de|menos de|maior que|menor que|que (n[aã]o|ainda|est[aã]o|vencem|foram)|com |sem |s[oó] |apenas)\b/i.test(req)) return null;
+  const lines = String(answer || "").split(/\r?\n/);
+  const tableRows = lines.filter((l) => /^\s*\|/.test(l) && !/^\s*\|[\s:|-]+\|\s*$/.test(l));
+  const listed = tableRows.length >= 2 ? tableRows.length - 1 : lines.filter((l) => /^\s*([-*•]|\d+[.)])\s+\S/.test(l)).length;
+  return listed >= 1 && listed < readRows ? { listed, readRows } : null;
+}

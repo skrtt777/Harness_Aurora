@@ -87,3 +87,60 @@ test("a count that disagrees with the list beside it is caught", async () => {
   assert.equal(countMismatch("São 4 pessoas:\n- Ana\n- Lucas\n- Diego\n- João"), null);
   assert.equal(countMismatch("Dos 12 funcionários, 4 trabalham lá:\n- Ana\n- Lucas\n- Diego\n- João"), null);
 });
+
+test("\"o que está faltando comprar\" gets the rows under their minimum", async () => {
+  const { minimumHint } = await import("../app/agentTools/files.js");
+  const t = ["## E", "Produto | Estoque | Mínimo", "Parafuso M6 | 120 | 200", "Porca M6 | 450 | 300", "Broca 8mm | 15 | 10", "Lixa grão 120 | 30 | 60"];
+  const hint = minimumHint(t, "o que está faltando comprar?");
+  assert.match(hint, /Parafuso M6: falta 80; Lixa grão 120: falta 30/);
+  assert.doesNotMatch(hint, /Broca 8mm \|/);
+});
+
+test("a whole list asked for and a short one answered is caught", async () => {
+  const { shortList } = await import("../app/codeGuards.js");
+  assert.deepEqual(shortList("| Dep |\n|---|\n| Vendas |\n| Op |", "liste os departamentos do maior para o menor", 8), { listed: 2, readRows: 8 });
+  assert.equal(shortList("1. A\n2. B\n3. C", "liste os 3 maiores", 8), null);
+  assert.equal(shortList("- a\n- b", "liste os pedidos acima de 5 mil", 8), null);
+});
+
+test("two sheets are crossed by the column they share", async () => {
+  const { joinNote } = await import("../app/agentTools/files.js");
+  const deps = ["Departamento | Orçamento", "    2  Tecnologia | 2.800.000", "    3  Vendas | 1.950.000", "    4  Logística | 2.100.000"];
+  const people = ["Nome | Departamento", "    2  Ana | Tecnologia", "    3  Bruno | Vendas", "    4  João | Logística"];
+  const note = joinNote([{ name: "Dep.csv", lines: deps }], people, "Func.xlsx", "quantas pessoas trabalham em departamentos com orçamento acima de 2 milhões?");
+  assert.match(note, /2 linha\(s\)/);
+  assert.match(note, /Ana \| Tecnologia/);
+  assert.doesNotMatch(note, /Bruno/);
+});
+
+test("line numbers used as ids are caught", async () => {
+  const { lineKeysOf, lineNumbersAsIds } = await import("../app/agentTools/files.js");
+  const keys = lineKeysOf("Pedido | Fornecedor\n    4  1041 | Beta\n    9  1046 | Gama");
+  assert.equal(lineNumbersAsIds(keys, "- Pedido #4 - Beta\n- Pedido #9 - Gama").length, 2);
+  assert.equal(lineNumbersAsIds(keys, "- 1041 Beta\n- 1046 Gama").length, 0);
+});
+
+test("\"do maior para o menor número de funcionários\" comes sorted", async () => {
+  const { sortHint } = await import("../app/agentTools/files.js");
+  const t = ["## D", "Departamento | Funcionários", "Tecnologia | 420", "Vendas | 610", "Jurídico | 60"];
+  const hint = sortHint(t, "liste os departamentos do maior para o menor número de funcionários");
+  assert.match(hint, /Vendas[\s\S]*Tecnologia[\s\S]*Jurídico/);
+  assert.equal(sortHint(t, "liste os departamentos"), "");
+});
+
+test("a document written with the read's line numbers gets the real codes", async () => {
+  const { executeTool } = await import("../app/agentTools/index.js");
+  const { makeXlsx } = await import("../app/sampleDocs.js");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { extractText } = await import("../app/docText.js");
+  const dir = mkdtempSync(`${tmpdir()}/linhas-`);
+  writeFileSync(`${dir}/Pedidos.xlsx`, makeXlsx({ Pedidos: [["Pedido", "Fornecedor", "Situação"], [1040, "Alfa", "Entregue"], [1041, "Beta", "Em trânsito"], [1042, "Gama", "Atrasado"]] }));
+  const ctx = { workspace: dir, workspaceRoots: [dir], allowedRoots: [dir], request: "faça um documento com os pedidos", approve: async () => true, knownFolders: {} };
+  await executeTool("read_file", { path: "Pedidos.xlsx" }, ctx);
+  const out = await executeTool("write_document", { path: "pedidos.docx", content: "# Pedidos\n- Pedido 4 - Beta\n- Pedido 5 - Gama" }, ctx);
+  assert.match(String(out.result), /4 → 1041, 5 → 1042/);
+  const text = await extractText(`${dir}/pedidos.docx`);
+  assert.match(text, /Pedido 1041 - Beta/);
+  assert.match(text, /Pedido 1042 - Gama/);
+});

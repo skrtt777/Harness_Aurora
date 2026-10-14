@@ -97,6 +97,21 @@ export function rowKeys(text) {
   return [...new Set(keys)];
 }
 
+/**
+ * The read's line numbers and the id of each row ("4" -> "1041"): a deck of the undelivered orders named
+ * them "Pedido #4", "#9" — the line numbers of the read, not the order numbers (13/10).
+ */
+export function lineKeysOf(text) {
+  return [...String(text).matchAll(/^\s*(\d+) {2}([^\n]+)$/gm)].map((m) => [m[1], rowKeys(`    ${m[1]}  ${m[2]}`)[0]]).filter(([n, k]) => k && k !== n);
+}
+/** The line numbers a document uses as ids, when none of the real ids is in it. */
+export function lineNumbersAsIds(lineKeys, body) {
+  if (!Array.isArray(lineKeys) || lineKeys.length < 2) return [];
+  const text = String(body);
+  if (lineKeys.some(([, k]) => text.includes(k))) return [];
+  return lineKeys.filter(([n]) => new RegExp(`(#|n[ºo°.]\\s?|pedido\\s|item\\s|linha\\s)${n}\\b`, "i").test(text));
+}
+
 /** Keys of rows the condition left out that a document put in anyway ("18 dias" in a ">30" list). */
 export function extraRows(excluded, content) {
   if (!Array.isArray(excluded) || !excluded.length) return [];
@@ -210,6 +225,48 @@ export function notStatusHint(lines, request) {
     }
   }
   return "";
+}
+
+/**
+ * "O que está faltando comprar?" over a stock sheet: the rows under their minimum, compared here (13/10:
+ * read whole, 1 of 3 found and a 15-over-10 item called short).
+ */
+export function minimumHint(lines, request) {
+  if (!/\b(faltando|falta|faltam|comprar|compra|repor|reposi[cç][aã]o|abaixo do m[ií]nimo|acabando|reabastec)/i.test(String(request || ""))) return "";
+  for (const sheet of parseSheets(lines).filter((x) => x.header)) {
+    const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+    const min = names.find((n) => /m[ií]nimo|ponto de (pedido|reposi)/i.test(n));
+    const have = names.find((n) => n !== min && /estoque|saldo|quantidade|qtd|dispon/i.test(n));
+    if (!min || !have) continue;
+    const filter = `${have}<${min}`;
+    const result = appliedRows(lines, filter);
+    if (!result) continue;
+    const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim()));
+    const hi = names.indexOf(have), mi = names.indexOf(min);
+    const short = rows.filter((c) => cellValue(c[hi]) !== null && cellValue(c[mi]) !== null && cellValue(c[hi]) < cellValue(c[mi])).map((c) => `${c[0]}: falta ${brNumber(cellValue(c[mi]) - cellValue(c[hi]))}`);
+    return `\n(Abaixo do mínimo, comparado pela ferramenta (${have} < ${min}); só estes, os outros estão em dia. Já apliquei filter="${filter}":\n${result}\nQuanto falta para o mínimo: ${short.join("; ")}.)`;
+  }
+  return "";
+}
+
+/**
+ * "Do maior para o menor número de funcionários": the whole sheet in that order, sorted here (13/10: a
+ * sort of "-Departamento;Funcionários" and Tecnologia first, 1 run in 2).
+ */
+export function sortHint(lines, request) {
+  const text = String(request || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const m = /\b(do maior para o menor|do menor para o maior|em ordem (de|por)|ordene (por|pel[oa])|ordenad[oa]s? (por|pel[oa])|ranking (de|por))\b(.{0,60})/.exec(text);
+  if (!m) return "";
+  const desc = !/do menor para o maior/.test(m[1]);
+  const sheet = parseSheets(lines).find((x) => x.header);
+  if (!sheet) return "";
+  const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+  const fold = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const rest = fold(m[5] || "") + " " + text;
+  const col = names.find((n) => rest.includes(fold(n)) || rest.includes(fold(n).replace(/s$/, "")));
+  if (!col) return "";
+  const sorted = filterRows(lines, "", { sort: `${desc ? "-" : ""}${col}` });
+  return `\n(O pedido pede a ordem por ${col}, ${desc ? "do maior para o menor" : "do menor para o maior"}. Já ordenei aqui; use esta ordem, todas as linhas:\n${sorted}\n)`;
 }
 
 export function numberFilterHint(lines, request) {
@@ -391,6 +448,46 @@ export function daysNote(lines, request, now = new Date()) {
   if (!out.length) return "";
   const p = (n) => String(n).padStart(2, "0");
   return `\n(Hoje é ${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}. Dias contados pela ferramenta: ${out.slice(0, 30).join("; ")}. Use estes números; não conte de cabeça.)`;
+}
+
+/**
+ * Two sheets crossed by the column they share, done here (13/10: "quantas pessoas da Funcionarios_Empresa
+ * trabalham em departamentos com orçamento acima de 2 milhões" — 7, 8, 12 or "não foi possível", 4 runs
+ * in 6). The request's number condition is applied to the sheet read before; the rows of this one whose
+ * shared column has the values that passed come ready.
+ */
+const tableOf = (lines) => {
+  const sheet = parseSheets(lines).find((x) => x.header);
+  if (!sheet) return null;
+  const names = sheet.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
+  const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1 && !c.some((v) => /^total\b/i.test(v)));
+  return { names, rows };
+};
+export function joinNote(previous, lines, name, request) {
+  const req = String(request || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const m = /\b(acima de|mais de|maior que|superior a|abaixo de|menos de|menor que|inferior a)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(mil|milhoes|milhao|mi)?\b/.exec(req);
+  if (!m || !Array.isArray(previous) || !previous.length) return "";
+  const n = cellValue(m[2]) * (m[3] === "mil" ? 1e3 : m[3] ? 1e6 : 1);
+  const more = /acima|mais|maior|superior/.test(m[1]);
+  const here = tableOf(lines);
+  if (!here || !Number.isFinite(n)) return "";
+  for (const prev of [...previous].reverse()) {
+    if (prev.name === name) continue;
+    const there = tableOf(prev.lines);
+    if (!there) continue;
+    const shared = here.names.find((h) => there.names.some((t) => t.toLowerCase() === h.toLowerCase()));
+    if (!shared) continue;
+    const ji = there.names.findIndex((t) => t.toLowerCase() === shared.toLowerCase());
+    // The number column the condition is about: all numbers, on the scale of the condition.
+    const col = there.names.findIndex((c, j) => j !== ji && there.rows.every((r) => cellValue(r[j] || "") !== null) && Math.max(...there.rows.map((r) => cellValue(r[j]))) >= n / 10 && Math.min(...there.rows.map((r) => cellValue(r[j]))) <= n * 10);
+    if (col < 0) continue;
+    const pass = there.rows.filter((r) => (more ? cellValue(r[col]) > n : cellValue(r[col]) < n)).map((r) => r[ji]);
+    if (!pass.length) continue;
+    const hi = here.names.indexOf(shared);
+    const hits = here.rows.filter((r) => pass.some((v) => v.toLowerCase() === String(r[hi] || "").toLowerCase()));
+    return `\n(Cruzamento feito pela ferramenta com ${prev.name}: ${there.names[col]} ${more ? ">" : "<"} ${brNumber(n)} em ${pass.join(", ")}. Nesta planilha, ${hits.length} linha(s) com ${shared} nesses valores:\n${[here.names.join(" | "), ...hits.map((r) => r.join(" | "))].join("\n")}\nUse esta lista e este número.)`;
+  }
+  return "";
 }
 
 /**
@@ -1369,6 +1466,7 @@ export const fileTools = [
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
         ctx.anchorRows = ctx.lastRows;
         ctx.lastTable = tableFromRead(rows);
+        ctx.lineKeys = lineKeysOf(rows);
         if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
@@ -1393,7 +1491,7 @@ export const fileTools = [
       if (sheet && text) {
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || notStatusHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
+        const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || sortHint(table, ctx.request) || minimumHint(table, ctx.request) || notStatusHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
         // Totals per client over the rows the request's condition keeps ("acima de 30 dias"), when one was applied.
         const appliedFilter = /Já apliquei filter="([^"]+)"/.exec(filtered)?.[1];
         ready = filtered + groupHint(appliedFilter ? filterRows(table, appliedFilter).split(/\r?\n/) : table, ctx.request);
@@ -1420,11 +1518,12 @@ export const fileTools = [
         // the sheet's TOTAL row, with its column names, goes first.
         const own = totalRowsNote(table);
         const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
-        ready = own + ready + sums + daysNote(table, ctx.request, now);
+        ready = own + ready + sums + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request);
+        ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table }].slice(-4);
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
-      if (sheet && text) { ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
+      if (sheet && text) { ctx.lineKeys = lineKeysOf(text); ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
       return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}${await csvFormatNote(file)}`;
     },
   },
@@ -1517,6 +1616,14 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
         const short = [...new Set([...missingRows(ctx.lastRows, body), ...missingRows(ctx.anchorRows, body)])];
         if (short.length || existsSync(file)) throw new Error(`Sua chamada foi cortada no limite de saída e o que chegou ${short.length ? `não tem todas as linhas (faltam ${short.slice(0, 12).join(", ")})` : "substituiria um arquivo que já existe"}: nada foi gravado. Não copie linhas à mão: se o pedido tem uma condição (um mês, uma situação, um valor), leia a planilha de novo com read_file e filter (ex.: filter="Início>=01/10/2026; Início<=31/10/2026"), e então grave com write_document escrevendo só {{linhas}} no lugar das linhas (ou {{linhas: Coluna, Coluna}} para escolher as colunas): a ferramenta copia todas, exatas.`);
       }
+      // Told once, the model wrote "Pedido 4" again: the right code is known, so it is put in here.
+      const asIds = lineNumbersAsIds(ctx.lineKeys, body);
+      let lineFix = "";
+      if (asIds.length >= 2) {
+        for (const [n, k] of asIds) body = body.replace(new RegExp(`(#|n[ºo°.]\\s?|pedido\\s|item\\s|linha\\s)${n}\\b`, "gi"), (m, pre) => `${/^#$/.test(pre) ? "" : pre}${k}`);
+        args = { ...args, content: body };
+        lineFix = ` Troquei os números de linha da leitura pelos códigos da planilha (${asIds.map(([n, k]) => `${n} → ${k}`).join(", ")}).`;
+      }
       const totals = wrongTotals(body);
       if (totals.length && !ctx.heldDocuments.has(`${file.toLowerCase()}|total`)) {
         ctx.heldDocuments.add(`${file.toLowerCase()}|total`);
@@ -1560,7 +1667,7 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
       // processor) when the file already has it (token measurement, 07/10). Not when something is to fix.
       const next = note ? "" : "\nPronto. Agora responda à pessoa em até 2 frases: onde está o arquivo e o resultado principal (um número ou nome). Não repita a tabela nem o conteúdo do arquivo.";
       const completed = args.__completed ? ` (Sua chamada foi cortada no limite de saída; completei a tabela com as ${ctx.lastTable.rows.length} linhas da última leitura, exatas: está completa, não grave de novo.)` : "";
-      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${completed}${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}${next}`;
+      return `Criei ${file} (${format.toUpperCase()}, ${bytes.length} bytes).${completed}${lineFix}${note}${tableSums(args.content ?? args.text ?? args.markdown ?? "")}${next}`;
     },
   },
   {
