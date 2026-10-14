@@ -1,5 +1,5 @@
 import { backupBeforeChange, sha } from "../undoMoves.js";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -497,6 +497,21 @@ export function joinNote(previous, lines, name, request) {
     return `\n(Cruzamento feito pela ferramenta com ${prev.name}: ${there.names[col]} ${more ? ">" : "<"} ${brNumber(n)} em ${pass.join(", ")}. Nesta planilha, ${hits.length} linha(s) com ${shared} nesses valores:\n${[here.names.join(" | "), ...hits.map((r) => r.join(" | "))].join("\n")}\nUse esta lista e este número.)`;
   }
   return "";
+}
+
+/**
+ * The sheets in the project folder that the request is about ("os pedidos de compra" -> Pedidos_Compras.xlsx),
+ * when no sheet was read in this answer: a deck of the undelivered orders was written from imagination,
+ * the sheet never opened (14/10, qwen3.5:2b, 2 runs in 3). Not for made-up data the person asked for.
+ */
+export function unreadSubjectSheets(ctx) {
+  if (ctx.readSheets?.size || [...(ctx.readFiles || [])].some((f) => /\.(xlsx|csv)$/i.test(f)) || !ctx.workspace || /fict[ií]ci|invent|aleat|exemplo|simulad/i.test(String(ctx.request || ""))) return [];
+  const fold = (t) => String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const words = [...new Set(fold(ctx.request).split(/[^a-z0-9]+/).filter((w) => w.length >= 6).map((w) => w.replace(/s$/, "")))];
+  if (!words.length) return [];
+  let names = [];
+  try { names = readdirSync(ctx.workspace).filter((n) => /\.(xlsx|csv)$/i.test(n) && !/^~\$/.test(n)); } catch { return []; }
+  return names.filter((n) => words.some((w) => fold(n).includes(w)));
 }
 
 /**
@@ -1500,6 +1515,7 @@ export const fileTools = [
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
         ctx.anchorRows = ctx.lastRows;
         ctx.lastTable = tableFromRead(rows);
+        (ctx.readSheets ??= new Set()).add(file.toLowerCase());
         ctx.lineKeys = lineKeysOf(rows);
         if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
@@ -1559,7 +1575,7 @@ export const fileTools = [
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
-      if (sheet && text) { ctx.lineKeys = lineKeysOf(text); ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
+      if (sheet && text) { (ctx.readSheets ??= new Set()).add(file.toLowerCase()); ctx.lineKeys = lineKeysOf(text); ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
       return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}${await csvFormatNote(file)}`;
     },
   },
@@ -1596,6 +1612,11 @@ export const fileTools = [
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
     async run(args, ctx) {
+      const unreadSheets = unreadSubjectSheets(ctx);
+      if (unreadSheets.length && !ctx.heldUnread) {
+        ctx.heldUnread = true;
+        throw new Error(`Não gravei ainda: o pedido é sobre os dados de ${unreadSheets.join(", ")}, que está na pasta do projeto, e você não leu nenhuma planilha nesta resposta. Leia com read_file e grave o documento com os dados dela, sem inventar.`);
+      }
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
       let file = safeFileName(documentPath(args, ctx));
