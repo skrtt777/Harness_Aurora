@@ -1439,6 +1439,16 @@ export const fileTools = [
         const best = scored.sort((a, b) => b[0] - a[0]).slice(0, 20).map(([, f]) => f);
         if (best.length) return `Nada com "${pattern}" junto; com alguma das palavras (os mais parecidos primeiro):\n${roots.length > 1 ? "" : `${roots[0]}\n`}${best.join("\n")}`;
       }
+      if (!found.length && path && ctx.workspace && !roots.some((r) => resolve(r) === resolve(ctx.workspace))) {
+        // Searched in Desktop/Documentos only: the project folder has it (14/10, qwen3.5:2b looked for
+        // "departamentos" in Desktop and Documentos, never in the project, and said there were no data).
+        const inProject = [];
+        for await (const file of walk(ctx.workspace, ctx.signal)) {
+          if (regex.test(fold(rel(ctx.workspace, file)))) inProject.push(file);
+          if (inProject.length >= 20) break;
+        }
+        if (inProject.length) return `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}, mas na pasta do projeto há:\n${inProject.join("\n")}`;
+      }
       return found.length ? `${roots.length > 1 ? "" : `${roots[0]}\n`}${found.join("\n")}${found.length >= 200 ? "\n… (limite de 200)" : ""}` : `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}.`;
     },
   },
