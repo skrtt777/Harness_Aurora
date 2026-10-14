@@ -1,7 +1,8 @@
 // The powerbi tool: a complete BI from the person's spreadsheets, and the semantic model of an open Power
 // BI (read it, ask it with DAX, add and fix measures, relationships and formats — each measure checked and
 // undone if it fails). The engine is app/powerbi.js; the design, app/powerbiDesign.js.
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
 import { desktopRequest } from "../desktop.js";
 import { askedStyle, groundedName, localPlanAsk } from "../powerbiPlanner.js";
@@ -133,6 +134,27 @@ async function columnValues(ref) {
   return String(reply.text || "").split("\n").slice(2).map((l) => l.trim()).filter((l) => l && !/^…/.test(l));
 }
 
+const foldName = (t) => String(t || "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+/**
+ * The sheet the request is about, next to the ones chosen: "um BI sobre os departamentos" built from
+ * Funcionarios_Empresa.xlsx alone, with Departamentos_Empresa.csv in the same folder (13/10, 1 run in 3).
+ */
+export function namedSheets(paths, request) {
+  const words = [...new Set(foldName(request).split(/[^a-z0-9]+/).filter((w) => w.length >= 6).map((w) => w.replace(/s$/, "")))];
+  if (!words.length || !paths.length) return [];
+  const have = new Set(paths.map((p) => foldName(resolve(p))));
+  const out = [];
+  for (const dir of new Set(paths.map((p) => dirname(p)))) {
+    let names = []; try { names = readdirSync(dir); } catch { continue; }
+    for (const n of names) {
+      const full = join(dir, n);
+      if (!/\.(xlsx|csv)$/i.test(n) || have.has(foldName(resolve(full))) || /^~\$/.test(n)) continue;
+      if (words.some((w) => foldName(basename(n)).includes(w))) { out.push(full); have.add(foldName(resolve(full))); }
+    }
+  }
+  return out.slice(0, 2);
+}
+
 const ASKS_PBI = /power ?bi|\bbi\b|dashboard|painel|modelo sem[âa]ntico|\bdax\b|medida|\.pbix|\.pbip/i;
 // "deixe o tema azul e amarelo": colours for the report, with no ops for them (13/10: the model made up
 // {"format":"colors","settings":{...}} three times, each asking the person's permission for nothing).
@@ -178,6 +200,7 @@ export const powerBiTools = [
         if (!files.length) throw new Error("Diga as planilhas em files (ex.: [\"Documentos/vendas.xlsx\"]).");
         const paths = [];
         for (const f of files) paths.push(await resolveFile(f, ctx));
+        for (const extra of namedSheets(paths, `${ctx.request || ""} ${args.goal || ""}`)) paths.push(extra);
         const folder = expandPath(args.folder || "Documentos/Power BI", ctx.knownFolders, ctx.workspace);
         // The pages follow what was asked: the goal, or the request itself.
         const r = await buildReport({ files: paths, folder, name: groundedName(args.name, `${ctx.request || ""} ${args.goal || ""} ${files.join(" ")}`), goal: `${args.goal || ctx.request || ""}${askedStyle(ctx.request) && !askedStyle(args.goal) ? ` (${ctx.request})` : ""}`, conversationId: conversation, onStage: (s) => ctx.onStage?.(s),

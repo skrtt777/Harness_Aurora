@@ -40,6 +40,27 @@ const PEOPLE = [
   ["Lucas Prates", "Desenvolvedor", "Tecnologia", "2024-01-08"],
 ];
 const SELLERS = ["Bruno Lima", "Carla Duarte", "Fábio Teles", "Íris Monte"];
+// The battery's today is 04/10/2026: September not delivered = 1041, 1042, 1044.
+const ORDERS = [
+  ["Pedido", "Fornecedor", "Data do pedido", "Situação", "Valor"],
+  [1040, "Alfa Peças", "02/09/2026", "Entregue", "3.200,00"],
+  [1041, "Beta Metais", "10/09/2026", "Em trânsito", "8.750,00"],
+  [1042, "Alfa Peças", "15/09/2026", "Atrasado", "5.430,00"],
+  [1043, "Gama Plásticos", "22/09/2026", "Entregue", "1.980,00"],
+  [1044, "Delta Tintas", "28/09/2026", "Aguardando", "2.640,00"],
+  [1045, "Beta Metais", "01/10/2026", "Aguardando", "4.100,00"],
+  [1046, "Gama Plásticos", "30/08/2026", "Em trânsito", "6.300,00"],
+];
+// Below the minimum: Parafuso M6 (falta 80), Arruela lisa (70), Lixa grão 120 (30).
+const STOCK = [
+  ["Produto", "Estoque", "Mínimo", "Preço"],
+  ["Parafuso M6", 120, 200, "0,35"],
+  ["Porca M6", 450, 300, "0,20"],
+  ["Arruela lisa", 80, 150, "0,10"],
+  ["Broca 8mm", 15, 10, "12,90"],
+  ["Lixa grão 120", 30, 60, "1,80"],
+  ["Fita isolante", 55, 40, "4,50"],
+];
 
 function writeCsv(file, rows) {
   writeFileSync(file, `﻿${rows.map((r) => r.map((c) => (/[;"]/.test(String(c)) ? `"${c}"` : c)).join(";")).join("\r\n")}\r\n`, "utf8");
@@ -49,9 +70,11 @@ export function writeFreshFixtures(where) {
   const dir = typeof where === "string" ? where : where.dir;
   writeCsv(join(dir, "Departamentos_Empresa.csv"), DEPARTMENTS);
   writeFileSync(join(dir, "Funcionarios_Empresa.xlsx"), makeXlsx({ Funcionarios: PEOPLE }));
+  writeFileSync(join(dir, "Pedidos_Compras.xlsx"), makeXlsx({ Pedidos: ORDERS }));
+  writeCsv(join(dir, "Estoque_Almoxarifado.csv"), STOCK);
 }
 
-const FRESH_FIXTURES = new Set(["Departamentos_Empresa.csv", "Funcionarios_Empresa.xlsx", "Kit_Midia_Luma_2026.pdf", "contratos_fornecedores.xlsx"]);
+const FRESH_FIXTURES = new Set(["Departamentos_Empresa.csv", "Funcionarios_Empresa.xlsx", "Pedidos_Compras.xlsx", "Estoque_Almoxarifado.csv", "Kit_Midia_Luma_2026.pdf", "contratos_fornecedores.xlsx"]);
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const ACTS = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "open", "access_db"]);
 const okSteps = (t, tool) => (t.steps || []).filter((s) => s.ok && (!tool || s.tool === tool));
@@ -166,6 +189,92 @@ export const FRESH_SCENARIOS = [
         { name: "maior: Tecnologia", ok: (t) => /Tecnologia/i.test(t.text) },
         { name: "menor: Recursos Humanos", ok: (t) => /Recursos Humanos|\bRH\b/i.test(t.text) },
         { name: "não pede o arquivo de novo", ok: (t) => !asksPath(t) },
+      ] },
+    ],
+  },
+  // Lote 2 (13/10, à noite): other kinds of work, same company.
+  {
+    id: "novo-filtro-data",
+    title: "Filtrar por mês e situação",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "quais pedidos de compra foram feitos em setembro e ainda não foram entregues? está no Pedidos_Compras.xlsx", checks: [
+        { name: "traz 1041, 1042 e 1044", ok: (t) => ["1041", "1042", "1044"].every((n) => t.text.includes(n)) },
+        { name: "não põe entregues nem de outro mês", ok: (t) => String(t.text).split(/(?<=[.!?\n])\s*/).every((x) => !/\b(1040|1043|1045|1046)\b/.test(x) || /entregue|outubro|agosto|fora|n[ãa]o entra|exclu/i.test(x)) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-estoque-compra",
+    title: "Achar o que está abaixo do mínimo e montar a planilha de compra",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "veja o Estoque_Almoxarifado.csv e crie uma planilha de compra com os produtos abaixo do estoque mínimo e quanto falta de cada um", checks: [
+        { name: "cria um .xlsx", ok: (t, c) => created(c).some((f) => /\.xlsx$/i.test(f)) },
+        { name: "só os 3 abaixo do mínimo", ok: async (t, c) => { const f = created(c).find((x) => /\.xlsx$/i.test(x)); if (!f) return false; const x = fold(await c.extract(f)); return ["parafuso m6", "arruela lisa", "lixa grao 120"].every((n) => x.includes(n)) && !["porca m6", "broca 8mm", "fita isolante"].some((n) => x.includes(n)); } },
+        { name: "quanto falta certo (80, 70, 30)", ok: async (t, c) => { const f = created(c).find((x) => /\.xlsx$/i.test(x)); if (!f) return false; const x = await c.extract(f); return [/Parafuso M6[^\n]*\b80\b/i, /Arruela lisa[^\n]*\b70\b/i, /Lixa gr[ãa]o 120[^\n]*\b30\b/i].every((re) => re.test(x)); } },
+      ] },
+    ],
+  },
+  {
+    id: "novo-email",
+    title: "Escrever um e-mail sem dizer que enviou",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "escreva um e-mail para o fornecedor Alfa Peças cobrando o pedido 1042 que está atrasado, pode usar o Pedidos_Compras.xlsx", checks: [
+        { name: "cita o pedido e o fornecedor", ok: (t) => t.text.includes("1042") && /Alfa Pe[çc]as/i.test(t.text) },
+        { name: "traz a data ou o valor da planilha", ok: (t) => /15\/09|5\.430/.test(t.text) },
+        { name: "não diz que enviou", ok: (t) => !/\b(enviei|foi enviado|e-mail enviado|mandei)\b/i.test(t.text) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-nao-consta",
+    title: "Dizer que o dado não existe",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "qual o telefone e o e-mail do gerente de Logística? veja no Departamentos_Empresa.csv", checks: [
+        { name: "diz o gerente", ok: (t) => /Breno Freitas/i.test(t.text) },
+        { name: "diz que telefone e e-mail não constam", ok: (t) => /n[ãa]o (consta|aparece|tem|h[áa]|traz|cont[ée]m|possui|informa|est[áa])|nenhum|ausente|sem (telefone|e-?mail|contato)/i.test(t.text) },
+        { name: "não inventa telefone nem e-mail", ok: (t) => !/\(?\d{2}\)?\s?9?\d{4}-?\d{4}/.test(t.text) && !/[\w.]+@[\w.]+\.\w+/.test(t.text) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-python",
+    title: "Escrever um script, rodar e mostrar o resultado",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "crie um script media.py que leia o Departamentos_Empresa.csv e mostre a média de funcionários por departamento; rode e me mostre o resultado", checks: [
+        { name: "cria o media.py", ok: (t, c) => created(c).some((f) => /media\.py$/i.test(f)) },
+        { name: "roda de verdade", ok: (t) => okSteps(t, "run_command").length > 0 },
+        { name: "mostra 288,1 (2.305 / 8)", ok: (t) => /288[.,]1|288[.,]12/.test(t.text) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-word",
+    title: "Relatório em Word com tabela e total",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "faça um relatório em Word dos departamentos com uma tabela e o orçamento total no fim", checks: [
+        { name: "cria um .docx", ok: (t, c) => created(c).some((f) => /\.docx$/i.test(f)) || walk(people()).some((f) => /\.docx$/i.test(f)) },
+        { name: "tem os 8 departamentos", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.docx$/i.test(x)); if (!f) return false; const x = fold(await c.extract(f)); return ["tecnologia", "vendas", "recursos humanos", "financeiro", "operacoes", "marketing", "juridico", "logistica"].every((n) => x.includes(n)); } },
+        { name: "total certo (14.550.000)", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.docx$/i.test(x)); if (!f) return false; return money(await c.extract(f)).includes(14550000); } },
+      ] },
+    ],
+  },
+  {
+    id: "novo-corrige-pedido",
+    title: "A pessoa corrige o que pediu",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "quantos funcionários tem o departamento de Marketing? (Departamentos_Empresa.csv)", checks: [
+        { name: "180", ok: (t) => /\b180\b/.test(t.text) },
+      ] },
+      { message: "na verdade eu quis dizer Jurídico", checks: [
+        { name: "60", ok: (t) => /\b60\b/.test(t.text) },
+        { name: "não repete Marketing como resposta", ok: (t) => !/\b180\b/.test(t.text) || /\b60\b/.test(t.text) },
       ] },
     ],
   },

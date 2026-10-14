@@ -538,7 +538,10 @@ export async function runChatAgent({
     // One call per assistant message (some chat templates refuse several in one).
     for (const [index, call] of toolCalls.entries()) {
       messages.push({ role: "assistant", content: index || parseTextToolCall(text) ? "" : text, tool_calls: [{ function: { name: call.name, arguments: call.arguments } }] });
-      const key = `${call.name}:${JSON.stringify(call.arguments)}`;
+      // Running the same command after a fix is progress, not repetition: "python media.py" after each
+      // edit_file was stopped as "repetiu exatamente essa ação" with the fix still untested (13/10).
+      const rerun = ["run_command", "check_page", "create_api"].includes(call.name) ? `#${steps.filter((st) => st.ok && ["write_file", "edit_file", "write_document"].includes(st.tool)).length}` : "";
+      const key = `${call.name}:${JSON.stringify(call.arguments)}${rerun}`;
       const count = (seen.get(key) || 0) + 1;
       seen.set(key, count);
       let outcome;

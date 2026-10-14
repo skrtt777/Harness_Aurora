@@ -341,6 +341,24 @@ export function redactRestricted(lines, request, env = {}) {
 
 /** The sheet's TOTAL row with its column names, as a note ("" when there is none). */
 /**
+ * How a CSV is written, for code that reads it: "media.py" opened a ";" file with BOM as commas and
+ * plain utf-8, got KeyError 'Funcionários' and ran the same script until the repetition guard (13/10).
+ */
+export async function csvFormatNote(file) {
+  if (!/\.(csv|tsv)$/i.test(file)) return "";
+  let head = "";
+  try { head = (await readFile(file)).subarray(0, 4096).toString("utf8"); } catch { return ""; }
+  const bom = head.charCodeAt(0) === 0xfeff;
+  const first = head.replace(/^\uFEFF/, "").split(/\r?\n/)[0] || "";
+  const counts = { ";": first.split(";").length - 1, ",": first.split(",").length - 1, "\t": first.split("\t").length - 1 };
+  const sep = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (!sep || sep[1] === 0) return "";
+  const shown = sep[0] === "\t" ? "tabulação" : `"${sep[0]}"`;
+  const py = `open(caminho, encoding="${bom ? "utf-8-sig" : "utf-8"}", newline="") e csv.DictReader(f, delimiter=${sep[0] === "\t" ? '"\\t"' : `"${sep[0]}"`})`;
+  return `\n(Formato do CSV: separador ${shown}, ${bom ? "UTF-8 com BOM" : "UTF-8"}. Em código: Python ${py}; pandas read_csv(caminho, sep=${sep[0] === "\t" ? '"\\t"' : `"${sep[0]}"`}, encoding="${bom ? "utf-8-sig" : "utf-8"}"). Números como "2.800.000" têm ponto de milhar: tire os pontos antes de converter.)`;
+}
+
+/**
  * The sums, the largest and the smallest of each number column, done here (13/10: "qual o orçamento total
  * e quantos funcionários" — 2.695 for 2.305 and R$ 10,65 mi for 14,55, the model adding 8 numbers by heart).
  * Only for a sheet without its own TOTAL row, and not for code columns.
@@ -1351,7 +1369,7 @@ export const fileTools = [
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
       if (sheet && text) { ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
-      return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}`;
+      return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}${await csvFormatNote(file)}`;
     },
   },
   {
