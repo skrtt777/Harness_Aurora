@@ -278,6 +278,72 @@ export const FRESH_SCENARIOS = [
       ] },
     ],
   },
+  // Lote 3: reasoning over the data (percent, two sheets, dates, order), a deck, a file not named.
+  {
+    id: "novo-percentual",
+    title: "Percentual de um total",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "que porcentagem do orçamento total vai para Tecnologia? (Departamentos_Empresa.csv)", checks: [
+        { name: "19,2%", ok: (t) => /19[,.]2\d?\s?%/.test(t.text) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-cruzar",
+    title: "Cruzar duas planilhas",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "quantas pessoas da Funcionarios_Empresa.xlsx trabalham em departamentos com orçamento acima de 2 milhões no Departamentos_Empresa.csv? quem são?", checks: [
+        { name: "são 4", ok: (t) => /\b(4|quatro)\b/i.test(t.text) },
+        { name: "Ana, Lucas, Diego e João", ok: (t) => ["Ana Tavares", "Lucas Prates", "Diego Moura", "João Vieira"].every((n) => fold(t.text).includes(fold(n))) },
+        { name: "sem gente de outros", ok: (t) => !["Bruno Lima", "Elisa Rocha", "Hugo Pires", "Kelly Arruda"].some((n) => fold(t.text).includes(fold(n))) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-dias",
+    title: "Dias entre datas (hoje é 04/10/2026)",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "há quantos dias o pedido 1042 foi feito? (Pedidos_Compras.xlsx)", checks: [
+        { name: "19 dias", ok: (t) => /\b19 dias\b/i.test(t.text) },
+      ] },
+    ],
+  },
+  {
+    id: "novo-ordenar",
+    title: "Ordenar do maior para o menor",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "liste os departamentos do Departamentos_Empresa.csv do maior para o menor número de funcionários", checks: [
+        { name: "na ordem certa", ok: (t) => { const order = ["Vendas", "Operações", "Tecnologia", "Logística", "Marketing", "Financeiro", "Recursos Humanos", "Jurídico"].map((n) => fold(t.text).indexOf(fold(n))); return order.every((i) => i >= 0) && order.every((i, j) => !j || i > order[j - 1]); } },
+      ] },
+    ],
+  },
+  {
+    id: "novo-apresentacao",
+    title: "Apresentação dos pedidos pendentes",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "faça uma apresentação curta (3 slides) sobre os pedidos de compra que ainda não foram entregues", checks: [
+        { name: "cria um .pptx", ok: (t, c) => [...created(c), ...walk(people())].some((f) => /\.pptx$/i.test(f)) },
+        { name: "traz os pedidos pendentes", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.pptx$/i.test(x)); if (!f) return false; const x = await c.extract(f); return ["1041", "1042", "1044", "1045", "1046"].filter((n) => x.includes(n)).length >= 4 && !/\b1040\b|\b1043\b/.test(x); } },
+      ] },
+    ],
+  },
+  {
+    id: "novo-acha-arquivo",
+    title: "Achar a planilha sem que digam o nome",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "tem alguma planilha de estoque nesta pasta? o que está faltando comprar?", checks: [
+        { name: "acha o Estoque_Almoxarifado", ok: (t) => (t.steps || []).some((s) => s.ok && /Estoque_Almoxarifado/i.test(JSON.stringify(s.args || {}) + (s.summary || ""))) || /Estoque_Almoxarifado/i.test(t.text) },
+        { name: "os 3 abaixo do mínimo", ok: (t) => ["parafuso m6", "arruela", "lixa"].every((n) => fold(t.text).includes(n)) },
+        { name: "sem os que estão ok", ok: (t) => String(t.text).split(/(?<=[.!?\n])\s*/).every((x) => !/porca m6|broca 8mm|fita isolante/i.test(x) || /acima|ok|suficiente|n[ãa]o precisa|em dia|dentro/i.test(x)) },
+      ] },
+    ],
+  },
 ];
 
 for (const s of FRESH_SCENARIOS) s.ownFiles = true;
