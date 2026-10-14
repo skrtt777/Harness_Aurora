@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.48': {
+    title: 'Roda em computador fraco (8 GB, sem placa de vídeo)',
+    items: [
+      ['Modelo pelo computador', 'Sem placa de vídeo e com até ~10 GB de RAM, a Aurora usa o Qwen3.5 2B: cabe em 8 GB (pico de 2,7 GB) e responde 1,6× mais rápido. Nos demais, continua o 4B. Quem escolheu um modelo mantém o seu.'],
+      ['Começo da conversa de volta em 38 ms', 'No processador, cada conversa nova relia 3 a 4 mil tokens (~55 s). Agora há um começo salvo para cada conjunto de ferramentas, restaurado na hora.'],
+      ['Percentuais, ordem e cruzamentos certos', 'A participação de cada linha no total vem pronta. A ordem "do maior para o menor" usa a coluna certa, e uma lista fora dessa ordem é corrigida.'],
+      ['Documento só com os dados de verdade', 'Um documento sobre uma planilha da pasta só é gravado depois de ela ser lida. As buscas nas pastas pessoais apontam também o que está na pasta do projeto.'],
+    ],
+  },
   '0.1.47': {
     title: 'Respostas que conferem: contas, listas e entregas',
     items: [

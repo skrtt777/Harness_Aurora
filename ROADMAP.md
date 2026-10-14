@@ -70,6 +70,24 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.48 (14/10, publicada): computador fraco e estudo de modelos.**
+  - **Máquina fraca simulada** (`scripts/low-end-bench.mjs`: 8 GB, 4 threads, só CPU). qwen3.5:4b: 79 s por pedido (mediana) e 2,8 GB reais; qwen3.5:2b: 50 s e 1,3 GB.
+  - **Estudo de modelos** (bateria nova, 58 checagens): qwen3.5:4b 98%; qwen3.5:2b 78–85%; granite4.1:3b 71%; gemma4:e4b 55–66%; gemma4:e2b 48–64%. O Gemma 4 escreve as chamadas de ferramenta no formato próprio (agora lido).
+  - **Modelo pelo hardware:** o 2b sem placa de vídeo e com até ~10 GB (`hardwareDefaultModel`, `HARNESS_MODEL_TIER`).
+  - **Cache por conjunto de ferramentas** (`app/llamaCache.js`):
+    - um começo salvo por conjunto, restaurado na vaga única (38 ms);
+    - aprendido entre turnos, com a vaga apagada antes e os pedidos esperando o salvar.
+  - **Ferramentas:**
+    - percentual de cada linha;
+    - coluna certa na ordem pronta, mais a trava order_mismatch;
+    - condição do pedido também na leitura com sort;
+    - documento sobre planilha da pasta só depois de lê-la;
+    - search_files aponta o projeto;
+    - run_command com pasta inexistente diz a certa;
+    - FORMAT_NAME com pptx (a conferência quebrava).
+  - Avaliações não abrem o Power BI Desktop (`HARNESS_PBI_OPEN=off`).
+  - Baterias (4b): nova 57/58 e apresentação 3/3; conversas 43/43; agentes 32/32; suíte 722/722.
+
 - **0.1.47 (13/10, publicada): a bateria nova (inédita) e o que ela achou.**
   - Nasceu da conversa "monte um BI interativo sobre departamentos": o BI nunca saiu, seis respostas disseram "Pronto! Aplicado" com o modo Plano ligado, e o total saiu errado.
   - **Bateria "novos"** (`app/freshBattery.js`, `npm run battery -- --set novos`): 20 cenários, 58 checagens, empresa fictícia própria. 0.1.46: 66,7% no lote 1; agora 69/69 (lotes 1 a 3, 100%).
