@@ -1525,6 +1525,17 @@ export const fileTools = [
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
         ctx.anchorRows = ctx.lastRows;
         ctx.lastTable = tableFromRead(rows);
+        // Only sorted, no filter: the request's own condition still applies ("os pedidos que ainda não
+        // foram entregues" read with sort= gave all 7 rows, and the check then demanded the delivered
+        // ones too, 14/10). Its rows first, and they are what the document is checked against.
+        const condition = !String(filter || "").trim() ? (notStatusHint(table, ctx.request) || minimumHint(table, ctx.request)) : "";
+        if (condition) {
+          found = `${file}${condition}\n${found.slice(file.length + 1)}`;
+          ctx.lastRows = rowKeys(condition);
+          ctx.anchorRows = ctx.lastRows;
+          ctx.excludedRows = rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k));
+          ctx.lastTable = tableFromRead(condition);
+        }
         (ctx.readSheets ??= new Set()).add(file.toLowerCase());
         ctx.lineKeys = lineKeysOf(rows);
         if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
@@ -1623,9 +1634,11 @@ export const fileTools = [
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
     async run(args, ctx) {
       const unreadSheets = unreadSubjectSheets(ctx);
-      if (unreadSheets.length && !ctx.heldUnread) {
-        ctx.heldUnread = true;
-        throw new Error(`Não gravei ainda: o pedido é sobre os dados de ${unreadSheets.join(", ")}, que está na pasta do projeto, e você não leu nenhuma planilha nesta resposta. Leia com read_file e grave o documento com os dados dela, sem inventar.`);
+      // Until the sheet is read (the same made-up deck came back right after the first refusal, 14/10, 4b),
+      // at most 3 times so the answer is never stuck.
+      if (unreadSheets.length && (ctx.heldUnread || 0) < 3) {
+        ctx.heldUnread = (ctx.heldUnread || 0) + 1;
+        throw new Error(`Não gravei: o pedido é sobre os dados de ${unreadSheets.join(", ")}, que está na pasta do projeto, e você não leu nenhuma planilha nesta resposta. Chame read_file com path "${join(ctx.workspace, unreadSheets[0])}" e só depois grave o documento com os dados dela (os códigos, nomes e valores da planilha, sem exemplos inventados).`);
       }
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
