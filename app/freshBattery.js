@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeXlsx } from "./sampleDocs.js";
 import { claimsActionWithoutAction } from "./codeGuards.js";
@@ -329,6 +329,21 @@ export const FRESH_SCENARIOS = [
       { message: "faça uma apresentação curta (3 slides) sobre os pedidos de compra que ainda não foram entregues", checks: [
         { name: "cria um .pptx", ok: (t, c) => [...created(c), ...walk(people())].some((f) => /\.pptx$/i.test(f)) },
         { name: "traz os pedidos pendentes", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.pptx$/i.test(x)); if (!f) return false; const x = await c.extract(f); return ["1041", "1042", "1044", "1045", "1046"].filter((n) => x.includes(n)).length >= 4 && !/\b1040\b|\b1043\b/.test(x); } },
+      ] },
+    ],
+  },
+  {
+    // 15/10, from the phone: asked for charts and a dashboard, the Aurora wrote tables "simulating" charts
+    // for 40 minutes and said it could not draw one. Now write_document makes native charts.
+    id: "novo-grafico",
+    title: "Apresentação com gráficos e dashboard",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "monte uma apresentação com um gráfico de barras do número de funcionários por departamento (Departamentos_Empresa.csv) e um slide de dashboard com o orçamento total, o total de funcionários e um gráfico de pizza do orçamento", checks: [
+        { name: "cria um .pptx", ok: (t, c) => [...created(c), ...walk(people())].some((f) => /\.pptx$/i.test(f)) },
+        { name: "tem gráficos de verdade", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.pptx$/i.test(x)); if (!f) return false; const { readZip } = await import("./docText.js"); return [...readZip(readFileSync(f)).keys()].filter((k) => /^ppt\/charts\/chart\d+\.xml$/.test(k)).length >= 2; } },
+        { name: "barras com os 8 departamentos e os números certos", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.pptx$/i.test(x)); if (!f) return false; const { readZip } = await import("./docText.js"); const z = readZip(readFileSync(f)); const bars = [...z.keys()].filter((k) => /^ppt\/charts\/chart\d+\.xml$/.test(k)).map((k) => z.get(k)().toString("utf8")).find((x) => x.includes("<c:barChart>")); return Boolean(bars) && ["Tecnologia", "Vendas", "Jurídico"].every((d) => bars.includes(d)) && ["420", "610", "60"].every((n) => bars.includes(`<c:v>${n}</c:v>`)); } },
+        { name: "não diz que não dá para fazer gráfico", ok: (t) => !/n[ãa]o (é poss[íi]vel|consigo|d[áa] para) (criar|gerar|inserir|fazer) gr[áa]fico|gr[áa]fico[s]? simulad/i.test(t.text) },
       ] },
     ],
   },

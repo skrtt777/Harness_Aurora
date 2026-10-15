@@ -34,12 +34,52 @@ function delimitedRun(lines, i, delimiters) {
  * Markdown → blocks: {type:"heading",level,text} | {type:"bullet",text} | {type:"paragraph",text} | {type:"table",rows,title}.
  * sheet: for a spreadsheet (.xlsx/.csv) a delimited run of lines is a table too.
  */
+const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const foldKind = (s) => (/^(grafico|chart|graph)$/.test(fold(s)) ? "chart" : /^(indicadores|kpis?|cartoes|metricas)$/.test(fold(s)) ? "kpis" : null);
+/** "barras", "colunas", "linhas", "pizza", "rosca", "area" → the chart drawn. */
+export function chartKind(word) {
+  const w = fold(word);
+  if (/^(linha|linhas|line|tendencia|evolucao)/.test(w)) return "line";
+  if (/^(pizza|pie|setor|setores)/.test(w)) return "pie";
+  if (/^(rosca|donut|anel)/.test(w)) return "doughnut";
+  if (/^(area)/.test(w)) return "area";
+  if (/^(barras?h|horizontal)/.test(w)) return "barh";
+  return "bar";
+}
+/** Charts and KPI cards as plain tables, for the formats without charts (Word, PDF, Excel, CSV). */
+export function flattenCharts(blocks) {
+  return blocks.flatMap((b) => b.type === "chart" ? [{ type: "table", rows: b.rows, title: b.title }]
+    : b.type === "kpis" ? [{ type: "table", rows: [["Indicador", "Valor", "Detalhe"], ...b.items.map((k) => [k.label, k.value, k.note])], title: "Indicadores" }]
+    : [b]);
+}
+
 export function parseBlocks(markdown, { sheet = false } = {}) {
   const blocks = [];
   const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
   let lastHeading = "";
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
+    // A fenced block: ```grafico barras: Título (a chart) or ```indicadores (KPI cards), with the data as a
+    // table inside; any other fence (```markdown…) only loses its ``` lines (they were paragraphs of backticks).
+    const fence = line.match(/^\s*```\s*([\p{L}]*)\s*(.*)$/u);
+    if (fence) {
+      const end = lines.findIndex((l, k) => k > i && /^\s*```\s*$/.test(l));
+      const inner = lines.slice(i + 1, end < 0 ? lines.length : end);
+      const kind = foldKind(fence[1]);
+      if (kind === "chart" || kind === "kpis") {
+        const rows = inner.filter((l) => l.includes("|") && !isSeparator(l)).map(cells);
+        if (kind === "chart") {
+          const [, type = "", title = ""] = fence[2].match(/^([\p{L}]*)\s*:?\s*(.*)$/u) || [];
+          if (rows.length >= 2) blocks.push({ type: "chart", kind: chartKind(type), title: clean(title) || lastHeading, rows });
+        } else if (rows.length) blocks.push({ type: "kpis", items: rows.map(([label = "", value = "", note = ""]) => ({ label, value, note })) });
+        i = end < 0 ? lines.length : end;
+        continue;
+      }
+      lines.splice(end < 0 ? i : end, 1);
+      if (end >= 0) lines.splice(i, 1);
+      i -= 1;
+      continue;
+    }
     // Blank lines and --- separators.
     if (!line.trim() || /^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) continue;
     const run = !isTableLine(line) && delimitedRun(lines, i, sheet ? ["|", "\t", ";", ","] : ["|"]);
@@ -190,8 +230,10 @@ function csvOf(blocks, { plain = false } = {}) {
 
 /** Bytes of the document in the given format. */
 export async function renderDocument(format, markdown, { plainCsv = false } = {}) {
-  const blocks = parseBlocks(markdown, { sheet: format === "xlsx" || format === "csv" });
-  if (!blocks.length) throw new Error("O conteúdo está vazio.");
+  const parsed = parseBlocks(markdown, { sheet: format === "xlsx" || format === "csv" });
+  if (!parsed.length) throw new Error("O conteúdo está vazio.");
+  if (format === "pptx") return (await import("./pptxWriter.js")).makePresentation(parsed);
+  const blocks = flattenCharts(parsed);
   if (format === "docx") return makeDocument(blocks);
   if (format === "xlsx") return makeSheet(blocks);
   if (format === "pdf") return makePdfDocument(blocks);

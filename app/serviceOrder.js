@@ -12,6 +12,7 @@ import { numberRules } from "./numberRules.js";
 import { requestedFiles } from "./codeGuards.js";
 import { officialPages, pagesLine } from "./legalSources.js";
 import { askedFolder, requestedFormat } from "./agentTools/files.js";
+import { asksDeck } from "./toolRouter.js";
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const RUN = /\b(rode|rodar|execute|executar|roda o|rode os testes|teste e|me mostre o resultado|mostre a saida)\b/;
@@ -38,7 +39,8 @@ export function serviceOrder(request, { history = [] } = {}) {
   const run = RUN.test(t);
   const official = OFFICIAL.test(t);
   // A Power BI asked with the data ("faça planilhas e monte um POWERBI"): the panel is part of the delivery.
-  const bi = makes && /\bpower ?bi\b|\bpbix\b|\bdashboard\b|\bpainel de bi\b/.test(t);
+  // Not the dashboard of a deck ("uma apresentação com um slide de dashboard"): that one is a slide.
+  const bi = makes && (/\bpower ?bi\b|\bpbix\b|\bpainel de bi\b/.test(t) || (/\bdashboard\b/.test(t) && !asksDeck(t)));
   const deliver = [
     ...files.map((f) => `o arquivo ${f}`),
     ...(format && !files.some((f) => f.toLowerCase().endsWith(`.${format}`)) ? [FORMAT_NAME[format]] : []),

@@ -5,6 +5,16 @@
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+/**
+ * A Power BI is wanted: named ("power bi", .pbix, DAX), or "dashboard/painel/indicadores" outside a deck. In
+ * "uma apresentação com um slide de dashboard" the dashboard is a slide (15/10: 2 runs in 3 built a Power BI
+ * instead of the deck, and the person had asked for one from the phone).
+ */
+const ASKS_DECK = /\b(apresentac|slides?\b|powerpoint|pptx|deck\b)/;
+const NAMES_PBI = /\b(power ?bi|pbix|pbip|dax)\b/;
+export const asksDeck = (text) => ASKS_DECK.test(fold(text));
+export const wantsPowerBi = (text) => { const t = fold(text); return NAMES_PBI.test(t) || (!ASKS_DECK.test(t) && /\b(bi|dashboard|painel|paineis|indicadores|kpis?|medida dax)\b/.test(t)); };
+
 /** Always: read and write files and documents, the company's search, memory, the plan. */
 export const BASE_TOOLS = ["read_file", "list_dir", "search_files", "write_document", "write_file", "edit_file", "knowledge_search", "memory_search", "memory_save", "update_plan"];
 
@@ -14,7 +24,7 @@ export const TOOL_GROUPS = [
   { id: "web", words: /\b(internet|pesquis|busc[ae] na|google|site|pagina|link|url|http|www\.|noticia|cotacao|preco atual|hoje|atual|recente|lei|legisla|norma|jurisprud|sumula|planalto|clt|fonte oficial|document(acao|e) oficial|aprend)/, tools: ["web_search", "web_fetch", "learn"] },
   { id: "navegador", words: /\b(abr[aei]r? (o |a )?(site|pagina|navegador|link)|navegador|chrome|formulario|preench|clique|clicar|login|entr[ae] no site|envie (uma )?mensagem (no|pelo) site|http|www\.|\.com\b|youtube|instagram|whatsapp web)/, tools: ["browser_navigate", "browser_snapshot", "browser_read", "browser_click", "browser_type", "browser_fill", "browser_key", "browser_scroll", "browser_tabs"] },
   { id: "office", words: /\b(abr[aei]r? (o |a )?(excel|word|powerpoint|programa|aplicativo|app)|no excel|no word|no powerpoint|excel aberto|word aberto|planilha aberta|janela|na tela|calculadora|sistema da empresa|programa)/, tools: ["excel", "word", "powerpoint", "open", "desktop_windows", "desktop_snapshot", "desktop_click", "desktop_type", "desktop_key", "desktop_copy"] },
-  { id: "powerbi", words: /\b(power ?bi|bi|pbix|dashboard|painel|paineis|indicadores|kpis?|medida dax|dax)\b/, tools: ["powerbi"] },
+  { id: "powerbi", words: { test: wantsPowerBi }, tools: ["powerbi"] },
   { id: "comandos", words: /\b(rode|rodar|execut|comando|terminal|powershell|script|instal|npm|python|node|git|compil|teste[ms]?\b|servidor|porta)/, tools: ["run_command", "command_output", "command_stop"] },
   { id: "empresa", words: /\b(index|base de conhecimento|pasta da empresa|documentos da empresa|conecte|mapa dos documentos|knowledge)/, tools: ["knowledge_setup", "knowledge_map"] },
   { id: "access", words: /\b(access|\.accdb|\.mdb|banco de dados)/, tools: ["access_db"] },

@@ -8,6 +8,7 @@
 import { sessionName } from "../office.js";
 import { setSubagent } from "../pendingTurns.js";
 import { WRITE_TOOLS } from "../teacher.js";
+import { wantsPowerBi } from "../toolRouter.js";
 
 export const SUBAGENT_EXCLUDED = new Set(["subagents", "team_request", "agent_delegate"]);
 const MAX_TASKS = 5;
@@ -29,7 +30,9 @@ export function multiPart(text) {
   // A spreadsheet that already exists ("com a planilha vendas.xlsx", "das planilhas") is the input, not a part.
   const existing = /\b(com|da|das|na|nas|usando|a partir d[ae]s?)\s+(as?\s+)?planilhas?\b|\b[\w-]+\.(xlsx|csv)\b/.test(t);
   const found = [];
-  for (const [name, re] of PARTS) if (re.test(t) && !((name === "planilha" || name === "planilhas") && existing) && !(name === "planilha" && found.includes("planilhas"))) found.push(name);
+  // The dashboard of a deck is one of its slides, not a Power BI to make apart (15/10: the deck was split in
+  // two and the subagents made up the numbers: 795 people instead of 2.305).
+  for (const [name, re] of PARTS) if (re.test(t) && !((name === "planilha" || name === "planilhas") && existing) && !(name === "planilha" && found.includes("planilhas")) && !(name === "Power BI" && !wantsPowerBi(text))) found.push(name);
   // A website, app or system with several technologies (React, Three.js, Java, C++…): one part per area.
   // A website is made by create_site (app/siteBuilder.js) in one action, not divided (13/10).
   if (/\b(site|website|pagina web|landing page|portal)\b/.test(t) && !/\b(planilhas?|power ?bi|relatorio|apresentacao)\b/.test(t)) return null;

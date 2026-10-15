@@ -7,6 +7,7 @@ import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelName
 import { desktopRequest } from "../desktop.js";
 import { askedStyle, groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
+import { asksDeck, wantsPowerBi } from "../toolRouter.js";
 
 const ok = (reply) => { if (!reply.ok) throw new Error(reply.error); return reply.text; };
 const NEXT = "\nAgora diga à pessoa, em 2-3 frases, o que ficou pronto (os números principais) e pergunte se está certo, com **Quer ajustar?** e opções numeradas (ex.: 1. Está ótimo (recomendado) 2. Criar outra medida 3. Mudar o nome do painel).";
@@ -195,6 +196,7 @@ export const powerBiTools = [
       const action = args.action;
       const conversation = ctx.conversationId || "";
       if (action === "build") {
+        if (asksDeck(ctx.request) && !wantsPowerBi(ctx.request) && !args.__fromOpen) throw new Error("O pedido é uma apresentação: o dashboard é um SLIDE, não um Power BI. Use write_document com um .pptx e, no slide, um bloco ```indicadores (| Nome | Valor | variação |) e blocos ```grafico TIPO: Título com a tabela dos dados.");
         if (!ASKS_PBI.test(String(ctx.request || "")) && !askedStyle(ctx.request) && !args.__fromOpen) throw new Error("A pessoa não pediu um Power BI/painel: para uma planilha ou relatório comum, use write_document.");
         const files = [args.files].flat().filter(Boolean);
         if (!files.length) throw new Error("Diga as planilhas em files (ex.: [\"Documentos/vendas.xlsx\"]).");

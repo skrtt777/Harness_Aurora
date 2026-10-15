@@ -4,7 +4,7 @@ import { mkdir, open, readFile, readdir, realpath, rename, stat, writeFile } fro
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { IMAGE_EXTENSIONS, extractText } from "../docText.js";
-import { DOCUMENT_FORMATS, renderDocument, parseBlocks } from "../documentWriter.js";
+import { DOCUMENT_FORMATS, cellNumber, renderDocument, parseBlocks } from "../documentWriter.js";
 import { numberRules, ruleBreaks, breaksMessage } from "../numberRules.js";
 import { checkCode, checkNote } from "../codeCheck.js";
 import { requestsFile } from "../teacher.js";
@@ -1039,15 +1039,57 @@ export function tableFromRead(text) {
 }
 
 const MONEY_COLUMN = /valor|pre[cç]o|total|saldo|custo|sal[aá]rio|r\$/i;
+/**
+ * A chart drawn from a sheet read in this request shows that sheet's numbers. The 4B copied 3 departments
+ * and gave the other 5 the same 301 (15/10, the battery's chart scenario): the chart is refused with the
+ * right values and the way to copy them exactly. Values in thousands or millions (2,8 for 2.800.000) pass.
+ */
+export function chartMismatch(content, tables = []) {
+  const charts = parseBlocks(content).filter((b) => b.type === "chart");
+  const num = (v) => cellNumber(String(v ?? "").replace(/\s*[a-zA-Z%]+$/, "")) ?? cellNumber(v);
+  const close = (a, b) => a !== null && b !== null && [1, 1e3, 1e6].some((s) => Math.abs(a * s - b) <= Math.max(0.5, Math.abs(b) * 0.01));
+  // The sheets a chart can come from: one row per category, so a column of distinct names (the people sheet
+  // also has a Departamento column, repeated per person, and its rows are not the departments' numbers).
+  const sources = tables.filter((x) => x?.header && x?.rows?.length).flatMap((t) => t.header.map((_, key) => ({ t, key })).filter(({ t, key }) => new Set(t.rows.map((r) => foldText(r[key] ?? ""))).size === t.rows.length));
+  for (const chart of charts) {
+    const [head, ...body] = chart.rows;
+    for (let k = 1; k < head.length; k++) {
+      if (body.every((r) => num(r[k]) === null)) continue;
+      let best = null;
+      for (const { t, key } of sources) {
+        const rowOf = (name) => t.rows.find((tr) => foldText(tr[key] ?? "") === foldText(name ?? ""));
+        if (body.filter((r) => rowOf(r[0])).length < Math.max(2, body.length * 0.6)) continue;
+        for (let j = 0; j < t.header.length; j++) {
+          if (j === key || t.rows.filter((tr) => num(tr[j]) !== null).length < t.rows.length * 0.8) continue;
+          const hits = body.filter((r) => { const tr = rowOf(r[0]); return !tr || close(num(r[k]), num(tr[j])); }).length;
+          if (!best || hits > best.hits) best = { t, key, j, hits, rowOf };
+        }
+      }
+      // Some sheet read has exactly these numbers, or none of them is the chart's source: nothing to say.
+      if (!best || best.hits === body.length || best.hits === 0) continue;
+      const { t, key, j, rowOf } = best;
+      const wrong = body.filter((r) => { const tr = rowOf(r[0]); return tr && !close(num(r[k]), num(tr[j])); }).slice(0, 4).map((r) => `${r[0]} está ${r[k]}, na planilha é ${rowOf(r[0])[j]}`);
+      return `O gráfico "${chart.title || head[k]}" não bate com a planilha lida (${wrong.join("; ")}). Grave de novo com os dados exatos: dentro do bloco do gráfico escreva {{linhas: ${t.header[key]}, ${t.header[j]}}} no lugar da tabela, e a ferramenta copia as linhas certas.`;
+    }
+  }
+  return null;
+}
+
 /** {{linhas}} or {{linhas: Coluna, Coluna}} in a document becomes the last table read, exactly. */
 export function expandRows(content, table) {
   const marker = /\{\{\s*(?:linhas|tabela)\s*(?::\s*([^}]*))?\}\}/gi;
   if (!marker.test(String(content))) return content;
   if (!table) throw new Error("Use {{linhas}} só depois de ler a planilha com read_file (a ferramenta põe as linhas da última leitura).");
-  return String(content).replace(marker, (_, wanted) => {
+  return String(content).replace(marker, (_, wanted, at, whole) => {
     const names = String(wanted || "").split(",").map((w) => w.trim()).filter(Boolean);
     const columns = names.length ? names.map((n) => table.header.findIndex((h) => foldText(h).startsWith(foldText(n)) || foldText(n).startsWith(foldText(h)))).filter((j) => j >= 0) : table.header.map((_, j) => j);
-    const pick = columns.length ? columns : table.header.map((_, j) => j);
+    let pick = columns.length ? columns : table.header.map((_, j) => j);
+    // In a chart, {{linhas: Funcionários}} gave numbers with no names (15/10): the names' column goes first.
+    const numeric = (j) => table.rows.every((r) => /^-?[\d.,]+$/.test(String(r[j] ?? "").replace(/^R\$\s*/, "")));
+    if (/```\s*(gr[áa]fico|chart)[^\n]*\n(?:(?!```)[\s\S])*$/i.test(String(whole).slice(0, at)) && numeric(pick[0])) {
+      const label = table.header.findIndex((_, j) => !numeric(j) && new Set(table.rows.map((r) => r[j])).size === table.rows.length);
+      if (label >= 0) pick = [label, ...pick.filter((j) => j !== label)];
+    }
     const cell = (value, j) => {
       const number = /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : null;
       return number !== null && MONEY_COLUMN.test(table.header[j]) ? number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value;
@@ -1101,7 +1143,16 @@ export function tableSums(markdown) {
  * (usage tests, 06/10). [{ column, written, sum }] for each mismatching money column.
  */
 export function wrongTotals(markdown) {
-  const rows = String(markdown || "").split(/\r?\n/).filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s|:-]+\|\s*$/.test(l)).map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim().replace(/\*/g, "")));
+  // Each table on its own: all the table lines of a document were one table with the first header, and a
+  // deck with two charts summed people with budget ("420: está 2.305, a soma é 14.551.885", 15/10).
+  const tables = [[]];
+  for (const line of String(markdown || "").split(/\r?\n/)) {
+    if (!/^\s*\|.*\|\s*$/.test(line)) { if (tables.at(-1).length) tables.push([]); continue; }
+    if (!/^\s*\|[\s|:-]+\|\s*$/.test(line)) tables.at(-1).push(line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim().replace(/\*/g, "")));
+  }
+  return tables.flatMap(tableTotals);
+}
+function tableTotals(rows) {
   if (rows.length < 4) return [];
   const [header, ...body] = rows;
   const totalIndex = body.findIndex((r) => /^total/i.test(r[0] || "") || /^total/i.test(r[1] || ""));
@@ -1596,7 +1647,9 @@ export const fileTools = [
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
-      if (sheet && text) { (ctx.readSheets ??= new Set()).add(file.toLowerCase()); ctx.lineKeys = lineKeysOf(text); ctx.lastTable = tableFromRead(text); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
+      // A CSV is shown as it is (commas), so its table comes from csvTable: {{linhas}} after reading a CSV
+      // said "read the sheet first" 6 times in a row (15/10).
+      if (sheet && text) { (ctx.readSheets ??= new Set()).add(file.toLowerCase()); ctx.lineKeys = lineKeysOf(text); ctx.lastTable = tableFromRead(text) || (/\.(csv|tsv)$/i.test(file) ? tableFromRead(csvTable(lines.join("\n")).join("\n")) : null); if (ctx.lastTable && requestsFile(ctx.request) && !text.includes("… (cortado")) tip += ROWS_TIP; }
       return `${file}${ready}\n${text || "(vazio)"}${shown}${tip}${await csvFormatNote(file)}`;
     },
   },
@@ -1628,7 +1681,7 @@ export const fileTools = [
   },
   {
     name: "write_document",
-    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PowerPoint .pptx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Numa apresentação (.pptx) cada # ou ## começa um slide. As linhas da última planilha lida com read_file: escreva {{linhas}} (ou {{linhas: Coluna, Coluna}}) e a ferramenta copia todas, exatas. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
+    description: "Cria um documento NOVO (Word .docx, Excel .xlsx, PowerPoint .pptx, PDF, .md ou .csv) a partir de texto em markdown simples: # títulos, - listas e tabelas | a | b |. Numa apresentação (.pptx) cada # ou ## começa um slide. GRÁFICO de verdade (nativo, editável no PowerPoint): um bloco ```grafico TIPO: Título``` com a tabela dentro (1ª coluna os nomes, as outras os números; TIPO = barras, colunas, linhas, pizza, rosca ou area), fechado com ```. DASHBOARD: no mesmo slide, um bloco ```indicadores``` com linhas | Nome | Valor | variação (ex.: +12%) | e depois até 4 blocos ```grafico```. Para os números de uma planilha lida, escreva {{linhas: Coluna, Coluna}} dentro do bloco (copia exato). Nunca descreva um gráfico em texto nem diga que não dá para fazer gráfico: escreva o bloco. As linhas da última planilha lida com read_file: escreva {{linhas}} (ou {{linhas: Coluna, Coluna}}) e a ferramenta copia todas, exatas. Use para \"crie um documento/relatório/planilha/proposta\". Para corrigir um documento que você mesma criou, chame de novo com o mesmo caminho: ele é atualizado. Nunca sobrescreve um arquivo do usuário: se o nome já existe, salva com (2). Responda com o caminho que esta ferramenta devolver.",
     parameters: { type: "object", properties: { path: { type: "string", description: "Caminho com o nome do arquivo, ex.: Documentos/proposta_atualizada.docx" }, format: { type: "string", enum: DOCUMENT_FORMATS }, content: { type: "string", description: "Conteúdo completo em markdown simples" }, append: { type: "boolean", description: "true para ACRESCENTAR este conteúdo ao fim do documento que você gravou antes nesta resposta (documento longo em partes)" } }, required: ["path", "content"] },
     stage: (a) => `Criando ${a.path || a.file_path || a.filename || "o documento"}…`,
     describe: (a, ctx) => ({ kind: "write", paths: [documentPath(a, ctx)], summary: `Criar ${documentPath(a, ctx)}` }),
@@ -1664,6 +1717,17 @@ export const fileTools = [
 
 ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false };
       if (/\{\{\s*(linhas|tabela)/i.test(String(args.content ?? args.text ?? args.markdown ?? ""))) args = { ...args, content: expandRows(String(args.content ?? args.text ?? args.markdown ?? ""), ctx.lastTable) };
+      // A deck asked with charts or a dashboard, written without one: once, the format that draws them.
+      if (/\.pptx$/i.test(file) && !ctx.chartAsked && /\b(gr[áa]ficos?|dashboards?)\b/i.test(String(ctx.request || "")) && !/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? ""))) {
+        const { renderDocument: render } = await import("../documentWriter.js");
+        const drawn = await render("pptx", String(args.content ?? "")).then((b) => /ppt\/charts\/chart1\.xml/.test(b.toString("latin1"))).catch(() => false);
+        if (!drawn) { ctx.chartAsked = true; throw new Error("Não gravei ainda: o pedido tem gráfico/dashboard e a apresentação não tem nenhum. Escreva cada gráfico como um bloco:\n```grafico barras: Título\n{{linhas: Coluna dos nomes, Coluna dos números}}\n```\n(barras, linhas, pizza ou rosca) e, no slide do dashboard, um bloco ```indicadores com | Nome | Valor | variação | antes dos gráficos."); }
+      }
+      // Charts with numbers that are not the sheet's: refused with the right ones (up to 2 times, never stuck).
+      if (/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? "")) && (ctx.chartHeld || 0) < 2) {
+        const wrong = chartMismatch(String(args.content ?? ""), [ctx.lastTable, ...(ctx.readTables || []).map((x) => (Array.isArray(x.lines) ? tableFromRead(x.lines.join("\n")) : x.lines))]);
+        if (wrong) { ctx.chartHeld = (ctx.chartHeld || 0) + 1; throw new Error(wrong); }
+      }
       // A list missing rows of the read it came from is not written the first time: written and
       // flagged, the agent saved the full list under another name and left the 2-row sheet beside
       // it (agent battery, 06/10). Asked again (a top 3 is a fair subset), it is written.
