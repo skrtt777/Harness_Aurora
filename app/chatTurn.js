@@ -6,7 +6,7 @@ import { clockObservation, discountObservation, distressObservation, followUpMat
 import { httpError } from "./httpSecurity.js";
 import { getDb } from "./db.js";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
 import { runLocal, ollamaContextTokens, AGENT_MIN_CONTEXT_TOKENS, LOCAL_SETTINGS_DEFAULTS } from "./local.js";
@@ -43,7 +43,7 @@ import { escalateAnswer, probeParallelCopies, shouldVote } from "./copies.js";
 import { ensureLlamaServer } from "./llamaServer.js";
 import { computerRoots, personalFolders } from "./fileAccess.js";
 import { agentForProject, agentToolOverrides } from "./agents.js";
-import { extractText, isDocument } from "./docText.js";
+import { ATTACH_TEXT_EXTENSIONS, extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { compactContext, rules, agentRules, codeRules, areaRules, topicRules } from "./economy.js";
 import { findReusableWorkflow } from "./workflows.js";
@@ -181,12 +181,22 @@ const CONTACT_REQUEST = /\b(quem (eu )?(procuro|procurar|falo|chamo)|com quem|fa
 const CONTACT_DATA = /\bramal\b|e-?mail|telefone|@/i;
 
 const ATTACH_CHARS = 5000;
+const OPENS_WITH = { ".pbix": "Power BI: powerbi action=open com o caminho (aí as tabelas e medidas podem ser consultadas)", ".pbip": "Power BI: powerbi action=open com o caminho", ".xls": "Excel: open com o caminho (formato antigo, sem leitura direta)", ".doc": "Word: open com o caminho (formato antigo, sem leitura direta)", ".ppt": "PowerPoint: open com o caminho (formato antigo, sem leitura direta)" };
+/** What the Aurora knows of an attached file it cannot read as text: what it is, where, and how to use it. */
+async function fileCard(path, problem = "") {
+  const info = await stat(path).catch(() => null);
+  const ext = extname(path).toLowerCase() || "sem extensão";
+  const size = info ? (info.size >= 1024 * 1024 ? `${(info.size / 1024 / 1024).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(info.size / 1024))} KB`) : "?";
+  return [`Arquivo anexado: ${basename(path)} (${ext}, ${size}${info ? `, modificado em ${info.mtime.toLocaleDateString("pt-BR")}` : ""}).`,
+    problem ? `Não deu para ler o conteúdo como texto: ${problem}.` : "O conteúdo não é texto.",
+    `Para usar: ${OPENS_WITH[ext] || "open abre no programa do Windows; move_file e organize_folder movem; não invente o que há dentro"}.`].join("\n");
+}
 /** Paths and file names in the message that point to readable files. */
 export function fileMentions(text) {
   const found = new Set();
   for (const m of String(text).matchAll(/["'“”]([^"'“”\n]{3,260})["'“”]/g)) found.add(m[1].trim());
   for (const m of String(text).matchAll(/(?:[a-zA-Z]:\\|\\\\)[^\n"<>|*?]+?\.[a-z0-9]{2,5}\b/gi)) found.add(m[0].trim());
-  for (const m of String(text).matchAll(/[\p{L}\p{N}_()\-.]+\.(?:pdf|docx|xlsx|pptx|txt|md|csv|json|rtf|html?)\b/giu)) found.add(m[0]);
+  for (const m of String(text).matchAll(/[\p{L}\p{N}_()\-.]+\.(?:pdf|docx?|xlsx|xlsm|xls|pptx?|txt|md|csv|tsv|json|rtf|html?|xml|pbix|pbit|pbip|sql|dax|py|ipynb|yaml|yml|zip|png|jpe?g)\b/giu)) found.add(m[0]);
   // Bare names like MARU_MEDIA_KIT_PDF_FINAL (underscores or digits+caps).
   for (const m of String(text).matchAll(/(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[_-][\p{L}\p{N}]+){2,}(?![\p{L}\p{N}])/gu)) found.add(m[0]);
   return [...found].filter((s) => s.length >= 4).slice(0, 6);
@@ -364,8 +374,11 @@ export async function mentionedFiles(text, ctx, history = []) {
       // Attaching sends the text to the chat's model: never a restricted
       // company document to a paid one (read_file still asks there).
       if (ctx.provider && ctx.provider !== "local" && (await ctx.isRestricted?.(path))) continue;
-      const body = isDocument(path) ? await extractText(path) : null;
-      if (!body?.trim()) continue;
+      // Any other format (a .zip, a video, an old .xls) is no longer dropped in silence: the Aurora
+      // learns what was attached and where, and can open it or move it (15/10: a .pbix vanished).
+      const readable = isDocument(path) || ATTACH_TEXT_EXTENSIONS.has(extname(path).toLowerCase());
+      let body = readable ? await extractText(path).catch((e) => fileCard(path, e.message)) : await fileCard(path);
+      if (!body?.trim()) body = await fileCard(path, "nenhum texto encontrado");
       files.push({ path, text: body.length > ATTACH_CHARS ? `${body.slice(0, ATTACH_CHARS)}\n… (continua; leia o restante com read_file e offset)` : body });
     } catch { /* not a file the person has */ }
   }

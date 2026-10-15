@@ -29,6 +29,7 @@ const PATHS: Record<string, string> = {
   more: "M5 12h.01 M12 12h.01 M19 12h.01",
   chat: "M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z",
   sidebar: "M4 5h16v14H4Z M9 5v14",
+  paperclip: "M16.5 6.5 8.4 14.6a2 2 0 0 0 2.8 2.8l8.1-8.1a4 4 0 0 0-5.7-5.7L5.4 11.8a6 6 0 0 0 8.5 8.5l6.6-6.6",
   send: "M12 19V5 M6 11l6-6 6 6",
   expand: "M14 4h6v6 M10 20H4v-6 M20 4l-7 7 M4 20l7-7",
   collapse: "M20 10h-6V4 M4 14h6v6 M14 10l7-7 M10 14l-7 7",

@@ -14,7 +14,7 @@ export function zipStore(files) {
   const centrals = [];
   let offset = 0;
   for (const [name, content] of Object.entries(files)) {
-    const data = Buffer.from(content, "utf8");
+    const data = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
     const nameBytes = Buffer.from(name, "utf8");
     const crc = crc32(data);
     const local = Buffer.alloc(30);

@@ -12,8 +12,14 @@ import { htmlToText } from "./agentTools/web.js";
  * reads it, locally like everything else.
  */
 export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".bmp", ".webp"]);
-export const DOC_EXTENSIONS = new Set([".docx", ".xlsx", ".pptx", ".pdf", ".txt", ".md", ".csv", ".tsv", ".json", ".html", ".htm", ".xml", ".log", ".rtf", ...IMAGE_EXTENSIONS]);
+export const DOC_EXTENSIONS = new Set([".docx", ".xlsx", ".xlsm", ".pptx", ".pdf", ".txt", ".md", ".csv", ".tsv", ".json", ".html", ".htm", ".xml", ".log", ".rtf", ".pbix", ".pbit", ...IMAGE_EXTENSIONS]);
+/**
+ * Plain text the chat also reads when the person attaches it (code, queries, configuration), but
+ * that the knowledge base does not index from a folder (a project folder is not company knowledge).
+ */
+export const ATTACH_TEXT_EXTENSIONS = new Set([".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".sql", ".dax", ".m", ".pq", ".r", ".ps1", ".bat", ".cmd", ".sh", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".css", ".scss", ".java", ".cs", ".c", ".cpp", ".h", ".go", ".rs", ".php", ".rb", ".kt", ".swift", ".vb", ".bas", ".tex", ".srt", ".vtt", ".ndjson", ".jsonl", ".eml", ".ipynb", ".svg"]);
 export const MAX_DOC_BYTES = 40 * 1024 * 1024;
+const MAX_PBI_BYTES = 400 * 1024 * 1024;
 const MAX_TEXT = 2_000_000;
 // A page with less text than this is a scan (or a photo pasted as a page).
 const OCR_MIN_CHARS = 20;
@@ -143,6 +149,49 @@ export function pptxText(buffer) {
   }).join("\n\n");
 }
 
+/** The UTF-16 JSON inside Power BI files (Report/Layout, DataModelSchema), with or without a BOM. */
+const utf16Json = (buffer) => JSON.parse((buffer[0] === 0xff && buffer[1] === 0xfe ? buffer.subarray(2) : buffer).toString("utf16le").replace(/^﻿/, ""));
+
+/**
+ * What a Power BI file says without opening Power BI: the report's pages and their visuals
+ * (Report/Layout) and, in a .pbit, the model's tables, columns, measures with their DAX and the
+ * relationships (DataModelSchema). A .pbix keeps the model compressed in a binary DataModel, so
+ * its tables and measures need the file opened in Power BI Desktop (the powerbi tool).
+ */
+export function pbiText(buffer) {
+  const zip = readZip(buffer);
+  const out = [];
+  if (zip.has("DataModelSchema")) {
+    const model = utf16Json(zip.get("DataModelSchema")()).model || {};
+    const tables = (model.tables || []).filter((t) => !/^(DateTableTemplate|LocalDateTable)_/.test(t.name));
+    out.push(`## Modelo de dados (${tables.length} tabelas)`);
+    for (const t of tables) {
+      const columns = (t.columns || []).filter((c) => c.type !== "rowNumber").map((c) => c.name);
+      out.push(`### ${t.name}${columns.length ? `\nColunas: ${columns.join(", ")}` : ""}`);
+      for (const m of t.measures || []) out.push(`Medida [${m.name}] = ${[].concat(m.expression || "").join("\n").trim()}`);
+    }
+    const relations = (model.relationships || []).map((r) => `${r.fromTable}[${r.fromColumn}] → ${r.toTable}[${r.toColumn}]`);
+    if (relations.length) out.push(`## Relacionamentos\n${relations.join("\n")}`);
+  } else {
+    out.push("O modelo de dados (tabelas e medidas) de um .pbix fica compactado: para consultá-lo, abra o arquivo no Power BI Desktop com a ferramenta powerbi (action=open).");
+  }
+  if (zip.has("Report/Layout")) {
+    const sections = utf16Json(zip.get("Report/Layout")()).sections || [];
+    out.push(`## Relatório (${sections.length} páginas)`);
+    for (const s of sections) {
+      const visuals = (s.visualContainers || []).map((v) => {
+        try {
+          const single = JSON.parse(v.config || "{}").singleVisual || {};
+          const title = single.vcObjects?.title?.[0]?.properties?.text?.expr?.Literal?.Value?.replace(/^'|'$/g, "");
+          return title ? `${single.visualType} "${title}"` : single.visualType;
+        } catch { return null; }
+      }).filter(Boolean);
+      out.push(`### ${s.displayName || s.name}${visuals.length ? `\nVisuais: ${visuals.join(", ")}` : ""}`);
+    }
+  }
+  return out.join("\n");
+}
+
 /** Tesseract over an image, through the warm worker of app/ocr.js. */
 export async function defaultOcr(image, env = process.env) {
   const { recognizeImage } = await import("./ocr.js");
@@ -216,12 +265,15 @@ export function isDocument(path) {
  */
 export async function extractText(path, { ocr = defaultOcr, signal } = {}) {
   const ext = extname(path).toLowerCase();
-  if (!DOC_EXTENSIONS.has(ext)) throw new Error(`Formato ${ext || "sem extensão"} não suportado.`);
-  if ((await stat(path)).size > MAX_DOC_BYTES) throw new Error("Documento grande demais (mais de 40 MB).");
+  if (!DOC_EXTENSIONS.has(ext) && !ATTACH_TEXT_EXTENSIONS.has(ext)) throw new Error(`Formato ${ext || "sem extensão"} não suportado.`);
+  // A .pbix carries its data: only the report's layout is unpacked, so a bigger file is fine.
+  const limit = ext === ".pbix" || ext === ".pbit" ? MAX_PBI_BYTES : MAX_DOC_BYTES;
+  if ((await stat(path)).size > limit) throw new Error(`Documento grande demais (mais de ${Math.round(limit / 1024 / 1024)} MB).`);
   const buffer = await readFile(path);
   let text;
   if (ext === ".docx") text = docxText(buffer);
-  else if (ext === ".xlsx") text = xlsxText(buffer);
+  else if (ext === ".xlsx" || ext === ".xlsm") text = xlsxText(buffer);
+  else if (ext === ".pbix" || ext === ".pbit") text = pbiText(buffer);
   else if (ext === ".pptx") text = pptxText(buffer);
   else if (ext === ".pdf") text = await pdfText(buffer, { ocr: ocr || undefined, signal });
   else if (IMAGE_EXTENSIONS.has(ext)) {

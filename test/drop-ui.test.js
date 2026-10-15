@@ -38,6 +38,6 @@ test("a file dropped on the message box goes in as its full path; in a plain bro
     await plain.goto(`http://127.0.0.1:${server.address().port}/`);
     await plain.locator("form.chat-composer").waitFor();
     await drop(plain);
-    await plain.getByText("Arrastar arquivos funciona no aplicativo da Aurora.").waitFor();
+    await plain.getByText("Anexar arquivos funciona no aplicativo da Aurora.").waitFor();
   } finally { await browser.close(); server.close(); }
 });

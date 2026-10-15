@@ -247,6 +247,16 @@ export default function ChatView({ conversation, project, loading, sending, pend
   const [titleDraft, setTitleDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Dropped or picked with the clip: each path goes into the message in quotes, and the Aurora reads
+  // the file along with the request (any format: what is not text arrives as a card of the file).
+  const attachFiles = (files: File[]) => {
+    const paths = files.map(droppedFilePath).filter(Boolean);
+    if (!paths.length) { setDropNote('Anexar arquivos funciona no aplicativo da Aurora.'); return; }
+    setDropNote('');
+    setDraft(`${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${paths.map(p => `"${p}"`).join(' ')} `);
+    textareaRef.current?.focus();
+  };
   const filesButton = useRef<HTMLButtonElement>(null);
   const knownArtifacts = useRef<{ conversationId: string; ids: Set<string> } | null>(null);
   const closePanel = useCallback(() => { setPanel(null); filesButton.current?.focus(); }, []);
@@ -345,12 +355,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
         onDrop={event => {
           if (!event.dataTransfer.files.length) return;
           event.preventDefault(); setDropping(false);
-          // The path goes into the message in quotes: the Aurora reads the file along with the request.
-          const paths = [...event.dataTransfer.files].map(droppedFilePath).filter(Boolean);
-          if (!paths.length) { setDropNote('Arrastar arquivos funciona no aplicativo da Aurora.'); return; }
-          setDropNote('');
-          setDraft(`${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${paths.map(p => `"${p}"`).join(' ')} `);
-          textareaRef.current?.focus();
+          attachFiles([...event.dataTransfer.files]);
         }}>
         {dropping && <div className="composer-drop" aria-hidden="true">Solte para a Aurora usar este arquivo</div>}
         <textarea ref={textareaRef} aria-label="Mensagem para Aurora" placeholder="Peça à Aurora…" rows={1} value={draft} onChange={event => { setDraft(event.target.value); if (conversation.provider === 'local' && event.target.value.trim()) warmLocalModel(); }} onKeyDown={event => {
@@ -359,7 +364,9 @@ export default function ChatView({ conversation, project, loading, sending, pend
         }} disabled={loading} />
         <div className="composer-toolbar">
           <AgentModeSelect />
-          <span className="composer-hint">{dropNote || "Enter envia · Shift + Enter quebra linha · arraste um arquivo para usá-lo"}</span>
+          <span className="composer-hint">{dropNote || "Enter envia · Shift + Enter quebra linha · anexe ou arraste arquivos"}</span>
+          <input ref={fileInputRef} type="file" multiple hidden onChange={event => { const files = [...(event.target.files || [])]; event.target.value = ''; if (files.length) attachFiles(files); }} />
+          <button type="button" className="btn-icon" aria-label="Anexar arquivos" title="Anexar arquivos (qualquer formato: Power BI, Excel, PDF, código…)" disabled={loading} onClick={() => fileInputRef.current?.click()}><Icon name="paperclip" size={14} /></button>
           <button type="button" className="btn-icon" aria-label={composerExpanded ? 'Recolher campo' : 'Ampliar campo'} aria-expanded={composerExpanded} onClick={() => { setComposerExpanded(value => !value); textareaRef.current?.focus(); }}><Icon name={composerExpanded ? 'collapse' : 'expand'} size={14} /></button>
           {sending ? <button type="button" className="composer-send stop" aria-label="Parar resposta" onClick={onCancel}><span className="stop-square" /></button> : <button type="submit" className="composer-send" aria-label="Enviar mensagem" disabled={loading || !draft.trim()}><Icon name="send" size={15} /></button>}
         </div>
