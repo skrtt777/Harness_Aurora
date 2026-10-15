@@ -3,3 +3,6 @@ central-memories/*.json text eol=lf
 
 # Shell script — CRLF would break the shebang/sh execution on a fresh clone.
 scripts/git-hooks/pre-push text eol=lf
+
+# Chat templates go to the model as written: CRLF would change the prompt it sees.
+app/templates/*.jinja text eol=lf
