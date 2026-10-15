@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.50': {
+    title: 'Anexe qualquer arquivo, inclusive Power BI',
+    items: [
+      ['Anexos de qualquer formato', 'Um botão de clipe no campo de mensagem anexa vários arquivos de uma vez. Antes, um arquivo fora da lista (como um .pbix) sumia sem aviso; agora a Aurora sempre sabe o que foi anexado.'],
+      ['Power BI lido sem abrir o programa', 'De um .pbix a Aurora lê as páginas e os visuais do relatório; de um .pbit, também as tabelas, colunas, medidas com o DAX e os relacionamentos. Código (.py, .sql, .dax, .yaml…) também é lido.'],
+      ['Aurora do chat sem giros bruscos', 'Começar a digitar ou enviar fazia a aurora do fundo girar de uma vez. Agora ela acelera aos poucos.'],
+      ['Escritório mais leve', 'O Escritório redesenhava o andar inteiro na taxa máxima do monitor. Agora desenha 30 quadros por segundo, com cerca de 4 vezes menos trabalho.'],
+    ],
+  },
   '0.1.49': {
     title: 'Visual novo: aurora fria no chat e na memória',
     items: [

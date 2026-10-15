@@ -70,6 +70,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.50 (15/10, publicada): anexos de qualquer formato e correções de tela.**
+  - **Anexos** (`app/docText.js`, `app/chatTurn.js`): .pbix/.pbit lidos (páginas e visuais; no .pbit, modelo com DAX), .xlsm, código e configuração; qualquer outro formato vira ficha em vez de sumir; botão de clipe no chat.
+  - **Aurora do chat** (`AuroraCurtains.tsx`): o tempo era `now * (1 + energy * 1.5)` e girava minutos de movimento ao começar ou parar de digitar (14 rad por quadro); agora avança quadro a quadro.
+  - **Escritório** (`OfficeView.tsx`): no máximo 30 quadros por segundo (era a taxa do monitor); navegador ocupado 13,5% → 3,5%. Travamento não reproduzido: 8 min parado e 4 min com 116 respostas em 3 conversas, sem tarefas longas nem memória crescendo.
+  - Baterias (4b): nova 56/58 (as 2 falhas também na 0.1.49: ordem 1 em 3, apresentação 7/10 lá e 10/10 aqui); conversas 43/43; agentes 32/32; suíte 729/729.
+
 - **0.1.49 (15/10, publicada): visual novo, bancada criativa e template automático.**
   - **Visual Aurora:** paleta fria por tokens (`tokens.css`), aurora binária no fundo do chat (`AuroraCurtains.tsx`), vista "Aurora" do Atlas (`MemoryParticles.tsx`).
   - **Bancada criativa na tela** (`BenchView.tsx`): o backend (`app/bench.js`) existia desde 11/10.
