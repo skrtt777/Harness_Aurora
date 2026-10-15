@@ -15,9 +15,9 @@ import {
   type MemoryScope,
 } from "./data";
 import { buildGraph, traceOrigin } from "./graph";
-import { deleteMemory, getCentralMemories, getMemoryAtlas, getSystemVitals, listConversations, listMemories, listProjects, setMemoryStatus, updateMemory, type SystemVitals } from "./api";
+import { deleteMemory, getCentralMemories, getMemoryAtlas, getRecentRecalls, getSystemVitals, listConversations, listMemories, listProjects, setMemoryStatus, updateMemory, type SystemVitals } from "./api";
 
-const MemoryScene = lazy(() => import("./MemoryScene"));
+const MemoryParticles = lazy(() => import("./MemoryParticles"));
 const MemoryFlow = lazy(() => import("./MemoryFlow"));
 const MemoryMap = lazy(() => import("./MemoryMap"));
 const scopeLabels: Record<MemoryScope, string> = {
@@ -72,13 +72,14 @@ async function loadRealMemoriesAsAtlas(): Promise<{ memories: Memory[]; clusters
       conversation: conversation?.title,
       source: entry.source || (entry.kind === "extracted" ? "Extraído automaticamente pela IA" : "Memória manual"),
       date: new Date(entry.createdAt).toLocaleDateString("pt-BR"),
+      createdAt: entry.createdAt,
       tags: entry.tags,
       position: [0, 0, 0],
       relations: entry.relations ?? [],
       relationTypes: entry.relationTypes ?? {},
     };
   });
-  mapped.push(...shared.map((m):Memory=>({id:m.id,title:m.title,content:m.content,tags:m.tags,scope:'central',kind:'context',source:m.source,date:new Date(m.updatedAt).toLocaleDateString('pt-BR'),position:[0,0,0],relations:[],relationTypes:{}})));
+  mapped.push(...shared.map((m):Memory=>({id:m.id,title:m.title,content:m.content,tags:m.tags,scope:'central',kind:'context',source:m.source,date:new Date(m.updatedAt).toLocaleDateString('pt-BR'),createdAt:m.updatedAt,position:[0,0,0],relations:[],relationTypes:{}})));
   // Meaning map from the backend: position by embedding, topic cluster, usage, neighbours.
   // Memories it doesn't cover (central cache, archived) keep the grouped layout.
   const placed = new Map((atlas?.memories ?? []).map((a) => [a.id, a]));
@@ -139,7 +140,8 @@ export default function NeuralAtlas({ variant }: Props) {
     [project, setProject] = useState("all");
   const [cad, setCad] = useState(true),
     [wireframe] = useState(false),
-    [sceneLayout, setSceneLayout] = useState<"map" | "neural">("map"),
+    [sceneLayout, setSceneLayout] = useState<"map" | "aurora">("map"),
+    [recent, setRecent] = useState<Set<string>>(() => new Set()),
     [orthographic, setOrthographic] = useState(false),
     [focus, setFocus] = useState(false),
     [view, setView] = useState<"map" | "flow" | "list">("map");
@@ -331,6 +333,15 @@ export default function NeuralAtlas({ variant }: Props) {
     }, 8000);
     return () => { stopped = true; clearInterval(timer); };
   }, [variant, connected]);
+  // Aurora view: the memories the latest chat answer used get a soft beam of light.
+  useEffect(() => {
+    if (variant !== "real" || !connected || sceneLayout !== "aurora") return;
+    let stopped = false;
+    const read = () => getRecentRecalls().then(({ recalls }) => { if (!stopped) setRecent(new Set(recalls[0]?.used ?? [])); }).catch(() => {});
+    read();
+    const timer = setInterval(read, 15000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [variant, connected, sceneLayout]);
   // Symbiosis: the PC's load and whether Aurora is thinking, read live.
   useEffect(() => {
     if (!connected) return;
@@ -573,7 +584,7 @@ export default function NeuralAtlas({ variant }: Props) {
           </span>
         </div>
         {view === "map" ? (
-          <div className={`scene-wrap ${sceneLayout === "map" ? "flat-map" : ""}`}>
+          <div className={`scene-wrap ${sceneLayout === "map" ? "flat-map" : "aurora-wrap"}`}>
             {sceneLayout === "map" ? (
               <Suspense fallback={<div className="scene-fallback">Preparando o mapa…</div>}>
                 <MemoryMap
@@ -590,40 +601,32 @@ export default function NeuralAtlas({ variant }: Props) {
                 />
               </Suspense>
             ) : (
-            <Suspense fallback={<div className="scene-fallback">Preparando a rede 3D…</div>}>
-              <MemoryScene
+            <Suspense fallback={<div className="scene-fallback">Preparando a aurora…</div>}>
+              <MemoryParticles
                 memories={filtered}
                 allMemories={memories}
                 clusters={clusters}
                 pulses={pulses}
-                vitals={vitals}
-                layout="neural"
-                onCluster={(id) => setClusterFilter(id)}
+                recent={recent}
                 selectedId={selectedId}
+                motion={motion}
                 onSelect={select}
                 onFocus={inspect}
+                onCluster={(id) => setClusterFilter(id)}
                 onGroup={(key) => {
                   clearFilters();
                   setProject(key);
                 }}
-                cad={cad}
-                wireframe={wireframe}
-                orthographic={orthographic}
-                motion={motion}
-                quality={quality}
-                command={command}
-                onFallback={() => setView("list")}
-                onStats={setStats}
               />
             </Suspense>
             )}
             <div className="scene-caption">
               <div className="overline">{selected ? "ESTRUTURA SELECIONADA" : "REDE DE CONTEXTOS"}</div>
-              <strong>{selected?.title || (clusters.length ? `${clusters.filter((c) => c.id >= 0).length} assuntos · ${memories.length} memórias` : `${graph.groups.length} grupos · ${graph.edges.length} conexões`)}</strong>
+              <strong>{selected?.title || (sceneLayout === "aurora" && !clusters.some((c) => c.id >= 0) ? `${graph.groups.length} assuntos · ${memories.length} memórias` : clusters.some((c) => c.id >= 0) ? `${clusters.filter((c) => c.id >= 0).length} assuntos · ${memories.length} memórias` : `${graph.groups.length} grupos · ${graph.edges.length} conexões`)}</strong>
               <small>
                 {selected
                   ? clusters.find((c) => c.id === selected.cluster)?.label || groupKey(selected)
-                  : sceneLayout === "neural" ? "Origem → assunto → memória → resultado · a luz corre no ritmo real"
+                  : sceneLayout === "aurora" ? "Cada cortina é um assunto · cada partícula maior, uma memória · ao vivo"
                   : clusters.length ? "Perto = assunto parecido · cores por projeto" : "Cores por projeto · agrupamento visual"}
               </small>
             </div>
@@ -645,7 +648,7 @@ export default function NeuralAtlas({ variant }: Props) {
                 </button>
               ))}
             </div>
-            <div className="scene-legend" hidden={sceneLayout === "neural"}>
+            <div className="scene-legend" hidden={sceneLayout === "aurora"}>
               <span>
                 <i style={{ background: "#75eaff" }} /> Maior = ajudou mais vezes
               </span>
@@ -658,18 +661,18 @@ export default function NeuralAtlas({ variant }: Props) {
               <small>Linhas ligam memórias parecidas</small>
             </div>
             <div className="scene-controls">
-              <button aria-pressed={orthographic} onClick={() => setOrthographic(!orthographic)}>
+              <button className="perspective-toggle" aria-pressed={orthographic} onClick={() => setOrthographic(!orthographic)}>
                 {orthographic ? "Ortográfica" : "Perspectiva"}
               </button>
               <button
                 className="layout-toggle"
-                aria-pressed={sceneLayout === "neural"}
+                aria-pressed={sceneLayout === "aurora"}
                 onClick={() => {
-                  setSceneLayout(sceneLayout === "neural" ? "map" : "neural");
+                  setSceneLayout(sceneLayout === "aurora" ? "map" : "aurora");
                   camera("overview");
                 }}
               >
-                {sceneLayout === "neural" ? "Ver mapa" : "Rede neural 3D"}
+                {sceneLayout === "aurora" ? "Ver mapa" : "Aurora"}
               </button>
               <button aria-pressed={motion} onClick={() => setMotion(!motion)}>
                 {motion ? "Pausar" : "Animar"}

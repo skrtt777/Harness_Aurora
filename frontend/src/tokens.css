@@ -8,25 +8,25 @@
   color-scheme: dark;
 
   /* Base colors: every text/stroke/fill is a mix of --base over the surface.
-     Palette: "Northern Lights" (21st.dev / tweakcn), dark variant. */
-  --base: oklch(0.9219 0 0);
-  --accent: oklch(0.6487 0.1538 150.3071);
-  --accent-strong: oklch(0.7200 0.1500 150.3071);
-  --accent-ink: #04110e;
-  --red: oklch(0.6368 0.2078 25.3313);
-  --green: oklch(0.5905 0.1608 148.2409);
-  --yellow: #d6a24a;
-  --blue: oklch(0.6746 0.1414 261.3380);
-  /* Aurora glow only (background, thinking orbs) — never for UI state. */
+     Cold palette on black: cool white text, one ice-cyan accent. */
+  --base: #e4edf5;
+  --accent: #4cc3ff;
+  --accent-strong: #84d6ff;
+  --accent-ink: #02111b;
+  --red: #f0697a;
+  --green: #45c2a4;
+  --yellow: #e2b65a;
+  --blue: #6c9dff;
+  /* Aurora glow only (background, face, thinking orbs) — never for UI state. */
   --aurora-1: var(--accent);
-  --aurora-2: oklch(0.5880 0.0993 245.7394);
-  --aurora-3: oklch(0.8269 0.1080 211.9627);
+  --aurora-2: #4a62ff;
+  --aurora-3: #9ff0ff;
 
-  /* Surfaces, darkest to lightest. */
-  --bg-sidebar: oklch(0.2050 0.0120 264.2926);
-  --bg-chrome: oklch(0.2303 0.0125 264.2926);
-  --bg-surface: oklch(0.2750 0.0100 245.0000);
-  --bg-elevated: oklch(0.3210 0.0078 223.6661);
+  /* Surfaces, darkest to lightest: near-black with a cold tint. */
+  --bg-sidebar: #040507;
+  --bg-chrome: #06080b;
+  --bg-surface: #0d1116;
+  --bg-elevated: #141a21;
 
   /* Text hierarchy. */
   --text-1: color-mix(in srgb, var(--base) 94%, transparent);

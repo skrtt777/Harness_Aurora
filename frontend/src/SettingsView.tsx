@@ -287,7 +287,7 @@ export default function SettingsView({
             </div>
             <div className="section">
               <div className="row">
-                <div className="row-text"><div className="row-label">Fundo animado</div><div className="row-desc">A aurora em movimento atrás das telas. Desligue para economizar GPU.</div></div>
+                <div className="row-text"><div className="row-label">Fundo animado</div><div className="row-desc">A aurora boreal de zeros e uns atrás do chat. Desligue para economizar processamento.</div></div>
                 <div className="row-control"><input type="checkbox" className="switch" aria-label="Fundo animado" checked={auroraBg} onChange={(e) => { setAuroraBackdrop(e.target.checked); setAuroraBg(e.target.checked); }} /></div>
               </div>
               <div className="row">

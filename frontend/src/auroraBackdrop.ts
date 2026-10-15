@@ -1,4 +1,4 @@
-// The animated aurora behind the app (aurora-ui.css). Per-computer preference.
+// The binary aurora behind the chat (AuroraCurtains, aurora-ui.css). Per-computer preference.
 const KEY = 'aurora-background';
 
 export function auroraBackdropOn(): boolean {

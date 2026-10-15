@@ -7,6 +7,7 @@ import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
 import DeliveredFiles from './DeliveredFiles';
+import AuroraCurtains from './AuroraCurtains';
 import { adjustOptions } from './adjustOptions';
 
 // Marco 6 backlog (docs/historico/ROADMAP_MELHORIAS.md): exportar uma conversa inteira, não
@@ -300,6 +301,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
   };
   const provider = conversation.provider === 'local' ? 'IA local' : conversation.provider === 'claude' ? 'Claude' : 'Codex';
   return <div className={`conversation-workspace ${panel ? 'with-panel' : ''} ${composerExpanded ? 'composer-expanded' : ''}`}>
+    <div className={`chat-backdrop ${conversation.messages.length ? 'behind-messages' : ''}`} aria-hidden="true"><AuroraCurtains active={!!draft.trim()} busy={sending} /></div>
     <section className="chat-page">
       <header className="chat-page-head">
         <div className="conversation-heading">
@@ -318,7 +320,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
       </header>
       <LocalSetupPanel active={conversation.provider === 'local'} compact />
       <div className="chat-messages" ref={scrollRef}>
-        {!conversation.messages.length ? <div className="chat-welcome"><div className="welcome-mark"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="Símbolo Aurora" width="1254" height="1254" draggable={false} /></div><HomeToday />
+        {!conversation.messages.length ? <div className="chat-welcome"><HomeToday />
           <div className="starter-prompts">{STARTERS.map(([label, hint, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}><strong>{label}</strong><small>{hint}</small></button>)}</div>
         </div> : conversation.messages.map((message, index) => <MessageBubble key={message.id} message={message} onPick={!sending && index === conversation.messages.length - 1 && message.role !== 'user' ? text => { void onSend(text); } : undefined} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}

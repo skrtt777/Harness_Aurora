@@ -1,12 +1,15 @@
 import Icon from './Icon';
 import BrandMark from './BrandMark';
+import AuroraCurtains from './AuroraCurtains';
 import { auroraBackdropOn, setAuroraBackdrop } from './auroraBackdrop';
 import { useState } from 'react';
 
 /** ?view=ui — every chat piece in each state, same markup as ChatView/Sidebar, no backend. */
 export default function UiGallery() {
   const [backdrop, setBackdrop] = useState(auroraBackdropOn);
-  return <div className="app-shell">
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [quiet, setQuiet] = useState(false);  return <div className="app-shell">
     <aside className="sb">
       <div className="sb-top"><BrandMark /></div>
       <div className="sb-new"><button className="sb-new-main"><Icon name="compose" size={15} /><span>Nova conversa</span></button></div>
@@ -22,9 +25,14 @@ export default function UiGallery() {
       </section></div>
     </aside>
     <main className="app-main">
-      <div className="conversation-workspace"><section className="chat-page">
+      <div className="conversation-workspace">
+        <div className={`chat-backdrop ${quiet ? 'behind-messages' : ''}`} aria-hidden="true"><AuroraCurtains active={!!draft.trim()} busy={busy} /></div>
+        <section className="chat-page">
         <header className="chat-page-head"><div className="conversation-heading"><span className="conversation-title">Galeria de componentes</span><span className="badge">IA local</span></div>
-          <div className="conversation-controls"><label className="row-control">Fundo animado <input type="checkbox" className="switch" checked={backdrop} onChange={(e) => { setAuroraBackdrop(e.target.checked); setBackdrop(e.target.checked); }} /></label></div>
+          <div className="conversation-controls">
+            <div className="segmented" role="group" aria-label="Fundo"><button aria-pressed={!quiet} onClick={() => setQuiet(false)}>Tela inicial</button><button aria-pressed={quiet} onClick={() => setQuiet(true)}>Atrás das mensagens</button></div>
+            <button type="button" className="btn btn-sm" onClick={() => setBusy(!busy)}>{busy ? 'Parar de falar' : 'Simular resposta'}</button>
+            <label className="row-control">Fundo animado <input type="checkbox" className="switch" checked={backdrop} onChange={(e) => { setAuroraBackdrop(e.target.checked); setBackdrop(e.target.checked); }} /></label></div>
         </header>
         <div className="chat-messages">
           <article className="chat-message user" aria-label="Você"><div className="chat-bubble-wrap"><div className="chat-content">Organiza a pasta de notas fiscais por mês e me mostra o total.</div></div></article>
@@ -71,7 +79,7 @@ export default function UiGallery() {
             </div>
           </div>
         </div>
-        <div className="composer-area"><form className="chat-composer" onSubmit={(e) => e.preventDefault()}><textarea rows={1} placeholder="Peça algo à Aurora" aria-label="Mensagem" /></form></div>
+        <div className="composer-area"><form className="chat-composer" onSubmit={(e) => e.preventDefault()}><textarea rows={1} placeholder="Peça algo à Aurora" aria-label="Mensagem" value={draft} onChange={(e) => setDraft(e.target.value)} /></form></div>
       </section></div>
     </main>
   </div>;

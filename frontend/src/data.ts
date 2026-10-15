@@ -16,6 +16,8 @@ export type Memory = {
   conversation?: string;
   source?: string;
   date?: string;
+  /** ISO creation time (real memories): old → new in the aurora view. */
+  createdAt?: string;
   tags: string[];
   position: [number, number, number];
   relations: string[];
