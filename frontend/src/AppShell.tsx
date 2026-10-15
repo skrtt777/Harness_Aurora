@@ -1,3 +1,4 @@
+import BenchView from './BenchView';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import SkillsView from "./SkillsView";
@@ -56,6 +57,7 @@ export default function AppShell() {
   const [newsVersion, setNewsVersion] = useState<string | null>(null);
   useEffect(() => onShowAgents(() => setView("agents")), []);
   useEffect(() => onOpenConversationRequest((id) => { setActiveConversation(null); setLoadingConversation(true); setActiveConversationId(id); setView("chat"); }), []);
+  const [benchOpen, setBenchOpen] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const busyRef = useRef(new Set<string>());
@@ -430,7 +432,9 @@ export default function AppShell() {
       />
       <main className="app-main">
         {operationError && <p role="alert" className="memory-form-error">{operationError} <button onClick={() => setOperationError("")}>Fechar</button></p>}
-        {view === "chat" && (
+        {view === "chat" && activeProject && !benchOpen && <button className="bench-open" onClick={() => setBenchOpen(v => !v)}>{benchOpen ? "Voltar à conversa" : "Abrir bancada criativa"}</button>}
+        {view === "chat" && benchOpen && activeProject && <BenchView key={activeProject.id} projectId={activeProject.id} onClose={() => setBenchOpen(false)} />}
+        {view === "chat" && !(benchOpen && activeProject) && (
           <ChatView
             conversation={activeConversation}
             project={activeProject}

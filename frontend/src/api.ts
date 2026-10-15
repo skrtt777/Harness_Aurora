@@ -89,7 +89,7 @@ export type ChatTurnResult = {
   usage?: { input_tokens?: number; output_tokens?: number } | null;
 };
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
     super(message);
@@ -655,11 +655,20 @@ export const searchSubject = (q: string) => request<SubjectSearch>(`/privacy/sea
 export const exportSubject = (term: string) => request<Record<string, unknown>>("/privacy/export", { method: "POST", body: JSON.stringify({ term }) });
 export const eraseSubject = (term: string) => request<{ memoriesDeleted: number; messagesRedacted: number; conversationsRenamed: number; profileRedacted: boolean }>("/privacy/erase", { method: "POST", body: JSON.stringify({ term, confirm: true }) });
 
+export type BenchMaterial = { id: string; projectId: string; title: string; note: string; source: string; fileName: string | null; sha256: string | null; hasPreview: boolean; createdAt: string };
+export type BenchDecision = { id: string; content: string; materialIds: string[]; memoryId: string | null; createdAt: string };
+export type BenchSnapshot = { project: { id: string; name: string }; revision: number; executor: string; materials: BenchMaterial[]; decisions: BenchDecision[] };
+export type BenchDecisionInput = { operationKey: string; expectedRevision: number; materialIds: string[]; content: string };
+export const getBench = (id: string) => request<BenchSnapshot>(`/projects/${encodeURIComponent(id)}/bench`);
+export const getBenchPreview = (project: string, id: string) => request<{ image: string; mime: string }>(`/projects/${encodeURIComponent(project)}/bench/materials/${encodeURIComponent(id)}/preview`);
+export const saveBenchDecision = (project: string, body: BenchDecisionInput) => request<BenchDecision>(`/projects/${encodeURIComponent(project)}/bench/decisions`, { method: 'POST', body: JSON.stringify(body) });
+
 // The agents' office (app/office.js): the rooms and who is in them, each a real session, agent or teacher.
 export type OfficeRoom = { id: string; name: string; kind: "equipe" | "projeto" | "geral"; actors: import("./officeSim").OfficeActor[] };
 // The Sede (app/headquarters.js): its departments, and each request's ficha through the delivery line.
 export type OfficeFicha = { id: string; title: string; area: string; areaName: string; who: string | null; step: 1 | 2 | 3; since?: number | null; endedAt?: number; order?: { deliver: string[]; rules: string[]; run: boolean } | null; stations: Array<{ id: string; label: string; state: "feito" | "agora" | "pulado" | "falta" | "falhou" }> };
 export const getOffice = () => request<{ rooms: OfficeRoom[]; departments?: import("./officeSim").Department[]; fichas?: OfficeFicha[]; updatedAt: string }>("/office");
+
 // The HR team (app/hr.js): each agent's grade from its real deliveries, and what HR decided.
 export type HrCard = { agentId: string; name: string; department: string | null; enabled: boolean; score: number | null; runs: number; delivered: number; corrected: number; failed: number; trend: number; stars: number; warnings: number; status: string; lessons: string[]; replacedBy: string | null; replaces: string | null };
 export type HrEvent = { id: string; agentId: string | null; kind: string; title: string; detail: string | null; score: number | null; by: string | null; relatedId: string | null; at: string };
