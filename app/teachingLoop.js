@@ -28,13 +28,14 @@ export async function spendTeacherCall() {
  * rerun(history, input) runs the local agent again on top of the first
  * attempt's transcript (so it sees what it did and what went wrong).
  */
-export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher, needsConsent = () => false, approve = async () => false }) {
+export async function runTeachingLoop({ userMessage, history, first, teacherProvider, conversation, workspace, memoryIds = [], memories = [], rerun, onStage = () => {}, env = process.env, signal, call = callTeacher, needsConsent = () => false, approve = async () => false, asked = false }) {
   const settings = await teacherSettings();
   const signals = detectSignals({ userMessage, result: first, history });
   // Runs nobody started by hand (schedule, watched folder, team) are reviewed on errors only:
   // a scheduled agent would otherwise spend the paid teacher's daily budget on routine deliveries.
   const mode = env.AGENT_RUN_TRIGGER && env.AGENT_RUN_TRIGGER !== "manual" && settings.mode === "actions" ? "errors" : settings.mode;
-  const reason = shouldReview({ mode, signals, steps: first.steps });
+  // The person asked for it ("use o Claude para te auxiliar", 15/10): reviewed whatever the mode says.
+  const reason = asked ? "pedido" : shouldReview({ mode, signals, steps: first.steps });
   const review = { reason, signals: signals.map((s) => s.code), teacher: teacherProvider };
   if (!reason) {
     await recordMemoryOutcome(memoryIds, "used").catch(() => {});

@@ -19,6 +19,7 @@ import { diagnoseLocalArtifact } from "./localDiagnostics.js";
 import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval, setTurnPlan, setCheck, setOrder } from "./pendingTurns.js";
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
+import { auroraHistoryBlock } from "./auroraHistory.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -179,6 +180,21 @@ async function relatedDocuments(text, env, signal, history = []) {
 const KNOWLEDGE_AUTO_SCORE = 1.5;
 const CONTACT_REQUEST = /\b(quem (eu )?(procuro|procurar|falo|chamo)|com quem|falar com|contato|ramal|respons[áa]vel)\b/i;
 const CONTACT_DATA = /\bramal\b|e-?mail|telefone|@/i;
+
+/**
+ * "Use o Claude para te auxiliar nessa tarefa", "peça ajuda ao Codex": the teacher named, and the task — the
+ * last request when this message only asks for help with it. The Aurora had answered that it had no such
+ * integration (15/10), with the teacher a setting away.
+ */
+const ASKS_TEACHER = /\b(?:us[ea]r?|utiliz[ea]r?|cham[ea]r?|pe[cç]a(?:\s+ajuda)?(?:\s+ao?)?|com a ajuda d[oa]|consult[ea]r?|pergunte(?:\s+ao?)?)\s+(?:o\s+|a\s+)?(claude|codex)\b/i;
+export function teacherAsked(text, history = []) {
+  const m = String(text || "").match(ASKS_TEACHER);
+  if (!m) return null;
+  const rest = String(text).replace(m[0], "").replace(/\b(?:para|pra)\s+(?:te\s+|me\s+)?(?:auxiliar|ajudar|apoiar)\b|\b(?:n[ae]ss[ae]|nesta|esta|essa)\s+tarefa\b|\bnisso\b|\bcom isso\b|[.,!?]/gi, "").trim();
+  const last = history.filter((h) => h.role === "user").at(-1)?.content;
+  const label = /claude/i.test(m[1]) ? "Claude" : "Codex";
+  return { provider: label.toLowerCase(), label, task: rest.length >= 12 || !last ? String(text) : `${last}\n\n(A pessoa pediu: "${String(text).trim()}". Faça esta tarefa de novo; a sua entrega vai ser revisada pelo ${label}.)` };
+}
 
 const ATTACH_CHARS = 5000;
 const OPENS_WITH = { ".pbix": "Power BI: powerbi action=open com o caminho (aí as tabelas e medidas podem ser consultadas)", ".pbip": "Power BI: powerbi action=open com o caminho", ".xls": "Excel: open com o caminho (formato antigo, sem leitura direta)", ".doc": "Word: open com o caminho (formato antigo, sem leitura direta)", ".ppt": "PowerPoint: open com o caminho (formato antigo, sem leitura direta)" };
@@ -689,7 +705,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const topics = groups.map((g) => topicRules[g]).filter(Boolean).join("\n");
           const base = topics ? `${agentRules}\n${topics}` : agentRules;
           const coreRules = codeTurn ? `${base}\n${codeRules}` : areaText ? `${base}\n${areaText}` : base;
-          const buildContext = (docsBlock, lean = false, fit = false) => compactContext({ fit, ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(!lean && orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: lean ? (codeTurn ? `${agentRules}\n${codeRules}` : agentRules) : coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
+          // "Um excel com os updates que fizemos em você": the real versions, not invented percentages (15/10).
+          const historyBlock = auroraHistoryBlock(trimmed);
+          const buildContext = (docsBlock, lean = false, fit = false) => compactContext({ fit, ...promptArgs, history: [], required: [...promptArgs.required, agentEnvironmentBlock(toolContext), ...(!lean && orderBlock(toolContext.order) ? [orderBlock(toolContext.order)] : []), ...(filesBlock ? [filesBlock] : []), ...(historyBlock ? [historyBlock] : []), ...(docsBlock ? [docsBlock] : [])], core: lean ? (codeTurn ? `${agentRules}\n${codeRules}` : agentRules) : coreRules, withTask: false, scope, limit: Math.max(contextLimit || 12000, 20000) });
           // A whole sheet that does not fit next to the rules (the context refuses to cut requirements)
           // falls back to the usual slices instead of failing the turn.
           // Too big: first the whole sheets go, then the extras of the Sede (the order and the department's
@@ -740,7 +758,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // local model the parts are planned (held to a schema) and done by subagents first; the Aurora
           // then checks them and does what needs them all. A 4B model did everything in one turn and
           // lost its files, and did not pick the subagents tool by itself (12/10).
-          let agentInput = trimmed; let priorSteps = [];
+          // "Use o Claude nessa tarefa": the task is the last request, and the teacher reviews it whatever the mode.
+          const asked = conversation.provider === "local" ? teacherAsked(trimmed, history) : null;
+          let agentInput = asked ? asked.task : trimmed; let priorSteps = [];
           if (conversation.provider === "local" && chatServer && !toolContext.agentTools && multiPart(trimmed) && env.AURORA_SUBAGENTS !== "off") {
             setStage(conversationId, "Dividindo o trabalho entre subagentes…");
             const ask = (messages, schema) => runLlama(messages, { ...agentEnv, LOCAL_ENGINE: "llama.cpp", LOCAL_BASE_URL: chatServer, LOCAL_OUTPUT_SCHEMA: schema, LOCAL_MAX_OUTPUT_TOKENS: "1500", LOCAL_CONTEXT_TOKENS: String(ollamaContextTokens(agentEnv)), LOCAL_TEMPERATURE: "0.3" }, controller.signal);
@@ -754,7 +774,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
               }
             }
           }
-          let agent = await runAgent(agentHistory(history), agentInput, { question: trimmed, priorSteps });
+          let agent = await runAgent(agentHistory(history), agentInput, { question: asked ? asked.task : trimmed, priorSteps });
           // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026): make sure
           // it is up (it restarts if it died) and run the turn once more instead of failing it.
           if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {
@@ -786,11 +806,18 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // teacher; its lessons become memories and the local model redoes.
           if (agent.ok && conversation.provider === "local") {
             const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
-            const teacherProvider = (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
+            const teacherProvider = asked ? asked.provider : (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
             const approveTeacher = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };
-            const loop = await runTeachingLoop({ userMessage: trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal, needsConsent: () => toolContext.restrictedSources.size > 0, approve: approveTeacher });
+            const loop = await runTeachingLoop({ asked: Boolean(asked), userMessage: asked ? asked.task : trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal, needsConsent: () => toolContext.restrictedSources.size > 0, approve: approveTeacher });
             agent = loop.result;
             agentReview = loop.review;
+            // Asked for, the review is said plainly: done, or why not (not installed, no login, the daily limit).
+            if (asked && loop.review) {
+              const why = loop.review.skipped === "daily_limit" ? "o limite diário de revisões acabou (Configurações → Professor)" : loop.review.skipped === "privacy" ? "você não autorizou enviar documentos internos" : loop.review.error;
+              agent = { ...agent, text: `${agent.text}
+
+> ${why ? `Não consegui a revisão do ${asked.label}: ${String(why).slice(0, 200)}.` : `Revisado pelo ${asked.label}${loop.review.verdict === "ok" ? ": aprovado." : loop.review.redo ? ", e refeito com as lições dele." : "."}`}` };
+            }
           }
           if (agent.unsupported && !agent.steps.length) {
             agentFallbackError = agent.error || agentFallbackError;

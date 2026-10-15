@@ -207,3 +207,25 @@ test("automatic agent runs (schedule, folder, team) get the paid teacher on erro
   assert.equal(manual.review.reason, "actions");
   assert.equal(calls, 1);
 });
+
+test("asked for (\"use o Claude nessa tarefa\"), the teacher reviews even with nothing wrong and the mode off", async () => {
+  const { teacherAsked } = await import("../app/chatTurn.js");
+  const history = [{ role: "user", content: "monte os gráficos da apresentação" }, { role: "assistant", content: "Pronto." }];
+  const asked = teacherAsked("Use o Claude para te auxiliar nessa tarefa", history);
+  assert.equal(asked.provider, "claude");
+  assert.match(asked.task, /^monte os gráficos da apresentação\n/, "the task is the last request");
+  assert.equal(teacherAsked("use o codex para criar um relatório de vendas do mês", history).task, "use o codex para criar um relatório de vendas do mês", "a request of its own is the task");
+  assert.equal(teacherAsked("o claude é bom?", history), null);
+
+  await store.setSetting("teacher_mode", "off");
+  const conversation = await store.createConversation({ provider: "local" });
+  const first = { ok: true, text: "Pronto.", steps: [step("write_document")], calls: [{ usage: null }], messages: [] };
+  const calls = [];
+  const call = async ({ provider }) => { calls.push(provider); return { ok: true, text: JSON.stringify({ verdict: "ok", problems: [], guidance: "", lessons: [] }) }; };
+  const quiet = await runTeachingLoop({ userMessage: "x", history: [], first, teacherProvider: "claude", conversation, rerun: async () => first, call });
+  assert.equal(quiet.review, null, "not asked, mode off: no review");
+  const reviewed = await runTeachingLoop({ userMessage: "x", history: [], first, teacherProvider: "claude", conversation, rerun: async () => first, call, asked: true });
+  assert.equal(reviewed.review.reason, "pedido");
+  assert.deepEqual(calls, ["claude"]);
+  await store.setSetting("teacher_mode", "");
+});
