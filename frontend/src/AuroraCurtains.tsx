@@ -28,6 +28,7 @@ export default function AuroraCurtains({ active = false, busy = false }: Props) 
   const ref = useRef<HTMLCanvasElement>(null);
   const mood = useRef({ active, busy });
   mood.current = { active, busy };
+  const clock = useRef(0);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
@@ -54,12 +55,20 @@ export default function AuroraCurtains({ active = false, busy = false }: Props) 
     const cols = Math.ceil(w / cw), rows = Math.ceil(h / ch);
     const digits = Array.from({ length: cols * rows }, () => (Math.random() < 0.5 ? '0' : '1'));
     let energy = 0, glow = 0;
+    // Animation time, advanced frame by frame: typing speeds it up from here on. It was
+    // `now * (1 + energy * 1.5)`, which rescaled all the time since the app opened, so the
+    // curtains spun through minutes of motion in a second when typing started or stopped.
+    // Kept in a ref so a resize (which redraws the canvas) does not send the curtains back to the start.
+    let prev = 0;
 
     const draw = (now: number) => {
       const { active: typing, busy: working } = mood.current;
       energy += ((typing ? 1 : 0) - energy) * 0.04;
       glow += ((working ? 1 : 0) - glow) * 0.04;
-      const t = now * (1 + energy * 1.5);
+      // A long gap (hidden tab, first frame) counts as one frame, never as a jump.
+      clock.current += Math.min(now - prev, 100) * (1 + energy * 1.5);
+      prev = now;
+      const t = clock.current;
       for (let k = 0; k < 40; k++) { const i = (Math.random() * digits.length) | 0; digits[i] = digits[i] === '0' ? '1' : '0'; }
       ctx.clearRect(0, 0, w, h);
       ctx.font = `600 ${ch - 1}px ${font}`;
