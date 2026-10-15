@@ -89,6 +89,9 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0; let last = performance.now();
     const frame = (t: number) => {
+      // At most ~30 frames a second, like the chat's aurora: at the monitor's own rate (170 on a
+      // 165 Hz screen, 15/10) the whole floor was redrawn for nothing while the local model shares the GPU.
+      if (t - last < 32) { raf = requestAnimationFrame(frame); return; }
       const dt = Math.min(0.1, (t - last) / 1000); last = t;
       walkersRef.current = step(walkersRef.current, still ? 1 : dt);
       stroll(walkersRef.current, Date.now());
