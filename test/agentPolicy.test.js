@@ -138,6 +138,34 @@ test("commands run in the project folder, stream output and can live in the back
   assert.equal((await executeTool("command_output", { id }, c)).ok, false);
 });
 
+test("text ring keeps the last characters and the position of everything written", async () => {
+  const { textRing } = await import("../app/agentTools/textRing.js");
+  const ring = textRing(10);
+  ring.push("abcdef");
+  assert.deepEqual(ring.since(0), { text: "abcdef", skipped: 0 });
+  ring.push("ghijklmn");
+  assert.equal(ring.text, "efghijklmn");
+  assert.equal(ring.total, 14);
+  assert.deepEqual(ring.since(6), { text: "ghijklmn", skipped: 0 }, "new text after a read that is still in the ring");
+  assert.deepEqual(ring.since(2), { text: "efghijklmn", skipped: 2 }, "what was dropped before the read is counted");
+  ring.push("0123456789XYZ");
+  assert.equal(ring.text, "456789XYZ".padStart(10, "3"));
+  assert.deepEqual(ring.since(ring.total), { text: "", skipped: 0 });
+});
+
+test("command_output keeps showing new output after a long process fills the buffer", async () => {
+  const c = ctx("auto");
+  // 70 000 characters (more than the 60 000 kept) before run_command answers (it waits 3 s), then a
+  // last line once the agent already holds its read position.
+  writeFileSync(join(workspace, "muito.js"), "process.stdout.write('x'.repeat(70000)+'\\n');setTimeout(()=>console.log('linha nova depois do limite'),4500);setTimeout(()=>{},9000);");
+  const started = await executeTool("run_command", { command: "node muito.js", background: true }, c);
+  const id = started.result.match(/Processo (p\d+)/)[1];
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  const more = await executeTool("command_output", { id }, c);
+  assert.match(more.result, /linha nova depois do limite/, "before the ring, this said \"(sem saída nova)\"");
+  await executeTool("command_stop", { id }, c);
+});
+
 test("memory and skill tools let the agent remember, look up and propose procedures", async () => {
   const c = ctx("auto", async () => false, { conversationId: null, projectId: null });
   assert.match((await executeTool("memory_save", { title: "Café", content: "O usuário prefere café sem açúcar pela manhã." }, c)).result, /Guardei/);

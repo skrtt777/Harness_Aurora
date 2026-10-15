@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, extname, join, resolve as resolveFrom } from "node:path";
 import { expandPath, resolveExisting } from "./files.js";
 import { assertAllowedUrl } from "./netGuard.js";
+import { textRing } from "./textRing.js";
 
 const IS_WINDOWS = process.platform === "win32";
 
@@ -250,34 +251,34 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
       // reads stdin (findstr with no file, sort, more…) hung until the timeout.
       child.stdin.on("error", () => {});
       child.stdin.end();
-      let output = "";
+      const output = textRing(MAX_OUTPUT);
       const append = (chunk) => {
-        output = (output + chunk).slice(-MAX_OUTPUT);
-        const last = output.trim().split(/\r?\n/).at(-1);
+        output.push(chunk);
+        const last = output.text.trim().split(/\r?\n/).at(-1);
         if (last && !background) ctx.onStage?.(`${text.slice(0, 30)}: ${last.slice(0, 80)}`);
       };
       child.stdout.setEncoding("utf8").on("data", append);
       child.stderr.setEncoding("utf8").on("data", append);
       if (background) {
         const id = `p${nextProcess++}`;
-        const entry = { id, command: text, cwd: dir, child, read: 0, get output() { return output; }, exit: null };
+        const entry = { id, command: text, cwd: dir, child, read: 0, output, exit: null };
         child.on("close", (code) => { entry.exit = code; });
-        child.on("error", (error) => { output += `\n${error.message}`; entry.exit = -1; });
+        child.on("error", (error) => { output.push(`\n${error.message}`); entry.exit = -1; });
         processes.set(id, entry);
         await new Promise((resolve) => setTimeout(resolve, 3000));
-        entry.read = output.length;
-        return `Processo ${id} iniciado em segundo plano (${dir}).${entry.exit !== null ? ` Já terminou com código ${entry.exit}.` : ""}\nSaída inicial:\n${output.slice(-3000) || "(nada ainda)"}`;
+        entry.read = output.total;
+        return `Processo ${id} iniciado em segundo plano (${dir}).${entry.exit !== null ? ` Já terminou com código ${entry.exit}.` : ""}\nSaída inicial:\n${output.text.slice(-3000) || "(nada ainda)"}`;
       }
       return new Promise((resolve) => {
         const timer = setTimeout(() => stopTree(child), 120_000);
         const abort = () => stopTree(child);
         ctx.signal?.addEventListener("abort", abort, { once: true });
-        child.on("error", (error) => { output += `\n${error.message}`; });
+        child.on("error", (error) => { output.push(`\n${error.message}`); });
         child.on("close", (code, signal) => {
           clearTimeout(timer);
           ctx.signal?.removeEventListener("abort", abort);
           const status = signal || code === null ? "interrompido" : `código ${code}`;
-          const tail = output.trim();
+          const tail = output.text.trim();
           const where = code ? errorSource(tail, dir) : "";
           resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}${where}`);
         });
@@ -293,9 +294,10 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
     async run({ id }) {
       const entry = processes.get(String(id));
       if (!entry) throw new Error(`Não existe processo ${id}. Em execução: ${[...processes.keys()].join(", ") || "nenhum"}.`);
-      const fresh = entry.output.slice(entry.read);
-      entry.read = entry.output.length;
-      return `${entry.command} — ${entry.exit === null ? "rodando" : `terminou com código ${entry.exit}`}\n${fresh.trim().slice(-6000) || "(sem saída nova)"}`;
+      const { text: fresh, skipped } = entry.output.since(entry.read);
+      entry.read = entry.output.total;
+      const lost = skipped ? `(… ${skipped} caracteres mais antigos já foram descartados)\n` : "";
+      return `${entry.command} — ${entry.exit === null ? "rodando" : `terminou com código ${entry.exit}`}\n${lost}${fresh.trim().slice(-6000) || "(sem saída nova)"}`;
     },
   },
   {
