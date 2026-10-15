@@ -348,6 +348,19 @@ export const FRESH_SCENARIOS = [
     ],
   },
   {
+    // 15/10, from the phone: the Aurora made up "+49% de performance (250 ms → 130 ms)" about its own updates.
+    id: "novo-historico",
+    title: "Planilha das atualizações da própria Aurora",
+    setup: writeFreshFixtures,
+    turns: [
+      { message: "Consegue montar um excel com update que fizemos em você, quantidade, tempo e % de melhoria ou piora", checks: [
+        { name: "cria um .xlsx", ok: (t, c) => [...created(c), ...walk(people())].some((f) => /\.xlsx$/i.test(f)) },
+        { name: "traz versões de verdade", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.xlsx$/i.test(x)); if (!f) return false; const x = await c.extract(f); return ["0.1.50", "0.1.49", "0.1.48", "0.1.47"].filter((v) => x.includes(v)).length >= 3; } },
+        { name: "não inventa os 250 ms → 130 ms", ok: async (t, c) => { const f = [...created(c), ...walk(people())].find((x) => /\.xlsx$/i.test(x)); const x = f ? await c.extract(f) : ""; return !/\b250\s*ms|\b130\s*ms|\+49\s*%/.test(`${x}\n${t.text}`); } },
+      ] },
+    ],
+  },
+  {
     id: "novo-acha-arquivo",
     title: "Achar a planilha sem que digam o nome",
     setup: writeFreshFixtures,

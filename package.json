@@ -40,6 +40,7 @@
       "electron/**/*",
       "frontend/dist/**/*",
       "reports/engine-evaluation-latest.json",
+      "ROADMAP.md",
       "package.json"
     ],
     "icon": "electron/icon.png",
