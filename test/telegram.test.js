@@ -8,8 +8,9 @@ import { join } from "node:path";
 const temp = mkdtempSync(join(tmpdir(), "aurora-telegram-"));
 process.env.HARNESS_DB_FILE = join(temp, "test.db");
 
-// A stand-in for api.telegram.org: records what the Aurora sends.
+// A stand-in for api.telegram.org: records what the Aurora sends; `incoming` is what getUpdates delivers.
 const sent = [];
+const incoming = [];
 const server = http.createServer((req, res) => {
   let body = Buffer.alloc(0);
   req.on("data", (d) => { body = Buffer.concat([body, d]); });
@@ -18,7 +19,7 @@ const server = http.createServer((req, res) => {
     const method = req.url.split("/").pop();
     const json = /json/.test(req.headers["content-type"] || "") ? JSON.parse(body.toString() || "{}") : { raw: body.toString("latin1") };
     sent.push({ method, body: json });
-    const result = method === "getMe" ? { username: "aurora_teste_bot" } : method === "getUpdates" ? [] : method === "getFile" ? { file_path: "documents/file_7.pdf" } : true;
+    const result = method === "getMe" ? { username: "aurora_teste_bot" } : method === "getUpdates" ? incoming.splice(0) : method === "getFile" ? { file_path: "documents/file_7.pdf" } : true;
     setTimeout(() => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ ok: true, result })); }, method === "getUpdates" ? 50 : 0);
   });
 });
@@ -92,7 +93,32 @@ test("pairing, a message answered with its file, strangers ignored, approvals by
   assert.equal(yes.text, "Permitir");
   await tg.handleUpdate({ update_id: 5, callback_query: { id: "q1", data: yes.callback_data, message: { chat: { id: 555 } } } }, { env, handleChatTurn });
   assert.equal(await answer, true);
+
+  // Typed instead of pressed ("Permitido", 15/10): it answers the request waiting, yes or no.
+  const typedYes = requestApproval(convId, { tool: "write_document", summary: "Gravar apresentacao.pptx" });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await tg.answerTypedApproval("Permitido", { env }), true);
+  assert.equal(await typedYes, true);
+  const typedNo = requestApproval(convId, { tool: "move_file", summary: "Mover x" });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await tg.answerTypedApproval("não", { env }), true);
+  assert.equal(await typedNo, false);
   endTurn(convId);
+  assert.equal(await tg.answerTypedApproval("Permitido", { env }), false, "nothing waiting: an ordinary message");
+  tg.stopTelegram();
+
+  // The polling loop is not held by a turn that waits for a yes: the button press arrives and answers it.
+  // Before, the loop awaited the turn, the press was read only after the request expired (15/10).
+  let waited = null;
+  const waitingTurn = async ({ conversationId }) => { startTurn(conversationId); waited = await requestApproval(conversationId, { tool: "write_document", summary: "Gravar deck.pptx" }); endTurn(conversationId); return { ok: true, message: { conversationId, content: "Gravei.", execution: {} } }; };
+  await tg.startTelegram({ env, handleChatTurn: waitingTurn });
+  incoming.push({ update_id: 200, message: { message_id: 200, chat: { id: 555 }, text: "monte a apresentação" } });
+  let button = null;
+  for (let i = 0; i < 40 && !button; i += 1) { await new Promise((r) => setTimeout(r, 50)); button = sent.filter((s) => s.method === "sendMessage" && /Gravar deck\.pptx/.test(s.body.text || "")).at(-1)?.body.reply_markup?.inline_keyboard?.[0]?.[0]; }
+  assert.ok(button, "the request for a yes reached the phone");
+  incoming.push({ update_id: 201, callback_query: { id: "q2", data: button.callback_data, message: { chat: { id: 555 } } } });
+  for (let i = 0; i < 40 && waited === null; i += 1) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(waited, true, "the press was read while the turn waited");
 
   // An automatic agent's result reaches the phone, with its files.
   await tg.notifyRunOnPhone({ name: "Resumo da manhã" }, { status: "done", answer: "Chegou o boleto da luz.", files: [delivered] }, { env });

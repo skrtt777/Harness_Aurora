@@ -237,6 +237,25 @@ export async function notifyRunOnPhone(agent, run, { env = process.env } = {}) {
   return true;
 }
 
+/**
+ * "Permitido", "pode", "sim" (or "não", "nega") typed while the Aurora waits for a yes: it answers that
+ * request, like the button. Typed, it went into the queue as a new message and the request expired (15/10).
+ */
+const TYPED_YES = /^(permitid[oa]|permit[oe]|permitir|pode(?: sim| fazer| ir| seguir| continuar)?|sim|ok|okay|autorizad[oa]|autorizo|liberad[oa]|libero|confirm[oa]|confirmad[oa]|manda ver|vai|faz|fa[cç]a)[\s.!]*$/i;
+const TYPED_NO = /^(n[ãa]o|nega(?:do)?|negar|recus[oa]|cancela(?:r)?|n[ãa]o pode|para)[\s.!]*$/i;
+export async function answerTypedApproval(text, { env = state.env } = {}) {
+  const t = String(text || "").trim();
+  const yes = TYPED_YES.test(t), no = !yes && TYPED_NO.test(t);
+  if (!yes && !no) return false;
+  const convId = await getSetting("telegram_conversation_id");
+  const approval = convId ? getApproval(convId) : null;
+  if (!approval) return false;
+  const ok = resolveApproval(convId, approval.id, yes);
+  for (const [k, v] of state.approvals) if (v.id === approval.id) state.approvals.delete(k);
+  if (ok) await sendToPhone(yes ? "Permitido. Continuando…" : "Negado.", { env }).catch(() => {});
+  return ok;
+}
+
 // A yes/no the phone's conversation needs: Permitir / Negar buttons.
 async function onApproval({ conversationId: convId, summary }) {
   if (!state.running || convId !== (await getSetting("telegram_conversation_id"))) return;
@@ -273,7 +292,13 @@ export async function startTelegram({ env = process.env, handleChatTurn } = {}) 
           // Bench captures are idempotent in SQLite; acknowledge only after processing.
           // Preserve the existing at-most-once behavior of ordinary agent turns.
           if (!benchCapture) { state.offset = update.update_id + 1; await setSetting('telegram_offset', String(state.offset)); }
-          await handleUpdate(update, { env, handleChatTurn });
+          // A turn waiting for "Permitir" blocked this loop, so the button press itself was only read after
+          // the request had expired (15/10). Buttons and typed yes/no are answered now; turns go in order,
+          // one at a time, without holding the loop.
+          const linkedChat = String(msg?.chat?.id || "") === String(await getSetting("telegram_chat_id"));
+          if (update.callback_query || benchCapture) await handleUpdate(update, { env, handleChatTurn });
+          else if (linkedChat && msg?.text && await answerTypedApproval(msg.text, { env })) { /* answered the waiting request */ }
+          else state.turns = (state.turns || Promise.resolve()).then(() => handleUpdate(update, { env, handleChatTurn })).catch(() => {});
           if (benchCapture) { state.offset = update.update_id + 1; await setSetting('telegram_offset', String(state.offset)); }
         }
       } catch (e) {
