@@ -19,8 +19,25 @@ modelos em `F:\Modelos_Aurora\ollama`. Relatórios: `reports/battery/estudo2-*.j
 
 **Variação entre rodadas:** o mesmo 4b fez 98% e 95,7%. Diferenças de até ~3 pontos são ruído; nenhum modelo supera o 4b.
 
-**Modelos sem template de conversa no GGUF** (`ministral-3` 3b/8b/14b, `gpt-oss:20b`, `lfm2.5:8b`): o llama-server cai num
-template genérico sem ferramentas e o modelo nunca as vê (ministral-3:3b: 0 chamadas em 50 turnos, 43,1%, nota descartada).
-Templates oficiais em `F:\Modelos_Aurora\templates`; teste com
-`LLAMA_SERVER_EXTRA_ARGS="--chat-template-file F:/Modelos_Aurora/templates/ministral-3.jinja"`. Pendente: rodar a bateria
-dos ministral e do gpt-oss assim. Se algum vencer, o Harness precisa escolher o template sozinho.
+**Modelos sem template de conversa no GGUF** (`ministral-3`, `gpt-oss`, `lfm2.5`): o llama-server caía num template genérico
+sem ferramentas e o modelo nunca as via (ministral-3:3b: 0 chamadas em 50 turnos, 43,1%). Desde o commit 1c861fb o Harness
+escolhe sozinho: o template do GGUF se ele tem ferramentas, senão o oficial da arquitetura (`app/templates`), senão o modelo
+fica no Ollama. Resultados com o template automático (bateria nova, 2 rodadas):
+
+| Modelo | Nota | Mediana por pedido |
+|---|---|---|
+| ministral-3:3b | 96/116 (82,8%), antes 43,1% | 3 s |
+| ministral-3:8b | 98/116 (84,5%) | 5 s |
+| ministral-3:14b | 105/116 (90,5%) | 8 s |
+| gpt-oss:20b | 101/116 (87,1%) | 3 s |
+
+Nenhum supera o qwen3.5:4b; o ministral-3:3b empata com o qwen3.5:2b (78–83%) com 3,0 GB contra 1,9 GB.
+
+## Ideias de outros projetos (15/10)
+
+- **Tradutor de intenção (toolshim do Goose):** não feito. Nas falhas do qwen3.5:2b e do 4b, nenhum turno terminou
+  narrando a ação sem chamar ferramenta; as falhas do 2b são de raciocínio (contas, filtros, laços de 15 chamadas).
+- **Receitas de passos que deram certo (Hermes):** medidas e não incluídas. 3 pares receitas globais × desligadas no
+  qwen3.5:2b, 2ª rodada: 45, 54, 48 contra 50, 45, 46 (média 49 × 47), com a receita presente em só 1–2 de 50 respostas:
+  ruído. Duas coisas achadas no caminho: a bateria abre um projeto por cenário e rodada (memória de projeto nunca volta), e
+  o seletor de memórias trata a palavra "receita" como assunto de BI. Código guardado em `F:\Modelos_Aurora\patches`.
