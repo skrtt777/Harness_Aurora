@@ -2,7 +2,9 @@ import { execFile, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync } from "node:fs";
 import { homedir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { protectPort } from "./agentTools/netGuard.js";
+import { ggufStrings } from "./ggufMeta.js";
 import { cacheDir, learnPrefix, markSlotUnknown, noteCacheUse, prepareSlot, restoreSnapshot, snapshotKey } from "./llamaCache.js";
 
 const ensureDir = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
@@ -109,6 +111,28 @@ export function detectGpu(env = process.env) {
   return gpuPromise;
 }
 
+const TEMPLATES_DIR = join(dirname(fileURLToPath(import.meta.url)), "templates");
+
+/**
+ * The chat template llama-server should get for these weights. ministral-3 and gpt-oss come from
+ * Ollama with no template in the GGUF: llama-server then used a generic one without tools, and the
+ * model never saw them (14/10: ministral-3:3b made 0 calls in 50 turns, 43% on the battery).
+ * { args: [] } when the GGUF brings a template with tools; the official one we ship for its
+ * architecture (app/templates); { missing } when neither exists — that model stays on Ollama,
+ * whose own template does have tools.
+ */
+export function chatTemplateFor(blob, { read = ggufStrings, dir = TEMPLATES_DIR, env = process.env } = {}) {
+  if (/--chat-template(-file)?\b/.test(String(env.LLAMA_SERVER_EXTRA_ARGS || ""))) return { args: [] };
+  let meta = {};
+  try { meta = read(blob, ["general.architecture", "tokenizer.chat_template"]); } catch { return { args: [] }; }
+  const template = meta["tokenizer.chat_template"] || "";
+  if (/\btools\b/.test(template)) return { args: [] };
+  const arch = meta["general.architecture"] || "";
+  const file = arch && join(dir, `${arch}.jinja`);
+  if (file && existsSync(file)) return { args: ["--chat-template-file", file], arch };
+  return { args: [], arch, missing: true };
+}
+
 const bin = (libDir) => join(libDir, process.platform === "win32" ? "llama-server.exe" : "llama-server");
 const serverEnv = (libDir, dir) => ({ ...process.env, PATH: [dir, libDir, process.env.PATH].join(process.platform === "win32" ? ";" : ":") });
 
@@ -155,6 +179,8 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   const libDir = ollamaLibDir(env);
   const blob = libDir && ollamaModelBlob(model, env);
   if (!blob) { failedAt = Date.now(); return null; }
+  const chatTemplate = chatTemplateFor(blob, { env });
+  if (chatTemplate.missing) { failedAt = Date.now(); console.warn(`[llama-server] ${model} (${chatTemplate.arch || "?"}) não traz template com ferramentas; fica no Ollama.`); return null; }
   const baseUrl = `http://127.0.0.1:${port}`;
   // Like Ollama's port: unauthenticated and local, so the agent's browser and web_fetch never reach it.
   protectPort(port);
@@ -164,7 +190,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
     const { dir, gpu, device } = await pickDeviceDir(libDir, { env });
     const slots = slotsFor({ gpu, device }, env);
     entry.slots = slots;
-    const args = ["-m", blob, "--jinja", "--host", "127.0.0.1", "--port", String(port), "--alias", model,
+    const args = ["-m", blob, "--jinja", ...chatTemplate.args, "--host", "127.0.0.1", "--port", String(port), "--alias", model,
       "-np", String(slots), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * slots), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),
       // Speculative decoding from n-grams already in the context (no draft model): the agent copies
       // rows from tool results into documents, and those come out 2.5x faster on GPU and ~5x on CPU,
