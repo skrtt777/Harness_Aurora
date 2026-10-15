@@ -70,6 +70,14 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.49 (15/10, publicada): visual novo, bancada criativa e template automático.**
+  - **Visual Aurora:** paleta fria por tokens (`tokens.css`), aurora binária no fundo do chat (`AuroraCurtains.tsx`), vista "Aurora" do Atlas (`MemoryParticles.tsx`).
+  - **Bancada criativa na tela** (`BenchView.tsx`): o backend (`app/bench.js`) existia desde 11/10.
+  - **Template de conversa automático** (`app/ggufMeta.js`, `app/templates`): ministral-3 e gpt-oss vinham sem template com ferramentas. ministral-3:3b 43,1% → 82,8%; 8b 84,5%; 14b 90,5%; gpt-oss:20b 87,1%.
+  - **command_output com ring buffer** (`app/agentTools/textRing.js`): passados 60 000 caracteres, a saída nova sumia.
+  - **Estudo de modelos de 14/10** (`docs/COMPARACAO_MODELOS_2026-10-14.md`): 11 candidatos; nenhum supera o qwen3.5:4b. Receitas de passos (Hermes) medidas sem efeito e não incluídas.
+  - Baterias (4b): nova 57/58; conversas 43/43; agentes 32/32; suíte 726/726; frontend 15/15 e UI 22/22.
+
 - **0.1.48 (14/10, publicada): computador fraco e estudo de modelos.**
   - **Máquina fraca simulada** (`scripts/low-end-bench.mjs`: 8 GB, 4 threads, só CPU). qwen3.5:4b: 79 s por pedido (mediana) e 2,8 GB reais; qwen3.5:2b: 50 s e 1,3 GB.
   - **Estudo de modelos** (bateria nova, 58 checagens): qwen3.5:4b 98%; qwen3.5:2b 78–85%; granite4.1:3b 71%; gemma4:e4b 55–66%; gemma4:e2b 48–64%. O Gemma 4 escreve as chamadas de ferramenta no formato próprio (agora lido).

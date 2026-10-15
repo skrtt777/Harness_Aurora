@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.49': {
+    title: 'Visual novo: aurora fria no chat e na memória',
+    items: [
+      ['Paleta fria com aurora no fundo', 'O chat ganhou uma paleta fria sobre preto com um destaque ciano e, ao fundo, uma aurora boreal feita de 0 e 1. Ela liga e desliga em Configurações > Geral.'],
+      ['Atlas da memória em aurora', 'Na vista "Aurora" do Atlas, cada assunto é um véu de partículas e cada memória um ponto de luz: a altura mostra o uso, e uma memória usada acende com uma onda.'],
+      ['Bancada criativa', 'No chat de um projeto, "Abrir bancada criativa" mostra as referências enviadas pelo Telegram (/bancada, /referencia). Ligue até três a uma decisão e ela vira memória do projeto.'],
+      ['Mais modelos locais funcionam', 'Modelos que vêm sem o modelo de conversa com ferramentas (Ministral 3, gpt-oss) agora recebem o oficial automaticamente. O Ministral 3 3B foi de 43% para 83% de acerto.'],
+      ['Comandos longos sem saída perdida', 'Um servidor ou build demorado com muita saída deixava de mostrar as linhas novas. Agora a Aurora sempre vê o que veio depois e é avisada do que foi descartado.'],
+    ],
+  },
   '0.1.48': {
     title: 'Roda em computador fraco (8 GB, sem placa de vídeo)',
     items: [
