@@ -28,6 +28,7 @@ import EvalPanel from './EvalPanel';
 import KnowledgePanel from './KnowledgePanel';
 import McpPanel from './McpPanel';
 import FoldersPanel from './FoldersPanel';
+import { auroraBackdropOn, setAuroraBackdrop } from './auroraBackdrop';
 import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
 import BriefsPanel from './BriefsPanel';
@@ -226,6 +227,7 @@ export default function SettingsView({
   const [section, setSection] = useState<SectionId>(() => {
     try { const saved = localStorage.getItem("aurora-settings-section") as SectionId | null; return saved && SECTIONS.some((s) => s.id === saved) ? saved : "general"; } catch { return "general"; }
   });
+  const [auroraBg, setAuroraBg] = useState(auroraBackdropOn);
   const openSection = (id: SectionId) => { setSection(id); try { localStorage.setItem("aurora-settings-section", id); } catch { /* private mode */ } };
   useEffect(() => { if (section === "local" && !hardware) void getLocalHardware().then(setHardware).catch(() => {}); }, [section, hardware]);
 
@@ -284,6 +286,10 @@ export default function SettingsView({
               </div>
             </div>
             <div className="section">
+              <div className="row">
+                <div className="row-text"><div className="row-label">Fundo animado</div><div className="row-desc">A aurora em movimento atrás das telas. Desligue para economizar GPU.</div></div>
+                <div className="row-control"><input type="checkbox" className="switch" aria-label="Fundo animado" checked={auroraBg} onChange={(e) => { setAuroraBackdrop(e.target.checked); setAuroraBg(e.target.checked); }} /></div>
+              </div>
               <div className="row">
                 <div className="row-text"><div className="row-label">Guia de boas-vindas</div><div className="row-desc">O passo a passo do primeiro uso: o que a Aurora faz, suas pastas e exemplos de pedidos.</div></div>
                 <div className="row-control"><button className="btn" onClick={onOpenGuide}>Abrir guia de boas-vindas</button></div>

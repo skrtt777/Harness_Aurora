@@ -7,27 +7,32 @@
 :root {
   color-scheme: dark;
 
-  /* Base colors: every text/stroke/fill is a mix of --base over the surface. */
-  --base: #eef1f2;
-  --accent: #5fd4c0;
-  --accent-strong: #7fe3d2;
+  /* Base colors: every text/stroke/fill is a mix of --base over the surface.
+     Palette: "Northern Lights" (21st.dev / tweakcn), dark variant. */
+  --base: oklch(0.9219 0 0);
+  --accent: oklch(0.6487 0.1538 150.3071);
+  --accent-strong: oklch(0.7200 0.1500 150.3071);
   --accent-ink: #04110e;
-  --red: #e75e78;
-  --green: #55a583;
+  --red: oklch(0.6368 0.2078 25.3313);
+  --green: oklch(0.5905 0.1608 148.2409);
   --yellow: #d6a24a;
-  --blue: #6aa6ff;
+  --blue: oklch(0.6746 0.1414 261.3380);
+  /* Aurora glow only (background, thinking orbs) — never for UI state. */
+  --aurora-1: var(--accent);
+  --aurora-2: oklch(0.5880 0.0993 245.7394);
+  --aurora-3: oklch(0.8269 0.1080 211.9627);
 
   /* Surfaces, darkest to lightest. */
-  --bg-sidebar: #0b0c0d;
-  --bg-chrome: #0f1012;
-  --bg-surface: #16171a;
-  --bg-elevated: #1c1d21;
+  --bg-sidebar: oklch(0.2050 0.0120 264.2926);
+  --bg-chrome: oklch(0.2303 0.0125 264.2926);
+  --bg-surface: oklch(0.2750 0.0100 245.0000);
+  --bg-elevated: oklch(0.3210 0.0078 223.6661);
 
   /* Text hierarchy. */
   --text-1: color-mix(in srgb, var(--base) 94%, transparent);
   --text-2: color-mix(in srgb, var(--base) 78%, transparent);
   --text-3: color-mix(in srgb, var(--base) 62%, transparent);
-  --text-4: color-mix(in srgb, var(--base) 46%, transparent);
+  --text-4: color-mix(in srgb, var(--base) 52%, transparent);
 
   /* Hairlines, strongest to faintest. */
   --stroke-1: color-mix(in srgb, var(--base) 16%, transparent);
@@ -59,8 +64,8 @@
   /* Shape and depth. */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
   --shadow-pop:
     0 0 0 1px var(--stroke-3),
     0 2px 4px -2px color-mix(in srgb, #000 40%, transparent),

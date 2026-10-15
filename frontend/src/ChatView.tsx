@@ -115,7 +115,9 @@ function ReviewNote({ review }: { review: TeacherReview }) {
 }
 
 function PlanList({ plan }: { plan: PlanItem[] }) {
-  return <ol className="agent-plan">{plan.map((item, index) => <li key={index} className={item.status}>{item.status === 'done' ? '☑' : item.status === 'in_progress' ? '▸' : '☐'} {item.text}</li>)}</ol>;
+  return <ol className="agent-plan">{plan.map((item, index) => <li key={index} className={item.status}>
+    <span className="plan-check" role="img" aria-label={item.status === 'done' ? 'Feito' : item.status === 'in_progress' ? 'Em andamento' : 'Pendente'} /><span className="plan-text">{item.text}</span>
+  </li>)}</ol>;
 }
 
 export function stepText(step: AgentStep) {
