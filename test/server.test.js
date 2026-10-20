@@ -698,6 +698,22 @@ test("PUT /api/settings persists the default provider/teacher and rejects unknow
   });
 });
 
+test("PUT /api/settings turns the strong engines on and off and shows each one's state", async () => {
+  await withServer(async (api) => {
+    const first = await api("/api/settings");
+    assert.equal(first.body.escalationMode, "on");
+    assert.deepEqual(Object.keys(first.body.engines).sort(), ["claude", "codex"]);
+    assert.equal(typeof first.body.engines.claude.installed, "boolean");
+
+    const off = await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "off" }) });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.escalationMode, "off");
+    assert.equal((await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "talvez" }) })).status, 400);
+
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "on" }) });
+  });
+});
+
 test("PUT /api/settings validates and persists a custom community manifest URL, and an empty string resets it", async () => {
   await withServer(async (api) => {
     const bad = await api("/api/settings", { method: "PUT", body: JSON.stringify({ communityManifestUrl: "not a url" }) });

@@ -148,7 +148,7 @@ export default function SettingsView({
     }
   };
 
-  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit">>) => {
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode">>) => {
     setAgentError("");
     try {
       const updated = await updateSettings(patch);
@@ -378,6 +378,19 @@ export default function SettingsView({
                 <div className="row-text"><div className="row-label">Limite por dia</div><div className="row-desc">Usadas hoje: {settings.teacherUsedToday}.</div></div>
                 <div className="row-control"><input className="field num-field" type="number" min={0} max={1000} aria-label="Limite de revisões por dia" value={settings.teacherDailyLimit} onChange={(e) => { const value = Number(e.target.value); if (Number.isInteger(value) && value >= 0) void saveAgent({ teacherDailyLimit: value }); }} /></div>
               </div>
+            </div>
+            <div className="section">
+              <h3 className="section-title">Quando a IA local não consegue</h3>
+              <p className="section-desc">Se a local falha, desiste ou não entrega o arquivo pedido, Claude ou Codex fazem a tarefa de verdade na pasta do projeto: o primeiro que ainda tiver limite de uso.</p>
+              <div className="row">
+                <div className="row-text"><div className="row-label">Modelos fortes fazem</div><div className="row-desc">{settings.escalationMode === "on" ? "Ligado: a tarefa vai para Claude ou Codex quando a local não resolve." : "Desligado: fica sempre a resposta da IA local."}</div></div>
+                <div className="row-control">{choice(settings.escalationMode, [["on", "Ligado"], ["off", "Desligado"]] as const, (id) => void saveAgent({ escalationMode: id }), "Modelos fortes fazem")}</div>
+              </div>
+              {(["claude", "codex"] as const).map((id) => {
+                const engine = settings.engines?.[id];
+                const state = !engine?.installed ? "Não instalado neste computador." : engine.limitedUntil ? `Sem limite de uso até ${new Date(engine.limitedUntil).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Disponível.";
+                return <div className="row" key={id}><div className="row-text"><div className="row-label">{id === "claude" ? "Claude" : "Codex"}</div><div className="row-desc">{state}</div></div></div>;
+              })}
             </div>
           </>}
 
