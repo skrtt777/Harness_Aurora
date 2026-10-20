@@ -155,7 +155,10 @@ test("end to end: local agent writes a file, the teacher (CLI) reviews in the pr
     assert.deepEqual([review.reason, review.verdict, review.redo, review.teacher], ["actions", "fix", "ok", "codex"]);
     assert.deepEqual(result.message.execution.toolSteps.map((s) => [s.tool, !!s.redo]), [["write_file", false], ["write_file", true]]);
     const reviewCall = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]);
-    assert.equal(reviewCall.cwd.toLowerCase(), workspace.toLowerCase(), "the teacher runs inside the project folder to check the files");
+    // Espelho (default): the teacher reads the project through the mirror — the code copied with marks —
+    // never the real folder.
+    assert.match(reviewCall.cwd.toLowerCase(), /aurora-espelho-/, "the teacher runs inside the mirror of the project folder");
+    assert.notEqual(reviewCall.cwd.toLowerCase(), workspace.toLowerCase());
     assert.match(reviewCall.prompt, /write_file \{"path":"soma\.js"/);
     const redoRequest = bodies[2].messages;
     assert.match(redoRequest.at(-1).content, /Adicione console\.log\(resultado\)/);

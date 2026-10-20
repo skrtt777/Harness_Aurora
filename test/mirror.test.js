@@ -50,12 +50,34 @@ test("a fake table: same header, rows and distinct values, no real value, months
 test("the request and the error text lose names, CPF, e-mail and R$; the script gets the real values back", () => {
   const map = new Map([["Sul", "regiao 1"], ["Maria Souza", "cliente 1"]]);
   const { text } = pseudonymize("Quanto a Maria Souza vendeu no Sul acima de 100? CPF 123.456.789-09, maria@acme.com.br, R$ 1.250,50", map);
-  assert.equal(text, "Quanto a cliente 1 vendeu no regiao 1 acima de 100? CPF [CPF], [E-MAIL], [VALOR]");
+  assert.equal(text, "Quanto a cliente 1 vendeu no regiao 1 acima de 100? CPF [CPF 1], [E-MAIL 1], [VALOR 1]");
+  assert.equal(map.get("123.456.789-09"), "[CPF 1]", "the marks are reversible: they go into the map");
   assert.deepEqual(leaks(text, map), []);
   assert.deepEqual(leaks("e a Maria Souza?", map), ["Maria Souza"]);
   const { code, restored } = restoreScript(`df[df.regiao == "regiao 1"]\nx = 'cliente 1'\ny = "regiao 10"`, new Map([...map, ["O'Neil", "regiao 10"]]));
   assert.equal(code, `df[df.regiao == "Sul"]\nx = 'Maria Souza'\ny = "O\\'Neil"`);
   assert.equal(restored, 3);
+});
+
+test("names are marked too, consistently, and products and months are not names", () => {
+  const map = new Map();
+  const { text } = pseudonymize("Carta para Maria da Silva e Acme Indústria Ltda; no Power BI, em Janeiro, a Maria da Silva aprovou.", map, { names: true });
+  assert.equal(text, "Carta para [NOME 1] e [NOME 2]; no Power BI, em Janeiro, a [NOME 1] aprovou.");
+  const { code } = restoreScript('doc.add_paragraph("Prezada [NOME 1],")', map);
+  assert.equal(code, 'doc.add_paragraph("Prezada Maria da Silva,")');
+});
+
+test("code is copied with the marks; keys and names out, the code itself intact", () => {
+  const ws = mkdtempSync(join(tmpdir(), "mirror-code-"));
+  writeFileSync(join(ws, "clientes.csv"), "nome,cidade\nMaria Souza,Curitiba\n", "utf8");
+  writeFileSync(join(ws, "app.py"), '# Autor: Bruno Gomes Souza\nKEY = "sk-abcdefghijklmnopqrstuvwx"\nVIP = "Maria Souza"\ndef total(xs):\n    return sum(xs)\n', "utf8");
+  const mirror = buildMirror(ws);
+  const code = readFileSync(join(mirror.dir, "app.py"), "utf8");
+  for (const s of ["Bruno", "sk-abc", "Maria"]) assert.ok(!code.includes(s), `${s} in the code copy`);
+  assert.match(code, /def total\(xs\):\n    return sum\(xs\)/);
+  assert.match(code, /VIP = "nome 1"/, "a value of the sheets has the same fake in the code");
+  assert.equal(restoreScript(code, mirror.map).code, readFileSync(join(ws, "app.py"), "utf8"), "and everything comes back here");
+  assert.match(readFileSync(join(mirror.dir, MIRROR_MANIFEST), "utf8"), /Código e configuração[\s\S]*app\.py/);
 });
 
 test("the mirror folder: fake copies of csv and xlsx, other files only listed", () => {

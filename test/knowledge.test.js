@@ -198,13 +198,24 @@ test("the teacher only sees conversations that used restricted documents if the 
   const conversation = await store.createConversation({ provider: "local" });
   const first = { ok: true, text: "Pronto", steps: [{ tool: "write_file", ok: true, args: {}, summary: "ok" }], calls: [], messages: [] };
   let called = 0;
-  const call = async () => { called += 1; return { ok: true, text: '{"verdict":"ok"}' }; };
+  const prompts = [];
+  const call = async ({ prompt }) => { called += 1; prompts.push(prompt); return { ok: true, text: '{"verdict":"ok"}' }; };
+  await store.setSetting("paid_privacy", "livre");
   const denied = await runTeachingLoop({ userMessage: "x", history: [], first, teacherProvider: "codex", conversation, rerun: async () => first, call, needsConsent: () => true, approve: async () => false });
   assert.equal(denied.review.skipped, "privacy");
   assert.equal(called, 0);
   const allowed = await runTeachingLoop({ userMessage: "x", history: [], first, teacherProvider: "codex", conversation, rerun: async () => first, call, needsConsent: () => true, approve: async (r) => /Enviar esta conversa ao Codex/.test(r.summary) });
   assert.equal(allowed.review.verdict, "ok");
   assert.equal(called, 1);
+  // Espelho: the review goes blind (marks for names and identifiers), so it needs no consent.
+  await store.setSetting("paid_privacy", "espelho");
+  const blindFirst = { ...first, text: "Enviei a cobrança para Maria Souza, CPF 123.456.789-09." };
+  const blind = await runTeachingLoop({ userMessage: "cobre a Maria Souza", history: [], first: blindFirst, teacherProvider: "codex", conversation, rerun: async () => first, call, needsConsent: () => true, approve: async () => false });
+  assert.equal(blind.review.verdict, "ok");
+  assert.equal(blind.review.blind, true);
+  assert.equal(called, 2);
+  assert.ok(!/Maria|123\.456/.test(prompts[1]), "no name or CPF in the blind review");
+  assert.match(prompts[1], /\[NOME 1\]/);
 });
 
 test("an answer that cites a source without consulting anything is sent back to search", async () => {

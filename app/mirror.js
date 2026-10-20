@@ -11,6 +11,13 @@ import { xlsxSheets } from "./docText.js";
 import { makeXlsx } from "./sampleDocs.js";
 
 const TABLE_EXT = new Set([".csv", ".tsv", ".xlsx", ".xlsm"]);
+// Code and configuration are copied with the marks applied (names, identifiers, values, keys): the teacher and
+// the engine read a project's code the way it is, minus what identifies someone. Documents (.docx, .pdf, .txt,
+// .md, .json data…) are only listed.
+const CODE_EXT = new Set([".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".html", ".htm", ".css", ".scss", ".sql", ".dax", ".m", ".pq", ".r", ".ps1", ".bat", ".cmd", ".sh", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".java", ".cs", ".c", ".cpp", ".h", ".go", ".rs", ".php", ".rb", ".kt", ".swift", ".vb", ".bas", ".ipynb"]);
+const CODE_NAMES = new Set(["package.json", "tsconfig.json", "requirements.txt", "pyproject.toml", "dockerfile", "makefile"]);
+const MAX_CODE_BYTES = 300 * 1024;
+const SECRET = /(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----)/g;
 const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git", ".venv", "venv"]);
 export const MIRROR_SCRIPT = "aurora_tarefa.py";
 export const MIRROR_MANIFEST = "AURORA_ESPELHO.md";
@@ -166,11 +173,24 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
   const map = new Map();
   const ctx = { map, counters: new Map() };
   const files = [];
-  for (const rel of walk(workspace, workspace, depth, [])) {
+  const all = walk(workspace, workspace, depth, []);
+  const isCode = (rel) => CODE_EXT.has(extname(rel).toLowerCase()) || CODE_NAMES.has(rel.split(/[\\/]/).pop().toLowerCase());
+  // Tables first: their values fill the map the code copies are then marked with.
+  for (const rel of [...all.filter((r) => !isCode(r)), ...all.filter(isCode)]) {
     const ext = extname(rel).toLowerCase();
     const real = join(workspace, rel);
     let bytes = 0;
     try { bytes = statSync(real).size; } catch { continue; }
+    if (isCode(rel) && bytes <= MAX_CODE_BYTES) {
+      try {
+        const target = join(dir, rel);
+        mkdirSync(dirname(target), { recursive: true });
+        const text = readFileSync(real, "utf8").replace(SECRET, (m) => markFor(m, "SEGREDO", map));
+        writeFileSync(target, pseudonymize(text, map, { names: true }).text, "utf8");
+        files.push({ path: rel, kind: "code", bytes });
+      } catch { files.push({ path: rel, kind: "listed", bytes }); }
+      continue;
+    }
     if (!TABLE_EXT.has(ext) || bytes > maxTableBytes) { files.push({ path: rel, kind: "listed", bytes }); continue; }
     try {
       const target = join(dir, rel);
@@ -212,16 +232,36 @@ function manifest(files) {
     tables.length ? "## Planilhas (cópia falsa aqui)" : "",
     ...tables.map((f) => `- ${f.path.replace(/\\/g, "/")}: ${f.realRows} linhas de dados na pasta real${f.note ? ` (${f.note})` : ""}`),
     "",
+    files.some((f) => f.kind === "code") ? "## Código e configuração (cópia aqui, com nomes, identificadores e chaves trocados por marcas como [NOME 1])" : "",
+    ...files.filter((f) => f.kind === "code").slice(0, 300).map((f) => `- ${f.path.replace(/\\/g, "/")}`),
+    "",
     listed.length ? "## Outros arquivos (só existem na pasta real; conteúdo não enviado)" : "",
     ...listed.slice(0, 200).map((f) => `- ${f.path.replace(/\\/g, "/")} (${Math.max(1, Math.round(f.bytes / 1024))} KB)`),
   ].filter((l, i, a) => l || a[i - 1]).join("\n") + "\n";
 }
 
+// Capitalized words that are products, places or the calendar, not someone of the company.
+const NOT_NAMES = new Set(["aurora", "claude", "codex", "gemini", "chatgpt", "openai", "excel", "word", "powerpoint", "power", "bi", "python", "windows", "google", "microsoft", "brasil", "são", "paulo", "rio", "janeiro", "pdf", "csv", "lgpd", "sql", "dax", "outlook", "teams", "telegram", "whatsapp", "pix", "ltda", "s.a.", "me", "eu", "ok", ...MONTHS, "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]);
+// Two or more capitalized words in a row ("Maria Souza", "Acme Indústria"), with "da/de/do/dos/das" between
+// ("e" is not: "Maria da Silva e Acme Ltda" are two names).
+const NAME = /(?<![\p{L}\p{N}])\p{Lu}[\p{Ll}'’]+(?:[ \t]+(?:(?:da|de|do|dos|das)[ \t]+)?\p{Lu}[\p{Ll}'’]+)+(?![\p{L}\p{N}])/gu;
+
+/** A reversible mark for `real` of kind `kind` ("[CPF 2]"), the same one every time, kept in the map. */
+function markFor(real, kind, map) {
+  if (map.has(real)) return map.get(real);
+  const n = [...map.values()].filter((v) => v.startsWith(`[${kind} `)).length + 1;
+  const mark = `[${kind} ${n}]`;
+  map.set(real, mark);
+  return mark;
+}
+
 /**
  * `text` with what identifies people and the company replaced: every real spreadsheet value the mirror faked
- * (longest first) and, anywhere, CPF, CNPJ, e-mail, phone and amounts in R$. Returns { text, hits }.
+ * (longest first) and, anywhere, CPF, CNPJ, e-mail, phone and amounts in R$ — and, with `names`, sequences of
+ * capitalized words. The marks are reversible ("[CPF 1]", "[NOME 2]"): they go into `map`, so a script the paid
+ * model writes with them gets the real values back here (restoreScript) and its words too (unfake).
  */
-export function pseudonymize(text, map = new Map()) {
+export function pseudonymize(text, map = new Map(), { names = false } = {}) {
   let out = String(text ?? "");
   let hits = 0;
   const pairs = [...map].filter(([real]) => real.length >= 2 && !COMMON.has(real.toLowerCase())).sort((a, b) => b[0].length - a[0].length);
@@ -230,8 +270,17 @@ export function pseudonymize(text, map = new Map()) {
     const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu");
     out = out.replace(pattern, () => { hits += 1; return fake; });
   }
-  const marks = [[CPF, "[CPF]"], [CNPJ, "[CNPJ]"], [EMAIL, "[E-MAIL]"], [MONEY, "[VALOR]"], [PHONE, "[TELEFONE]"]];
-  for (const [pattern, mark] of marks) out = out.replace(pattern, (m) => (/^\[/.test(m) ? m : (hits += 1, mark)));
+  const marks = [[CPF, "CPF"], [CNPJ, "CNPJ"], [EMAIL, "E-MAIL"], [MONEY, "VALOR"], [PHONE, "TELEFONE"]];
+  for (const [pattern, kind] of marks) out = out.replace(pattern, (m) => { hits += 1; return markFor(m, kind, map); });
+  if (names) {
+    out = out.replace(NAME, (m) => {
+      const words = m.split(/\s+/).filter((w) => !/^(da|de|do|dos|das|e)$/.test(w));
+      // A fake the map already put there ("Nome Cliente 3") is not a name to hide.
+      if (words.every((w) => NOT_NAMES.has(w.toLowerCase())) || [...map.values()].some((v) => v.includes(m))) return m;
+      hits += 1;
+      return markFor(m, "NOME", map);
+    });
+  }
   return { text: out, hits };
 }
 

@@ -1,4 +1,6 @@
 import { maskSensitive } from "./sensitive.js";
+import { blindSession, blindSteps, unblindReview } from "./blind.js";
+import { privacyMode } from "./engine.js";
 import { createMemory, getSetting, recordMemoryOutcome, setSetting } from "./store.js";
 import { enableSkill, importSkill } from "./skills.js";
 import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, narratesCorrection, parseReview, redoMessage, shouldReview } from "./teacher.js";
@@ -44,8 +46,11 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   if (settings.usedToday >= settings.dailyLimit) return { result: first, review: { ...review, skipped: "daily_limit" } };
 
   const label = teacherProvider === "claude" ? "Claude" : "Codex";
+  // Espelho (default): the teacher reviews the method blind — the mirror as its folder, marks for names and
+  // values, tool results as their shape — so nothing of the person's data leaves and no consent is needed.
+  const blind = (await privacyMode(env)) === "espelho";
   // Internal documents not cleared for paid AI leave the machine only with consent.
-  if (needsConsent() && !(await approve({ tool: "teacher", summary: `Enviar esta conversa ao ${label} para revisão`, detail: "Ela usa documentos internos que não estão liberados para IA paga." }))) {
+  if (!blind && needsConsent() && !(await approve({ tool: "teacher", summary: `Enviar esta conversa ao ${label} para revisão`, detail: "Ela usa documentos internos que não estão liberados para IA paga." }))) {
     return { result: first, review: { ...review, skipped: "privacy" } };
   }
   onStage(`Revisando com ${label}…`);
@@ -53,10 +58,22 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   await spendTeacherCall();
   // LGPD: the automatic review sends the turn to a service outside the computer. Identifiers (CPF,
   // CNPJ, e-mail, phone, accounts) go masked and the sensitive memories stay here.
-  const response = await call({ provider: teacherProvider, workspace, env, signal, prompt: maskSensitive(buildReviewPrompt({ userMessage, history, steps: first.steps, answer: first.text, signals, workspace, memories: memories.filter((m) => !m.sensitive) })) });
+  const memoriesOut = memories.filter((m) => !m.sensitive);
+  let response, verdict;
+  if (blind) {
+    const session = blindSession(workspace);
+    try {
+      const prompt = session.text(buildReviewPrompt({ userMessage, history, steps: blindSteps(first.steps), answer: first.text, signals, workspace: session.dir, memories: memoriesOut }));
+      review.blind = true;
+      response = session.check(prompt).length ? { ok: false, error: "o pedido de revisão ainda tinha dados reais; nada foi enviado" } : await call({ provider: teacherProvider, workspace: session.dir, env, signal, prompt });
+      verdict = response.ok ? unblindReview(parseReview(response.text), session.back) : null;
+    } finally { session.close(); }
+  } else {
+    response = await call({ provider: teacherProvider, workspace, env, signal, prompt: maskSensitive(buildReviewPrompt({ userMessage, history, steps: first.steps, answer: first.text, signals, workspace, memories: memoriesOut })) });
+    verdict = response.ok ? parseReview(response.text) : null;
+  }
   review.ms = Date.now() - started;
   if (signal?.aborted) return { result: first, review: { ...review, error: "cancelado" } };
-  const verdict = response.ok ? parseReview(response.text) : null;
   if (!verdict) return { result: first, review: { ...review, error: response.ok ? "resposta do professor inválida" : response.error } };
   Object.assign(review, { verdict: verdict.verdict, problems: verdict.problems });
 
