@@ -61,6 +61,7 @@ import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skillCatalog.js";
 import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
 import { engineStatus, refreshApiEngines } from "./engine.js";
+import { listEgress, secretTerms } from "./blind.js";
 // Tests and scripts import these from here.
 export { buildPrompt, handleChatTurn, agentHistory, asksForInformation, fileMentions, knowledgeQuery } from "./chatTurn.js";
 
@@ -232,6 +233,16 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         });
       }
 
+      // ---------- Top secret: the secret terms and what went out (app/blind.js) ----------
+      if (method === "GET" && pathname === "/api/privacy/terms") return sendJson(response, 200, { terms: await secretTerms() });
+      if (method === "PUT" && pathname === "/api/privacy/terms") {
+        const terms = (await readJson(request)).terms;
+        if (!Array.isArray(terms) || terms.length > 500 || terms.some((t) => typeof t !== "string" || t.length > 120)) throw httpError(400, "Lista de termos inválida.");
+        await setSetting("secret_terms", JSON.stringify([...new Set(terms.map((t) => t.trim()).filter((t) => t.length >= 2))]));
+        return sendJson(response, 200, { terms: await secretTerms() });
+      }
+      if (method === "GET" && pathname === "/api/privacy/egress") return sendJson(response, 200, { items: listEgress({ limit: 50 }) });
+
       // ---------- Engines by API key (app/apiEngines.js) ----------
       // The keys stay in the local database; the screen only sees "…1234".
       if (method === "GET" && pathname === "/api/engines") {
@@ -354,7 +365,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           values.engine_daily_limit = String(body.engineDailyLimit);
         }
         if (body.paidPrivacy !== undefined) {
-          if (!["espelho", "livre"].includes(body.paidPrivacy)) throw httpError(400, "Opção de privacidade inválida.");
+          if (!["espelho", "censura", "livre"].includes(body.paidPrivacy)) throw httpError(400, "Opção de privacidade inválida.");
           values.paid_privacy = body.paidPrivacy;
         }
         if (body.teacherDailyLimit !== undefined) {

@@ -203,7 +203,7 @@ function walk(dir, root, depth, out) {
  * The mirror of `workspace` in a new temp folder: { dir, map, files: [{ path, kind, realRows?, bytes }] } where
  * kind is "table" (a fake copy is there) or "listed" (only its name and size are, in AURORA_ESPELHO.md).
  */
-export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes = 40 * 1024 * 1024 } = {}) {
+export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes = 40 * 1024 * 1024, terms = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "aurora-espelho-"));
   const map = new Map();
   const ctx = { map, counters: new Map() };
@@ -222,7 +222,7 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
         const target = join(dir, rel);
         mkdirSync(dirname(target), { recursive: true });
         const text = readFileSync(real, "utf8").replace(SECRET, (m) => markFor(m, "SEGREDO", map));
-        const blinded = pseudonymize(text, map, { names: true }).text;
+        const blinded = pseudonymize(text, map, { names: true, terms }).text;
         writeFileSync(target, blinded, "utf8");
         code.set(rel, blinded);
         files.push({ path: rel, kind: "code", bytes });
@@ -254,13 +254,16 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
       }
     } catch { files.push({ path: rel, kind: "listed", bytes }); }
   }
+  // Secret terms also hide inside the spreadsheets' kept vocabulary: their fakes already came from the map.
+  for (const term of terms) if (String(term || "").trim().length >= 2 && !map.has(String(term).trim())) markFor(String(term).trim(), "SIGILO", map);
   writeFileSync(join(dir, MIRROR_MANIFEST), manifest(files, [...(ctx.kept || [])]), "utf8");
-  return { dir, map, files, code };
+  return { dir, map, files, code, kept: [...(ctx.kept || [])] };
 }
 
 function manifest(files, kept = []) {
   const tables = files.filter((f) => f.kind === "table");
   const listed = files.filter((f) => f.kind === "listed");
+  const censored = files.filter((f) => f.kind === "censored");
   return [
     "# Espelho da pasta do projeto",
     "",
@@ -274,6 +277,9 @@ function manifest(files, kept = []) {
     files.some((f) => f.kind === "code") ? "## Código e configuração (cópia aqui, com nomes, identificadores e chaves trocados por marcas como [NOME 1])" : "",
     ...files.filter((f) => f.kind === "code").slice(0, 300).map((f) => `- ${f.path.replace(/\\/g, "/")}`),
     "",
+    censored.length ? "## Documentos (texto censurado aqui: nomes, identificadores, valores e números trocados por marcas como [NOME 1], [VALOR 2], [NÚMERO 3], [SIGILO 1]; use as marcas na resposta)" : "",
+    ...censored.slice(0, 200).map((f) => `- ${f.path.replace(/\\/g, "/")} → ${f.censoredAs.replace(/\\/g, "/")}`),
+    "",
     listed.length ? "## Outros arquivos (só existem na pasta real; conteúdo não enviado)" : "",
     ...listed.slice(0, 200).map((f) => `- ${f.path.replace(/\\/g, "/")} (${Math.max(1, Math.round(f.bytes / 1024))} KB)`),
   ].filter((l, i, a) => l || a[i - 1]).join("\n") + "\n";
@@ -284,6 +290,9 @@ const NOT_NAMES = new Set(["aurora", "claude", "codex", "gemini", "chatgpt", "op
 // Two or more capitalized words in a row ("Maria Souza", "Acme Indústria"), with "da/de/do/dos/das" between
 // ("e" is not: "Maria da Silva e Acme Ltda" are two names).
 const NAME = /(?<![\p{L}\p{N}])\p{Lu}[\p{Ll}'’]+(?:[ \t]+(?:(?:da|de|do|dos|das)[ \t]+)?\p{Lu}[\p{Ll}'’]+)+(?![\p{L}\p{N}])/gu;
+
+// Words that make a name an organization's (or a document's part), not a person's: never hidden one by one.
+const ORG_WORDS = new Set(["projeto", "programa", "empresa", "grupo", "banco", "cliente", "indústria", "industria", "comércio", "comercio", "serviços", "servicos", "sistemas", "tecnologia", "consultoria", "transportes", "transporte", "metalúrgica", "metalurgica", "papelaria", "gráfica", "grafica", "construtora", "associação", "associacao", "instituto", "fundação", "fundacao", "secretaria", "ministério", "ministerio", "prefeitura", "universidade", "escola", "hospital", "clínica", "clinica", "farmácia", "farmacia", "loja", "lojas", "mercado", "supermercado", "cooperativa", "contrato", "cláusula", "clausula", "nota", "fiscal", "central", "distribuidora", "comercial", "holding", "participações", "participacoes", "s/a", "eireli", "mei", "epp", "cia", "companhia", "departamento", "setor", "diretoria", "conselho", "comitê", "comite", "operação", "operacao"]);
 
 /** A reversible mark for `real` of kind `kind` ("[CPF 2]"), the same one every time, kept in the map. */
 function markFor(real, kind, map) {
@@ -300,9 +309,29 @@ function markFor(real, kind, map) {
  * capitalized words. The marks are reversible ("[CPF 1]", "[NOME 2]"): they go into `map`, so a script the paid
  * model writes with them gets the real values back here (restoreScript) and its words too (unfake).
  */
-export function pseudonymize(text, map = new Map(), { names = false } = {}) {
+export function pseudonymize(text, map = new Map(), { names = false, terms = [], numbers = false } = {}) {
   let out = String(text ?? "");
   let hits = 0;
+  // The person's own secret terms (Configurações → Privacidade: a codename, a client, a product) first, whole.
+  for (const term of [...new Set(terms.map((t) => String(t || "").trim()).filter((t) => t.length >= 2))].sort((a, b) => b.length - a.length)) {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "giu");
+    out = out.replace(pattern, (m) => { hits += 1; return markFor(map.has(m) ? m : term, "SIGILO", map); });
+  }
+  // Then whole names, on the text as it is: a part already in the map ("Rogério", from the local model) made
+  // "Rogério Tavares" into "[NOME 1] Tavares" and the surname went out (20/10, top secret test). In top secret,
+  // each part of a person's name is hidden alone too: "Rogério assinou", with no surname, is the same person.
+  // Not the words of an organization's name ("Projeto", "Transportes"): those are everyday words.
+  if (names) {
+    for (const [whole] of out.matchAll(NAME)) {
+      const words = whole.split(/\s+/).filter((w) => !/^(da|de|do|dos|das|e)$/.test(w));
+      if (words.every((w) => NOT_NAMES.has(w.toLowerCase())) || [...map.values()].some((v) => v.includes(whole))) continue;
+      const mark = markFor(whole, "NOME", map);
+      const person = !words.some((w) => ORG_WORDS.has(w.toLowerCase()) || NOT_NAMES.has(w.toLowerCase()));
+      // The parts point to the whole ("[NOME 4: prenome]"): "Helena aprovou" is Helena Duarte, and the paid
+      // model can tell (20/10, the real test: with a mark of its own, it could not).
+      if (numbers && person) words.forEach((w, i) => { if (w.length >= 3 && !map.has(w)) map.set(w, `${mark.slice(0, -1)}: ${i === 0 ? "prenome" : words.length > 2 ? `sobrenome ${i}` : "sobrenome"}]`); });
+    }
+  }
   const pairs = [...map].filter(([real]) => real.length >= 2 && !COMMON.has(real.toLowerCase())).sort((a, b) => b[0].length - a[0].length);
   for (const [real, fake] of pairs) {
     const escaped = real.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -320,7 +349,47 @@ export function pseudonymize(text, map = new Map(), { names = false } = {}) {
       return markFor(m, "NOME", map);
     });
   }
+  // Top secret (censura): every number left — dates, quantities, percentages, clause values — as a mark too,
+  // never the digits inside a mark already there ("[NOME 1]").
+  if (numbers) {
+    out = out.split(/(\[[A-ZÀ-Ü-]+ \d+(?::[^\]]*)?\])/u).map((part, i) => (i % 2 ? part : part.replace(/\d+(?:[.,/:-]\d+)*/g, (m) => { hits += 1; return markFor(m, "NÚMERO", map); }))).join("");
+  }
   return { text: out, hits };
+}
+
+export const DOC_EXT = new Set([".docx", ".pdf", ".pptx", ".txt", ".md", ".rtf", ".html", ".htm", ".eml", ".json", ".xml", ".log", ".odt"]);
+const MAX_DOC_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Top secret (paid_privacy "censura"): each document the mirror only listed goes in as text, censored — names
+ * (the rules, the person's secret terms and, when given, the local model's `findNames`), identifiers, values
+ * and every number as reversible marks. The paid model reads "[NOME 2] assinou em [NÚMERO 4]"; its answer gets
+ * the real values back here. `extract` is docText's extractText (injected in the tests).
+ */
+export async function censorDocuments(mirror, workspace, { terms = [], numbers = true, findNames = null, extract = null } = {}) {
+  const read = extract || (await import("./docText.js")).extractText;
+  for (const f of mirror.files) {
+    if (f.kind !== "listed" || !DOC_EXT.has(extname(f.path).toLowerCase()) || f.bytes > MAX_DOC_BYTES) continue;
+    let text = "";
+    try { text = String(await read(join(workspace, f.path))); } catch { continue; }
+    if (!text.trim()) continue;
+    if (findNames) {
+      // A part of a whole name in the text ("Rogério" of "Rogério Tavares") is left to the name rule, which
+      // marks it as that person's ("[NOME 3: prenome]").
+      const parts = new Set([...text.matchAll(NAME)].flatMap(([whole]) => whole.split(/\s+/)));
+      for (const raw of await findNames(text).catch(() => [])) {
+        const name = String(raw).trim();
+        if (name.length >= 3 && text.includes(name) && !parts.has(name)) markFor(name, "NOME", mirror.map);
+      }
+    }
+    const censored = pseudonymize(text, mirror.map, { names: true, terms, numbers }).text;
+    const target = join(mirror.dir, `${f.path}.txt`);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, censored, "utf8");
+    Object.assign(f, { kind: "censored", censoredAs: `${f.path}.txt` });
+  }
+  writeFileSync(join(mirror.dir, MIRROR_MANIFEST), manifest(mirror.files, mirror.kept || []), "utf8");
+  return mirror;
 }
 
 /** The real values (from the map) still present in `text`: empty when nothing leaks. */

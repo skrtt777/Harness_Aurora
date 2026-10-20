@@ -306,7 +306,7 @@ export type Settings = {
   /** on: Claude/Codex fazem a tarefa de verdade quando a IA local não consegue. */
   escalationMode: "on" | "off";
   /** espelho: o modelo forte vê só uma cópia com valores falsos e o script roda aqui; livre: vê a pasta real. */
-  paidPrivacy: "espelho" | "livre";
+  paidPrivacy: "espelho" | "censura" | "livre";
   /** ativa: o modelo forte faz primeiro o que faz melhor (arquivos, gráficos, análises); quando_falha: só depois de a local falhar. */
   paidHelp: "ativa" | "quando_falha";
   engineDailyLimit: number;
@@ -705,3 +705,9 @@ export const getWhatsapp = () => request<WhatsappStatus>("/whatsapp");
 export const enableWhatsapp = (own = false) => request<WhatsappStatus>("/whatsapp", { method: "PUT", body: JSON.stringify({ own }) });
 export const disableWhatsapp = () => request<WhatsappStatus>("/whatsapp", { method: "DELETE" });
 export const testWhatsapp = () => request<{ sent: boolean }>("/whatsapp/test", { method: "POST" });
+
+// ---------- Top secret (app/blind.js): secret terms and what went out to a paid AI ----------
+export type EgressItem = { at: string; engine: string; kind: string; privacy: string; chars: number; text: string; files: string[] };
+export const getSecretTerms = () => request<{ terms: string[] }>("/privacy/terms").then((r) => r.terms);
+export const saveSecretTerms = (terms: string[]) => request<{ terms: string[] }>("/privacy/terms", { method: "PUT", body: JSON.stringify({ terms }) }).then((r) => r.terms);
+export const listEgress = () => request<{ items: EgressItem[] }>("/privacy/egress").then((r) => r.items);

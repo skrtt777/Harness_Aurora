@@ -1,6 +1,6 @@
 import { maskSensitive } from "./sensitive.js";
-import { blindSession } from "./blind.js";
-import { privacyMode } from "./engine.js";
+import { blindSession, logEgress, secretTerms } from "./blind.js";
+import { isBlind, privacyMode } from "./engine.js";
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
 import { applyEdits } from "./localDiagnostics.js";
@@ -96,8 +96,9 @@ export async function correctLocalAnswer({ question, wrongAnswer, note, context 
   const timeoutKey = teacherProvider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
   // LGPD: identifiers masked before the text leaves the computer (the review still works without them).
   // Espelho (default): names and values go as reversible marks too, and come back real in the answer.
-  const blind = (await privacyMode(env)) === "espelho" ? blindSession(null) : null;
+  const blind = isBlind(await privacyMode(env)) ? blindSession(null, { terms: await secretTerms() }) : null;
   const prompt = blind ? blind.text(buildCorrectionPrompt(question, wrongAnswer, note, context)) : maskSensitive(buildCorrectionPrompt(question, wrongAnswer, note, context));
+  if (blind) logEgress({ engine: teacherProvider === "claude" ? "Claude" : "Codex", kind: "correção", privacy: "espelho", text: prompt }, env);
   const result = await runProvider(prompt, {
     ...env,
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,

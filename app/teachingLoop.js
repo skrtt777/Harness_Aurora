@@ -1,6 +1,6 @@
 import { maskSensitive } from "./sensitive.js";
-import { blindSession, blindSteps, unblindReview } from "./blind.js";
-import { privacyMode } from "./engine.js";
+import { blindSession, blindSteps, logEgress, secretTerms, unblindReview } from "./blind.js";
+import { isBlind, privacyMode } from "./engine.js";
 import { createMemory, getSetting, recordMemoryOutcome, setSetting } from "./store.js";
 import { enableSkill, importSkill } from "./skills.js";
 import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, narratesCorrection, parseReview, redoMessage, shouldReview } from "./teacher.js";
@@ -48,7 +48,7 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   const label = teacherProvider === "claude" ? "Claude" : "Codex";
   // Espelho (default): the teacher reviews the method blind — the mirror as its folder, marks for names and
   // values, tool results as their shape — so nothing of the person's data leaves and no consent is needed.
-  const blind = (await privacyMode(env)) === "espelho";
+  const blind = isBlind(await privacyMode(env));
   // Internal documents not cleared for paid AI leave the machine only with consent.
   if (!blind && needsConsent() && !(await approve({ tool: "teacher", summary: `Enviar esta conversa ao ${label} para revisão`, detail: "Ela usa documentos internos que não estão liberados para IA paga." }))) {
     return { result: first, review: { ...review, skipped: "privacy" } };
@@ -61,10 +61,11 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   const memoriesOut = memories.filter((m) => !m.sensitive);
   let response, verdict;
   if (blind) {
-    const session = blindSession(workspace);
+    const session = blindSession(workspace, { terms: await secretTerms() });
     try {
       const prompt = session.text(buildReviewPrompt({ userMessage, history, steps: blindSteps(first.steps), answer: first.text, signals, workspace: session.dir, memories: memoriesOut }));
       review.blind = true;
+      if (!session.check(prompt).length) logEgress({ engine: label, kind: "revisão do professor", privacy: "espelho", text: prompt, files: session.files.map((f) => f.path) }, env);
       response = session.check(prompt).length ? { ok: false, error: "o pedido de revisão ainda tinha dados reais; nada foi enviado" } : await call({ provider: teacherProvider, workspace: session.dir, env, signal, prompt });
       verdict = response.ok ? unblindReview(parseReview(response.text), session.back) : null;
     } finally { session.close(); }

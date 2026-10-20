@@ -35,6 +35,7 @@ import WhatsappPanel from './WhatsappPanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
 import ModelsPanel from './ModelsPanel';
+import TopSecretPanel from './TopSecretPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "IA local" };
 const SECTIONS = [
@@ -406,8 +407,8 @@ export default function SettingsView({
                 <div className="row-control"><input className="field num-field" type="number" min={0} max={1000} aria-label="Chamadas por dia aos modelos fortes" value={settings.engineDailyLimit} onChange={(e) => { const value = Number(e.target.value); if (Number.isInteger(value) && value >= 0) void saveAgent({ engineDailyLimit: value }); }} /></div>
               </div>
               <div className="row">
-                <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>
-                <div className="row-control">{choice(settings.paidPrivacy, [["espelho", "Ficam aqui"], ["livre", "Podem sair"]] as const, (id) => void saveAgent({ paidPrivacy: id }), "Seus dados")}</div>
+                <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes de mandá-lo censurado." : settings.paidPrivacy === "censura" ? "Top secret: além da cópia das planilhas, os documentos vão como texto censurado (nomes, CPF, valores, datas e números viram marcas como [NOME 1]; os seus termos sigilosos viram [SIGILO 1]). A IA local ajuda a achar os nomes, e a resposta volta aqui com os valores reais." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>
+                <div className="row-control">{choice(settings.paidPrivacy, [["espelho", "Ficam aqui"], ["censura", "Censurados"], ["livre", "Podem sair"]] as const, (id) => void saveAgent({ paidPrivacy: id }), "Seus dados")}</div>
               </div>
               {(["claude", "codex"] as const).map((id) => {
                 const engine = settings.engines?.[id];
@@ -469,6 +470,7 @@ export default function SettingsView({
               <h2 className="page-title">Privacidade</h2>
               <p className="page-desc">Como a Aurora protege os dados pessoais e de clientes (LGPD), e onde você consulta, exporta ou apaga tudo o que ela guarda sobre alguém.</p>
             </header>
+            <TopSecretPanel />
             <div className="section"><PrivacyPanel /></div>
           </>}
           {section === "briefs" && <>

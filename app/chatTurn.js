@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { CHAT_ONLY, ENGINES, refreshApiEngines, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
+import { CHAT_ONLY, ENGINES, isBlind, refreshApiEngines, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -846,15 +846,17 @@ ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proa
             const why = asked ? "" : escalationReason({ request: trimmed, result: agent, history });
             if (asked || why) {
               const privacy = await privacyMode(env);
-              const allowed = toolContext.restrictedSources.size === 0 || privacy === "espelho" || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
+              const allowed = toolContext.restrictedSources.size === 0 || isBlind(privacy) || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
               if (allowed) {
                 const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : null;
                 const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), approveRun: engineApproval, context: engineContext };
                 // Espelho (default): the paid engine sees a copy with fake values and its script runs here. A task
-                // that needs the documents' real content goes out only with the person's yes, this once.
+                // that needs the documents' content may go top secret — the documents censored (every name, value
+                // and number as a mark) — with the person's yes, this once. The real content never goes from here:
+                // only "Podem sair" in Configurações sends it.
                 escalated = await escalate({ ...job, privacy });
-                if (escalated.needsContent && !controller.signal.aborted && await approveEngine({ tool: "engine", summary: `Enviar o conteúdo real dos arquivos ao ${ENGINES[escalated.engine]?.label || "modelo forte"} só desta vez`, detail: `Para esta tarefa ele precisa ler os documentos de verdade${escalated.why ? ` (${escalated.why.slice(0, 160)})` : ""}. Sem a sua autorização, nada sai do computador.` })) {
-                  escalated = await escalate({ ...job, privacy: "livre" });
+                if (escalated.needsContent && !controller.signal.aborted && await approveEngine({ tool: "engine", summary: `Enviar os documentos ao ${ENGINES[escalated.engine]?.label || "modelo forte"} censurados, só desta vez`, detail: `Para esta tarefa ele precisa ler os documentos${escalated.why ? ` (${escalated.why.slice(0, 160)})` : ""}. Eles vão como texto censurado: nomes, CPF, valores, datas e números viram marcas como [NOME 1], e voltam aqui com os reais. Sem a sua autorização, nada sai.` })) {
+                  escalated = await escalate({ ...job, privacy: "censura" });
                 }
                 if (escalated.ok) agent = { ...agent, ok: true, error: undefined, unsupported: false, text: `${escalated.text}
 

@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { resolveCli } from "./cliRuntime.js";
 import { listApiEngines, runApiEngine } from "./apiEngines.js";
-import { buildMirror, codeChanges, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
+import { buildMirror, censorDocuments, codeChanges, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
+import { localNameFinder, logEgress, secretTerms } from "./blind.js";
 import { runClaudeAgent } from "./claude.js";
 import { runCodexAgent } from "./codex.js";
 import { getSetting, setSetting } from "./store.js";
@@ -204,7 +205,10 @@ export function proactiveFit({ request, hasTables: tables = false, hasCode: code
  * How much of the project a paid engine may see: "espelho" (default) — only the synthetic mirror, its script
  * runs here; "livre" — the real folder, as before 19/10.
  */
-export const PRIVACY_MODES = ["espelho", "livre"];
+// "censura" (top secret, 20/10): the mirror plus the documents as censored text — the paid model may read a
+// contract with every name, value and number as a mark, and write about it with the marks.
+export const PRIVACY_MODES = ["espelho", "censura", "livre"];
+export const isBlind = (privacy) => privacy === "espelho" || privacy === "censura";
 export async function privacyMode(env = process.env) {
   const value = env.AURORA_PAID_PRIVACY || (await getSetting("paid_privacy"));
   return PRIVACY_MODES.includes(value) ? value : "espelho";
@@ -214,7 +218,7 @@ export async function privacyMode(env = process.env) {
 // as "[número]". The person's own numbers stay — in a request they are the task's parameters.
 const maskNumbers = (text) => String(text).replace(/\d[\d.,]{2,}/g, "[número]");
 
-export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previous = null, context = [] }) {
+export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previous = null, context = [], censored = false }) {
   const recent = history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-6)
     .map((m) => {
       const text = pseudonymize(String(m.content || "").slice(0, 600), map, { names: true }).text;
@@ -234,7 +238,12 @@ export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previ
     `Hoje, para a Aurora, é ${auroraToday()}: o script lê essa data da variável de ambiente AURORA_HOJE (formato AAAA-MM-DD) e nunca usa date.today() nem datetime.now().`,
     "Números brasileiros: \"980.000\" e \"2.800.000\" são milhares (ponto separa milhar, vírgula separa decimal). Nas planilhas que gravar, escreva os valores já calculados nas células (pode somar no Python); nada de fórmulas no lugar dos números.",
     `Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho com exatamente "python ${MIRROR_SCRIPT}" (sem cd nem outros comandos antes) e confira o que ele gera antes de responder.`,
-    "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
+    censored
+      ? "Os documentos estão aqui como texto CENSURADO (veja a lista no manifesto, arquivos .txt): nomes, identificadores, valores, datas e números viraram marcas como [NOME 1], [VALOR 2], [NÚMERO 3] e [SIGILO 1]. Se a tarefa for sobre o conteúdo de um documento (resumir, analisar, comparar, responder, escrever a partir dele), leia o .txt e responda em texto, em português do Brasil, usando as marcas exatamente como estão (a Aurora troca de volta pelos valores reais só no computador da pessoa); nesse caso não precisa de script. Nunca tente adivinhar o que há por trás de uma marca."
+      : "",
+    censored
+      ? "Para uma tarefa com script ou código, responda em até 3 frases o que fez e quais arquivos grava, sem citar valores do espelho."
+      : "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
     recent ? `\nConversa recente (nomes e documentos trocados por marcas):\n${recent}` : "",
     `\nTarefa: ${pseudonymize(task, map, { names: true }).text}`,
   ].filter(Boolean).join("\n");
@@ -283,9 +292,17 @@ function applyCodeChanges(edits, workspace) {
  * One engine on the mirror: it writes the script there, the script runs on the real folder (fakes back to real
  * values), one repair round with the error pseudonymized. Returns the engine's answer plus { script, ran }.
  */
-async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false, approveRun = null, timeoutMs, context = [] }) {
-  const mirror = buildMirror(workspace);
+async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false, approveRun = null, timeoutMs, context = [], privacy = "espelho", findNames = undefined }) {
+  const terms = await secretTerms();
+  const mirror = buildMirror(workspace, { terms });
   try {
+    // Top secret: the documents go too, as censored text (names — the local model helping —, identifiers,
+    // values and numbers as marks).
+    if (privacy === "censura") {
+      onStage("A Aurora está censurando os documentos aqui antes de enviar…");
+      const finder = findNames !== undefined ? findNames : env.AURORA_LOCAL_CENSOR === "off" ? null : await localNameFinder(env).catch(() => null);
+      await censorDocuments(mirror, workspace, { terms, findNames: finder });
+    }
     // Context that is not the company's (the Aurora's own version history) goes as files next to the mirror.
     for (const c of context) writeFileSync(join(mirror.dir, c.name), pseudonymize(c.text, mirror.map, { names: true }).text, "utf8");
     const before = followUp ? await lastScript(workspace) : null;
@@ -293,10 +310,15 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     const blindPrevious = before ? pseudonymize(before.script, mirror.map, { names: true }).text : "";
     // A previous script still holding a real value is left out (the engine starts over), never sent.
     if (before && !leaks(blindPrevious, mirror.map).length) writeFileSync(join(mirror.dir, PREVIOUS_SCRIPT), blindPrevious, "utf8");
-    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous, context: context.map((c) => c.name) });
+    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous, context: context.map((c) => c.name), censored: privacy === "censura" });
     const leaked = leaks(prompt, mirror.map);
     if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
-    const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal, timeoutMs }));
+    // Each text that leaves is recorded here as it left (Configurações → Privacidade → O que saiu).
+    const sentFiles = mirror.files.map((f) => (f.kind === "censored" ? f.censoredAs : f.kind === "listed" ? `${f.path} (só o nome)` : f.path));
+    const call = (text) => {
+      logEgress({ engine: ENGINES[id]?.label || id, kind: "tarefa", privacy, text, files: sentFiles }, env);
+      return run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal, timeoutMs });
+    };
     // The engine's words as the person reads them: real names back, and no link into the mirror (it is deleted
     // right after; Codex linked its aurora_tarefa.py there, 20/10).
     const mirrorPath = new RegExp(mirror.dir.replace(/[\\/]/g, "[\\\\/]").replace(/[.*+?^${}()|]/g, "\\$&") + "[^\\s)\\]`'\"]*", "gi");
@@ -313,6 +335,9 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     if (edits.length && !(await allowed(`Aplicar as mudanças do ${ENGINES[id].label} em ${edits.length} arquivo(s) de código`, edits.map((e) => `${e.isNew ? "novo" : "alterado"}: ${e.path}`).join("\n")))) return { ok: false, error: "você não autorizou aplicar as mudanças no código" };
     const applied = applyCodeChanges(edits, workspace);
     if (!existsSync(scriptPath) && applied.length) return { ...answer, text: shown(answer.text), ran: { ok: true, stdout: "", stderr: "" }, codeFiles: applied };
+    // Top secret, a task about a document's content ("resuma o contrato"): the answer is the text itself, written
+    // with the marks, the real values back here.
+    if (!existsSync(scriptPath) && privacy === "censura" && String(answer.text || "").trim()) return { ...answer, text: shown(answer.text), ran: { ok: true, stdout: "", stderr: "" }, textOnly: true };
     for (let round = 0; round < 2; round += 1) {
       if (!existsSync(scriptPath)) return { ...answer, ok: false, error: `o ${ENGINES[id].label} não gravou ${MIRROR_SCRIPT}` };
       const { code, restored } = restoreScript(readFileSync(scriptPath, "utf8"), mirror.map);
@@ -340,7 +365,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = null, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs, context = [] }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = null, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs, context = [], findNames = undefined }) {
   const status = await engineStatus({ env, now: now() });
   order = (order || engineOrder()).filter((id) => ENGINES[id]);
   const tried = [];
@@ -352,11 +377,11 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     const budget = await engineBudget();
     if (budget.usedToday >= budget.dailyLimit) return { ok: false, tried, limited, budget: true };
     await spendEngineCall();
-    onStage(proactive ? `A Aurora está fazendo com o ${ENGINES[id].label}${privacy === "espelho" ? ", sem enviar seus dados" : ""}…` : `A Aurora pediu ajuda ao ${ENGINES[id].label}…`);
+    onStage(proactive ? `A Aurora está fazendo com o ${ENGINES[id].label}${isBlind(privacy) ? ", sem enviar seus dados" : ""}…` : `A Aurora pediu ajuda ao ${ENGINES[id].label}…`);
     const before = snapshot(workspace);
     const started = now();
-    const answer = privacy === "espelho"
-      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp, approveRun, timeoutMs, context })
+    const answer = isBlind(privacy)
+      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp, approveRun, timeoutMs, context, privacy, findNames })
       : await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
     if (signal?.aborted) return { ok: false, tried, limited, cancelled: true };
     // A task that needs the documents' content does not go to the next engine either: it would see the same mirror.
@@ -371,8 +396,10 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     }
     const after = snapshot(workspace);
     const files = [...after].filter(([p, t]) => !before.has(p) || before.get(p) !== t).filter(([, t]) => t >= started - 2000).map(([p]) => p).slice(0, 20);
-    const steps = files.map((p) => ({ tool: "write_file", ok: true, by: id, args: { path: p }, summary: `Criei ${p} (pelo ${ENGINES[id].label}${privacy === "espelho" ? ", script rodado aqui" : ""}).` }));
-    if (privacy !== "espelho") return { ok: true, engine: id, label: ENGINES[id].label, text: answer.text, files, steps, ms: now() - started };
+    const steps = files.map((p) => ({ tool: "write_file", ok: true, by: id, args: { path: p }, summary: `Criei ${p} (pelo ${ENGINES[id].label}${isBlind(privacy) ? ", script rodado aqui" : ""}).` }));
+    if (!isBlind(privacy)) return { ok: true, engine: id, label: ENGINES[id].label, text: answer.text, files, steps, ms: now() - started };
+    // Top secret, about a document: its text, with the real values back, is the answer.
+    if (answer.textOnly) return { ok: true, engine: id, label: ENGINES[id].label, text: answer.text.trim(), files, steps, ms: now() - started, privacy };
     if (!answer.ran?.ok) { tried.push(`${ENGINES[id].label}: o script falhou nos dados reais (${(answer.ran?.stderr || "").trim().split(/\r?\n/).pop()?.slice(0, 160) || "erro"})`); continue; }
     // What the script printed is computed here from the real data: it is the answer itself. The engine's own
     // words describe the script (about the mirror) and stay below.
@@ -388,6 +415,7 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
 
 /** The line under the answer that says what the engine did, or why the local answer is the one that stayed. */
 export function engineNote(outcome, { reason } = {}) {
+  if (outcome.ok && outcome.privacy === "censura") return `> Feito com o ${outcome.label} com seus documentos censurados: nomes, valores e números foram como marcas e voltaram aqui com os reais${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
   if (outcome.ok && outcome.privacy === "espelho") return `> Feito com o ${outcome.label} sem enviar seus dados: ele viu só uma cópia com valores falsos e o script rodou aqui${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
   if (outcome.ok) return `> Feito pelo ${outcome.label}${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
   if (outcome.budget) return "> O limite diário de chamadas aos modelos fortes acabou (Configurações → Professor): ficou a resposta da Aurora local.";
