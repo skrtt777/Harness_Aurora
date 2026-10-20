@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.52': {
+    title: 'WhatsApp, qualquer modelo e o modo top secret',
+    items: [
+      ['WhatsApp', 'Em Configurações → Celular, leia o QR e converse com a Aurora em "Mensagem para você". É a mesma conversa do Telegram: a resposta volta por onde você escreveu.'],
+      ['Qualquer modelo por chave', 'Em Configurações → Modelos: Claude, OpenAI, OpenRouter, Gemini ou um endpoint da empresa. Eles trabalham como o Claude Code e o Codex, sem ver seus dados.'],
+      ['Top secret', 'Em "Seus dados", escolha Censurados: os documentos vão com nomes, CPF, valores e números trocados por marcas, e a resposta volta aqui com os valores reais.'],
+      ['Termos sigilosos e o que saiu', 'Em Configurações → Privacidade, liste os nomes que nunca podem sair (viram [SIGILO 1]) e veja tudo o que já foi enviado a uma IA paga.'],
+    ],
+  },
   '0.1.51': {
     title: 'Claude e Codex ajudam de verdade, sem ver seus dados',
     items: [

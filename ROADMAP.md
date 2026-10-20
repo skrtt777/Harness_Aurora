@@ -70,6 +70,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.52 (20/10): Visão 2.0, fase 1 e o modo top secret** (`docs/VISAO_HARNESS_2.0.md`).
+  - **Qualquer modelo por chave de API** (`app/apiEngines.js`): Anthropic (SDK oficial) e qualquer API compatível com OpenAI (OpenAI, OpenRouter, Gemini, endpoint próprio, Ollama), sempre às cegas pelo espelho; Configurações → Modelos.
+  - **Gateway de canais** (`app/gateway.js`): uma conversa do celular para todos os canais, e a resposta volta pelo canal usado por último. **WhatsApp** (`app/whatsapp.js`, WhatsApp Web por QR, "Mensagem para você" ou número próprio por código).
+  - **Top secret** ("Seus dados: Censurados"): documentos vão como texto censurado (nomes, identificadores, valores e números como marcas reversíveis), termos sigilosos viram [SIGILO n], a IA local é a segunda censora, e o que saiu fica registrado em Configurações → Privacidade.
+  - Testes reais: Claude no top secret leu só marcas e o resumo voltou com os valores reais; qwen3.5:4b pelo Ollama como endpoint próprio; WhatsApp Web gerou o QR (o pareamento com o celular é o próximo teste). Bateria híbrida 7/7 sem vazamento; suíte 776/776.
+
 - **0.1.51 (20/10): IA local + paga sem os dados saírem do computador** (estudo e medições em `docs/ESTUDO_PAGOS_SEM_VAZAR_2026-10-19.md`).
   - **Motor unificado** (`app/engine.js`): Claude ou Codex fazem a tarefa de verdade, o primeiro com limite de uso. Um limite marca o motor até a hora que a CLI diz.
   - **Espelho** (`app/mirror.js`): cópia das planilhas com valores falsos e do código com marcas; o modelo forte escreve um script ou edita a cópia, e a Aurora roda e aplica o resultado aqui, com os valores reais.
