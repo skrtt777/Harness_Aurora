@@ -1262,3 +1262,6 @@
 .memory-flow .flow-legend i.dashed { border-top: 2px dashed var(--text-3); }
 .memory-flow .flow-legend i.ok { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--green, #5fd48a); }
 .memory-flow .flow-legend i.bad { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--red, #ff6b8a); }
+/* Memórias / Mapa Vivo: the same takeover, on the map's own deep black. */
+.app-shell.livemap-takeover { height: 100vh; background: #07090d; }
+.app-shell.livemap-takeover .livemap { flex: 1 1 auto; }

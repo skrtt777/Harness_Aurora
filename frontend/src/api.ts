@@ -711,3 +711,62 @@ export type EgressItem = { at: string; engine: string; kind: string; privacy: st
 export const getSecretTerms = () => request<{ terms: string[] }>("/privacy/terms").then((r) => r.terms);
 export const saveSecretTerms = (terms: string[]) => request<{ terms: string[] }>("/privacy/terms", { method: "PUT", body: JSON.stringify({ terms }) }).then((r) => r.terms);
 export const listEgress = () => request<{ items: EgressItem[] }>("/privacy/egress").then((r) => r.items);
+
+// ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
+export type GraphMemory = {
+  id: string; title: string; scope: "global" | "project" | "conversation"; projectId: string | null; conversationId: string | null;
+  kind: string; source: string | null; tags: string[]; snippet: string | null; sensitive: boolean;
+  createdAt: string; updatedAt: string; uses: number; helped: number; failed: number; status: string;
+};
+export type MemoryLiveEvent = { type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled"; at: string; seq?: number; id?: string; ids?: string[]; title?: string; scope?: string; projectId?: string | null; conversationId?: string | null; kind?: string };
+export type MemoryGraphSnapshot = {
+  generatedAt: string;
+  memories: GraphMemory[];
+  relations: { from: string; to: string; type: string }[];
+  atlas: { model: string; clusters: { id: number; label: string; count: number; center: number[] }[]; points: { id: string; position: number[]; cluster: number; neighbors: { id: string; similarity: number }[] }[] } | null;
+  projects: { id: string; name: string }[];
+  conversations: { id: string; title: string; projectId: string | null }[];
+  recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];
+  events: MemoryLiveEvent[];
+};
+export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");
+
+/**
+ * The live memory events (Server-Sent Events read with fetch, so the session token goes as a header).
+ * Reconnects with a growing pause; returns the function that stops listening.
+ */
+export function subscribeMemoryEvents(onEvent: (event: MemoryLiveEvent) => void, onState?: (live: boolean) => void): () => void {
+  let stopped = false;
+  let controller: AbortController | null = null;
+  let wait = 1000;
+  const loop = async () => {
+    while (!stopped) {
+      controller = new AbortController();
+      try {
+        const response = await fetch("/api/memories/live", { headers: { "x-harness-token": await sessionToken() }, signal: controller.signal });
+        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+        onState?.(true); wait = 1000;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let cut;
+          while ((cut = buffer.indexOf("\n\n")) >= 0) {
+            const block = buffer.slice(0, cut); buffer = buffer.slice(cut + 2);
+            const data = block.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+            if (data) { try { onEvent(JSON.parse(data)); } catch { /* a broken line is skipped */ } }
+          }
+        }
+      } catch { /* closed, offline or stopped */ }
+      onState?.(false);
+      if (stopped) break;
+      await new Promise((r) => setTimeout(r, wait));
+      wait = Math.min(wait * 2, 30_000);
+    }
+  };
+  void loop();
+  return () => { stopped = true; controller?.abort(); };
+}

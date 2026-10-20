@@ -1,3 +1,4 @@
+import { emitMemoryEvent } from "./memoryEvents.js";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
 import { isSensitive } from "./sensitive.js";
@@ -416,7 +417,9 @@ export async function createMemory({
   if (sensitive) db.prepare("UPDATE memories SET sensitive = 1 WHERE id = ?").run(id);
   if (vector) db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?").run(encodeEmbedding(vector), resolveEmbeddingModel(env), id);
   else await attachEmbedding(db, id, embeddingText, env);
-  return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
+  const created = attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
+  emitMemoryEvent("created", { id, scope, projectId: created.projectId || null, conversationId: created.conversationId || null, title: cleanTitle, kind });
+  return created;
 }
 
 export async function createRelation({ fromId, toId, type }) {
@@ -450,6 +453,7 @@ export async function updateMemory(id, patch, env = process.env) {
   {
     await attachEmbedding(db, id, embeddingInputFor({ title, content, tags: parseJsonArray(tags) }), env);
   }
+  emitMemoryEvent("updated", { id, title });
   return attachRelations(db, [mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id))])[0];
 }
 
@@ -458,12 +462,14 @@ export async function setMemoryStatus(id, status) {
   if (!["active", "archived"].includes(status)) throw Object.assign(new Error("Estado inválido (use active ou archived)."), { status: 400 });
   const db = await getDb();
   const info = db.prepare("UPDATE memories SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), id);
+  if (info.changes > 0) emitMemoryEvent(status === "archived" ? "archived" : "restored", { id });
   return info.changes > 0 ? mapMemory(db.prepare("SELECT * FROM memories WHERE id = ?").get(id)) : null;
 }
 
 export async function deleteMemory(id) {
   const db = await getDb();
   const info = db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+  if (info.changes > 0) emitMemoryEvent("deleted", { id });
   return info.changes > 0;
 }
 

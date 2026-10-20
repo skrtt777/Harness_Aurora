@@ -3,7 +3,7 @@ import { getHealth, getProviders, listConversations, searchConversations, type C
 import BrandMark from "./BrandMark";
 import Icon from "./Icon";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents" | "office";
+type View = "chat" | "memory" | "livemap" | "atlas" | "test" | "settings" | "skills" | "agents" | "office";
 
 type Props = {
   projects: Project[];
@@ -303,6 +303,10 @@ export default function Sidebar({
           <Icon name="memory" size={15} />
           <span>Memória</span>
           <span className="sb-count">{memoryCount.toLocaleString("pt-BR")}</span>
+        </button>
+        <button className={`sb-link sb-sublink ${activeView === "livemap" ? "active" : ""}`} onClick={() => onSelectView("livemap")} title="Memórias / Mapa Vivo: a memória da Aurora como um mapa navegável">
+          <Icon name="memory" size={13} />
+          <span>Mapa Vivo</span>
         </button>
         <button className={`sb-link ${activeView === "agents" ? "active" : ""}`} onClick={() => onSelectView("agents")}>
           <Icon name="briefcase" size={15} />

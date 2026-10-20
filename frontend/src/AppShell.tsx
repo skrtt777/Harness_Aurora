@@ -16,6 +16,8 @@ import BrandMark from "./BrandMark";
 // carregá-lo de olhos fechados penalizava quem só quer conversar. Fica em
 // chunk separado, baixado só quando a view "atlas"/"test" é realmente aberta.
 const NeuralAtlas = lazy(() => import("./NeuralAtlas"));
+// Memórias / Mapa Vivo (frontend/src/livemap): its own chunk, downloaded only when opened.
+const LiveMapView = lazy(() => import("./livemap/LiveMapView"));
 import {
   cancelMessage as apiCancelMessage,
   correctMessage as apiCorrectMessage,
@@ -45,7 +47,7 @@ import {
   onShowAgents,
 } from "./api";
 
-type View = "chat" | "memory" | "atlas" | "test" | "settings" | "skills" | "agents" | "office";
+type View = "chat" | "memory" | "livemap" | "atlas" | "test" | "settings" | "skills" | "agents" | "office";
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -366,6 +368,28 @@ export default function AppShell() {
         <h1>Não foi possível iniciar o Harness Aurora</h1>
         <p>{bootError}</p>
         <p>Feche e abra o app de novo. Se persistir, reinstale a versão mais recente.</p>
+      </div>
+    );
+  }
+
+  if (view === "livemap") {
+    return (
+      <div className="app-shell atlas-takeover livemap-takeover">
+        <header className="atlas-topbar">
+          <button className="atlas-back" onClick={() => setView("memory")}>
+            ← Voltar para a memória
+          </button>
+          <span className="atlas-topbar-title">
+            Memórias <em>/ Mapa Vivo</em>
+          </span>
+          <BrandMark compact />
+        </header>
+        <Suspense fallback={<div className="atlas-loading">Carregando o Mapa Vivo…</div>}>
+          <LiveMapView
+            onOpenConversation={(id) => { setActiveConversation(null); setLoadingConversation(true); setActiveConversationId(id); setView("chat"); }}
+            onOpenMemory={() => setView("memory")}
+          />
+        </Suspense>
       </div>
     );
   }

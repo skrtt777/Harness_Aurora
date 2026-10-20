@@ -62,6 +62,8 @@ import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skil
 import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
 import { engineStatus, refreshApiEngines } from "./engine.js";
 import { listEgress, secretTerms } from "./blind.js";
+import { memoryGraphSnapshot } from "./memoryGraph.js";
+import { memoryEvents } from "./memoryEvents.js";
 // Tests and scripts import these from here.
 export { buildPrompt, handleChatTurn, agentHistory, asksForInformation, fileMentions, knowledgeQuery } from "./chatTurn.js";
 
@@ -954,6 +956,18 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       // ---------- Memories ----------
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
+      // ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
+      if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, await memoryGraphSnapshot());
+      if (method === "GET" && pathname === "/api/memories/live") {
+        // Server-Sent Events: each real memory event (created, updated, archived, deleted, recalled) as it happens.
+        response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
+        const send = (event) => { if (!response.destroyed && !response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`); };
+        const ping = setInterval(() => { if (!response.destroyed) response.write(": ping\n\n"); }, 25_000);
+        memoryEvents.on("event", send);
+        request.on("close", () => { clearInterval(ping); memoryEvents.off("event", send); });
+        send({ type: "hello", at: new Date().toISOString() });
+        return;
+      }
       if (method === "GET" && pathname === "/api/system/vitals") return sendJson(response, 200, systemVitals());
       if (method === "POST" && pathname === "/api/memories/recall") {
         const body = await readJson(request);

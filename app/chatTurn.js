@@ -1,6 +1,7 @@
 // One chat turn: memories and context, files the person names, company documents,
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
+import { emitMemoryEvent } from "./memoryEvents.js";
 import { briefBlock, withAdjustOptions } from "./briefs.js";
 import { clockObservation, discountObservation, distressObservation, followUpMath, mathObservation, weekdayObservation } from "./runtimeFacts.js";
 import { httpError } from "./httpSecurity.js";
@@ -718,6 +719,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             .catch((error) => (error.status === 413 ? buildContext(docsBlockOf(false), true) : Promise.reject(error)))
             // Still too big (a big company project on a small context): the big blocks are shortened, saying so.
             .catch((error) => (error.status === 413 ? buildContext(docsBlockOf(false), true, true) : Promise.reject(error)));
+          // The memories this turn really carries into the model's context (the Mapa Vivo lights them up).
+          if (agentContext?.memoryIds?.length) emitMemoryEvent("recalled", { conversationId, ids: [...agentContext.memoryIds], projectId: conversation.projectId || null });
           if (conversation.provider === "local" && warming) { setStage(conversationId, "Carregando o modelo local…"); await warming.catch(() => {}); }
           const chatServer = conversation.provider === "local" ? await localChatServer(localEnv) : null;
           const agentEnv = conversation.provider === "local" ? (chatServer ? { ...localEnv, LOCAL_CHAT_BASE_URL: chatServer } : localEnv) : env;
@@ -897,6 +900,7 @@ ${engineNote(escalated)}` };
         }
         if (!result) {
           localContext = conversation.provider === 'local' ? await compactContext({ ...promptArgs, required: [...promptArgs.required, ...(fallbackFiles ? [fallbackFiles] : [])], scope, limit: contextLimit || 12000, fit: true }) : null;
+          if (localContext?.memoryIds?.length) emitMemoryEvent("recalled", { conversationId, ids: [...localContext.memoryIds], projectId: conversation.projectId || null });
           const prompt = localContext ? localContext.prompt : buildPrompt(promptArgs);
           result = conversation.provider === "local"
             ? await runLocal(prompt, localEnv, controller.signal, { onText: text => setPartial(conversationId, text) })
