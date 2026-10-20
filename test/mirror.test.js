@@ -37,13 +37,15 @@ test("a fake table: same header, rows and distinct values, no real value, months
   const flat = fake.rows.slice(1).flat().join("|");
   for (const s of SECRETS) assert.ok(!flat.includes(s), `${s} leaked into the mirror`);
   assert.deepEqual(fake.rows.slice(1).map((r) => r[4]), ["Janeiro", "Fevereiro", "Março"], "months say nothing about the company");
-  const regions = fake.rows.slice(1).map((r) => r[3]);
-  assert.equal(regions[0], regions[2], "the two Sul rows share one fake");
-  assert.notEqual(regions[0], regions[1]);
+  assert.deepEqual(fake.rows.slice(1).map((r) => r[3]), ["Sul", "Norte", "Sul"], "a region is the business's vocabulary: kept");
+  assert.ok(ctx.kept.has("regiao"));
+  const clients = fake.rows.slice(1).map((r) => r[0]);
+  assert.equal(new Set(clients).size, 3);
   assert.match(fake.rows[1][1], /^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
   assert.match(fake.rows[1][7], /^R\$ [\d.]+,\d{2}$/);
   assert.match(fake.rows[1][5], /^\d{2}\/\d{2}\/2020$/);
-  assert.equal(ctx.map.get("Sul"), regions[0]);
+  assert.equal(ctx.map.get("Maria Souza"), clients[0]);
+  assert.ok(!ctx.map.has("Sul"));
   assert.ok(!ctx.map.has("120"), "numbers are parameters, not names: not in the map");
 });
 
@@ -104,24 +106,25 @@ test("espelho: the engine sees only fakes, its script runs here on the real data
   const prompts = [];
   const run = async (id, prompt, { cwd, mirror }) => {
     prompts.push(prompt);
-    // The engine writes the script with the fake region name it read in the request.
-    const region = prompt.match(/no (\S+ \d+)\?/)[1];
+    // The engine writes the script with the fake client name it read in the request.
+    const client = prompt.match(/Quanto a (\S+ \d+) vendeu/)[1];
     writeFileSync(join(cwd, MIRROR_SCRIPT), [
       "import csv",
       "rows = list(csv.DictReader(open('vendas.csv', encoding='utf-8'), delimiter=';'))",
-      `total = sum(int(r['vendas']) for r in rows if r['regiao'] == "${region}")`,
+      `total = sum(int(r['vendas']) for r in rows if r['cliente'] == "${client}" and r['regiao'] == "Sul")`,
       "open('total.txt', 'w', encoding='utf-8').write(str(total))",
-      `print(f"Vendas no ${region}: {total}")`,
+      `print(f"Vendas de ${client} no Sul: {total}")`,
     ].join("\n"));
     assert.ok(existsSync(join(cwd, "vendas.csv")) && cwd !== ws, "it works on the mirror, not the real folder");
-    return { ok: true, text: `O script soma as vendas da ${region} e grava total.txt.` };
+    return { ok: true, text: `O script soma as vendas de ${client} e grava total.txt.` };
   };
-  const out = await escalate({ task: "Quanto vendemos no Sul? A Maria Souza (maria@acme.com.br) pediu.", workspace: ws, run, order: ["claude"], privacy: "espelho" });
+  const out = await escalate({ task: "Quanto a Maria Souza vendeu no Sul? Ela pediu por maria@acme.com.br.", workspace: ws, run, order: ["claude"], privacy: "espelho" });
   assert.equal(out.ok, true, JSON.stringify(out));
-  for (const s of [...SECRETS, "Sul"]) assert.ok(!prompts[0].includes(s), `${s} reached the paid engine`);
-  assert.equal(readFileSync(join(ws, "total.txt"), "utf8"), "263", "120 + 143, the real Sul rows");
-  assert.match(out.text, /Vendas no Sul: 263/, "what the script printed is shown with the real name");
-  assert.match(out.text, /soma as vendas da Sul/, "the engine's own words get the real names back, here only");
+  for (const s of SECRETS) assert.ok(!prompts[0].includes(s), `${s} reached the paid engine`);
+  assert.match(prompts[0], /no Sul\?/, "a region is vocabulary: it goes as it is");
+  assert.equal(readFileSync(join(ws, "total.txt"), "utf8"), "120", "Maria Souza's real row");
+  assert.match(out.text, /Vendas de Maria Souza no Sul: 120/, "what the script printed is shown with the real name");
+  assert.match(out.text, /soma as vendas de Maria Souza/, "the engine's own words get the real names back, here only");
   assert.deepEqual(out.files.map((f) => f.split(/[\\/]/).pop()), ["total.txt"]);
   assert.match(engineNote(out), /sem enviar seus dados/);
 });
@@ -142,6 +145,29 @@ test("espelho: a script that fails on the real data gets one repair round with t
   assert.equal(prompts.length, 2);
   assert.match(prompts[1], /falhou com este erro/);
   assert.ok(!prompts[1].includes("Maria") && !prompts[1].includes("123.456.789-09"), "the real error is pseudonymized before it goes back");
+});
+
+test("espelho: code fixed blind — the engine edits the marked copy, the real file gets the change and keeps its secrets", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mirror-codefix-"));
+  const original = 'API_KEY = "sk-abcdefghijklmnopqrstuvwx"\n# Responsável: Bruno Gomes Souza\ndef media(xs):\n    return sum(xs) / len(xs) + 1\n';
+  writeFileSync(join(ws, "calc.py"), original, "utf8");
+  writeFileSync(join(ws, "notas.docx"), "x");
+  const seen = [];
+  const run = async (id, prompt, { cwd }) => {
+    const copy = readFileSync(join(cwd, "calc.py"), "utf8");
+    seen.push(prompt + copy);
+    // The engine fixes the bug in the copy it sees, marks and all, and adds a test file.
+    writeFileSync(join(cwd, "calc.py"), copy.replace(" + 1\n", "\n"));
+    writeFileSync(join(cwd, "test_calc.py"), "from calc import media\nassert media([2, 4]) == 3\n");
+    return { ok: true, text: "Corrigi a média em calc.py e criei test_calc.py." };
+  };
+  const out = await escalate({ task: "corrija o bug da média em calc.py", workspace: ws, run, order: ["claude"], privacy: "espelho" });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  for (const s of ["sk-abc", "Bruno"]) assert.ok(!seen.join("").includes(s), `${s} reached the engine`);
+  assert.equal(readFileSync(join(ws, "calc.py"), "utf8"), original.replace(" + 1\n", "\n"), "the fix, with the real key and name");
+  assert.ok(existsSync(join(ws, "test_calc.py")), "the new test file came too");
+  assert.deepEqual(out.files.map((f) => f.split(/[\\/]/).pop()).sort(), ["calc.py", "test_calc.py"]);
+  assert.equal(readFileSync(join(ws, "notas.docx"), "utf8"), "x", "a listed document is never touched");
 });
 
 test("espelho: a task that needs a document's content stops and says so, without trying the next engine", async () => {

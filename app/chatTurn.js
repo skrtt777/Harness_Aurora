@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
+import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -768,11 +768,14 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // (schedule, watched folder) keep the local first.
           let proactive = null;
           if (conversation.provider === "local" && !asked && toolContext.workspace && (!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && await escalationOn(env) && (await helpMode(env)) === "ativa") {
-            const fit = proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace) });
+            // The last answer was a strong engine's delivery: "agora em azul" goes back to it, with its script.
+            const lastAnswer = [...history].reverse().find((m) => m.role === "assistant");
+            const followsEngine = /> Feito (com|pelo) o? ?(Claude|Codex)|> Feito pelo (Claude|Codex)/.test(String(lastAnswer?.content || ""));
+            const fit = proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace), hasCode: hasCode(toolContext.workspace), followsEngine });
             const ready = fit && Object.values(await engineStatus({ env })).some((s) => s.installed && !s.limitedUntil);
             if (ready) {
               const preferred = (conversation.teacherProvider || await getSetting("default_teacher", "claude")) === "codex" ? "codex" : "claude";
-              proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true });
+              proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true, followUp: fit === "continua a entrega anterior do modelo forte" });
               proactive.fit = fit;
             }
           }

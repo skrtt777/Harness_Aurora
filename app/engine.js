@@ -3,11 +3,11 @@
 // answer stays and says so. 15/10: from the phone, the local model could not draw a chart in 40 minutes and
 // said it was impossible; the strong models, set up on the same computer, only reviewed it.
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { resolveCli } from "./cliRuntime.js";
-import { buildMirror, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
+import { buildMirror, codeChanges, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
 import { runClaudeAgent } from "./claude.js";
 import { runCodexAgent } from "./codex.js";
 import { getSetting, setSetting } from "./store.js";
@@ -82,6 +82,9 @@ const CANNOT = /\b(n[ãa]o (é|seria|foi) poss[íi]vel|n[ãa]o consigo|n[ãa]o c
  */
 export function escalationReason({ request, result, history = [] }) {
   if (!result) return null;
+  // Small talk is not a task: "oi, o que você consegue fazer?" went to Claude because the local answer listed
+  // what it cannot do (20/10).
+  if (CHAT_ONLY.test(String(request || "")) && !requestsFile(request)) return null;
   if (!result.ok) return result.cancelled ? null : `o modelo local falhou (${String(result.error || "erro").slice(0, 120)})`;
   const signals = detectSignals({ userMessage: request, result, history }).filter((s) => s.code !== "copies_disagree");
   if (signals.length) return signals.map((s) => s.detail).join("; ").slice(0, 400);
@@ -147,19 +150,25 @@ async function spendEngineCall() {
   await setSetting("engine_usage", JSON.stringify({ date: today(), count: usedToday + 1 }));
 }
 
-/** Whether `dir` has a spreadsheet (csv/tsv/xlsx) within two levels. */
-export function hasTables(dir) {
+/** Whether `dir` has a file matching `pattern` within two levels (by default a spreadsheet). */
+export function hasTables(dir, pattern = /\.(csv|tsv|xlsx|xlsm)$/i) {
   if (!dir) return false;
   const look = (d, depth) => {
     let entries = [];
     try { entries = readdirSync(d, { withFileTypes: true }); } catch { return false; }
-    return entries.some((e) => (e.isFile() && /\.(csv|tsv|xlsx|xlsm)$/i.test(e.name)) || (depth > 0 && e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules" && look(join(d, e.name), depth - 1)));
+    return entries.some((e) => (e.isFile() && pattern.test(e.name)) || (depth > 0 && e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules" && look(join(d, e.name), depth - 1)));
   };
   return look(dir, 2);
 }
+export const hasCode = (dir) => hasTables(dir, /\.(py|js|mjs|cjs|ts|tsx|jsx|java|cs|go|rs|php|rb|kt|c|cpp|sql|ps1|sh)$/i);
 
 const VISUAL = /\b(gr[áa]fic[oa]s?|dashboards?|painel|pain[ée]is|infogr[áa]fico|visualiza[çc][ãa]o)\b/i;
 const ANALYSIS = /\b((quem|qual|quais)\b.{0,50}\b(mais|menos)\b|melhor(es)?|pior(es)?|quant[oa]s?|total|totais|soma[rs]?|m[ée]dias?|maior(es)?|menor(es)?|ranking|top \d+|compar[ae]|tend[êe]ncia|crescimento|queda|previs[ãa]o|projet[ae]|percentua(l|is)|por (m[êe]s|ano|regi[ãa]o|cliente|produto|vendedor|categoria|setor|loja|filial)|analis[ae]|an[áa]lise)\b/i;
+const CODE_TASK = /\b(corrij[ae]|conserte|consertar|bug|erro no (c[óo]digo|script|programa)|refator[ae]|implemente|implementar|adicione (uma |um )?(fun[çc][ãa]o|m[ée]todo|rota|endpoint|tela|teste)|crie (os )?testes|testes? unit[áa]rios?|otimiz[ae] o c[óo]digo)\b/i;
+// "Agora em azul", "acrescente abril", "tire a legenda": a change to what was just delivered.
+const FOLLOW_UP = /\b(mud[ae]|troqu?e|troca|altere|coloqu?e|coloca|adicione|acrescente|inclua|tire|remova|aumente|diminua|deixe|refa[çz]a|corrija|agora|tamb[ée]m|em vez|ao inv[ée]s)\b/i;
+// "Escreva uma carta de cobrança em .docx" was not seen as a file (20/10): a verb of making plus a document.
+const DELIVERABLE = /\b(escrev[ae]|redija|elabore|crie|cri[ae]r|fa[çz]a|gere|gerar|monte|montar|prepare|produza|desenhe|exporte|converta)\b.{0,80}(\.(docx|xlsx|pptx|pdf|png|jpg|svg|csv|html)\b|\b(carta|of[íi]cio|relat[óo]rio|apresenta[çc][ãa]o|slides?|planilha|documento|proposta|or[çc]amento|contrato|ata|memorando|comunicado|certificado|recibo|declara[çc][ãa]o|imagem|p[áa]gina|site)\b)/i;
 const CHAT_ONLY = /^\s*(oi|ol[áa]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu|ok|beleza|tudo bem)\b/i;
 
 /**
@@ -167,12 +176,14 @@ const CHAT_ONLY = /^\s*(oi|ol[áa]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu
  * sheet, document, chart, page, script), a chart or dashboard, or an analysis of the project's spreadsheets.
  * Chat, questions about the company's documents and small talk stay local.
  */
-export function proactiveFit({ request, hasTables: tables = false }) {
+export function proactiveFit({ request, hasTables: tables = false, hasCode: code = false, followsEngine = false }) {
   const text = String(request || "").trim();
+  if (followsEngine && text.length >= 6 && FOLLOW_UP.test(text)) return "continua a entrega anterior do modelo forte";
   if (text.length < 12 || CHAT_ONLY.test(text)) return null;
-  if (requestsFile(text)) return "é uma entrega de arquivo";
+  if (requestsFile(text) || DELIVERABLE.test(text)) return "é uma entrega de arquivo";
   if (VISUAL.test(text)) return "pede um gráfico ou painel";
   if (tables && ANALYSIS.test(text)) return "é uma análise das planilhas do projeto";
+  if (code && CODE_TASK.test(text)) return "é uma tarefa no código do projeto";
   return null;
 }
 
@@ -186,20 +197,37 @@ export async function privacyMode(env = process.env) {
   return PRIVACY_MODES.includes(value) ? value : "espelho";
 }
 
-export function mirrorPrompt({ task, reason, mirrorDir, history = [], map }) {
+// In the Aurora's past answers the numbers were computed here from the real data (totals, counts): they go
+// as "[número]". The person's own numbers stay — in a request they are the task's parameters.
+const maskNumbers = (text) => String(text).replace(/\d[\d.,]{2,}/g, "[número]");
+
+export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previous = null }) {
   const recent = history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-6)
-    .map((m) => `${m.role === "user" ? "Pessoa" : "Aurora"}: ${pseudonymize(String(m.content || "").slice(0, 600), map, { names: true }).text}`).join("\n");
+    .map((m) => {
+      const text = pseudonymize(String(m.content || "").slice(0, 600), map, { names: true }).text;
+      return m.role === "user" ? `Pessoa: ${text}` : `Aurora: ${maskNumbers(text)}`;
+    }).join("\n");
   return [
-    "Você está ajudando a Aurora, a assistente local desta pessoa, a terminar uma tarefa que ela não conseguiu sozinha.",
-    reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map, { names: true }).text}.` : "A pessoa pediu que você fizesse esta tarefa.",
+    reason ? "Você está ajudando a Aurora, a assistente local desta pessoa, a terminar uma tarefa que ela não conseguiu sozinha." : "Você trabalha junto com a Aurora, a assistente local desta pessoa: ela passou esta tarefa para você.",
+    reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map, { names: true }).text}.` : "",
+    previous ? `Este pedido continua uma entrega anterior sua: o script que você escreveu está em ${PREVIOUS_SCRIPT} (pedido de então: "${previous.task}"). Parta dele e grave o novo ${MIRROR_SCRIPT} com a mudança pedida.` : "",
     `Os dados da empresa não podem sair do computador. Esta pasta (${mirrorDir}) é um ESPELHO da pasta do projeto: as planilhas têm as colunas, os tipos e os formatos reais, mas os valores e os nomes são falsos. Veja ${MIRROR_MANIFEST} (o que existe na pasta real e quantas linhas cada planilha tem lá).`,
-    `Entregue a tarefa como um script Python: grave ${MIRROR_SCRIPT} nesta pasta. Ele vai rodar na pasta real, com os mesmos nomes de arquivo (caminhos relativos à pasta atual), e deve gravar ali os arquivos pedidos. Se a tarefa for uma pergunta, o script imprime a resposta (print) em português.`,
+    "Se a tarefa é mudar o código do projeto (corrigir, implementar, refatorar, testar), edite os arquivos de código aqui mesmo: são cópias dos reais em que nomes, identificadores e chaves viraram marcas como [NOME 1] ou [SEGREDO 1]. Mantenha as marcas como estão; a Aurora aplica as suas mudanças na pasta real, com os valores verdadeiros. Nesse caso não precisa de script.",
+    `Para o resto (arquivos a partir dos dados, análises, perguntas), entregue um script Python: grave ${MIRROR_SCRIPT} nesta pasta. Ele vai rodar na pasta real, com os mesmos nomes de arquivo (caminhos relativos à pasta atual), e deve gravar ali os arquivos pedidos. Se a tarefa for uma pergunta, o script imprime a resposta (print) em português.`,
     "Nada de valores fixos tirados das planilhas: tudo vem dos arquivos (a pasta real tem outros valores e mais linhas). Um valor citado no pedido, como \"Cliente 3\", pode ficar no script: ele é trocado pelo real antes de rodar.",
-    "Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho e confira o que ele gera antes de responder.",
+    `Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho com exatamente "python ${MIRROR_SCRIPT}" (sem cd nem outros comandos antes) e confira o que ele gera antes de responder.`,
     "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
     recent ? `\nConversa recente (nomes e documentos trocados por marcas):\n${recent}` : "",
     `\nTarefa: ${pseudonymize(task, map, { names: true }).text}`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
+}
+
+// The last script a strong engine delivered for a folder, kept here (settings), as it ran on the real data:
+// a follow-up ("agora em azul") is blinded again with that turn's mirror, so the marks always agree.
+export const PREVIOUS_SCRIPT = "aurora_tarefa_anterior.py";
+const lastScriptKey = (workspace) => `engine_last_script:${resolve(workspace).toLowerCase()}`;
+export async function lastScript(workspace) {
+  try { return JSON.parse((await getSetting(lastScriptKey(workspace))) || "null"); } catch { return null; }
 }
 
 const PYTHONS = [["python", []], ["py", ["-3"]]];
@@ -215,14 +243,31 @@ export function runPython(script, dir, { timeoutMs = 5 * 60_000, signal } = {}) 
   return attempt(0);
 }
 
+/** Writes each change inside `workspace` (never outside it); returns the real paths written. */
+function applyCodeChanges(edits, workspace) {
+  const root = resolve(workspace);
+  const written = [];
+  for (const edit of edits) {
+    const target = resolve(root, edit.path);
+    if (!target.toLowerCase().startsWith(root.toLowerCase())) continue;
+    try { mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, edit.content, "utf8"); written.push(target); } catch { /* skipped */ }
+  }
+  return written;
+}
+
 /**
  * One engine on the mirror: it writes the script there, the script runs on the real folder (fakes back to real
  * values), one repair round with the error pseudonymized. Returns the engine's answer plus { script, ran }.
  */
-async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now }) {
+async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false }) {
   const mirror = buildMirror(workspace);
   try {
-    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map });
+    const before = followUp ? await lastScript(workspace) : null;
+    const previous = before && !leaks(pseudonymize(before.script, mirror.map, { names: true }).text, mirror.map).length ? { task: pseudonymize(before.task, mirror.map, { names: true }).text.slice(0, 300) } : null;
+    const blindPrevious = before ? pseudonymize(before.script, mirror.map, { names: true }).text : "";
+    // A previous script still holding a real value is left out (the engine starts over), never sent.
+    if (before && !leaks(blindPrevious, mirror.map).length) writeFileSync(join(mirror.dir, PREVIOUS_SCRIPT), blindPrevious, "utf8");
+    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous });
     const leaked = leaks(prompt, mirror.map);
     if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
     const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal }));
@@ -230,6 +275,11 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     if (!answer.ok || signal?.aborted) return answer;
     if (/PRECISA_DO_CONTEUDO/.test(answer.text)) return { ...answer, ok: false, needsContent: true, error: answer.text.replace(/PRECISA_DO_CONTEUDO[:\s-]*/, "").trim().slice(0, 300) };
     const scriptPath = join(mirror.dir, MIRROR_SCRIPT);
+    // Code the engine edited in the mirror goes to the real folder with the real values back; a task that was
+    // only code (no script) ends here.
+    const edits = codeChanges(mirror, { withNew: !existsSync(scriptPath) });
+    const applied = applyCodeChanges(edits, workspace);
+    if (!existsSync(scriptPath) && applied.length) return { ...answer, text: unfake(answer.text, mirror.map), ran: { ok: true, stdout: "", stderr: "" }, codeFiles: applied };
     for (let round = 0; round < 2; round += 1) {
       if (!existsSync(scriptPath)) return { ...answer, ok: false, error: `o ${ENGINES[id].label} não gravou ${MIRROR_SCRIPT}` };
       const { code, restored } = restoreScript(readFileSync(scriptPath, "utf8"), mirror.map);
@@ -237,7 +287,8 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
       writeFileSync(realScript, code, "utf8");
       onStage("A Aurora está rodando aqui o script do modelo forte, nos dados reais…");
       const ran = await runPython(realScript, workspace, { signal });
-      if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: unfake(answer.text, mirror.map), ran, restored };
+      if (ran.ok) await setSetting(lastScriptKey(workspace), JSON.stringify({ task: String(task).slice(0, 600), script: code, at: now() })).catch(() => {});
+      if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: unfake(answer.text, mirror.map), ran, restored, codeFiles: applied };
       onStage(`O script falhou nos dados reais; o ${ENGINES[id].label} está corrigindo…`);
       const error = pseudonymize((ran.stderr || ran.stdout).slice(-3000), mirror.map, { names: true }).text;
       answer = await call(`O ${MIRROR_SCRIPT} rodou na pasta real e falhou com este erro (valores reais trocados por marcas):\n${error}\n\nCorrija ${MIRROR_SCRIPT} nesta pasta (lembre: a pasta real tem outros valores e mais linhas), rode de novo aqui e responda como antes.`);
@@ -255,7 +306,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false }) {
   const status = await engineStatus({ env, now: now() });
   const tried = [];
   const limited = [];
@@ -270,7 +321,7 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     const before = snapshot(workspace);
     const started = now();
     const answer = privacy === "espelho"
-      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now })
+      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp })
       : await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
     if (signal?.aborted) return { ok: false, tried, limited, cancelled: true };
     // A task that needs the documents' content does not go to the next engine either: it would see the same mirror.

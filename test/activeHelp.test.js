@@ -20,7 +20,7 @@ const store = await import("../app/store.js");
 const hasPython = (() => { for (const py of ["python", "py"]) { try { execFileSync(py, ["--version"], { stdio: "ignore" }); return true; } catch { /* next */ } } return false; })();
 
 const SHEET = "cliente;cpf;regiao;vendas\nMaria Souza;123.456.789-09;Sul;120\nJoão Lima;987.654.321-00;Norte;95\nAna Prado;111.222.333-44;Sul;143\n";
-const SECRETS = ["Maria", "João", "Ana Prado", "123.456.789-09", "Sul", "Norte"];
+const SECRETS = ["Maria", "João", "Ana Prado", "123.456.789-09"];
 // What a strong engine writes on the mirror: totals per region, read from the file.
 const SCRIPT = [
   "import csv",
@@ -38,6 +38,25 @@ test("what goes to a strong engine first: files, charts, analyses of the sheets;
   assert.equal(proactiveFit({ request: "qual região vendeu mais em março?", hasTables: false }), null, "no sheet: nothing to analyze");
   assert.equal(proactiveFit({ request: "oi, tudo bem com você hoje?" }), null);
   assert.equal(proactiveFit({ request: "quem cuida da folha de pagamento?" }), null);
+  assert.equal(proactiveFit({ request: "corrija o bug na função de desconto", hasCode: true }), "é uma tarefa no código do projeto");
+  assert.equal(proactiveFit({ request: "corrija o bug na função de desconto", hasCode: false }), null);
+  assert.equal(proactiveFit({ request: "Escreva uma carta de cobrança em .docx para o fornecedor mais atrasado" }), "é uma entrega de arquivo", "20/10: a letter went local first");
+  assert.equal(proactiveFit({ request: "agora em azul", followsEngine: true }), "continua a entrega anterior do modelo forte");
+  assert.equal(proactiveFit({ request: "agora em azul", followsEngine: false }), null);
+});
+
+test("small talk never escalates, even when the local answer lists what it cannot do", async () => {
+  const { escalationReason } = await import("../app/engine.js");
+  assert.equal(escalationReason({ request: "oi, tudo bem? o que você consegue fazer por mim?", result: { ok: true, text: "Infelizmente não consigo acessar a internet, mas posso...", steps: [] } }), null);
+});
+
+test("vocabulary columns (status, region) stay real in the mirror; names and unknown headers do not", async () => {
+  const { isVocabulary } = await import("../app/mirror.js");
+  assert.equal(isVocabulary("Situação", ["Atrasada", "A vencer", "Atrasada"]), true);
+  assert.equal(isVocabulary("regiao", ["Sul", "Norte"]), true);
+  assert.equal(isVocabulary("Fornecedor", ["Papelaria", "Gráfica"]), false, "an unknown header stays fake");
+  assert.equal(isVocabulary("Setor", ["Maria Souza", "João Lima"]), false, "a name is never vocabulary");
+  assert.equal(isVocabulary("Categoria", ["Lote 12", "Lote 13"]), false, "digits: could be a code");
 });
 
 test("the daily cap stops the strong engines and says so", async () => {
@@ -86,11 +105,21 @@ test("active help: a chart request goes to the strong engine first, blind; the l
     assert.ok(!existsSync(seen.cwd), "the mirror is removed afterwards");
     assert.equal((await engineBudget()).usedToday, before + 1);
 
+    // "Agora…" right after the engine's delivery goes back to it, with its previous script (blinded again).
+    const follow = await handleChatTurn({ conversationId: conversation.id, message: "agora troque para mostrar só o total", env });
+    assert.equal(follow.ok, true, follow.error);
+    assert.equal(bodies.length, 0, "the follow-up did not go to the local model either");
+    const second = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[1]);
+    assert.ok(second.files.includes("aurora_tarefa_anterior.py"), "the previous script is in the mirror");
+    assert.match(second.prompt, /continua uma entrega anterior sua/);
+    for (const s of SECRETS) assert.ok(!second.prompt.includes(s), `${s} reached the engine in the follow-up`);
+    assert.ok(!/263/.test(second.prompt), "numbers the Aurora computed from the real data are masked in the history");
+
     // Small talk stays with the local Aurora.
     const chat = await handleChatTurn({ conversationId: conversation.id, message: "oi, tudo bem com você?", env });
     assert.equal(chat.ok, true, chat.error);
     assert.ok(bodies.length > 0, "the local model answered the chat");
-    assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 1, "and the engine was not called again");
+    assert.equal(readFileSync(log, "utf8").trim().split("\n").length, 2, "and the engine was not called again");
 
     // "Só se falhar": the same request starts with the local model.
     await store.setSetting("paid_help", "quando_falha");

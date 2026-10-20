@@ -72,12 +72,26 @@ function columnScale(values) {
 // parameters ("acima de 1000", "em 2025"), and a fake would change the task.
 const NAMED = new Set(["category", "text", "email", "cpf", "cnpj", "phone"]);
 
+// A column whose values are the business's vocabulary, not someone: a status, a region, a category. Faking
+// them hid nothing and confused the engine (20/10: "a conta mais atrasada" reached it as "a conta mais
+// Situação 1"). Kept real only when the header says so, there are few distinct values and none looks like a
+// name or carries digits; any other column (cliente, fornecedor, nome, an unknown header) stays fake.
+const VOCAB_HEADER = /^(situa[çc][ãa]o|status|estado|uf|regi[ãa]o|categoria|subcategoria|tipo|classe|classifica[çc][ãa]o|segmento|setor|departamento|[áa]rea|canal|forma de pagamento|pagamento|prioridade|fase|etapa|modalidade|turno|m[êe]s|trimestre|semestre|dia da semana)$/i;
+const NAME_LIKE = /\p{Lu}\p{Ll}+[ \t]+(?:(?:da|de|do|dos|das)[ \t]+)?\p{Lu}\p{Ll}/u;
+export function isVocabulary(header, values) {
+  if (!VOCAB_HEADER.test(String(header || "").trim().replace(/_/g, " "))) return false;
+  const filled = values.map((v) => String(v ?? "").trim()).filter(Boolean);
+  const distinct = new Set(filled.map((v) => v.toLowerCase()));
+  return filled.length > 0 && distinct.size <= 20 && filled.every((v) => v.length <= 30 && !/\d|@/.test(v) && !NAME_LIKE.test(v));
+}
+
 /**
  * One fake per real value of a column: same shape, the same distinct count, a stable numbering. A value seen
  * in another column or file keeps the fake it got there, so the request and every file agree.
  */
 function fakeColumn(header, values, ctx) {
   const { map, counters } = ctx;
+  if (isVocabulary(header, values)) { (ctx.kept ||= new Set()).add(String(header).trim()); return values.map((v) => String(v ?? "").trim()); }
   const shapes = values.map(cellShape);
   const scale = columnScale(values.filter((_, i) => ["number", "number-br", "money", "percent"].includes(shapes[i])));
   const label = String(header || "Valor").trim().slice(0, 30) || "Valor";
@@ -172,6 +186,7 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
   const dir = mkdtempSync(join(tmpdir(), "aurora-espelho-"));
   const map = new Map();
   const ctx = { map, counters: new Map() };
+  const code = new Map();
   const files = [];
   const all = walk(workspace, workspace, depth, []);
   const isCode = (rel) => CODE_EXT.has(extname(rel).toLowerCase()) || CODE_NAMES.has(rel.split(/[\\/]/).pop().toLowerCase());
@@ -186,7 +201,9 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
         const target = join(dir, rel);
         mkdirSync(dirname(target), { recursive: true });
         const text = readFileSync(real, "utf8").replace(SECRET, (m) => markFor(m, "SEGREDO", map));
-        writeFileSync(target, pseudonymize(text, map, { names: true }).text, "utf8");
+        const blinded = pseudonymize(text, map, { names: true }).text;
+        writeFileSync(target, blinded, "utf8");
+        code.set(rel, blinded);
         files.push({ path: rel, kind: "code", bytes });
       } catch { files.push({ path: rel, kind: "listed", bytes }); }
       continue;
@@ -216,11 +233,11 @@ export function buildMirror(workspace, { maxRows = 40, depth = 3, maxTableBytes 
       }
     } catch { files.push({ path: rel, kind: "listed", bytes }); }
   }
-  writeFileSync(join(dir, MIRROR_MANIFEST), manifest(files), "utf8");
-  return { dir, map, files };
+  writeFileSync(join(dir, MIRROR_MANIFEST), manifest(files, [...(ctx.kept || [])]), "utf8");
+  return { dir, map, files, code };
 }
 
-function manifest(files) {
+function manifest(files, kept = []) {
   const tables = files.filter((f) => f.kind === "table");
   const listed = files.filter((f) => f.kind === "listed");
   return [
@@ -228,6 +245,7 @@ function manifest(files) {
     "",
     "Os valores destas planilhas são FALSOS: as colunas, os tipos e os formatos são os reais, os valores e os nomes não.",
     "O script que você escrever vai rodar na pasta real, com os mesmos nomes de arquivo.",
+    kept.length ? `Colunas com os valores reais (vocabulário do negócio, sem dado de pessoa): ${kept.join(", ")}.` : "",
     "",
     tables.length ? "## Planilhas (cópia falsa aqui)" : "",
     ...tables.map((f) => `- ${f.path.replace(/\\/g, "/")}: ${f.realRows} linhas de dados na pasta real${f.note ? ` (${f.note})` : ""}`),
@@ -312,4 +330,34 @@ export function restoreScript(code, map) {
     out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "gu"), () => { restored += 1; return real.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/'/g, "\\'"); });
   }
   return { code: out, restored };
+}
+
+/**
+ * What the paid model changed in the mirror's code: [{ path, content, isNew }] with the real values back
+ * (plain, as the copy was made). Edited code files always; new ones only with `withNew` (a task that was
+ * code, not a script). The script, its real copy, the manifest and the tables are never part of it.
+ */
+export function codeChanges(mirror, { withNew = true } = {}) {
+  const out = [];
+  const seen = new Set();
+  const visit = (dir, depth) => {
+    let entries = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) { if (depth > 0) visit(p, depth - 1); continue; }
+      const rel = relative(mirror.dir, p);
+      if (rel === MIRROR_SCRIPT || rel === MIRROR_MANIFEST || rel === `_real_${MIRROR_SCRIPT}` || TABLE_EXT.has(extname(rel).toLowerCase())) continue;
+      const known = mirror.code.has(rel);
+      if (!known && !(withNew && (CODE_EXT.has(extname(rel).toLowerCase()) || CODE_NAMES.has(e.name.toLowerCase())))) continue;
+      let text;
+      try { text = readFileSync(p, "utf8"); } catch { continue; }
+      seen.add(rel);
+      if (known && mirror.code.get(rel) === text) continue;
+      out.push({ path: rel, content: unfake(text, mirror.map), isNew: !known });
+    }
+  };
+  visit(mirror.dir, 4);
+  return out;
 }
