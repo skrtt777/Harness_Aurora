@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.51': {
+    title: 'Claude e Codex ajudam de verdade, sem ver seus dados',
+    items: [
+      ['Ajuda ativa', 'Com o Claude ou o Codex instalado, pedidos de apresentação, planilha, documento, gráfico, análise das planilhas ou correção de código vão primeiro para eles. A Aurora local cuida da conversa e assume quando eles não conseguem.'],
+      ['Seus dados ficam aqui', 'Eles trabalham numa cópia das suas planilhas com nomes, CPFs e valores falsos e escrevem um programa, que a Aurora roda aqui nos dados reais. Se uma tarefa precisar ler um documento de verdade, ela pergunta antes.'],
+      ['Professor sem ver o conteúdo', 'A revisão das entregas mostra ao professor só o que a Aurora fez e os erros, com nomes e números trocados por marcas.'],
+      ['Você escolhe', 'Em Configurações → Professor: quando eles entram (ajuda ativa ou só se a local falhar), se seus dados podem sair e quantas chamadas por dia.'],
+    ],
+  },
   '0.1.50': {
     title: 'Anexe qualquer arquivo, inclusive Power BI',
     items: [

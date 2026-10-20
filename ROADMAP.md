@@ -70,6 +70,13 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.51 (20/10): IA local + paga sem os dados saírem do computador** (estudo e medições em `docs/ESTUDO_PAGOS_SEM_VAZAR_2026-10-19.md`).
+  - **Motor unificado** (`app/engine.js`): Claude ou Codex fazem a tarefa de verdade, o primeiro com limite de uso. Um limite marca o motor até a hora que a CLI diz.
+  - **Espelho** (`app/mirror.js`): cópia das planilhas com valores falsos e do código com marcas; o modelo forte escreve um script ou edita a cópia, e a Aurora roda e aplica o resultado aqui, com os valores reais.
+  - **Ajuda ativa:** arquivos, gráficos, análises das planilhas e código vão primeiro ao modelo forte, às cegas; "agora em azul" continua a entrega. Limite de 40 chamadas por dia.
+  - **Professor e correção cegos** (`app/blind.js`): marcas reversíveis para nomes e identificadores e resultados só pela forma.
+  - **Bateria híbrida** (`scripts/hybrid-battery.mjs`): os modelos reais com uma escuta no lugar do CLI; nenhum dado sensível saiu nas rodadas de 20/10.
+
 - **0.1.50 (15/10, publicada): anexos de qualquer formato e correções de tela.**
   - **Anexos** (`app/docText.js`, `app/chatTurn.js`): .pbix/.pbit lidos (páginas e visuais; no .pbit, modelo com DAX), .xlsm, código e configuração; qualquer outro formato vira ficha em vez de sumir; botão de clipe no chat.
   - **Aurora do chat** (`AuroraCurtains.tsx`): o tempo era `now * (1 + energy * 1.5)` e girava minutos de movimento ao começar ou parar de digitar (14 rad por quadro); agora avança quadro a quadro.
