@@ -116,7 +116,7 @@ test("espelho: the engine sees only fakes, its script runs here on the real data
       `print(f"Vendas de ${client} no Sul: {total}")`,
     ].join("\n"));
     assert.ok(existsSync(join(cwd, "vendas.csv")) && cwd !== ws, "it works on the mirror, not the real folder");
-    return { ok: true, text: `O script soma as vendas de ${client} e grava total.txt.` };
+    return { ok: true, text: `O script [aurora_tarefa.py](${cwd.replace(/\\/g, "/")}/aurora_tarefa.py) soma as vendas de ${client} e grava total.txt (testei em ${cwd}\\total.txt).` };
   };
   const out = await escalate({ task: "Quanto a Maria Souza vendeu no Sul? Ela pediu por maria@acme.com.br.", workspace: ws, run, order: ["claude"], privacy: "espelho" });
   assert.equal(out.ok, true, JSON.stringify(out));
@@ -125,6 +125,8 @@ test("espelho: the engine sees only fakes, its script runs here on the real data
   assert.equal(readFileSync(join(ws, "total.txt"), "utf8"), "120", "Maria Souza's real row");
   assert.match(out.text, /Vendas de Maria Souza no Sul: 120/, "what the script printed is shown with the real name");
   assert.match(out.text, /soma as vendas de Maria Souza/, "the engine's own words get the real names back, here only");
+  assert.ok(!/aurora-espelho-/i.test(out.text), "no link or path into the mirror, which is deleted afterwards");
+  assert.match(out.text, /O script aurora_tarefa\.py soma/);
   assert.deepEqual(out.files.map((f) => f.split(/[\\/]/).pop()), ["total.txt"]);
   assert.match(engineNote(out), /sem enviar seus dados/);
 });

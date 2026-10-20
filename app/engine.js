@@ -274,6 +274,10 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     const leaked = leaks(prompt, mirror.map);
     if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
     const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal, timeoutMs }));
+    // The engine's words as the person reads them: real names back, and no link into the mirror (it is deleted
+    // right after; Codex linked its aurora_tarefa.py there, 20/10).
+    const mirrorPath = new RegExp(mirror.dir.replace(/[\\/]/g, "[\\\\/]").replace(/[.*+?^${}()|]/g, "\\$&") + "[^\\s)\\]`'\"]*", "gi");
+    const shown = (text) => unfake(String(text || "").replace(/\[([^\]]+)\]\((?:file:\/\/\/?)?[^)]*aurora-espelho-[^)]*\)/gi, "$1").replace(mirrorPath, "(no espelho)"), mirror.map);
     // Manual mode: what the engine made changes the folder only with the person's yes (like any local change).
     const allowed = async (summary, detail) => !approveRun || await approveRun({ tool: "engine", summary, detail: String(detail).slice(0, 1500) });
     let answer = await call(prompt);
@@ -285,7 +289,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     const edits = codeChanges(mirror, { withNew: !existsSync(scriptPath) });
     if (edits.length && !(await allowed(`Aplicar as mudanças do ${ENGINES[id].label} em ${edits.length} arquivo(s) de código`, edits.map((e) => `${e.isNew ? "novo" : "alterado"}: ${e.path}`).join("\n")))) return { ok: false, error: "você não autorizou aplicar as mudanças no código" };
     const applied = applyCodeChanges(edits, workspace);
-    if (!existsSync(scriptPath) && applied.length) return { ...answer, text: unfake(answer.text, mirror.map), ran: { ok: true, stdout: "", stderr: "" }, codeFiles: applied };
+    if (!existsSync(scriptPath) && applied.length) return { ...answer, text: shown(answer.text), ran: { ok: true, stdout: "", stderr: "" }, codeFiles: applied };
     for (let round = 0; round < 2; round += 1) {
       if (!existsSync(scriptPath)) return { ...answer, ok: false, error: `o ${ENGINES[id].label} não gravou ${MIRROR_SCRIPT}` };
       const { code, restored } = restoreScript(readFileSync(scriptPath, "utf8"), mirror.map);
@@ -295,7 +299,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
       onStage("A Aurora está rodando aqui o script do modelo forte, nos dados reais…");
       const ran = await runPython(realScript, workspace, { signal });
       if (ran.ok) await setSetting(lastScriptKey(workspace), JSON.stringify({ task: String(task).slice(0, 600), script: code, at: now() })).catch(() => {});
-      if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: unfake(answer.text, mirror.map), ran, restored, codeFiles: applied };
+      if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: shown(answer.text), ran, restored, codeFiles: applied };
       onStage(`O script falhou nos dados reais; o ${ENGINES[id].label} está corrigindo…`);
       const error = pseudonymize((ran.stderr || ran.stdout).slice(-3000), mirror.map, { names: true }).text;
       answer = await call(`O ${MIRROR_SCRIPT} rodou na pasta real e falhou com este erro (valores reais trocados por marcas):\n${error}\n\nCorrija ${MIRROR_SCRIPT} nesta pasta (lembre: a pasta real tem outros valores e mais linhas), rode de novo aqui e responda como antes.`);
