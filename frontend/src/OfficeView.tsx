@@ -12,21 +12,22 @@ import "./office.css";
  */
 
 export const STATE_LABEL: Record<string, string> = {
-  trabalhando: "Trabalhando", pensando: "Pensando", aguardando: "Esperando sua autorização", revisao: "Em revisão com o professor",
+  trabalhando: "Trabalhando", delegado: "Com o modelo forte", pensando: "Pensando", aguardando: "Esperando sua autorização", revisao: "Em revisão com o professor",
   refazendo: "Refazendo", conferindo: "Conferindo", chegando: "Chegando", reuniao: "Em reunião", cafe: "No cafezinho",
   descanso: "Descansando", cobrado: "Sendo cobrado", desligado: "Fora do escritório", supervisionando: "Supervisionando", cobrando: "Cobrando",
   premiando: "Premiando", orientando: "Orientando", desligando: "Desligando", entrevistando: "Recebendo um contratado", avaliando: "Avaliando a equipe",
 };
 const HR_KIND: Record<string, string> = { premio: "Prêmio", elogio: "Elogio", advertencia: "Plano de melhoria", demissao: "Desligamento", contratacao: "Contratação", recontratacao: "Recontratação", avaliacao: "Avaliação" };
-const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (conferência)", subagente: "Subagente", professor: "Professor", chefe: "Chefe", rh: "RH" };
+const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sessão)", agente: "Agente", copia: "Cópia (conferência)", subagente: "Subagente", professor: "Professor", forte: "Claude/Codex fazendo (sem ver seus dados)", chefe: "Chefe", rh: "RH" };
 /** How someone is called in the list and on hover: a session with its conversation ("Marina · Metas de outubro"). */
 const who = (a: OfficeActor) => ((a.kind === "aurora" || a.kind === "subagente") && a.task ? `${a.name} · ${a.task}` : a.name);
 /** The name on the floor, with the HR stars ("Cobrança ★2"). */
-const tag = (a: OfficeActor) => (a.stars ? `${a.name} ★${a.stars}` : a.name);
-const BUSY = new Set(["trabalhando", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
+const ENGINE: Record<string, string> = { claude: "Claude", codex: "Codex" };
+const tag = (a: OfficeActor) => `${a.name}${a.engine && ENGINE[a.engine] ? ` · ${ENGINE[a.engine]}` : ""}${a.stars ? ` ★${a.stars}` : ""}`;
+const BUSY = new Set(["trabalhando", "delegado", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
 
 // The shirt colours of the pixel people (officePixel.ts), for the legend and the list.
-const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", subagente: "#c4a3ff", professor: "#d97757", chefe: "#2e3d6e", rh: "#e0a43a" };
+const BODY: Record<OfficeActor["kind"], string> = { aurora: "#8b55e8", agente: "#25a691", copia: "#7fd8cb", subagente: "#c4a3ff", professor: "#d97757", forte: "#d97757", chefe: "#2e3d6e", rh: "#e0a43a" };
 const since = (ms?: number | null) => {
   if (!ms) return "";
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -130,7 +131,7 @@ export default function OfficeView({ onOpenConversation, onOpenAgents }: { onOpe
           onMouseLeave={() => { hoverRef.current = null; }}
           onClick={(e) => setSelected(pick(e)?.id || null)} />
         <ul className="office-legend" aria-label="Legenda">
-          {(["aurora", "subagente", "agente", "copia", "professor", "rh", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
+          {(["aurora", "subagente", "agente", "copia", "professor", "forte", "rh", "chefe"] as const).map((k) => <li key={k}><span className="office-dot" style={{ background: BODY[k] }} />{KIND_LABEL[k]}</li>)}
         </ul>
       </div>
       <aside className="office-side" aria-label="Quem está na sala">

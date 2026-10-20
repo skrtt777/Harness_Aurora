@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
+import { CHAT_ONLY, ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -771,17 +771,20 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // or code edit is applied only with the person's yes.
           const engineContext = historyBlock ? [{ name: "HISTORICO_DA_AURORA.md", text: historyBlock }] : [];
           const engineApproval = toolContext.mode === "manual" ? (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); } : null;
-          if (conversation.provider === "local" && !asked && toolContext.workspace && toolContext.mode !== "plan" && (!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && await escalationOn(env) && (await helpMode(env)) === "ativa") {
+          // A task agent set to work with Claude or Codex (agents.js engine) hands them every task it can do
+          // blind, its scheduled runs too; the local Aurora keeps only what needs the company's documents.
+          const agentEngine = ENGINES[env.AURORA_AGENT_ENGINE] ? env.AURORA_AGENT_ENGINE : null;
+          if (conversation.provider === "local" && !asked && toolContext.workspace && toolContext.mode !== "plan" && (agentEngine || ((!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && (await helpMode(env)) === "ativa")) && await escalationOn(env)) {
             // The last answer was a strong engine's delivery: "agora em azul" goes back to it, with its script.
             const lastAnswer = [...history].reverse().find((m) => m.role === "assistant");
             const followsEngine = /> Feito (com|pelo) o? ?(Claude|Codex)|> Feito pelo (Claude|Codex)/.test(String(lastAnswer?.content || ""));
             // The company's documents found for this request stay with the local Aurora: the engine would work
             // without them. Her own version history is not the company's: it goes to the engine as a file.
             const localOnly = autoDocs.length > 0 || (hasKnowledge && asksAboutCompany(trimmed));
-            const fit = localOnly ? null : proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace), hasCode: hasCode(toolContext.workspace), followsEngine });
+            const fit = localOnly ? null : proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace), hasCode: hasCode(toolContext.workspace), followsEngine }) || (agentEngine && !CHAT_ONLY.test(trimmed) ? `o agente trabalha com o ${ENGINES[agentEngine].label}` : null);
             const ready = fit && Object.values(await engineStatus({ env })).some((s) => s.installed && !s.limitedUntil);
             if (ready) {
-              const preferred = (conversation.teacherProvider || await getSetting("default_teacher", "claude")) === "codex" ? "codex" : "claude";
+              const preferred = agentEngine || ((conversation.teacherProvider || await getSetting("default_teacher", "claude")) === "codex" ? "codex" : "claude");
               proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true, followUp: fit === "continua a entrega anterior do modelo forte", approveRun: engineApproval, context: engineContext, timeoutMs: Number(env.PROACTIVE_TIMEOUT_MS) || 240_000 });
               proactive.fit = fit;
             }

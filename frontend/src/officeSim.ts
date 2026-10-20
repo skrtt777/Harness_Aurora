@@ -5,9 +5,11 @@
 // the walk there (A* on the tiles) and the step of each frame. Pure: no React, no canvas (tests).
 
 export type OfficeActor = {
-  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "subagente" | "professor" | "chefe" | "rh"; name: string; state: string; activity: string;
+  id: string; tool?: string; kind: "aurora" | "agente" | "copia" | "subagente" | "professor" | "forte" | "chefe" | "rh"; name: string; state: string; activity: string;
   project?: string; stars?: number; warnings?: number; room?: string | null; station?: string | null; area?: string;
   since?: number | null; conversationId?: string | null; agentId?: string; task?: string; with?: string; teacher?: string; department?: string | null;
+  /** An agent that works with Claude or Codex (agents.js engine). */
+  engine?: string;
   plan?: { done: number; total: number } | null;
 };
 
@@ -299,7 +301,7 @@ export type Walker = {
   home?: Spot | null; homeAt?: number; queue?: Errand[]; dwell?: number; gives?: Carry; arrivedAt?: number | null; carry?: Carry; routineAt?: number; chatWith?: string | null;
 };
 const SPEED = 3.2;            // tiles per second
-const BUSY = new Set(["trabalhando", "pensando", "refazendo", "conferindo", "aguardando", "chegando", "revisao", "cobrado"]);
+const BUSY = new Set(["trabalhando", "delegado", "pensando", "refazendo", "conferindo", "aguardando", "chegando", "revisao", "cobrado"]);
 const same = (a?: Spot | null, b?: Spot | null) => !!a && !!b && a.x === b.x && a.y === b.y;
 const go = (w: Walker, spot: Spot) => { w.spot = spot; w.path = findPath(w, spot); w.arrivedAt = null; };
 

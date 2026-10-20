@@ -18,6 +18,33 @@ test('office: what a running turn is doing, from its stage, steps and approval',
   assert.equal(turnState({ stage: 'Conferindo a resposta com 3 cópias…', steps: [] }).copies, 3);
 });
 
+test('office: Claude or Codex doing a task appears next to whoever handed it over, and agents show their engine', () => {
+  assert.deepEqual(turnState({ stage: 'A Aurora está fazendo com o Claude, sem enviar seus dados…', steps: [] }), { state: 'delegado', activity: 'Passou a tarefa ao Claude, sem enviar seus dados', engine: 'claude' });
+  assert.equal(turnState({ stage: 'A Aurora pediu ajuda ao Codex…', steps: [] }).engine, 'codex');
+  assert.equal(turnState({ stage: 'O script falhou nos dados reais; o Claude está corrigindo…', steps: [] }).state, 'delegado');
+  assert.deepEqual(turnState({ stage: 'A Aurora está rodando aqui o script do Codex, nos dados reais…', steps: [] }).tool, 'run_command');
+  const agents = [{ id: 'ag', name: 'Relatórios', enabled: true, projectId: 'pa', engine: 'codex' }, { id: 'al', name: 'Local', enabled: true, projectId: 'pl', engine: 'local' }];
+  const runs = [{ id: 'r', agentId: 'ag', conversationId: 'cg', status: 'running', request: 'Relatório semanal', startedAt: iso(30000) }];
+  const turns = { active: [
+    { conversationId: 'cg', stage: 'A Aurora está fazendo com o Codex, sem enviar seus dados…', steps: [], since: now - 20000 },
+    { conversationId: 'c1', stage: 'A Aurora está fazendo com o Claude, sem enviar seus dados…', steps: [], since: now - 9000 },
+  ], ended: [] };
+  const conversations = new Map([['cg', { id: 'cg', projectId: 'pa' }], ['c1', { id: 'c1', title: 'Gráfico de vendas', projectId: null }]]);
+  const office = buildOffice({ projects: [], conversations, turns, agents, runs, now });
+  const agent = find(office, 'agente:ag');
+  assert.equal(agent.engine, 'codex', 'the agent carries its engine');
+  assert.equal(agent.state, 'delegado');
+  assert.equal(find(office, 'agente:al').engine, undefined);
+  const forte = find(office, 'forte:agente:ag');
+  assert.deepEqual([forte.kind, forte.name, forte.teacher, forte.state, forte.with], ['forte', 'Codex', 'codex', 'trabalhando', 'agente:ag']);
+  assert.match(forte.activity, /cópia com valores falsos/);
+  const session = find(office, 'aurora:c1');
+  const claude = find(office, `forte:${session.id}`);
+  assert.equal(claude.name, 'Claude');
+  assert.equal(claude.room, session.room, 'at the desk of the same area as whoever handed it the task');
+  assert.equal(forte.room, agent.room);
+});
+
 test('office: every character is something real, in its real state, in its project\'s room', () => {
   const projects = [{ id: 'p1', name: 'Vendas' }, { id: 'pa', name: 'Agente: Cobrança' }, { id: 'p2', name: 'Vazio' }];
   const agents = [

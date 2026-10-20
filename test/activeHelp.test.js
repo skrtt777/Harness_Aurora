@@ -73,6 +73,27 @@ test("the agent modes hold: in 'só olha' no strong engine runs; in manual its p
   });
 });
 
+test("an agent set to work with Claude hands it its scheduled task, blind; small talk stays local", { skip: !hasPython && "sem Python" }, async () => {
+  const { handleChatTurn } = await import("../app/server.js");
+  const workspace = join(temp, "agente-claude");
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(join(workspace, "vendas.csv"), SHEET, "utf8");
+  const project = await store.createProject({ name: "Agente: Vendas", workspaceDir: workspace });
+  const log = join(temp, "agente.log");
+  await withLocalStub(async (base, bodies) => {
+    const env = { ...process.env, LOCAL_BASE_URL: base, LOCAL_MODEL: "qwen3.5:4b", AURORA_ESCALATION: "on", CLAUDE_BIN: fakeCli, FAKE_ENGINE_LOG: log, FAKE_MIRROR_SCRIPT: SCRIPT, AGENT_RUN_TRIGGER: "schedule", AURORA_AGENT_ENGINE: "claude" };
+    const out = await handleChatTurn({ conversationId: (await store.createConversation({ provider: "local", projectId: project.id })).id, message: "Atualize o acompanhamento semanal desta pasta.", env });
+    assert.equal(out.ok, true, out.error);
+    assert.equal(bodies.length, 0, "the local model was not needed");
+    assert.match(out.message.content, /Feito com o Claude sem enviar seus dados/);
+    const seen = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]);
+    for (const s of SECRETS) assert.ok(!seen.prompt.includes(s), `${s} reached Claude`);
+    const chat = await handleChatTurn({ conversationId: (await store.createConversation({ provider: "local", projectId: project.id })).id, message: "oi, tudo bem?", env });
+    assert.equal(chat.ok, true, chat.error);
+    assert.ok(bodies.length > 0, "small talk: the local Aurora");
+  });
+});
+
 test("the correction the person asks for goes blind too, and its answer comes back real", async () => {
   const { correctLocalAnswer } = await import("../app/correction.js");
   const log = join(temp, "correction.log");

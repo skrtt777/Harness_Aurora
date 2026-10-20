@@ -169,7 +169,7 @@ const CODE_TASK = /\b(corrij[ae]|conserte|consertar|bug|erro no (c[óo]digo|scri
 const FOLLOW_UP = /\b(mud[ae]|troqu?e|troca|altere|coloqu?e|coloca|adicione|acrescente|inclua|tire|remova|aumente|diminua|deixe|refa[çz]a|corrija|agora|tamb[ée]m|em vez|ao inv[ée]s)\b/i;
 // "Escreva uma carta de cobrança em .docx" was not seen as a file (20/10): a verb of making plus a document.
 const DELIVERABLE = /\b(escrev[ae]|redija|elabore|crie|cri[ae]r|fa[çz]a|gere|gerar|monte|montar|prepare|produza|desenhe|exporte|converta)\b.{0,80}(\.(docx|xlsx|pptx|pdf|png|jpg|svg|csv|html)\b|\b(carta|of[íi]cio|relat[óo]rio|apresenta[çc][ãa]o|slides?|planilha|documento|proposta|or[çc]amento|contrato|ata|memorando|comunicado|certificado|recibo|declara[çc][ãa]o|imagem|p[áa]gina|site)\b)/i;
-const CHAT_ONLY = /^\s*(oi|ol[áa]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu|ok|beleza|tudo bem)\b/i;
+export const CHAT_ONLY = /^\s*(oi|ol[áa]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu|ok|beleza|tudo bem)\b/i;
 
 /**
  * Why a strong engine should do this request first, or null for the local Aurora: a file to deliver (deck,
@@ -216,6 +216,10 @@ export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previ
     "Se a tarefa é mudar o código do projeto (corrigir, implementar, refatorar, testar), edite os arquivos de código aqui mesmo: são cópias dos reais em que nomes, identificadores e chaves viraram marcas como [NOME 1] ou [SEGREDO 1]. Mantenha as marcas como estão; a Aurora aplica as suas mudanças na pasta real, com os valores verdadeiros. Nesse caso não precisa de script.",
     `Para o resto (arquivos a partir dos dados, análises, perguntas), entregue um script Python: grave ${MIRROR_SCRIPT} nesta pasta. Ele vai rodar na pasta real, com os mesmos nomes de arquivo (caminhos relativos à pasta atual), e deve gravar ali os arquivos pedidos. Se a tarefa for uma pergunta, o script imprime a resposta (print) em português.`,
     "Nada de valores fixos tirados das planilhas: tudo vem dos arquivos (a pasta real tem outros valores e mais linhas). Um valor citado no pedido, como \"Cliente 3\", pode ficar no script: ele é trocado pelo real antes de rodar.",
+    // 20/10: "há quantos dias" counted from the computer's clock, not the Aurora's; a sheet came with only
+    // formulas, which Power BI and the Aurora read as "=C2-B2".
+    `Hoje, para a Aurora, é ${auroraToday()}: o script lê essa data da variável de ambiente AURORA_HOJE (formato AAAA-MM-DD) e nunca usa date.today() nem datetime.now().`,
+    "Números brasileiros: \"980.000\" e \"2.800.000\" são milhares (ponto separa milhar, vírgula separa decimal). Nas planilhas que gravar, escreva os valores já calculados nas células (pode somar no Python); nada de fórmulas no lugar dos números.",
     `Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho com exatamente "python ${MIRROR_SCRIPT}" (sem cd nem outros comandos antes) e confira o que ele gera antes de responder.`,
     "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
     recent ? `\nConversa recente (nomes e documentos trocados por marcas):\n${recent}` : "",
@@ -231,12 +235,18 @@ export async function lastScript(workspace) {
   try { return JSON.parse((await getSetting(lastScriptKey(workspace))) || "null"); } catch { return null; }
 }
 
+/** Today as the Aurora sees it (HARNESS_NOW pins it in the batteries), AAAA-MM-DD in local time. */
+export function auroraToday(env = process.env) {
+  const now = env.HARNESS_NOW ? new Date(env.HARNESS_NOW) : new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 const PYTHONS = [["python", []], ["py", ["-3"]]];
 /** `script` run with cwd `dir`: { ok, stdout, stderr }; python first, then the py launcher. */
 export function runPython(script, dir, { timeoutMs = 5 * 60_000, signal } = {}) {
   const attempt = (i) => new Promise((done) => {
     const [cmd, pre] = PYTHONS[i];
-    execFile(cmd, [...pre, script], { cwd: dir, timeout: timeoutMs, windowsHide: true, signal, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } }, (error, stdout, stderr) => {
+    execFile(cmd, [...pre, script], { cwd: dir, timeout: timeoutMs, windowsHide: true, signal, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1", AURORA_HOJE: auroraToday() } }, (error, stdout, stderr) => {
       if (error?.code === "ENOENT" && i + 1 < PYTHONS.length) return done(attempt(i + 1));
       done({ ok: !error, stdout: String(stdout || ""), stderr: String(stderr || error?.message || "") });
     });
@@ -296,7 +306,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
       const realScript = join(mirror.dir, `_real_${MIRROR_SCRIPT}`);
       writeFileSync(realScript, code, "utf8");
       if (round === 0 && !(await allowed(`Rodar nesta pasta o programa que o ${ENGINES[id].label} escreveu`, code))) return { ok: false, error: "você não autorizou rodar o programa" };
-      onStage("A Aurora está rodando aqui o script do modelo forte, nos dados reais…");
+      onStage(`A Aurora está rodando aqui o script do ${ENGINES[id].label}, nos dados reais…`);
       const ran = await runPython(realScript, workspace, { signal });
       if (ran.ok) await setSetting(lastScriptKey(workspace), JSON.stringify({ task: String(task).slice(0, 600), script: code, at: now() })).catch(() => {});
       if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: shown(answer.text), ran, restored, codeFiles: applied };

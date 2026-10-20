@@ -17,6 +17,8 @@ import { personalFolders } from "./fileAccess.js";
  */
 
 export const AGENT_KINDS = ["setor", "pessoal"];
+// Who does the agent's work (20/10): the local Aurora, or Claude/Codex — blind, through the mirror (app/engine.js).
+export const AGENT_ENGINES = ["local", "claude", "codex"];
 let recovered = false;
 
 async function ready() {
@@ -36,6 +38,7 @@ async function ready() {
   if (!columns.has("undone_at")) db.exec("ALTER TABLE agent_runs ADD COLUMN undone_at TEXT");
   if (!columns.has("edits")) db.exec("ALTER TABLE agent_runs ADD COLUMN edits TEXT");
   if (!columns.has("quiet")) db.exec("ALTER TABLE agent_runs ADD COLUMN quiet INTEGER");
+  if (!new Set(db.prepare("PRAGMA table_info(agents)").all().map((c) => c.name)).has("engine")) db.exec("ALTER TABLE agents ADD COLUMN engine TEXT");
   // A run still "running" from before this process started was cut by the app closing or the PC
   // shutting down: the card would say "Trabalhando…" forever.
   if (!recovered) {
@@ -49,6 +52,7 @@ const parse = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } ca
 const mapAgent = (r) => r && ({
   id: r.id, name: r.name, kind: r.kind, mission: r.mission, department: r.department || null, workDir: r.work_dir,
   tools: parse(r.tools, null), trigger: parse(r.trigger, { type: "manual" }), enabled: Boolean(r.enabled), projectId: r.project_id,
+  engine: AGENT_ENGINES.includes(r.engine) ? r.engine : "local",
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapRun = (r) => r && ({
@@ -113,10 +117,11 @@ export function defaultAgentFolder(name, env = process.env) {
   return dir;
 }
 
-export async function createAgent({ name, kind = "pessoal", mission, department = null, workDir, tools = null, trigger = null }) {
+export async function createAgent({ name, kind = "pessoal", mission, department = null, workDir, tools = null, trigger = null, engine = "local" }) {
   if (!String(name || "").trim()) throw httpError(400, "Dê um nome ao agente.");
   if (!String(mission || "").trim()) throw httpError(400, "Descreva a missão do agente.");
   if (!AGENT_KINDS.includes(kind)) throw httpError(400, "Tipo de agente inválido.");
+  if (!AGENT_ENGINES.includes(engine)) throw httpError(400, "Motor do agente inválido.");
   // No folder given: one of its own under Documentos\Aurora\Agentes (a path to type was the hard
   // part of creating an agent for someone who just wants "um resumo toda manhã").
   if (!String(workDir || "").trim()) workDir = defaultAgentFolder(name);
@@ -128,8 +133,8 @@ export async function createAgent({ name, kind = "pessoal", mission, department 
   const ts = new Date().toISOString();
   const clean = { name: String(name).trim().slice(0, 80), mission: String(mission).trim().slice(0, 4000), department: department ? String(department).trim().slice(0, 80) : null, workDir: dir };
   const project = await createProject({ name: `Agente: ${clean.name}`, instructions: agentInstructions(clean), workspaceDir: dir });
-  db.prepare("INSERT INTO agents (id, name, kind, mission, department, work_dir, tools, trigger, enabled, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)")
-    .run(id, clean.name, kind, clean.mission, clean.department, dir, tools ? JSON.stringify(tools) : null, JSON.stringify(cleanTrigger(trigger)), project.id, ts, ts);
+  db.prepare("INSERT INTO agents (id, name, kind, mission, department, work_dir, tools, trigger, enabled, project_id, created_at, updated_at, engine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+    .run(id, clean.name, kind, clean.mission, clean.department, dir, tools ? JSON.stringify(tools) : null, JSON.stringify(cleanTrigger(trigger)), project.id, ts, ts, engine);
   return getAgent(id);
 }
 
@@ -137,7 +142,9 @@ export async function updateAgent(id, patch = {}) {
   const agent = await getAgent(id);
   if (!agent) throw httpError(404, "Agente não encontrado.");
   const next = { ...agent, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
+  if (!AGENT_ENGINES.includes(next.engine)) throw httpError(400, "Motor do agente inválido.");
   const db = await ready();
+  db.prepare("UPDATE agents SET engine = ? WHERE id = ?").run(next.engine, id);
   db.prepare("UPDATE agents SET name = ?, mission = ?, department = ?, tools = ?, trigger = ?, enabled = ?, updated_at = ? WHERE id = ?")
     .run(String(next.name).slice(0, 80), String(next.mission).slice(0, 4000), next.department || null, next.tools ? JSON.stringify(next.tools) : null, JSON.stringify(cleanTrigger(next.trigger)), next.enabled ? 1 : 0, new Date().toISOString(), id);
   // The HR's improvement plan (app/hr.js) stays at the end of the instructions when the agent is edited.
@@ -210,7 +217,8 @@ export async function runAgent(id, { request, trigger = "manual", env = process.
     // finds last week's file instead of starting over or searching the disk.
     const previous = db.prepare("SELECT started_at, files FROM agent_runs WHERE agent_id = ? AND id != ? AND status = 'done' AND files IS NOT NULL AND files != '[]' ORDER BY started_at DESC LIMIT 3").all(id, runId)
       .map((r) => `${new Date(r.started_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: ${parse(r.files, []).slice(0, 3).join("; ")}`);
-    const runEnv = { ...env, AGENT_RUN_TRIGGER: trigger, ...(readRoots.length ? { AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : {}), ...(previous.length ? { AGENT_PREVIOUS_WORK: JSON.stringify(previous) } : {}) };
+    // An agent with a paid engine hands its work to it (blind: the mirror, the script run here).
+    const runEnv = { ...env, AGENT_RUN_TRIGGER: trigger, ...(agent.engine !== "local" ? { AURORA_AGENT_ENGINE: agent.engine } : {}), ...(readRoots.length ? { AGENT_EXTRA_READ_ROOTS: JSON.stringify(readRoots) } : {}), ...(previous.length ? { AGENT_PREVIOUS_WORK: JSON.stringify(previous) } : {}) };
     const turn = await handleChatTurn({ conversationId: conversation.id, message: text, env: runEnv });
     const execution = turn.message?.execution || {};
     const steps = execution.toolSteps || [];

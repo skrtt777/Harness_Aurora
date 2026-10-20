@@ -547,13 +547,16 @@ export type AgentTrigger =
 export type TaskAgent = {
   id: string; name: string; kind: "setor" | "pessoal"; mission: string; department: string | null; workDir: string;
   tools: string[] | null; trigger: AgentTrigger; enabled: boolean; projectId: string | null; createdAt: string; updatedAt: string;
+  /** Who does the work: the local Aurora, or Claude/Codex without seeing the data (a copy with fake values). */
+  engine: AgentEngine;
 };
+export type AgentEngine = "local" | "claude" | "codex";
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
   moves?: { from: string; to: string }[]; edits?: { file: string }[]; undoneAt?: string | null; quiet?: boolean;
 };
-export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger };
+export type NewTaskAgent = { name: string; kind: "setor" | "pessoal"; mission: string; department?: string | null; workDir: string; trigger?: AgentTrigger; engine?: AgentEngine };
 
 export const listTaskAgents = () => request<{ agents: TaskAgent[]; runs: AgentRun[] }>("/agents");
 export const createTaskAgent = (agent: NewTaskAgent) => request<{ agent: TaskAgent }>("/agents", { method: "POST", body: JSON.stringify(agent) }).then((r) => r.agent);

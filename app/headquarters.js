@@ -87,6 +87,8 @@ export function stationOf({ state, tool = null, kind = "aurora", area = "operaco
   if (state === "cafe") return { room: "cafe", station: null };
   if (state === "descanso" || state === "desligado") return { room: "lounge", station: null };
   if (state === "aguardando") return { room: "recepcao", station: "recepcao" };
+  // Handed the task to Claude/Codex: at its area's desk, next to the strong engine doing it.
+  if (state === "delegado") return { room: area, station: "area" };
   if (state === "trabalhando" || state === "cobrado") {
     const s = stationOfTool(tool);
     if (s === "recepcao" && state === "cobrado") return { room: area, station: "area" };

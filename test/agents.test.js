@@ -23,6 +23,22 @@ test("an agent is a project: its folder is the workspace and its mission the ins
   await assert.rejects(agents.createAgent({ name: "x", mission: "y", workDir, trigger: { type: "schedule", at: "8h" } }), /HH:MM/);
 });
 
+test("an agent can work with Claude or Codex: the engine is kept and goes to each run", async () => {
+  const agent = await agents.createAgent({ name: "Relatórios Claude", mission: "Relatório semanal das vendas.", workDir: join(temp, "agente-claude"), engine: "claude" });
+  assert.equal(agent.engine, "claude");
+  assert.equal((await agents.createAgent({ name: "Local", mission: "x", workDir: join(temp, "agente-local") })).engine, "local", "local by default");
+  await assert.rejects(agents.createAgent({ name: "x", mission: "y", workDir: join(temp, "x"), engine: "gemini" }), /Motor do agente inválido/);
+  const envs = [];
+  const handleChatTurn = async ({ env }) => { envs.push(env); return { ok: true, message: { content: "ok", execution: {} } }; };
+  await agents.runAgent(agent.id, { request: "faça o relatório", handleChatTurn });
+  assert.equal(envs[0].AURORA_AGENT_ENGINE, "claude");
+  const back = await agents.updateAgent(agent.id, { engine: "local" });
+  assert.equal(back.engine, "local");
+  await agents.runAgent(agent.id, { request: "de novo", handleChatTurn });
+  assert.equal(envs[1].AURORA_AGENT_ENGINE, undefined, "a local agent does not ask for a strong engine");
+  await assert.rejects(agents.updateAgent(agent.id, { engine: "gpt" }), /Motor do agente inválido/);
+});
+
 test("a run works in Auto mode, searches only its department and uses only its tools", async () => {
   const agent = await agents.createAgent({ name: "Agente Financeiro", kind: "setor", mission: "Cobrança.", department: "Financeiro", workDir: join(temp, "fin"), tools: ["knowledge_search", "read_file", "write_file"] });
   const sources = [{ id: "s1", department: "Financeiro", path: "F:\\Empresa\\Financeiro" }, { id: "s2", department: "RH", path: "F:\\Empresa\\RH" }];

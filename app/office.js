@@ -8,6 +8,7 @@
 // - "copia": the extra copies of the local model checking an answer (app/copies.js);
 // - "subagente": a subagent the Aurora made for one part of a delivery (agentTools/subagents.js);
 // - "professor": Claude or Codex, only while reviewing (app/teachingLoop.js);
+// - "forte": Claude or Codex doing a task someone handed it (app/engine.js), in the mirror, blind;
 // - "chefe": the orchestrator (app/orchestrator.js) and the delivery check: in the meeting while a
 //   team request runs, at the desk of whoever must redo, checking what was just delivered.
 // buildOffice is pure (tests); officeSnapshot gathers the data.
@@ -43,6 +44,11 @@ export function turnState(turn, conversation = null) {
   const stage = String(turn.stage || "");
   const running = turn.steps?.findLast?.((s) => s.status === "running") || null;
   if (turn.approval) return { state: "aguardando", activity: `Esperando sua autorização: ${turn.approval.summary || turn.approval.tool}` };
+  // A strong engine doing the task (app/engine.js), blind in the mirror; then its script run here.
+  const doing = /(?:fazendo com o|pediu ajuda ao|; o) (Claude|Codex)/i.exec(stage);
+  const here = /rodando aqui o script do (Claude|Codex)/i.exec(stage);
+  if (here) return { state: "trabalhando", activity: `Rodando aqui, nos dados reais, o que o ${here[1]} escreveu`, tool: "run_command", engine: here[1].toLowerCase() };
+  if (doing) return { state: "delegado", activity: `Passou a tarefa ao ${doing[1]}, sem enviar seus dados`, engine: doing[1].toLowerCase() };
   const review = /Revisando com (\w+)/i.exec(stage);
   if (review || /Consultando o professor/i.test(stage)) {
     const key = review ? review[1].toLowerCase() : conversation?.teacherProvider || "codex";
@@ -114,6 +120,8 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
       const st = sa.done ? (sa.ok ? { state: "cafe", activity: `Entregou a parte: ${sa.task}` } : { state: "cobrado", activity: `Não terminou a parte: ${sa.task}` }) : turnState({ stage: sa.stage, steps: sa.steps });
       add({ id: `sub:${owner.id}:${sa.id}`, kind: "subagente", name: sa.name, task: short(sa.task, 80), project: owner.project, ...st, activity: short(st.activity, 60), with: owner.id, since: sa.done ? sa.endedAt : sa.since });
     }
+    // The strong engine at the desk next to whoever handed it the task, working in the mirror.
+    if (s.state === "delegado" && TEACHERS[s.engine]) add({ id: `forte:${owner.id}`, kind: "forte", name: TEACHERS[s.engine], teacher: s.engine, project: owner.project, state: "trabalhando", tool: "write_file", activity: `Fazendo a tarefa de ${owner.name} numa cópia com valores falsos`, with: owner.id, since: owner.since });
     if (s.state === "revisao") add({ id: `prof:${owner.id}`, kind: "professor", name: TEACHERS[s.teacher], teacher: s.teacher, project: owner.project, state: "revisao", activity: `Revisando a entrega de ${owner.name}`, with: owner.id, since: owner.since });
     if (s.state === "conferindo") for (let i = 1; i < Math.min(s.copies || 2, 4); i++) add({ id: `copia:${owner.id}:${i}`, kind: "copia", name: `Cópia ${i + 1} de ${owner.name}`, project: owner.project, state: "conferindo", activity: `Conferindo a resposta de ${owner.name}`, with: owner.id, since: owner.since });
   };
@@ -125,7 +133,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
     const last = runs.find((r) => r.agentId === a.id) || null;
     const turn = last?.status === "running" ? activeById.get(last.conversationId) : null;
     const badge = hr?.badges?.get(a.id);
-    const base = { id: `agente:${a.id}`, kind: "agente", name: a.name, agentId: a.id, department: a.department || null, project: "Equipe de agentes", conversationId: last?.conversationId || null, ...(badge ? { stars: badge.stars, warnings: badge.warnings } : {}) };
+    const base = { id: `agente:${a.id}`, kind: "agente", name: a.name, agentId: a.id, department: a.department || null, ...(TEACHERS[a.engine] ? { engine: a.engine } : {}), project: "Equipe de agentes", conversationId: last?.conversationId || null, ...(badge ? { stars: badge.stars, warnings: badge.warnings } : {}) };
     let actor;
     if (!a.enabled) actor = { ...base, state: "desligado", activity: badge?.status === "demitido" ? "Desligado pelo RH" : "Desligado" };
     else if (turn) { const s = turnState(turn, conversations.get(turn.conversationId)); actor = { ...base, ...s, activity: short(s.activity, 60), since: turn.since, task: short(last.request, 80) }; }
