@@ -2,10 +2,12 @@
 // real (files in the project folder), whichever still has usage left; with both out of their limits the local
 // answer stays and says so. 15/10: from the phone, the local model could not draw a chart in 40 minutes and
 // said it was impossible; the strong models, set up on the same computer, only reviewed it.
-import { readdirSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveCli } from "./cliRuntime.js";
+import { buildMirror, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
 import { runClaudeAgent } from "./claude.js";
 import { runCodexAgent } from "./codex.js";
 import { getSetting, setSetting } from "./store.js";
@@ -120,11 +122,85 @@ export function executorPrompt({ task, reason, workspace, history = [] }) {
 }
 
 /**
- * The task done by the first strong engine that can: in `order`, skipping the ones not installed or out of
- * their limit, marking one that answers with a usage limit and going on to the next. Returns { ok, engine,
- * label, text, files, steps } on success; { ok: false, tried, limited, allLimited } otherwise.
+ * How much of the project a paid engine may see: "espelho" (default) — only the synthetic mirror, its script
+ * runs here; "livre" — the real folder, as before 19/10.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now() }) {
+export const PRIVACY_MODES = ["espelho", "livre"];
+export async function privacyMode(env = process.env) {
+  const value = env.AURORA_PAID_PRIVACY || (await getSetting("paid_privacy"));
+  return PRIVACY_MODES.includes(value) ? value : "espelho";
+}
+
+export function mirrorPrompt({ task, reason, mirrorDir, history = [], map }) {
+  const recent = history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-6)
+    .map((m) => `${m.role === "user" ? "Pessoa" : "Aurora"}: ${pseudonymize(String(m.content || "").slice(0, 600), map).text}`).join("\n");
+  return [
+    "Você está ajudando a Aurora, a assistente local desta pessoa, a terminar uma tarefa que ela não conseguiu sozinha.",
+    reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map).text}.` : "A pessoa pediu que você fizesse esta tarefa.",
+    `Os dados da empresa não podem sair do computador. Esta pasta (${mirrorDir}) é um ESPELHO da pasta do projeto: as planilhas têm as colunas, os tipos e os formatos reais, mas os valores e os nomes são falsos. Veja ${MIRROR_MANIFEST} (o que existe na pasta real e quantas linhas cada planilha tem lá).`,
+    `Entregue a tarefa como um script Python: grave ${MIRROR_SCRIPT} nesta pasta. Ele vai rodar na pasta real, com os mesmos nomes de arquivo (caminhos relativos à pasta atual), e deve gravar ali os arquivos pedidos. Se a tarefa for uma pergunta, o script imprime a resposta (print) em português.`,
+    "Nada de valores fixos tirados das planilhas: tudo vem dos arquivos (a pasta real tem outros valores e mais linhas). Um valor citado no pedido, como \"Cliente 3\", pode ficar no script: ele é trocado pelo real antes de rodar.",
+    "Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho e confira o que ele gera antes de responder.",
+    "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
+    recent ? `\nConversa recente (nomes e documentos trocados por marcas):\n${recent}` : "",
+    `\nTarefa: ${pseudonymize(task, map).text}`,
+  ].join("\n");
+}
+
+const PYTHONS = [["python", []], ["py", ["-3"]]];
+/** `script` run with cwd `dir`: { ok, stdout, stderr }; python first, then the py launcher. */
+export function runPython(script, dir, { timeoutMs = 5 * 60_000, signal } = {}) {
+  const attempt = (i) => new Promise((done) => {
+    const [cmd, pre] = PYTHONS[i];
+    execFile(cmd, [...pre, script], { cwd: dir, timeout: timeoutMs, windowsHide: true, signal, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } }, (error, stdout, stderr) => {
+      if (error?.code === "ENOENT" && i + 1 < PYTHONS.length) return done(attempt(i + 1));
+      done({ ok: !error, stdout: String(stdout || ""), stderr: String(stderr || error?.message || "") });
+    });
+  });
+  return attempt(0);
+}
+
+/**
+ * One engine on the mirror: it writes the script there, the script runs on the real folder (fakes back to real
+ * values), one repair round with the error pseudonymized. Returns the engine's answer plus { script, ran }.
+ */
+async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now }) {
+  const mirror = buildMirror(workspace);
+  try {
+    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map });
+    const leaked = leaks(prompt, mirror.map);
+    if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
+    const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal }));
+    let answer = await call(prompt);
+    if (!answer.ok || signal?.aborted) return answer;
+    if (/PRECISA_DO_CONTEUDO/.test(answer.text)) return { ...answer, ok: false, needsContent: true, error: answer.text.replace(/PRECISA_DO_CONTEUDO[:\s-]*/, "").trim().slice(0, 300) };
+    const scriptPath = join(mirror.dir, MIRROR_SCRIPT);
+    for (let round = 0; round < 2; round += 1) {
+      if (!existsSync(scriptPath)) return { ...answer, ok: false, error: `o ${ENGINES[id].label} não gravou ${MIRROR_SCRIPT}` };
+      const { code, restored } = restoreScript(readFileSync(scriptPath, "utf8"), mirror.map);
+      const realScript = join(mirror.dir, `_real_${MIRROR_SCRIPT}`);
+      writeFileSync(realScript, code, "utf8");
+      onStage("A Aurora está rodando aqui o script do modelo forte, nos dados reais…");
+      const ran = await runPython(realScript, workspace, { signal });
+      if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: unfake(answer.text, mirror.map), ran, restored };
+      onStage(`O script falhou nos dados reais; o ${ENGINES[id].label} está corrigindo…`);
+      const error = pseudonymize((ran.stderr || ran.stdout).slice(-3000), mirror.map).text;
+      answer = await call(`O ${MIRROR_SCRIPT} rodou na pasta real e falhou com este erro (valores reais trocados por marcas):\n${error}\n\nCorrija ${MIRROR_SCRIPT} nesta pasta (lembre: a pasta real tem outros valores e mais linhas), rode de novo aqui e responda como antes.`);
+      if (!answer.ok) return answer;
+    }
+    return answer;
+  } finally {
+    try { rmSync(mirror.dir, { recursive: true, force: true }); } catch { /* temp */ }
+  }
+}
+
+/**
+ * The task done by the first strong engine that can: in `order`, skipping the ones not installed or out of
+ * their limit, marking one that answers with a usage limit and going on to the next. With `privacy` "espelho"
+ * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
+ * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
+ */
+export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre" }) {
   const status = await engineStatus({ env, now: now() });
   const tried = [];
   const limited = [];
@@ -135,8 +211,12 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     onStage(`A Aurora pediu ajuda ao ${ENGINES[id].label}…`);
     const before = snapshot(workspace);
     const started = now();
-    const answer = await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
+    const answer = privacy === "espelho"
+      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now })
+      : await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
     if (signal?.aborted) return { ok: false, tried, limited, cancelled: true };
+    // A task that needs the documents' content does not go to the next engine either: it would see the same mirror.
+    if (answer.needsContent) return { ok: false, tried, limited, needsContent: true, why: answer.error, engine: id };
     if (!answer.ok) {
       if (OUT_OF_LIMIT.test(answer.error || "")) {
         const until = limitResetAt(answer.error, now());
@@ -147,15 +227,23 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     }
     const after = snapshot(workspace);
     const files = [...after].filter(([p, t]) => !before.has(p) || before.get(p) !== t).filter(([, t]) => t >= started - 2000).map(([p]) => p).slice(0, 20);
-    const steps = files.map((p) => ({ tool: "write_file", ok: true, by: id, args: { path: p }, summary: `Criei ${p} (pelo ${ENGINES[id].label}).` }));
-    return { ok: true, engine: id, label: ENGINES[id].label, text: answer.text, files, steps, ms: now() - started };
+    const steps = files.map((p) => ({ tool: "write_file", ok: true, by: id, args: { path: p }, summary: `Criei ${p} (pelo ${ENGINES[id].label}${privacy === "espelho" ? ", script rodado aqui" : ""}).` }));
+    if (privacy !== "espelho") return { ok: true, engine: id, label: ENGINES[id].label, text: answer.text, files, steps, ms: now() - started };
+    if (!answer.ran?.ok) { tried.push(`${ENGINES[id].label}: o script falhou nos dados reais (${(answer.ran?.stderr || "").trim().split(/\r?\n/).pop()?.slice(0, 160) || "erro"})`); continue; }
+    // What the script printed is computed here from the real data: it is the answer itself. The engine's own
+    // words describe the script (about the mirror) and stay below.
+    const printed = answer.ran.stdout.trim().slice(0, 3000);
+    const text = [printed, answer.text.trim(), files.length ? `Arquivos:\n${files.map((f) => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    return { ok: true, engine: id, label: ENGINES[id].label, text, files, steps: [...steps, { tool: "run_command", ok: true, by: id, args: { command: `python ${MIRROR_SCRIPT}` }, summary: `Rodei aqui, nos dados reais, o script do ${ENGINES[id].label}.` }], ms: now() - started, privacy };
   }
   return { ok: false, tried, limited, allLimited: limited.length > 0 && limited.length + tried.filter((t) => /não instalado/.test(t)).length >= order.length };
 }
 
 /** The line under the answer that says what the engine did, or why the local answer is the one that stayed. */
 export function engineNote(outcome, { reason } = {}) {
+  if (outcome.ok && outcome.privacy === "espelho") return `> Feito com o ${outcome.label} sem enviar seus dados: ele viu só uma cópia com valores falsos e o script rodou aqui${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
   if (outcome.ok) return `> Feito pelo ${outcome.label}${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
+  if (outcome.needsContent) return `> Esta tarefa precisa que um modelo forte leia o conteúdo real dos documentos${outcome.why ? ` (${outcome.why.slice(0, 160)})` : ""}, e seus dados não saem do computador: ficou a resposta da Aurora local.`;
   const back = (outcome.limited || []).map((l) => `${ENGINES[l.id].label} volta ${new Date(l.until).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`);
   if (outcome.allLimited) return `> Claude e Codex estão sem limite de uso agora (${back.join("; ")}): ficou a resposta da Aurora local.`;
   return `> Tentei pedir ajuda aos modelos fortes e não deu (${[...(outcome.tried || []), ...back].join("; ").slice(0, 300)}): ficou a resposta da Aurora local.`;

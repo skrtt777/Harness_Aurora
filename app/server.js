@@ -313,6 +313,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (!["on", "off"].includes(body.escalationMode)) throw httpError(400, "Opção dos modelos fortes inválida.");
           values.escalation_mode = body.escalationMode;
         }
+        if (body.paidPrivacy !== undefined) {
+          if (!["espelho", "livre"].includes(body.paidPrivacy)) throw httpError(400, "Opção de privacidade inválida.");
+          values.paid_privacy = body.paidPrivacy;
+        }
         if (body.teacherDailyLimit !== undefined) {
           if (!Number.isInteger(body.teacherDailyLimit) || body.teacherDailyLimit < 0 || body.teacherDailyLimit > 1000) throw httpError(400, "Limite diário do professor deve ser de 0 a 1000.");
           values.teacher_daily_limit = String(body.teacherDailyLimit);

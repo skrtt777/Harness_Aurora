@@ -710,6 +710,11 @@ test("PUT /api/settings turns the strong engines on and off and shows each one's
     assert.equal(off.body.escalationMode, "off");
     assert.equal((await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "talvez" }) })).status, 400);
 
+    assert.equal(first.body.paidPrivacy, "espelho", "by default the data stays on the computer");
+    assert.equal((await api("/api/settings", { method: "PUT", body: JSON.stringify({ paidPrivacy: "livre" }) })).body.paidPrivacy, "livre");
+    assert.equal((await api("/api/settings", { method: "PUT", body: JSON.stringify({ paidPrivacy: "nuvem" }) })).status, 400);
+    await api("/api/settings", { method: "PUT", body: JSON.stringify({ paidPrivacy: "espelho" }) });
+
     await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "on" }) });
   });
 });

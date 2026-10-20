@@ -148,7 +148,7 @@ export default function SettingsView({
     }
   };
 
-  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode">>) => {
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode" | "paidPrivacy">>) => {
     setAgentError("");
     try {
       const updated = await updateSettings(patch);
@@ -385,6 +385,10 @@ export default function SettingsView({
               <div className="row">
                 <div className="row-text"><div className="row-label">Modelos fortes fazem</div><div className="row-desc">{settings.escalationMode === "on" ? "Ligado: a tarefa vai para Claude ou Codex quando a local não resolve." : "Desligado: fica sempre a resposta da IA local."}</div></div>
                 <div className="row-control">{choice(settings.escalationMode, [["on", "Ligado"], ["off", "Desligado"]] as const, (id) => void saveAgent({ escalationMode: id }), "Modelos fortes fazem")}</div>
+              </div>
+              <div className="row">
+                <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>
+                <div className="row-control">{choice(settings.paidPrivacy, [["espelho", "Ficam aqui"], ["livre", "Podem sair"]] as const, (id) => void saveAgent({ paidPrivacy: id }), "Seus dados")}</div>
               </div>
               {(["claude", "codex"] as const).map((id) => {
                 const engine = settings.engines?.[id];

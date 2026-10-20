@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason } from "./engine.js";
+import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, privacyMode } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -443,7 +443,7 @@ async function rememberAlwaysAllow(rule) {
 export async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))), escalationMode: (await getSetting("escalation_mode")) === "off" ? "off" : "on", engines: await engineStatus() };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))), escalationMode: (await getSetting("escalation_mode")) === "off" ? "off" : "on", paidPrivacy: await privacyMode(), engines: await engineStatus() };
 }
 
 // Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
@@ -811,10 +811,17 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           if (conversation.provider === "local" && !agent.cancelled && toolContext.workspace && await escalationOn(env)) {
             const why = asked ? "" : escalationReason({ request: trimmed, result: agent, history });
             if (asked || why) {
-              const allowed = toolContext.restrictedSources.size === 0 || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
+              const privacy = await privacyMode(env);
+              const allowed = toolContext.restrictedSources.size === 0 || privacy === "espelho" || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
               if (allowed) {
                 const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : Object.keys(ENGINES);
-                escalated = await escalate({ task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage) });
+                const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage) };
+                // Espelho (default): the paid engine sees a copy with fake values and its script runs here. A task
+                // that needs the documents' real content goes out only with the person's yes, this once.
+                escalated = await escalate({ ...job, privacy });
+                if (escalated.needsContent && !controller.signal.aborted && await approveEngine({ tool: "engine", summary: `Enviar o conteúdo real dos arquivos ao ${ENGINES[escalated.engine]?.label || "modelo forte"} só desta vez`, detail: `Para esta tarefa ele precisa ler os documentos de verdade${escalated.why ? ` (${escalated.why.slice(0, 160)})` : ""}. Sem a sua autorização, nada sai do computador.` })) {
+                  escalated = await escalate({ ...job, privacy: "livre" });
+                }
                 if (escalated.ok) agent = { ...agent, ok: true, error: undefined, unsupported: false, text: `${escalated.text}
 
 ${engineNote(escalated, { reason: why })}`, steps: [...(agent.steps || []), ...escalated.steps] };

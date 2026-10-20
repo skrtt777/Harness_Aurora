@@ -305,12 +305,14 @@ export type Settings = {
   teacherUsedToday: number;
   /** on: Claude/Codex fazem a tarefa de verdade quando a IA local não consegue. */
   escalationMode: "on" | "off";
+  /** espelho: o modelo forte vê só uma cópia com valores falsos e o script roda aqui; livre: vê a pasta real. */
+  paidPrivacy: "espelho" | "livre";
   /** Cada modelo forte: instalado e, se estiver sem limite de uso, até quando. */
   engines: Record<"claude" | "codex", { installed: boolean; limitedUntil: number | null; reason: string | null }>;
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
-  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode" | "fullComputerAccess" | "usageProfile">>,
+  patch: Partial<Pick<Settings, "defaultProvider" | "defaultTeacher" | "communityManifestUrl" | "sandboxDir" | "onboardingCompleted" | "localMaxFixAttempts" | "localContextTokens" | "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode" | "paidPrivacy" | "fullComputerAccess" | "usageProfile">>,
 ) => request<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) });
 
 // ---------- Local model (Ollama) setup ----------
