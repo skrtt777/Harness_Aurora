@@ -14,6 +14,7 @@ export const NEWS: Record<string, { title: string; items: [string, string][] }> 
       ['Ajuda ativa', 'Com o Claude ou o Codex instalado, pedidos de apresentação, planilha, documento, gráfico, análise das planilhas ou correção de código vão primeiro para eles. A Aurora local cuida da conversa e assume quando eles não conseguem.'],
       ['Seus dados ficam aqui', 'Eles trabalham numa cópia das suas planilhas com nomes, CPFs e valores falsos e escrevem um programa, que a Aurora roda aqui nos dados reais. Se uma tarefa precisar ler um documento de verdade, ela pergunta antes.'],
       ['Professor sem ver o conteúdo', 'A revisão das entregas mostra ao professor só o que a Aurora fez e os erros, com nomes e números trocados por marcas.'],
+      ['Agentes com Claude ou Codex', 'Cada agente pode trabalhar com a Aurora local, com o Claude ou com o Codex, sempre sem ver seus dados. No Escritório, o Claude e o Codex aparecem trabalhando ao lado de quem passou a tarefa.'],
       ['Você escolhe', 'Em Configurações → Professor: quando eles entram (ajuda ativa ou só se a local falhar), se seus dados podem sair e quantas chamadas por dia.'],
     ],
   },

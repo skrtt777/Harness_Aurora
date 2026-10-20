@@ -76,6 +76,8 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
   - **Ajuda ativa:** arquivos, gráficos, análises das planilhas e código vão primeiro ao modelo forte, às cegas; "agora em azul" continua a entrega. Limite de 40 chamadas por dia.
   - **Professor e correção cegos** (`app/blind.js`): marcas reversíveis para nomes e identificadores e resultados só pela forma.
   - **Bateria híbrida** (`scripts/hybrid-battery.mjs`): os modelos reais com uma escuta no lugar do CLI; nenhum dado sensível saiu nas rodadas de 20/10.
+  - **Agentes com motor pago:** o agente de tarefa escolhe Aurora local, Claude ou Codex (às cegas, inclusive nas tarefas agendadas). No Escritório, o Claude e o Codex aparecem trabalhando ao lado de quem passou a tarefa.
+  - Baterias (qwen3.5:4b): bateria nova só com a local 61/65; **híbrida (local + Claude) 65/65**; bateria híbrida de sigilo 7/7 sem vazamento; Codex no espelho testado; suíte 761/761.
 
 - **0.1.50 (15/10, publicada): anexos de qualquer formato e correções de tela.**
   - **Anexos** (`app/docText.js`, `app/chatTurn.js`): .pbix/.pbit lidos (páginas e visuais; no .pbit, modelo com DAX), .xlsm, código e configuração; qualquer outro formato vira ficha em vez de sumir; botão de clipe no chat.
