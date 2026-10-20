@@ -45,6 +45,34 @@ test("what goes to a strong engine first: files, charts, analyses of the sheets;
   assert.equal(proactiveFit({ request: "agora em azul", followsEngine: false }), null);
 });
 
+test("the agent modes hold: in 'só olha' no strong engine runs; in manual its program runs only with a yes", { skip: !hasPython && "sem Python" }, async () => {
+  const { handleChatTurn } = await import("../app/server.js");
+  const workspace = join(temp, "modos");
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(join(workspace, "vendas.csv"), SHEET, "utf8");
+  const project = await store.createProject({ name: "Modos", workspaceDir: workspace });
+  const log = join(temp, "modos.log");
+  await withLocalStub(async (base, bodies) => {
+    const env = { ...process.env, LOCAL_BASE_URL: base, LOCAL_MODEL: "qwen3.5:4b", AURORA_ESCALATION: "on", CLAUDE_BIN: fakeCli, FAKE_ENGINE_LOG: log, FAKE_MIRROR_SCRIPT: SCRIPT, AGENT_APPROVAL_TIMEOUT_MS: "200" };
+    try {
+      await store.setSetting("agent_mode", "plan");
+      const plan = await handleChatTurn({ conversationId: (await store.createConversation({ provider: "local", projectId: project.id })).id, message: "Monte um gráfico das vendas por região da planilha.", env });
+      assert.equal(plan.ok, true, plan.error);
+      assert.ok(!existsSync(log), "no strong engine in 'só olha'");
+      assert.ok(bodies.length > 0, "the local Aurora answered");
+
+      await store.setSetting("agent_mode", "manual");
+      const manual = await handleChatTurn({ conversationId: (await store.createConversation({ provider: "local", projectId: project.id })).id, message: "Monte um gráfico das vendas por região da planilha.", env });
+      assert.equal(manual.ok, true, manual.error);
+      assert.ok(existsSync(log), "the engine was asked (it only sees the mirror)");
+      assert.ok(!existsSync(join(workspace, "vendas_por_regiao.txt")), "but nobody said yes: its program did not run here");
+      assert.ok(!/sem enviar seus dados/.test(manual.message.content), "and the answer is the local one");
+    } finally {
+      await store.setSetting("agent_mode", "auto");
+    }
+  });
+});
+
 test("the correction the person asks for goes blind too, and its answer comes back real", async () => {
   const { correctLocalAnswer } = await import("../app/correction.js");
   const log = join(temp, "correction.log");

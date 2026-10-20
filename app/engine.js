@@ -259,7 +259,7 @@ function applyCodeChanges(edits, workspace) {
  * One engine on the mirror: it writes the script there, the script runs on the real folder (fakes back to real
  * values), one repair round with the error pseudonymized. Returns the engine's answer plus { script, ran }.
  */
-async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false }) {
+async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false, approveRun = null, timeoutMs }) {
   const mirror = buildMirror(workspace);
   try {
     const before = followUp ? await lastScript(workspace) : null;
@@ -270,7 +270,9 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous });
     const leaked = leaks(prompt, mirror.map);
     if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
-    const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal }));
+    const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal, timeoutMs }));
+    // Manual mode: what the engine made changes the folder only with the person's yes (like any local change).
+    const allowed = async (summary, detail) => !approveRun || await approveRun({ tool: "engine", summary, detail: String(detail).slice(0, 1500) });
     let answer = await call(prompt);
     if (!answer.ok || signal?.aborted) return answer;
     if (/PRECISA_DO_CONTEUDO/.test(answer.text)) return { ...answer, ok: false, needsContent: true, error: answer.text.replace(/PRECISA_DO_CONTEUDO[:\s-]*/, "").trim().slice(0, 300) };
@@ -278,6 +280,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
     // Code the engine edited in the mirror goes to the real folder with the real values back; a task that was
     // only code (no script) ends here.
     const edits = codeChanges(mirror, { withNew: !existsSync(scriptPath) });
+    if (edits.length && !(await allowed(`Aplicar as mudanças do ${ENGINES[id].label} em ${edits.length} arquivo(s) de código`, edits.map((e) => `${e.isNew ? "novo" : "alterado"}: ${e.path}`).join("\n")))) return { ok: false, error: "você não autorizou aplicar as mudanças no código" };
     const applied = applyCodeChanges(edits, workspace);
     if (!existsSync(scriptPath) && applied.length) return { ...answer, text: unfake(answer.text, mirror.map), ran: { ok: true, stdout: "", stderr: "" }, codeFiles: applied };
     for (let round = 0; round < 2; round += 1) {
@@ -285,6 +288,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
       const { code, restored } = restoreScript(readFileSync(scriptPath, "utf8"), mirror.map);
       const realScript = join(mirror.dir, `_real_${MIRROR_SCRIPT}`);
       writeFileSync(realScript, code, "utf8");
+      if (round === 0 && !(await allowed(`Rodar nesta pasta o programa que o ${ENGINES[id].label} escreveu`, code))) return { ok: false, error: "você não autorizou rodar o programa" };
       onStage("A Aurora está rodando aqui o script do modelo forte, nos dados reais…");
       const ran = await runPython(realScript, workspace, { signal });
       if (ran.ok) await setSetting(lastScriptKey(workspace), JSON.stringify({ task: String(task).slice(0, 600), script: code, at: now() })).catch(() => {});
@@ -306,7 +310,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs }) {
   const status = await engineStatus({ env, now: now() });
   const tried = [];
   const limited = [];
@@ -321,7 +325,7 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     const before = snapshot(workspace);
     const started = now();
     const answer = privacy === "espelho"
-      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp })
+      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp, approveRun, timeoutMs })
       : await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
     if (signal?.aborted) return { ok: false, tried, limited, cancelled: true };
     // A task that needs the documents' content does not go to the next engine either: it would see the same mirror.
