@@ -16,7 +16,9 @@ import { clearComputerMap, mapChildren, mapSearch, mapStatus, scanComputer, star
 import { mapEnabled } from "./agentTools/computer.js";
 import { getProfile, saveProfile } from "./profile.js";
 import { diaryEntries } from "./diary.js";
-import { connectTelegram, disconnectTelegram, notifyRunOnPhone, sendToPhone, startTelegram, stopTelegram, telegramStatus } from "./telegram.js";
+import { connectTelegram, disconnectTelegram, sendToPhone as sendToTelegram, startTelegram, stopTelegram, telegramStatus } from "./telegram.js";
+import { disableWhatsapp, enableWhatsapp, startWhatsapp, stopWhatsapp, whatsappStatus } from "./whatsapp.js";
+import { notifyRunOnPhone, sendToPhone } from "./gateway.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -541,7 +543,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (pathname === "/api/telegram" && method === "GET") return sendJson(response, 200, await telegramStatus());
       if (pathname === "/api/telegram" && method === "PUT") return sendJson(response, 200, await connectTelegram((await readJson(request)).token, { handleChatTurn }));
       if (pathname === "/api/telegram" && method === "DELETE") return sendJson(response, 200, await disconnectTelegram());
-      if (pathname === "/api/telegram/test" && method === "POST") return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este chat está ligado ao seu computador.") });
+      if (pathname === "/api/telegram/test" && method === "POST") return sendJson(response, 200, { sent: await sendToTelegram("Teste da Aurora: este chat está ligado ao seu computador.") });
+      // WhatsApp (app/whatsapp.js): on with a QR to read, or with a number of its own (pairing code).
+      if (pathname === "/api/whatsapp" && method === "GET") return sendJson(response, 200, await whatsappStatus());
+      if (pathname === "/api/whatsapp" && method === "PUT") return sendJson(response, 200, await enableWhatsapp({ own: Boolean((await readJson(request)).own), handleChatTurn }));
+      if (pathname === "/api/whatsapp" && method === "DELETE") return sendJson(response, 200, await disableWhatsapp());
+      if (pathname === "/api/whatsapp/test" && method === "POST") return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este WhatsApp está ligado ao seu computador.", { channel: "whatsapp" }) });
       // The Aurora's diary (today and yesterday): the start screen shows the files it made.
       if (pathname === "/api/diary" && method === "GET") return sendJson(response, 200, { entries: await diaryEntries() });
       // "Sobre você": the person's profile, in every conversation.
@@ -1035,12 +1042,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     server.on("listening", () => { stopMap = startMapSchedule({ enabled: mapEnabled, busy: () => activeTurns().count > 0 }); });
     server.on("close", () => stopMap?.());
     // Celular (Telegram), when the person linked a bot: messages in, answers and agent results out.
-    server.on("listening", () => { void startTelegram({ handleChatTurn }).catch(() => {}); });
+    server.on("listening", () => { void startTelegram({ handleChatTurn }).catch(() => {}); void startWhatsapp({ handleChatTurn }).catch(() => {}); });
     const offPhone = onAutomaticRun((agent, run) => { void notifyRunOnPhone(agent, run).catch(() => {}); });
     // A BI alert on the phone too (when Telegram is linked).
     const onBiAlert = ({ title, body }) => { void sendToPhone(`${title}\n${body || ""}`).catch(() => {}); };
     void import("./powerbiChanges.js").then(({ biEvents }) => { biEvents.on("alert", onBiAlert); server.on("close", () => biEvents.off("alert", onBiAlert)); }).catch(() => {});
-    server.on("close", () => { stopTelegram(); offPhone(); });
+    server.on("close", () => { stopTelegram(); stopWhatsapp(); offPhone(); });
     // The Aurora's step-by-step guides (app/guides.js) as memories: written once, rewritten when changed.
     server.on("listening", () => { void import("./guides.js").then(({ seedGuides }) => seedGuides()).catch(() => {}); });
   }

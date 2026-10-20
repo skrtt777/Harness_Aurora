@@ -31,6 +31,7 @@ import FoldersPanel from './FoldersPanel';
 import { auroraBackdropOn, setAuroraBackdrop } from './auroraBackdrop';
 import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
+import WhatsappPanel from './WhatsappPanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
 import ModelsPanel from './ModelsPanel';
@@ -480,9 +481,10 @@ export default function SettingsView({
           {section === "phone" && <>
             <header className="page-header">
               <h2 className="page-title">Celular</h2>
-              <p className="page-desc">Converse com a Aurora pelo Telegram: mande arquivos e fotos para o computador, receba o que ela criar e os avisos dos agentes, e autorize ações com um toque.</p>
+              <p className="page-desc">Converse com a Aurora pelo WhatsApp ou pelo Telegram, na mesma conversa: mande arquivos e fotos para o computador, receba o que ela criar e os avisos dos agentes, e autorize ações. A resposta volta pelo canal onde você escreveu.</p>
             </header>
-            <div className="section"><PhonePanel /></div>
+            <div className="section"><h3 className="section-title">WhatsApp</h3><WhatsappPanel /></div>
+            <div className="section"><h3 className="section-title">Telegram</h3><PhonePanel /></div>
           </>}
 
           {section === "knowledge" && <>

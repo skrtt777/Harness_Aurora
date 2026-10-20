@@ -698,3 +698,10 @@ export const listApiEngines = () => request<{ engines: ApiEngine[]; presets: Rec
 export const saveApiEngine = (engine: { id?: string; preset?: string; label?: string; kind?: string; baseUrl?: string; model?: string; apiKey?: string }) => request<{ engine: ApiEngine }>("/engines", { method: "POST", body: JSON.stringify(engine) }).then((r) => r.engine);
 export const deleteApiEngine = (id: string) => request<{ deleted: boolean }>(`/engines/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const testApiEngine = (id: string) => request<{ ok: boolean; ms: number; error: string | null }>(`/engines/${encodeURIComponent(id)}/test`, { method: "POST" });
+
+// ---------- WhatsApp (app/whatsapp.js), a channel of the gateway (app/gateway.js) ----------
+export type WhatsappStatus = { status: "desligado" | "conectando" | "aguardando_qr" | "conectado"; qr: string | null; number: string | null; linked: boolean; mode: "proprio" | "numero"; pairCode: string | null; error: string | null };
+export const getWhatsapp = () => request<WhatsappStatus>("/whatsapp");
+export const enableWhatsapp = (own = false) => request<WhatsappStatus>("/whatsapp", { method: "PUT", body: JSON.stringify({ own }) });
+export const disableWhatsapp = () => request<WhatsappStatus>("/whatsapp", { method: "DELETE" });
+export const testWhatsapp = () => request<{ sent: boolean }>("/whatsapp/test", { method: "POST" });

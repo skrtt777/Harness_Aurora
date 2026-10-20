@@ -10,6 +10,7 @@ import { basename, join } from "node:path";
 import { personalFolders } from "./fileAccess.js";
 import { getSetting, setSetting, createConversation, getConversationWithMessages, listProjects } from "./store.js";
 import { approvalEvents, getApproval, resolveApproval } from "./pendingTurns.js";
+import { TYPED_NO, TYPED_YES, agentsSummary as gatewayAgents, deliveredFiles as gatewayDelivered, incoming, notifyRunOnPhone as gatewayNotify, phoneConversation, registerChannel, replyChannel } from "./gateway.js";
 
 const API = (env) => env.TELEGRAM_API_BASE || "https://api.telegram.org";
 const MAX_TEXT = 4000;
@@ -63,13 +64,8 @@ export async function disconnectTelegram() {
   return telegramStatus();
 }
 
-async function conversationId() {
-  const saved = await getSetting("telegram_conversation_id");
-  if (saved && (await getConversationWithMessages(saved).catch(() => null))) return saved;
-  const created = await createConversation({ provider: "local", title: "Celular (Telegram)" });
-  await setSetting("telegram_conversation_id", created.id);
-  return created.id;
-}
+// The phone conversation is the gateway's (app/gateway.js): the same one for Telegram and WhatsApp.
+const conversationId = phoneConversation;
 
 /** Sends text (split at Telegram's limit) to the linked chat. Quietly nothing when not linked. */
 export async function sendToPhone(text, { env = process.env, buttons = null } = {}) {
@@ -109,12 +105,7 @@ export async function receiveFile(token, attachment, env = process.env) {
   return file;
 }
 
-/** Files a turn wrote ("Criei C:\…\x.xlsx (XLSX, …)"), to send along with the answer. */
-export function deliveredFiles(execution) {
-  const steps = execution?.toolSteps || [];
-  return [...new Set(steps.filter((s) => s.ok && ["write_document", "write_file", "edit_file"].includes(s.tool))
-    .map((s) => /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$)/.exec(s.summary || "")?.[1]).filter(Boolean))];
-}
+export const deliveredFiles = gatewayDelivered;
 
 /** One update from Telegram: pairing, a message (a turn), or a button press (an approval). */
 export async function handleUpdate(update, { env = process.env, handleChatTurn }) {
@@ -203,46 +194,18 @@ export async function handleUpdate(update, { env = process.env, handleChatTurn }
     try { saved = await receiveFile(token, attachment, env); } catch (e) { await sendToPhone(`Não consegui receber o arquivo (${e.message}).`, { env }); return; }
     text = `${text || "Guardei este arquivo que mandei pelo celular. Diga em uma linha o que ele é."}\n\n(Arquivo recebido pelo celular e salvo em: ${saved})`;
   }
-  const id = await conversationId();
-  await call(token, "sendChatAction", { chat_id: chat, action: "typing" }, { env }).catch(() => {});
-  // A person is on the other end (the buttons answer approvals): not an automatic run.
-  const turn = await handleChatTurn({ conversationId: id, message: text, env });
-  const answer = turn?.message?.content || turn?.error || "Não consegui responder agora.";
-  await sendToPhone(answer, { env });
-  for (const file of deliveredFiles(turn?.message?.execution).slice(0, 5)) await sendFile(token, chat, file, env).catch(() => {});
+  // A person is on the other end (the buttons answer approvals): not an automatic run. The gateway runs the
+  // turn in the phone conversation and answers back here.
+  await incoming({ channel: "telegram", text, handleChatTurn, env, typing: () => call(token, "sendChatAction", { chat_id: chat, action: "typing" }, { env }) });
 }
 
-/** "/agentes": each agent, on or off, and its last run, in a few lines. */
-export async function agentsSummary() {
-  const { listAgents, listRuns } = await import("./agents.js");
-  const agents = await listAgents();
-  if (!agents.length) return "Você ainda não tem agentes. Crie um na Aurora, em Agentes.";
-  const lines = [];
-  for (const agent of agents.slice(0, 15)) {
-    const last = (await listRuns({ agentId: agent.id, limit: 1 }).catch(() => []))[0];
-    const when = last ? new Date(last.startedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
-    lines.push(`• ${agent.name}${agent.enabled ? "" : " (desligado)"}${last ? ` — última vez ${when}: ${last.quiet ? "nada novo" : last.status === "done" ? "concluída" : last.status === "running" ? "trabalhando agora" : "não terminou"}` : " — ainda não trabalhou"}`);
-  }
-  return `Seus agentes:\n${lines.join("\n")}`;
-}
-
-/** An automatic agent's result on the phone: what it said and the files it delivered. */
-export async function notifyRunOnPhone(agent, run, { env = process.env } = {}) {
-  const token = await getSetting("telegram_token");
-  const chat = await getSetting("telegram_chat_id");
-  if (!token || !chat || !run) return false;
-  const text = run.status === "done" ? `${agent.name}:\n${String(run.answer || "Terminou.").slice(0, 3500)}` : `${agent.name} não conseguiu terminar: ${String(run.error || run.answer || "erro").slice(0, 500)}`;
-  await sendToPhone(text, { env });
-  for (const file of (run.files || []).slice(0, 5)) await sendFile(token, chat, file, env).catch(() => {});
-  return true;
-}
+export const agentsSummary = gatewayAgents;
+export const notifyRunOnPhone = (agent, run) => gatewayNotify(agent, run);
 
 /**
  * "Permitido", "pode", "sim" (or "não", "nega") typed while the Aurora waits for a yes: it answers that
  * request, like the button. Typed, it went into the queue as a new message and the request expired (15/10).
  */
-const TYPED_YES = /^(permitid[oa]|permit[oe]|permitir|pode(?: sim| fazer| ir| seguir| continuar)?|sim|ok|okay|autorizad[oa]|autorizo|liberad[oa]|libero|confirm[oa]|confirmad[oa]|manda ver|vai|faz|fa[cç]a)[\s.!]*$/i;
-const TYPED_NO = /^(n[ãa]o|nega(?:do)?|negar|recus[oa]|cancela(?:r)?|n[ãa]o pode|para)[\s.!]*$/i;
 export async function answerTypedApproval(text, { env = state.env } = {}) {
   const t = String(text || "").trim();
   const yes = TYPED_YES.test(t), no = !yes && TYPED_NO.test(t);
@@ -259,6 +222,8 @@ export async function answerTypedApproval(text, { env = state.env } = {}) {
 // A yes/no the phone's conversation needs: Permitir / Negar buttons.
 async function onApproval({ conversationId: convId, summary }) {
   if (!state.running || convId !== (await getSetting("telegram_conversation_id"))) return;
+  // Asked where the person is: the channel they wrote from last (app/gateway.js).
+  if ((await replyChannel()) !== "telegram") return;
   const approval = getApproval(convId);
   if (!approval) return;
   const key = (yes) => `ap${yes ? 1 : 0}:${approval.id.slice(0, 20)}`;
@@ -266,6 +231,13 @@ async function onApproval({ conversationId: convId, summary }) {
   state.approvals.set(key(false), { conversationId: convId, id: approval.id, approved: false });
   await sendToPhone(`A Aurora quer: ${summary}\nPermite?`, { env: state.env, buttons: [{ text: "Permitir", callback_data: key(true) }, { text: "Negar", callback_data: key(false) }] }).catch(() => {});
 }
+
+registerChannel("telegram", {
+  label: "Telegram",
+  linked: async () => Boolean((await getSetting("telegram_token")) && (await getSetting("telegram_chat_id"))),
+  send: (text) => sendToPhone(text, { env: state.env }),
+  sendFile: async (file) => sendFile(await getSetting("telegram_token"), await getSetting("telegram_chat_id"), file, state.env),
+});
 
 /** Long polling while a token is saved (desktop app only). */
 export async function startTelegram({ env = process.env, handleChatTurn } = {}) {
