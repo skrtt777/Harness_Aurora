@@ -59,6 +59,28 @@ const decimalsOf = (s) => (String(s).match(/[.,](\d+)%?$/)?.[1]?.length ?? 0);
 const brNumber = (n, decimals) => n.toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 const pad = (n, size) => String(n).padStart(size, "0");
 
+/**
+ * A fake number written exactly like the real one: the same count of integer digits, the same thousands
+ * separator and decimal places, the same sign. 20/10: every fake of a budget column had 7 digits
+ * ("3.000.000"), so the engine's parser never met a "980.000" and read the real one as 980 (R$ 13.570.980
+ * instead of 14.550.000). The leading digit is the row's step (1–9), never the real one.
+ */
+function fakeNumber(s, step, br) {
+  const text = String(s).trim();
+  const negative = text.startsWith("-");
+  const body = text.replace(/^-/, "");
+  const [intPart, decPart = ""] = br ? body.split(",") : body.split(".");
+  const digits = intPart.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  const decimals = decPart.replace(/\D/g, "").length;
+  const value = digits === "0" ? step / 10 : step * 10 ** (digits.length - 1);
+  const grouped = br && /\./.test(intPart);
+  let out = br
+    ? value.toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: grouped })
+    : decimals ? value.toFixed(decimals) : String(Math.round(value));
+  if (digits === "0" && !decimals) out = "0";
+  return negative ? `-${out}` : out;
+}
+
 /** The column's scale (a power of ten near its median), so fake numbers keep the axis but not the values. */
 function columnScale(values) {
   const nums = values.map(parseNumber).filter(Number.isFinite).map(Math.abs).sort((a, b) => a - b);
@@ -93,7 +115,6 @@ function fakeColumn(header, values, ctx) {
   const { map, counters } = ctx;
   if (isVocabulary(header, values)) { (ctx.kept ||= new Set()).add(String(header).trim()); return values.map((v) => String(v ?? "").trim()); }
   const shapes = values.map(cellShape);
-  const scale = columnScale(values.filter((_, i) => ["number", "number-br", "money", "percent"].includes(shapes[i])));
   const label = String(header || "Valor").trim().slice(0, 30) || "Valor";
   const distinct = new Map();
   return values.map((value, i) => {
@@ -111,10 +132,10 @@ function fakeColumn(header, values, ctx) {
       case "phone": fake = `(00) 0000-${pad(n % 10000, 4)}`; break;
       case "date-br": { const d = new Date(Date.UTC(2020, 0, 1 + i)); fake = `${pad(d.getUTCDate(), 2)}/${pad(d.getUTCMonth() + 1, 2)}/${s.split("/")[2].length === 2 ? pad(d.getUTCFullYear() % 100, 2) : d.getUTCFullYear()}`; break; }
       case "date-iso": { const d = new Date(Date.UTC(2020, 0, 1 + i)); fake = d.toISOString().slice(0, 10) + (s.length > 10 ? s.slice(10).replace(/\d/g, "0") : ""); break; }
-      case "money": fake = `R$ ${brNumber(step * scale, decimalsOf(s))}`; break;
+      case "money": fake = `R$ ${fakeNumber(s.replace(/^R\$\s?/, ""), step, true)}`; break;
       case "percent": fake = `${String(step * 10)}%`; break;
-      case "number-br": fake = brNumber(step * scale * (parseNumber(s) < 0 ? -1 : 1), decimalsOf(s)); break;
-      case "number": { const v = step * scale * (parseNumber(s) < 0 ? -1 : 1); const d = decimalsOf(s); fake = d ? v.toFixed(d) : String(Math.round(v)); break; }
+      case "number-br": fake = fakeNumber(s, step, true); break;
+      case "number": fake = fakeNumber(s, step, false); break;
       case "text": fake = `Texto de exemplo ${n} da coluna ${label}`; break;
       default: {
         // A category keeps how many distinct values there are (and which rows share one), not the names.
