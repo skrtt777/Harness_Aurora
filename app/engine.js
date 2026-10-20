@@ -201,7 +201,7 @@ export async function privacyMode(env = process.env) {
 // as "[número]". The person's own numbers stay — in a request they are the task's parameters.
 const maskNumbers = (text) => String(text).replace(/\d[\d.,]{2,}/g, "[número]");
 
-export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previous = null }) {
+export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previous = null, context = [] }) {
   const recent = history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-6)
     .map((m) => {
       const text = pseudonymize(String(m.content || "").slice(0, 600), map, { names: true }).text;
@@ -210,6 +210,7 @@ export function mirrorPrompt({ task, reason, mirrorDir, history = [], map, previ
   return [
     reason ? "Você está ajudando a Aurora, a assistente local desta pessoa, a terminar uma tarefa que ela não conseguiu sozinha." : "Você trabalha junto com a Aurora, a assistente local desta pessoa: ela passou esta tarefa para você.",
     reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map, { names: true }).text}.` : "",
+    context.length ? `Também nesta pasta, com informação verdadeira (não é dado da empresa): ${context.join(", ")}. Use o que está lá; não invente números.` : "",
     previous ? `Este pedido continua uma entrega anterior sua: o script que você escreveu está em ${PREVIOUS_SCRIPT} (pedido de então: "${previous.task}"). Parta dele e grave o novo ${MIRROR_SCRIPT} com a mudança pedida.` : "",
     `Os dados da empresa não podem sair do computador. Esta pasta (${mirrorDir}) é um ESPELHO da pasta do projeto: as planilhas têm as colunas, os tipos e os formatos reais, mas os valores e os nomes são falsos. Veja ${MIRROR_MANIFEST} (o que existe na pasta real e quantas linhas cada planilha tem lá).`,
     "Se a tarefa é mudar o código do projeto (corrigir, implementar, refatorar, testar), edite os arquivos de código aqui mesmo: são cópias dos reais em que nomes, identificadores e chaves viraram marcas como [NOME 1] ou [SEGREDO 1]. Mantenha as marcas como estão; a Aurora aplica as suas mudanças na pasta real, com os valores verdadeiros. Nesse caso não precisa de script.",
@@ -259,15 +260,17 @@ function applyCodeChanges(edits, workspace) {
  * One engine on the mirror: it writes the script there, the script runs on the real folder (fakes back to real
  * values), one repair round with the error pseudonymized. Returns the engine's answer plus { script, ran }.
  */
-async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false, approveRun = null, timeoutMs }) {
+async function runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp = false, approveRun = null, timeoutMs, context = [] }) {
   const mirror = buildMirror(workspace);
   try {
+    // Context that is not the company's (the Aurora's own version history) goes as files next to the mirror.
+    for (const c of context) writeFileSync(join(mirror.dir, c.name), pseudonymize(c.text, mirror.map, { names: true }).text, "utf8");
     const before = followUp ? await lastScript(workspace) : null;
     const previous = before && !leaks(pseudonymize(before.script, mirror.map, { names: true }).text, mirror.map).length ? { task: pseudonymize(before.task, mirror.map, { names: true }).text.slice(0, 300) } : null;
     const blindPrevious = before ? pseudonymize(before.script, mirror.map, { names: true }).text : "";
     // A previous script still holding a real value is left out (the engine starts over), never sent.
     if (before && !leaks(blindPrevious, mirror.map).length) writeFileSync(join(mirror.dir, PREVIOUS_SCRIPT), blindPrevious, "utf8");
-    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous });
+    const prompt = mirrorPrompt({ task, reason, mirrorDir: mirror.dir, history, map: mirror.map, previous, context: context.map((c) => c.name) });
     const leaked = leaks(prompt, mirror.map);
     if (leaked.length) return { ok: false, error: `o pedido ainda tinha ${leaked.length} valor(es) da pasta real; nada foi enviado` };
     const call = (text) => (run ? run(id, text, { cwd: mirror.dir, env, signal, mirror }) : ENGINES[id].run(text, { cwd: mirror.dir, env, signal, timeoutMs }));
@@ -310,7 +313,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs, context = [] }) {
   const status = await engineStatus({ env, now: now() });
   const tried = [];
   const limited = [];
@@ -325,7 +328,7 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     const before = snapshot(workspace);
     const started = now();
     const answer = privacy === "espelho"
-      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp, approveRun, timeoutMs })
+      ? await runOnMirror({ id, task, reason, history, workspace, env, signal, onStage, run, now, followUp, approveRun, timeoutMs, context })
       : await (run ? run(id, executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }) : ENGINES[id].run(executorPrompt({ task, reason, workspace, history }), { cwd: workspace, env, signal }));
     if (signal?.aborted) return { ok: false, tried, limited, cancelled: true };
     // A task that needs the documents' content does not go to the next engine either: it would see the same mirror.

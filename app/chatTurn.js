@@ -769,16 +769,20 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           let proactive = null;
           // "Só olha" (plan): nothing writes in the folder, the strong engines included. Manual: their script
           // or code edit is applied only with the person's yes.
+          const engineContext = historyBlock ? [{ name: "HISTORICO_DA_AURORA.md", text: historyBlock }] : [];
           const engineApproval = toolContext.mode === "manual" ? (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); } : null;
           if (conversation.provider === "local" && !asked && toolContext.workspace && toolContext.mode !== "plan" && (!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && await escalationOn(env) && (await helpMode(env)) === "ativa") {
             // The last answer was a strong engine's delivery: "agora em azul" goes back to it, with its script.
             const lastAnswer = [...history].reverse().find((m) => m.role === "assistant");
             const followsEngine = /> Feito (com|pelo) o? ?(Claude|Codex)|> Feito pelo (Claude|Codex)/.test(String(lastAnswer?.content || ""));
-            const fit = proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace), hasCode: hasCode(toolContext.workspace), followsEngine });
+            // The company's documents found for this request stay with the local Aurora: the engine would work
+            // without them. Her own version history is not the company's: it goes to the engine as a file.
+            const localOnly = autoDocs.length > 0 || (hasKnowledge && asksAboutCompany(trimmed));
+            const fit = localOnly ? null : proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace), hasCode: hasCode(toolContext.workspace), followsEngine });
             const ready = fit && Object.values(await engineStatus({ env })).some((s) => s.installed && !s.limitedUntil);
             if (ready) {
               const preferred = (conversation.teacherProvider || await getSetting("default_teacher", "claude")) === "codex" ? "codex" : "claude";
-              proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true, followUp: fit === "continua a entrega anterior do modelo forte", approveRun: engineApproval, timeoutMs: Number(env.PROACTIVE_TIMEOUT_MS) || 240_000 });
+              proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true, followUp: fit === "continua a entrega anterior do modelo forte", approveRun: engineApproval, context: engineContext, timeoutMs: Number(env.PROACTIVE_TIMEOUT_MS) || 240_000 });
               proactive.fit = fit;
             }
           }
@@ -841,7 +845,7 @@ ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proa
               const allowed = toolContext.restrictedSources.size === 0 || privacy === "espelho" || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
               if (allowed) {
                 const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : Object.keys(ENGINES);
-                const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), approveRun: engineApproval };
+                const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), approveRun: engineApproval, context: engineContext };
                 // Espelho (default): the paid engine sees a copy with fake values and its script runs here. A task
                 // that needs the documents' real content goes out only with the person's yes, this once.
                 escalated = await escalate({ ...job, privacy });
