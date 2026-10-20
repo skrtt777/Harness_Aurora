@@ -1,4 +1,6 @@
 import { maskSensitive } from "./sensitive.js";
+import { blindSession } from "./blind.js";
+import { privacyMode } from "./engine.js";
 import { runCodex } from "./codex.js";
 import { runClaude } from "./claude.js";
 import { applyEdits } from "./localDiagnostics.js";
@@ -93,13 +95,22 @@ export async function correctLocalAnswer({ question, wrongAnswer, note, context 
   const runProvider = teacherProvider === "claude" ? runClaude : runCodex;
   const timeoutKey = teacherProvider === "claude" ? "CLAUDE_TIMEOUT_MS" : "CODEX_TIMEOUT_MS";
   // LGPD: identifiers masked before the text leaves the computer (the review still works without them).
-  const prompt = maskSensitive(buildCorrectionPrompt(question, wrongAnswer, note, context));
+  // Espelho (default): names and values go as reversible marks too, and come back real in the answer.
+  const blind = (await privacyMode(env)) === "espelho" ? blindSession(null) : null;
+  const prompt = blind ? blind.text(buildCorrectionPrompt(question, wrongAnswer, note, context)) : maskSensitive(buildCorrectionPrompt(question, wrongAnswer, note, context));
   const result = await runProvider(prompt, {
     ...env,
     [timeoutKey]: env.CORRECTION_TIMEOUT_MS || DEFAULT_CORRECTION_TIMEOUT_MS,
   }, signal);
   if (!result.ok) return { ok: false, error: result.error };
-  const parsed = parseCorrectionResponse(result.text, wrongAnswer);
+  // Edits the teacher sends point at the text it saw (with marks): they are applied there, then unmarked.
+  const raw = parseCorrectionResponse(result.text, blind ? blind.text(wrongAnswer) : wrongAnswer);
+  const parsed = blind ? {
+    ...raw,
+    answer: blind.back(raw.answer),
+    memories: (raw.memories || []).map((m) => ({ ...m, title: blind.back(m.title), content: blind.back(m.content) })),
+    template: raw.template ? { ...raw.template, title: blind.back(raw.template.title), content: blind.back(raw.template.content) } : null,
+  } : raw;
   if (!parsed.answer) return { ok: false, error: "O professor retornou uma correção vazia ou inválida." };
   return { ok: true, ...parsed };
 }

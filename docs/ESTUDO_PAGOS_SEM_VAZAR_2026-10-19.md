@@ -89,6 +89,29 @@ um e-mail), sobram os pseudônimos (camada 2) ou o modelo local.
 5. Bateria nova "sigilo": casos com CPF, nomes e valores, em que o pedido gravado não pode ter nenhum deles e a
    entrega tem de bater com os dados reais.
 
+## 5. O que foi feito (19 e 20/10)
+
+| Peça | Arquivo | O que faz |
+|---|---|---|
+| Espelho | `app/mirror.js` | Copia as planilhas com colunas, tipos e formatos reais e valores falsos (mesma quantidade de valores distintos; a mesma pessoa tem o mesmo nome falso em todos os arquivos). Copia o código com marcas (`[NOME 1]`, `[SEGREDO 1]`). Os documentos só aparecem listados. Colunas de vocabulário (situação, região, categoria…) ficam reais. |
+| Marcas reversíveis | `pseudonymize` / `restoreScript` / `unfake` | Trocam nomes, CPF, CNPJ, e-mail, telefone, R$ e valores das planilhas no pedido e na conversa; o script e as palavras do modelo recebem os reais de volta só aqui. |
+| Motor no espelho | `app/engine.js` | O modelo forte escreve `aurora_tarefa.py` no espelho, e a Aurora roda o script aqui, com uma rodada de correção se ele falhar. Numa tarefa de código, as edições na cópia são aplicadas no arquivo real. Um pedido que ainda tenha valor real não é enviado. |
+| Ajuda ativa | `proactiveFit` + `chatTurn.js` | Arquivo para entregar, gráfico, análise das planilhas ou tarefa de código vai primeiro ao modelo forte; a local fica com a conversa e assume se ele falhar. "Agora em azul" continua a entrega anterior. Limite de 40 chamadas por dia. |
+| Professor cego | `app/blind.js` + `teachingLoop.js` | A revisão paga vê o método (ferramentas, erros, forma dos resultados), nunca o conteúdo; as lições voltam aqui com os nomes reais. |
+| Escuta de saída | `scripts/hybrid-lab/egress-tap.mjs` | Na bateria híbrida, fica no lugar do CLI e grava tudo o que sairia do computador. |
+
+**Bateria híbrida (`scripts/hybrid-battery.mjs`), 20/10, qwen3.5:4b + Claude:** a 1ª rodada passou 5 de 7 (os
+2 restantes estavam certos, e o erro era do conferidor). Nas 6 chamadas ao Claude, **nenhum nome, CPF, CNPJ ou
+cláusula** saiu, e todas rodaram no espelho. Ela também achou três problemas, já corrigidos:
+- carta em .docx não reconhecida como entrega;
+- conversa simples escalando;
+- "atrasada" trocada por "Situação 1".
+
+**Fica de fora, por enquanto:** um plano escrito pelo modelo forte para as tarefas que só a local pode fazer
+(navegador, pastas fora do projeto). Na avaliação de agentes, a local sozinha já tem 32 de 32, então o ganho
+não seria medível ali. A revisão de cartões de conhecimento (`knowledgeReview.js`) continua mandando
+documentos, como antes, e só com a autorização do setor.
+
 ## Fontes
 - Gemini no GDC air-gapped: [SiliconANGLE, 27/08/2025](https://siliconangle.com/2025/08/27/gemini-ai-lands-google-distributed-cloud-secure-premises-adoption/), [Techzine](https://techzine.eu/news/infrastructure/130405/google-brings-gemini-to-on-premises-data-centers-with-distributed-cloud)
 - Claude nas nuvens da empresa: [Claude Desktop em AWS, Google Cloud e Foundry](https://claude.com/blog/the-full-claude-desktop-experience-on-aws-google-cloud-and-microsoft-foundry), [Claude no Bedrock](https://platform.claude.com/docs/en/build-with-claude/claude-in-amazon-bedrock), [regiões do Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/models-region-compatibility.html), [Opus 5.5 no Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html)

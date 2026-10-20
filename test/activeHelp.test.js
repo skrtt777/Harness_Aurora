@@ -45,6 +45,16 @@ test("what goes to a strong engine first: files, charts, analyses of the sheets;
   assert.equal(proactiveFit({ request: "agora em azul", followsEngine: false }), null);
 });
 
+test("the correction the person asks for goes blind too, and its answer comes back real", async () => {
+  const { correctLocalAnswer } = await import("../app/correction.js");
+  const log = join(temp, "correction.log");
+  const out = await correctLocalAnswer({ question: "Quanto a Maria Souza deve? CPF 123.456.789-09", wrongAnswer: "A Maria Souza deve R$ 10,00.", note: "o valor está errado", teacherProvider: "codex", env: { ...process.env, CODEX_BIN: fakeCli, FAKE_CORRECTION_LOG: log } });
+  assert.equal(out.ok, true, out.error);
+  const sent = JSON.parse(readFileSync(log, "utf8").trim()).prompt;
+  for (const s of ["Maria", "123.456.789-09", "10,00"]) assert.ok(!sent.includes(s), `${s} reached the teacher`);
+  assert.match(sent, /\[NOME 1\]/);
+});
+
 test("small talk never escalates, even when the local answer lists what it cannot do", async () => {
   const { escalationReason } = await import("../app/engine.js");
   assert.equal(escalationReason({ request: "oi, tudo bem? o que você consegue fazer por mim?", result: { ok: true, text: "Infelizmente não consigo acessar a internet, mas posso...", steps: [] } }), null);

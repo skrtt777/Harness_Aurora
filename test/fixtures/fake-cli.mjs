@@ -19,6 +19,7 @@ if (mirroring) {
   else console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: said } }));
   process.exit(0);
 }
+if (correcting && process.env.FAKE_CORRECTION_LOG) (await import("node:fs")).appendFileSync(process.env.FAKE_CORRECTION_LOG, JSON.stringify({ prompt }) + "\n");
 if (reviewing && process.env.FAKE_REVIEW_LOG) (await import("node:fs")).appendFileSync(process.env.FAKE_REVIEW_LOG, JSON.stringify({ cwd: process.cwd(), prompt }) + "\n");
 await new Promise(resolve => setTimeout(resolve, Number(extracting ? process.env.FAKE_EXTRACTION_DELAY_MS || 0 : process.env.FAKE_CLI_DELAY_MS || 0)));
 let text = reviewing ? (process.env.FAKE_REVIEW || JSON.stringify({ verdict: "fix", problems: ["O arquivo não imprime o resultado."], guidance: "Adicione console.log(resultado) em soma.js e rode de novo.", lessons: [{ title: "Conferir saída", content: "Depois de criar um script de linha de comando, rode-o e confira que imprime o resultado esperado.", tags: ["node"] }], skill: null }))
