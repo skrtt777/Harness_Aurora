@@ -44,7 +44,16 @@
 | 7 | **Execução isolada:** Docker/WSL para comandos e scripts (o do espelho também) | Segurança quando o agente roda sozinho ou com modelo pago | `sandboxCode.js`, `jsSandbox.js` |
 | 8 | **Roteador de motores por custo, qualidade e sigilo:** cada passo vai ao motor certo (local para conversa e dado sigiloso, pago às cegas para entregas, pago livre só com autorização) | É o "Hermes" com a privacidade da Aurora | `proactiveFit`, `escalate`, `privacyMode` |
 
-## 4. Proposta de roteiro
+## 4. Andamento
+
+- **20/10, fase 1 feita (commits 041548b e 2e34ed6):**
+  - **Motores por API:** `app/apiEngines.js` (Anthropic pelo SDK oficial; API de chat da OpenAI para OpenAI, OpenRouter, Gemini e endpoint próprio) e Configurações → Modelos. Todos trabalham às cegas pelo espelho, entram na ajuda ativa, nos agentes e no Escritório.
+  - **Gateway:** `app/gateway.js` dá uma conversa do celular para todos os canais, e a resposta volta pelo canal usado por último.
+  - **Canais:** o Telegram passou a ser canal do gateway, e o WhatsApp (`app/whatsapp.js`) entrou pelo WhatsApp Web, com QR, a conversa "Mensagem para você" ou um número próprio por código.
+  - **Testado com modelos reais:** o qwen3.5:4b pelo Ollama, como endpoint próprio, fez a soma às cegas certa. O WhatsApp Web gerou o QR, mas o pareamento com o celular ainda falta testar.
+- **Próximo: fase 2** (heartbeat; skills no padrão aberto com `/aprenda`).
+
+## 5. Proposta de roteiro
 
 **Fase 1: motores e canais (fundação)**
 1. Provedores por API com chave (Anthropic, OpenAI, OpenRouter, Gemini, compatível com OpenAI), atrás da
