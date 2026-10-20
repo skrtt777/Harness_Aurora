@@ -58,6 +58,31 @@ export function extractCodexError(stdout) {
 }
 
 /**
+ * Codex doing a task for real (app/engine.js), its sandbox writing only inside `cwd` (workspace-write).
+ * Same result shape as runCodex.
+ */
+export async function runCodexAgent(prompt, { cwd, env = process.env, signal, timeoutMs } = {}) {
+  try {
+    const args = ["exec", "--ephemeral", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", cwd, "-"];
+    if (env.CODEX_MODEL) args.splice(args.length - 1, 0, "--model", env.CODEX_MODEL);
+    const cli = resolveCli("codex", env);
+    const result = await executeCli(cli.command, [...cli.prefix, ...args], {
+      cwd, windowsHide: true, signal,
+      env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+      maxBuffer: 16 * 1024 * 1024, input: prompt,
+      timeout: timeoutMs || Number(env.CODEX_AGENT_TIMEOUT_MS || 600_000),
+    });
+    const parsed = parseCodexOutput(result.stdout);
+    const failure = extractCodexError(result.stdout);
+    if (failure || !parsed.text.trim()) return { ok: false, status: 502, error: failure || "Codex retornou uma resposta vazia." };
+    return { ok: true, status: 200, text: parsed.text.trim(), usage: parsed.usage || null };
+  } catch (error) {
+    const detail = error.code === "ENOENT" ? "Codex CLI não encontrado." : extractCodexError(error.stdout) || (error.killed ? "O Codex demorou demais e foi interrompido." : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.");
+    return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
+  }
+}
+
+/**
  * Runs one ephemeral Codex CLI turn and returns its final agent message.
  * Shared by chat responses and by the memory extractor, so both paths use
  * the exact same authentication and error handling.

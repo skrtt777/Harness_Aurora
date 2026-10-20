@@ -20,6 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
+import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -442,7 +443,7 @@ async function rememberAlwaysAllow(rule) {
 export async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))) };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))), escalationMode: (await getSetting("escalation_mode")) === "off" ? "off" : "on", engines: await engineStatus() };
 }
 
 // Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
@@ -802,9 +803,30 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
               agent = (await escalateAnswer({ first: agent, rerun, maxCopies, onStage: (stage) => setStage(conversationId, stage) })).result;
             }
           }
+          // The unified engine (app/engine.js): when the local Aurora failed, gave up or did not deliver — or
+          // the person named Claude or Codex — a strong engine does the task for real in the project folder,
+          // the first with usage left; with both out of their limits, the local answer stays and says so.
+          let escalated = null;
+          const approveEngine = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };
+          if (conversation.provider === "local" && !agent.cancelled && toolContext.workspace && await escalationOn(env)) {
+            const why = asked ? "" : escalationReason({ request: trimmed, result: agent, history });
+            if (asked || why) {
+              const allowed = toolContext.restrictedSources.size === 0 || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
+              if (allowed) {
+                const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : Object.keys(ENGINES);
+                escalated = await escalate({ task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage) });
+                if (escalated.ok) agent = { ...agent, ok: true, error: undefined, unsupported: false, text: `${escalated.text}
+
+${engineNote(escalated, { reason: why })}`, steps: [...(agent.steps || []), ...escalated.steps] };
+                else if (!escalated.cancelled && agent.ok) agent = { ...agent, text: `${agent.text}
+
+${engineNote(escalated)}` };
+              }
+            }
+          }
           // Local deliveries with errors or changes are reviewed by the paid
           // teacher; its lessons become memories and the local model redoes.
-          if (agent.ok && conversation.provider === "local") {
+          if (agent.ok && conversation.provider === "local" && !escalated?.ok) {
             const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
             const teacherProvider = asked ? asked.provider : (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
             const approveTeacher = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };

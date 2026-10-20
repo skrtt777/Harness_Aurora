@@ -26,6 +26,35 @@ export function parseClaudeOutput(stdout) {
 }
 
 /**
+ * Claude Code doing a task for real (app/engine.js): it edits files only inside `cwd` (acceptEdits keeps
+ * its edits there) and its terminal runs only python/py/pip/node, to build what the local model could not
+ * (a chart, a converted file, a script). Same result shape as runClaude.
+ */
+export const CLAUDE_EXECUTOR_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash(python:*)", "Bash(py:*)", "Bash(pip:*)", "Bash(pip3:*)", "Bash(node:*)"];
+export async function runClaudeAgent(prompt, { cwd, env = process.env, signal, timeoutMs } = {}) {
+  try {
+    const args = ["-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "acceptEdits", "--allowedTools", ...CLAUDE_EXECUTOR_TOOLS];
+    if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);
+    const cli = resolveCli("claude", env);
+    const result = await executeCli(cli.command, [...cli.prefix, ...args], {
+      cwd, windowsHide: true, signal,
+      env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+      maxBuffer: 16 * 1024 * 1024, input: prompt,
+      timeout: timeoutMs || Number(env.CLAUDE_AGENT_TIMEOUT_MS || 600_000),
+    });
+    let parsed = null; try { parsed = JSON.parse(result.stdout); } catch { /* not JSON */ }
+    if (parsed?.is_error) return { ok: false, status: 502, error: String(parsed.result || "Claude terminou com erro.") };
+    const text = String(parsed?.result || "").trim();
+    if (!text) return { ok: false, status: 502, error: "Claude retornou uma resposta vazia." };
+    return { ok: true, status: 200, text, usage: parsed?.usage || null };
+  } catch (error) {
+    let fromJson = null; try { const p = JSON.parse(error.stdout || ""); if (p?.result) fromJson = String(p.result); } catch { /* not JSON */ }
+    const detail = error.code === "ENOENT" ? "Claude Code CLI não encontrado." : fromJson || (error.killed ? "O Claude demorou demais e foi interrompido." : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.");
+    return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
+  }
+}
+
+/**
  * Runs one non-interactive Claude Code CLI turn and returns its final
  * response. Mirrors app/codex.js's runCodex exactly (same error handling,
  * same stdin-close safeguard) so both providers are interchangeable from

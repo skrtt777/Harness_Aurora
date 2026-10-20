@@ -17,10 +17,11 @@ export const TEACHER_MODES = ["actions", "errors", "off"];
 export const DEFAULT_TEACHER_MODE = "actions";
 export const DEFAULT_DAILY_LIMIT = 30;
 
-const COMPLAINT = /\b(n[ãa]o (funcionou|funciona|deu certo|abriu|fez|era isso|rodou|salvou|mudou|achei|encontrei|criou|gerou)|(t[áa]|est[áa]|ficou|continua) (errado|com erro|quebrado)|deu erro|errou|de novo|tente (de )?novo|refa[çz]a|corrija)\b/i;
+// "Não tem nenhum gráfico nessa apresentação", "você descreveu, eu preciso que faça" (15/10) were not complaints.
+const COMPLAINT = /\b(n[ãa]o tem (nenhum|nenhuma|gr[áa]fico)|cad[êe]|faltou|n[ãa]o veio|s[óo] descreveu|voc[êe] descreveu|n[ãa]o (funcionou|funciona|deu certo|abriu|fez|era isso|rodou|salvou|mudou|achei|encontrei|criou|gerou)|(t[áa]|est[áa]|ficou|continua) (errado|com erro|quebrado)|deu erro|errou|de novo|tente (de )?novo|refa[çz]a|corrija)\b/i;
 // "Onde está?" is a complaint only when the previous answer wrote nothing it could point to.
 export const WHERE_IS = /\bcad[êe]\b|^\s*(e\s+)?onde\s+(est[áa]|ficou|foi parar|salvou)(?![a-zà-ú])\s*(ele|ela|o arquivo|o documento|a planilha)?\?*\s*$/i;
-const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa]o tenho como|n[ãa]o posso)\b/i;
+const GAVE_UP = /\b(n[ãa]o consegui|n[ãa]o consigo|n[ãa]o [ée] poss[íi]vel|n[ãa]o h[áa] como|n[ãa]o d[áa] para|n[ãa]o foi poss[íi]vel|infelizmente|n[ãa]o tenho como|n[ãa]o posso)\b/i;
 
 // Tools that leave a file behind; a claim of a created file needs one of them.
 // (excel: a sheet filled live in the Excel the Aurora opened is a delivery too.)
