@@ -313,6 +313,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           if (!["on", "off"].includes(body.escalationMode)) throw httpError(400, "Opção dos modelos fortes inválida.");
           values.escalation_mode = body.escalationMode;
         }
+        if (body.paidHelp !== undefined) {
+          if (!["ativa", "quando_falha"].includes(body.paidHelp)) throw httpError(400, "Opção de ajuda dos modelos fortes inválida.");
+          values.paid_help = body.paidHelp;
+        }
+        if (body.engineDailyLimit !== undefined) {
+          if (!Number.isInteger(body.engineDailyLimit) || body.engineDailyLimit < 0 || body.engineDailyLimit > 1000) throw httpError(400, "Limite diário dos modelos fortes deve ser de 0 a 1000.");
+          values.engine_daily_limit = String(body.engineDailyLimit);
+        }
         if (body.paidPrivacy !== undefined) {
           if (!["espelho", "livre"].includes(body.paidPrivacy)) throw httpError(400, "Opção de privacidade inválida.");
           values.paid_privacy = body.paidPrivacy;

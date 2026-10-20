@@ -148,7 +148,7 @@ export default function SettingsView({
     }
   };
 
-  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode" | "paidPrivacy">>) => {
+  const saveAgent = async (patch: Partial<Pick<Settings, "agentToolsEnabled" | "browserBackend" | "agentAllowedRoots" | "agentMode" | "agentAlwaysAllow" | "teacherMode" | "teacherDailyLimit" | "escalationMode" | "paidPrivacy" | "paidHelp" | "engineDailyLimit">>) => {
     setAgentError("");
     try {
       const updated = await updateSettings(patch);
@@ -380,11 +380,19 @@ export default function SettingsView({
               </div>
             </div>
             <div className="section">
-              <h3 className="section-title">Quando a IA local não consegue</h3>
-              <p className="section-desc">Se a local falha, desiste ou não entrega o arquivo pedido, Claude ou Codex fazem a tarefa de verdade na pasta do projeto: o primeiro que ainda tiver limite de uso.</p>
+              <h3 className="section-title">Modelos fortes (Claude e Codex)</h3>
+              <p className="section-desc">Claude ou Codex fazem a tarefa de verdade, o primeiro que ainda tiver limite de uso. Por padrão, sem ver seus dados: trabalham numa cópia com valores falsos e a Aurora roda o resultado aqui.</p>
               <div className="row">
                 <div className="row-text"><div className="row-label">Modelos fortes fazem</div><div className="row-desc">{settings.escalationMode === "on" ? "Ligado: a tarefa vai para Claude ou Codex quando a local não resolve." : "Desligado: fica sempre a resposta da IA local."}</div></div>
                 <div className="row-control">{choice(settings.escalationMode, [["on", "Ligado"], ["off", "Desligado"]] as const, (id) => void saveAgent({ escalationMode: id }), "Modelos fortes fazem")}</div>
+              </div>
+              <div className="row">
+                <div className="row-text"><div className="row-label">Quando entram</div><div className="row-desc">{settings.paidHelp === "ativa" ? "Ajuda ativa: arquivos para entregar, gráficos e análises das planilhas vão primeiro ao modelo forte; a IA local fica com a conversa e assume se ele não conseguir." : "Só quando a IA local falha, desiste ou não entrega o arquivo pedido."}</div></div>
+                <div className="row-control">{choice(settings.paidHelp, [["ativa", "Ajuda ativa"], ["quando_falha", "Só se falhar"]] as const, (id) => void saveAgent({ paidHelp: id }), "Quando entram")}</div>
+              </div>
+              <div className="row">
+                <div className="row-text"><div className="row-label">Chamadas por dia</div><div className="row-desc">Usadas hoje: {settings.engineUsedToday}.</div></div>
+                <div className="row-control"><input className="field num-field" type="number" min={0} max={1000} aria-label="Chamadas por dia aos modelos fortes" value={settings.engineDailyLimit} onChange={(e) => { const value = Number(e.target.value); if (Number.isInteger(value) && value >= 0) void saveAgent({ engineDailyLimit: value }); }} /></div>
               </div>
               <div className="row">
                 <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>

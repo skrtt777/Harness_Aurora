@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, privacyMode } from "./engine.js";
+import { ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -443,7 +443,7 @@ async function rememberAlwaysAllow(rule) {
 export async function agentSettingsPayload() {
   const folders = await knownFolders();
   const backend = await getSetting("browser_backend");
-  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))), escalationMode: (await getSetting("escalation_mode")) === "off" ? "off" : "on", paidPrivacy: await privacyMode(), engines: await engineStatus() };
+  return { agentToolsEnabled: (await getSetting("agent_tools_enabled")) !== "false", browserBackend: BROWSER_BACKENDS.includes(backend) ? backend : "aurora", agentAllowedRoots: await agentAllowedRoots(folders), agentMode: await agentMode(), agentAlwaysAllow: await alwaysAllowRules(), fullComputerAccess: (await getSetting("full_computer_access")) === "true", usageProfile: (await getSetting("usage_profile")) || null, ...(await teacherSettings().then((t) => ({ teacherMode: t.mode, teacherDailyLimit: t.dailyLimit, teacherUsedToday: t.usedToday }))), escalationMode: (await getSetting("escalation_mode")) === "off" ? "off" : "on", paidPrivacy: await privacyMode(), paidHelp: await helpMode(), ...(await engineBudget().then((b) => ({ engineDailyLimit: b.dailyLimit, engineUsedToday: b.usedToday }))), engines: await engineStatus() };
 }
 
 // Instructions kept in the project folder itself, like CLAUDE.md for Claude Code.
@@ -762,7 +762,21 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // "Use o Claude nessa tarefa": the task is the last request, and the teacher reviews it whatever the mode.
           const asked = conversation.provider === "local" ? teacherAsked(trimmed, history) : null;
           let agentInput = asked ? asked.task : trimmed; let priorSteps = [];
-          if (conversation.provider === "local" && chatServer && !toolContext.agentTools && multiPart(trimmed) && env.AURORA_SUBAGENTS !== "off") {
+          // Active help (20/10): with a paid engine set up, a task it does better — a file to deliver, a chart, an
+          // analysis of the project's spreadsheets — goes to it first, blind (espelho: a copy with fake values,
+          // its script runs here), and the local Aurora only runs if it could not. Runs nobody started by hand
+          // (schedule, watched folder) keep the local first.
+          let proactive = null;
+          if (conversation.provider === "local" && !asked && toolContext.workspace && (!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && await escalationOn(env) && (await helpMode(env)) === "ativa") {
+            const fit = proactiveFit({ request: trimmed, hasTables: hasTables(toolContext.workspace) });
+            const ready = fit && Object.values(await engineStatus({ env })).some((s) => s.installed && !s.limitedUntil);
+            if (ready) {
+              const preferred = (conversation.teacherProvider || await getSetting("default_teacher", "claude")) === "codex" ? "codex" : "claude";
+              proactive = await escalate({ task: trimmed, history, workspace: toolContext.workspace, order: [preferred, ...Object.keys(ENGINES).filter((x) => x !== preferred)], env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), privacy: await privacyMode(env), proactive: true });
+              proactive.fit = fit;
+            }
+          }
+          if (!proactive?.ok && conversation.provider === "local" && chatServer && !toolContext.agentTools && multiPart(trimmed) && env.AURORA_SUBAGENTS !== "off") {
             setStage(conversationId, "Dividindo o trabalho entre subagentes…");
             const ask = (messages, schema) => runLlama(messages, { ...agentEnv, LOCAL_ENGINE: "llama.cpp", LOCAL_BASE_URL: chatServer, LOCAL_OUTPUT_SCHEMA: schema, LOCAL_MAX_OUTPUT_TOKENS: "1500", LOCAL_CONTEXT_TOKENS: String(ollamaContextTokens(agentEnv)), LOCAL_TEMPERATURE: "0.3" }, controller.signal);
             const parts = await planParts({ request: trimmed, history, folder: (toolContext.workspace || "Documentos"), ask }).catch(() => null);
@@ -775,7 +789,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
               }
             }
           }
-          let agent = await runAgent(agentHistory(history), agentInput, { question: asked ? asked.task : trimmed, priorSteps });
+          let agent = proactive?.ok
+            ? { ok: true, text: `${proactive.text}
+
+${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proactive: { engine: proactive.engine, fit: proactive.fit, ms: proactive.ms } }
+            : await runAgent(agentHistory(history), agentInput, { question: asked ? asked.task : trimmed, priorSteps });
           // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026): make sure
           // it is up (it restarts if it died) and run the turn once more instead of failing it.
           if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {
@@ -790,7 +808,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           }
           // Several copies on company questions and exact facts (docs/AVALIACAO_EMPRESA_2026-10-04.md).
           // The extra copies only read (plan mode, no approvals, steps not shown) and run together.
-          if (conversation.provider === "local") {
+          if (conversation.provider === "local" && !proactive?.ok) {
             const companyQuestion = hasKnowledge && asksForInformation(trimmed) && (asksAboutCompany(trimmed) || autoDocs.length > 0);
             // The question qualifies first: plain chat never measures the computer nor waits for copies.
             // The extra copies only read (plan mode): a request for a file never goes to the vote, or
@@ -808,7 +826,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // the first with usage left; with both out of their limits, the local answer stays and says so.
           let escalated = null;
           const approveEngine = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };
-          if (conversation.provider === "local" && !agent.cancelled && toolContext.workspace && await escalationOn(env)) {
+          // A proactive try that did not deliver is not repeated after the local answer, unless it stopped
+          // because the task needs the documents' content (then the person may let it read them).
+          if (conversation.provider === "local" && !agent.cancelled && !proactive?.ok && (!proactive || proactive.needsContent) && toolContext.workspace && await escalationOn(env)) {
             const why = asked ? "" : escalationReason({ request: trimmed, result: agent, history });
             if (asked || why) {
               const privacy = await privacyMode(env);
@@ -833,7 +853,7 @@ ${engineNote(escalated)}` };
           }
           // Local deliveries with errors or changes are reviewed by the paid
           // teacher; its lessons become memories and the local model redoes.
-          if (agent.ok && conversation.provider === "local" && !escalated?.ok) {
+          if (agent.ok && conversation.provider === "local" && !escalated?.ok && !proactive?.ok) {
             const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
             const teacherProvider = asked ? asked.provider : (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
             const approveTeacher = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };

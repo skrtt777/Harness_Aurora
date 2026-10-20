@@ -122,6 +122,61 @@ export function executorPrompt({ task, reason, workspace, history = [] }) {
 }
 
 /**
+ * When a strong engine helps: "ativa" (default, 20/10) — a task it does better (a file to deliver, a chart, an
+ * analysis of the project's spreadsheets) goes to it first, blind, and the local Aurora stays as the fallback;
+ * "quando_falha" — only after the local answer fails (as on 15/10).
+ */
+export const HELP_MODES = ["ativa", "quando_falha"];
+export async function helpMode(env = process.env) {
+  const value = env.AURORA_PAID_HELP || (await getSetting("paid_help"));
+  return HELP_MODES.includes(value) ? value : "ativa";
+}
+
+export const DEFAULT_ENGINE_DAILY_LIMIT = 40;
+const today = () => new Date().toISOString().slice(0, 10);
+/** Strong-engine calls today and the daily cap (Configurações), shared by the active help and the escalation. */
+export async function engineBudget() {
+  const raw = await getSetting("engine_daily_limit");
+  const limit = raw === null || raw === "" ? NaN : Number(raw);
+  let usage = { date: today(), count: 0 };
+  try { const saved = JSON.parse(await getSetting("engine_usage")); if (saved?.date === today()) usage = saved; } catch { /* first use */ }
+  return { dailyLimit: Number.isInteger(limit) && limit >= 0 ? limit : DEFAULT_ENGINE_DAILY_LIMIT, usedToday: usage.count };
+}
+async function spendEngineCall() {
+  const { usedToday } = await engineBudget();
+  await setSetting("engine_usage", JSON.stringify({ date: today(), count: usedToday + 1 }));
+}
+
+/** Whether `dir` has a spreadsheet (csv/tsv/xlsx) within two levels. */
+export function hasTables(dir) {
+  if (!dir) return false;
+  const look = (d, depth) => {
+    let entries = [];
+    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    return entries.some((e) => (e.isFile() && /\.(csv|tsv|xlsx|xlsm)$/i.test(e.name)) || (depth > 0 && e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules" && look(join(d, e.name), depth - 1)));
+  };
+  return look(dir, 2);
+}
+
+const VISUAL = /\b(gr[áa]fic[oa]s?|dashboards?|painel|pain[ée]is|infogr[áa]fico|visualiza[çc][ãa]o)\b/i;
+const ANALYSIS = /\b((quem|qual|quais)\b.{0,50}\b(mais|menos)\b|melhor(es)?|pior(es)?|quant[oa]s?|total|totais|soma[rs]?|m[ée]dias?|maior(es)?|menor(es)?|ranking|top \d+|compar[ae]|tend[êe]ncia|crescimento|queda|previs[ãa]o|projet[ae]|percentua(l|is)|por (m[êe]s|ano|regi[ãa]o|cliente|produto|vendedor|categoria|setor|loja|filial)|analis[ae]|an[áa]lise)\b/i;
+const CHAT_ONLY = /^\s*(oi|ol[áa]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu|ok|beleza|tudo bem)\b/i;
+
+/**
+ * Why a strong engine should do this request first, or null for the local Aurora: a file to deliver (deck,
+ * sheet, document, chart, page, script), a chart or dashboard, or an analysis of the project's spreadsheets.
+ * Chat, questions about the company's documents and small talk stay local.
+ */
+export function proactiveFit({ request, hasTables: tables = false }) {
+  const text = String(request || "").trim();
+  if (text.length < 12 || CHAT_ONLY.test(text)) return null;
+  if (requestsFile(text)) return "é uma entrega de arquivo";
+  if (VISUAL.test(text)) return "pede um gráfico ou painel";
+  if (tables && ANALYSIS.test(text)) return "é uma análise das planilhas do projeto";
+  return null;
+}
+
+/**
  * How much of the project a paid engine may see: "espelho" (default) — only the synthetic mirror, its script
  * runs here; "livre" — the real folder, as before 19/10.
  */
@@ -133,17 +188,17 @@ export async function privacyMode(env = process.env) {
 
 export function mirrorPrompt({ task, reason, mirrorDir, history = [], map }) {
   const recent = history.filter((m) => ["user", "assistant"].includes(m.role) && m.provider !== "Sistema").slice(-6)
-    .map((m) => `${m.role === "user" ? "Pessoa" : "Aurora"}: ${pseudonymize(String(m.content || "").slice(0, 600), map).text}`).join("\n");
+    .map((m) => `${m.role === "user" ? "Pessoa" : "Aurora"}: ${pseudonymize(String(m.content || "").slice(0, 600), map, { names: true }).text}`).join("\n");
   return [
     "Você está ajudando a Aurora, a assistente local desta pessoa, a terminar uma tarefa que ela não conseguiu sozinha.",
-    reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map).text}.` : "A pessoa pediu que você fizesse esta tarefa.",
+    reason ? `Por que a Aurora local não conseguiu: ${pseudonymize(reason, map, { names: true }).text}.` : "A pessoa pediu que você fizesse esta tarefa.",
     `Os dados da empresa não podem sair do computador. Esta pasta (${mirrorDir}) é um ESPELHO da pasta do projeto: as planilhas têm as colunas, os tipos e os formatos reais, mas os valores e os nomes são falsos. Veja ${MIRROR_MANIFEST} (o que existe na pasta real e quantas linhas cada planilha tem lá).`,
     `Entregue a tarefa como um script Python: grave ${MIRROR_SCRIPT} nesta pasta. Ele vai rodar na pasta real, com os mesmos nomes de arquivo (caminhos relativos à pasta atual), e deve gravar ali os arquivos pedidos. Se a tarefa for uma pergunta, o script imprime a resposta (print) em português.`,
     "Nada de valores fixos tirados das planilhas: tudo vem dos arquivos (a pasta real tem outros valores e mais linhas). Um valor citado no pedido, como \"Cliente 3\", pode ficar no script: ele é trocado pelo real antes de rodar.",
     "Use python-pptx para apresentações (gráficos nativos), openpyxl para planilhas, matplotlib para imagens; instale com pip se faltar. Rode o script aqui no espelho e confira o que ele gera antes de responder.",
     "Responda em português do Brasil, em até 3 frases, o que o script faz e quais arquivos ele grava, sem citar valores do espelho (eles são falsos). Se a tarefa precisar ler o conteúdo de um documento que só está listado, ou não puder virar script, responda só PRECISA_DO_CONTEUDO e o motivo.",
     recent ? `\nConversa recente (nomes e documentos trocados por marcas):\n${recent}` : "",
-    `\nTarefa: ${pseudonymize(task, map).text}`,
+    `\nTarefa: ${pseudonymize(task, map, { names: true }).text}`,
   ].join("\n");
 }
 
@@ -184,7 +239,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
       const ran = await runPython(realScript, workspace, { signal });
       if (ran.ok || signal?.aborted || round === 1) return { ...answer, text: unfake(answer.text, mirror.map), ran, restored };
       onStage(`O script falhou nos dados reais; o ${ENGINES[id].label} está corrigindo…`);
-      const error = pseudonymize((ran.stderr || ran.stdout).slice(-3000), mirror.map).text;
+      const error = pseudonymize((ran.stderr || ran.stdout).slice(-3000), mirror.map, { names: true }).text;
       answer = await call(`O ${MIRROR_SCRIPT} rodou na pasta real e falhou com este erro (valores reais trocados por marcas):\n${error}\n\nCorrija ${MIRROR_SCRIPT} nesta pasta (lembre: a pasta real tem outros valores e mais linhas), rode de novo aqui e responda como antes.`);
       if (!answer.ok) return answer;
     }
@@ -200,7 +255,7 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre" }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false }) {
   const status = await engineStatus({ env, now: now() });
   const tried = [];
   const limited = [];
@@ -208,7 +263,10 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     const s = status[id];
     if (!run && !s.installed) { tried.push(`${ENGINES[id].label}: não instalado`); continue; }
     if (s.limitedUntil) { limited.push({ id, until: s.limitedUntil }); continue; }
-    onStage(`A Aurora pediu ajuda ao ${ENGINES[id].label}…`);
+    const budget = await engineBudget();
+    if (budget.usedToday >= budget.dailyLimit) return { ok: false, tried, limited, budget: true };
+    await spendEngineCall();
+    onStage(proactive ? `A Aurora está fazendo com o ${ENGINES[id].label}${privacy === "espelho" ? ", sem enviar seus dados" : ""}…` : `A Aurora pediu ajuda ao ${ENGINES[id].label}…`);
     const before = snapshot(workspace);
     const started = now();
     const answer = privacy === "espelho"
@@ -243,6 +301,7 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
 export function engineNote(outcome, { reason } = {}) {
   if (outcome.ok && outcome.privacy === "espelho") return `> Feito com o ${outcome.label} sem enviar seus dados: ele viu só uma cópia com valores falsos e o script rodou aqui${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
   if (outcome.ok) return `> Feito pelo ${outcome.label}${reason ? ` (a Aurora local não conseguiu: ${reason.slice(0, 160)})` : ""}.`;
+  if (outcome.budget) return "> O limite diário de chamadas aos modelos fortes acabou (Configurações → Professor): ficou a resposta da Aurora local.";
   if (outcome.needsContent) return `> Esta tarefa precisa que um modelo forte leia o conteúdo real dos documentos${outcome.why ? ` (${outcome.why.slice(0, 160)})` : ""}, e seus dados não saem do computador: ficou a resposta da Aurora local.`;
   const back = (outcome.limited || []).map((l) => `${ENGINES[l.id].label} volta ${new Date(l.until).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`);
   if (outcome.allLimited) return `> Claude e Codex estão sem limite de uso agora (${back.join("; ")}): ficou a resposta da Aurora local.`;
