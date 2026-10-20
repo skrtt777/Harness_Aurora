@@ -256,7 +256,7 @@ const hash = (s: string) => { let h = 2166136261; for (const ch of s) { h ^= ch.
 export function lookOf(a: OfficeActor): Look {
   const h = hash(a.id); const [skin, skinDark] = SKINS[h % SKINS.length]; const [hair, hairHi] = HAIRS[(h >>> 4) % HAIRS.length];
   // Claude in its orange, Codex in graphite: the strong engine doing a task wears its own colour.
-  const [shirt, shirtDark] = a.kind === "forte" && a.teacher === "codex" ? ["#3a3f4b", "#2a2e37"] : ROLE[a.kind];
+  const [shirt, shirtDark] = a.kind === "forte" && a.teacher === "codex" ? ["#3a3f4b", "#2a2e37"] : a.kind === "forte" && a.teacher === "outro" ? ["#3d7bd9", "#2c5ca8"] : ROLE[a.kind];
   return { skin, skinDark, hair, hairHi, style: (h >>> 9) % 4, shirt, shirtDark, pants: a.kind === "chefe" ? "#1f2a4f" : ["#34405e", "#3b3b44", "#5a4636"][(h >>> 12) % 3], shoes: "#2a1d16" };
 }
 

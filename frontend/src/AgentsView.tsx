@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { WEEKDAYS, nextRunLabel } from './agentTime';
 import {
-  createSectorAgents, createTaskAgent, deleteTaskAgent, exportAgentRuns, getPendingTurn, resolveApproval, undoAgentRun, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
+  createSectorAgents, createTaskAgent, deleteTaskAgent, listApiEngines, exportAgentRuns, getPendingTurn, resolveApproval, undoAgentRun, listOrchestrations, listTaskAgentRuns, listTaskAgents, pickFolder, planTeamRequest, runTaskAgent, startTeamRequest, updateTaskAgent,
   type AgentEngine, type AgentRun, type AgentTrigger, type NewTaskAgent, type Orchestration, type PendingTurn, type PlannedTask, type TaskAgent,
 } from './api';
 import DeliveredFiles from './DeliveredFiles';
@@ -86,6 +86,7 @@ function UndoMoves({ run, onChanged }: { run: AgentRun; onChanged: () => void })
 }
 
 function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: TaskAgent; runs: AgentRun[]; onChanged: () => void; onOpenConversation: (id: string) => void }) {
+  const engineOptions = useEngineOptions();
   const [requestText, setRequestText] = useState('');
   const [editing, setEditing] = useState(false);
   const [trigger, setTrigger] = useState(draftOf(agent.trigger));
@@ -112,7 +113,7 @@ function AgentCard({ agent, runs, onChanged, onOpenConversation }: { agent: Task
       <div>
         <h3>{agent.name}</h3>
         <p className="agent-meta">{agent.kind === 'setor' ? `Setor ${agent.department || ''}` : 'Pessoal'} · {describeTrigger(agent.trigger)}{agent.enabled && nextRun ? ` · próxima: ${nextRun}` : ''}</p>
-        <label className="agent-engine">Motor <select value={agent.engine || 'local'} aria-label={`Motor de ${agent.name}`} onChange={(e) => act(() => updateTaskAgent(agent.id, { engine: e.target.value as AgentEngine }))}>{ENGINE_OPTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+        <label className="agent-engine">Motor <select value={agent.engine || 'local'} aria-label={`Motor de ${agent.name}`} onChange={(e) => act(() => updateTaskAgent(agent.id, { engine: e.target.value as AgentEngine }))}>{engineOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       </div>
       <span className={`agent-status ${running ? 'running' : !agent.enabled ? 'off' : latest?.status || ''}`}><i aria-hidden="true" />{running ? 'Trabalhando…' : agent.enabled ? 'Pronto' : 'Desligado'}</span>
     </header>
@@ -233,6 +234,16 @@ function TeamRequest({ agents, onOpenConversation }: { agents: TaskAgent[]; onOp
 const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department: '', workDir: '', engine: 'local' };
 // Claude/Codex work blind: a copy of the folder with fake values; the Aurora runs their result here.
 const ENGINE_OPTIONS: [AgentEngine, string][] = [['local', 'Aurora local'], ['claude', 'Claude (sem ver seus dados)'], ['codex', 'Codex (sem ver seus dados)']];
+// The models set up by API key (Configurações → Modelos) join the list, fetched once per screen.
+let apiOptions: Promise<[AgentEngine, string][]> | null = null;
+function useEngineOptions(): [AgentEngine, string][] {
+  const [options, setOptions] = useState(ENGINE_OPTIONS);
+  useEffect(() => {
+    apiOptions ||= listApiEngines().then((r) => r.engines.map((e) => [e.id as AgentEngine, `${e.label} (sem ver seus dados)`] as [AgentEngine, string])).catch(() => []);
+    void apiOptions.then((extra) => setOptions([...ENGINE_OPTIONS, ...extra]));
+  }, []);
+  return options;
+}
 
 /** Ready-made starting points: they only fill the form; the folder and the confirmation stay with the person. */
 const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger: Partial<TriggerDraft>; hint: string }[] = [
@@ -263,6 +274,7 @@ const TEMPLATES: { label: string; agent: Omit<NewTaskAgent, 'workDir'>; trigger:
 ];
 
 export default function AgentsView({ onOpenConversation }: { onOpenConversation: (id: string) => void }) {
+  const engineOptions = useEngineOptions();
   const [agents, setAgents] = useState<TaskAgent[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [error, setError] = useState('');
@@ -311,7 +323,7 @@ export default function AgentsView({ onOpenConversation }: { onOpenConversation:
       <div className="agent-new-grid">
         <label>Nome <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Agente Financeiro" /></label>
         <label>Tipo <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as NewTaskAgent['kind'] })}><option value="pessoal">Pessoal</option><option value="setor">Setor da empresa</option></select></label>
-        <label>Motor <select value={draft.engine || 'local'} onChange={(e) => setDraft({ ...draft, engine: e.target.value as AgentEngine })}>{ENGINE_OPTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+        <label>Motor <select value={draft.engine || 'local'} onChange={(e) => setDraft({ ...draft, engine: e.target.value as AgentEngine })}>{engineOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
         {draft.kind === 'setor' && <label>Setor <input value={draft.department || ''} onChange={(e) => setDraft({ ...draft, department: e.target.value })} placeholder="Financeiro" /></label>}
       </div>
       <label className="grow">Missão <textarea required rows={3} value={draft.mission} onChange={(e) => setDraft({ ...draft, mission: e.target.value })} placeholder="Acompanhar contas a receber e gerar a lista de cobrança toda segunda." /></label>

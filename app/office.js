@@ -20,6 +20,8 @@ export const OFFICE_ROOM = "escritorio";
 // The HR team (app/hr.js HR_TEAM), here without importing the store.
 const HR_PEOPLE = [{ id: "rh:helena", name: "Helena", role: "Avaliação e prêmios" }, { id: "rh:otavio", name: "Otávio", role: "Contratação e desligamento" }];
 const TEACHERS = { claude: "Claude", codex: "Codex" };
+// Any engine by the words of its stage ("Claude", "Claude (API)", "OpenRouter", "Gemini"): the colour key.
+const engineKey = (label) => (/claude|anthropic/i.test(label) ? "claude" : /codex|gpt|openai/i.test(label) ? "codex" : "outro");
 // The guards (app/chatAgent.js), as the Conferência says them.
 const CHECK_LABEL = {
   requested_files_missing: "faltava um arquivo do pedido", claimed_run: "disse que rodou sem rodar", claimed_delivery: "disse que entregou sem gravar",
@@ -45,10 +47,10 @@ export function turnState(turn, conversation = null) {
   const running = turn.steps?.findLast?.((s) => s.status === "running") || null;
   if (turn.approval) return { state: "aguardando", activity: `Esperando sua autorização: ${turn.approval.summary || turn.approval.tool}` };
   // A strong engine doing the task (app/engine.js), blind in the mirror; then its script run here.
-  const doing = /(?:fazendo com o|pediu ajuda ao|; o) (Claude|Codex)/i.exec(stage);
-  const here = /rodando aqui o script do (Claude|Codex)/i.exec(stage);
-  if (here) return { state: "trabalhando", activity: `Rodando aqui, nos dados reais, o que o ${here[1]} escreveu`, tool: "run_command", engine: here[1].toLowerCase() };
-  if (doing) return { state: "delegado", activity: `Passou a tarefa ao ${doing[1]}, sem enviar seus dados`, engine: doing[1].toLowerCase() };
+  const doing = /(?:fazendo com o|pediu ajuda ao|; o) ([^,…]+?)(?:, sem enviar| está corrigindo|…|$)/i.exec(stage);
+  const here = /rodando aqui o script do ([^,…]+?)(?:,|…|$)/i.exec(stage);
+  if (here) return { state: "trabalhando", activity: `Rodando aqui, nos dados reais, o que o ${here[1]} escreveu`, tool: "run_command", engine: engineKey(here[1]), engineLabel: here[1] };
+  if (doing) return { state: "delegado", activity: `Passou a tarefa ao ${doing[1]}, sem enviar seus dados`, engine: engineKey(doing[1]), engineLabel: doing[1] };
   const review = /Revisando com (\w+)/i.exec(stage);
   if (review || /Consultando o professor/i.test(stage)) {
     const key = review ? review[1].toLowerCase() : conversation?.teacherProvider || "codex";
@@ -121,7 +123,7 @@ export function buildOffice({ projects = [], conversations = new Map(), turns = 
       add({ id: `sub:${owner.id}:${sa.id}`, kind: "subagente", name: sa.name, task: short(sa.task, 80), project: owner.project, ...st, activity: short(st.activity, 60), with: owner.id, since: sa.done ? sa.endedAt : sa.since });
     }
     // The strong engine at the desk next to whoever handed it the task, working in the mirror.
-    if (s.state === "delegado" && TEACHERS[s.engine]) add({ id: `forte:${owner.id}`, kind: "forte", name: TEACHERS[s.engine], teacher: s.engine, project: owner.project, state: "trabalhando", tool: "write_file", activity: `Fazendo a tarefa de ${owner.name} numa cópia com valores falsos`, with: owner.id, since: owner.since });
+    if (s.state === "delegado") add({ id: `forte:${owner.id}`, kind: "forte", name: s.engineLabel || TEACHERS[s.engine] || "Modelo forte", teacher: s.engine, project: owner.project, state: "trabalhando", tool: "write_file", activity: `Fazendo a tarefa de ${owner.name} numa cópia com valores falsos`, with: owner.id, since: owner.since });
     if (s.state === "revisao") add({ id: `prof:${owner.id}`, kind: "professor", name: TEACHERS[s.teacher], teacher: s.teacher, project: owner.project, state: "revisao", activity: `Revisando a entrega de ${owner.name}`, with: owner.id, since: owner.since });
     if (s.state === "conferindo") for (let i = 1; i < Math.min(s.copies || 2, 4); i++) add({ id: `copia:${owner.id}:${i}`, kind: "copia", name: `Cópia ${i + 1} de ${owner.name}`, project: owner.project, state: "conferindo", activity: `Conferindo a resposta de ${owner.name}`, with: owner.id, since: owner.since });
   };

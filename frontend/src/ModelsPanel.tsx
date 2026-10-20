@@ -1,0 +1,63 @@
+import { useEffect, useState } from "react";
+import { deleteApiEngine, listApiEngines, saveApiEngine, testApiEngine, type ApiEngine, type ApiEnginePreset, type EngineState } from "./api";
+
+/**
+ * Models by API key (app/apiEngines.js): Claude, OpenAI, OpenRouter, Gemini or any compatible endpoint, next
+ * to the Claude Code and Codex CLIs. They work like the others — the active help, the agents, the Office —
+ * and, with "Seus dados: ficam aqui", only on a copy with fake values. The key stays on this computer.
+ */
+export default function ModelsPanel() {
+  const [engines, setEngines] = useState<ApiEngine[] | null>(null);
+  const [presets, setPresets] = useState<Record<string, ApiEnginePreset>>({});
+  const [status, setStatus] = useState<Record<string, EngineState>>({});
+  const [draft, setDraft] = useState({ preset: "anthropic", label: "", model: "", baseUrl: "", apiKey: "" });
+  const [tests, setTests] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = () => listApiEngines().then((r) => { setEngines(r.engines); setPresets(r.presets); setStatus(r.status); }).catch((e: Error) => setError(e.message));
+  useEffect(() => { void load(); }, []);
+
+  const preset = presets[draft.preset];
+  const add = () => {
+    setBusy(true); setError("");
+    saveApiEngine({ preset: draft.preset, label: draft.label || preset?.label, model: draft.model || preset?.model, baseUrl: draft.baseUrl || preset?.baseUrl, apiKey: draft.apiKey })
+      .then(() => { setDraft({ preset: draft.preset, label: "", model: "", baseUrl: "", apiKey: "" }); return load(); })
+      .catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
+  };
+  const test = (id: string) => {
+    setTests({ ...tests, [id]: "Testando…" });
+    testApiEngine(id).then((r) => setTests((t) => ({ ...t, [id]: r.ok ? `Funcionando (${Math.round(r.ms / 1000)} s)` : `Não funcionou: ${r.error}` })))
+      .catch((e: Error) => setTests((t) => ({ ...t, [id]: `Não funcionou: ${e.message}` })));
+  };
+  const cli = Object.entries(status).filter(([, s]) => !s.api);
+
+  return <div className="section" aria-label="Modelos">
+    <h3 className="section-title">Modelos fortes</h3>
+    <p className="section-desc">Além da IA local, a Aurora trabalha com o Claude Code e o Codex (assinatura) e com qualquer modelo por chave de API. Com "Seus dados: ficam aqui" (Professor), todos trabalham só numa cópia com valores falsos. A chave fica neste computador.</p>
+    {cli.map(([id, s]) => <div className="row" key={id}>
+      <div className="row-text"><div className="row-label">{s.label}</div><div className="row-desc">Pela assinatura (CLI): {s.installed ? (s.limitedUntil ? `sem limite de uso até ${new Date(s.limitedUntil).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "disponível") : "não instalado neste computador"}.</div></div>
+    </div>)}
+    {engines === null && !error && <p className="muted">Carregando…</p>}
+    {(engines || []).map((e) => <div className="row" key={e.id}>
+      <div className="row-text">
+        <div className="row-label">{e.label}</div>
+        <div className="row-desc">{e.model}{e.kind === "openai" ? ` · ${e.baseUrl}` : ""} · chave {e.hasKey ? e.keyHint : "não informada"}{status[e.id]?.limitedUntil ? " · sem limite de uso agora" : ""}</div>
+        {tests[e.id] && <small className={/Não funcionou/.test(tests[e.id]) ? "memory-form-error" : "muted"}>{tests[e.id]}</small>}
+      </div>
+      <div className="row-control">
+        <button className="btn btn-ghost btn-sm" onClick={() => test(e.id)}>Testar</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => void deleteApiEngine(e.id).then(load)}>Remover</button>
+      </div>
+    </div>)}
+    <div className="model-new" aria-label="Novo modelo">
+      <label>Provedor <select value={draft.preset} onChange={(ev) => setDraft({ ...draft, preset: ev.target.value })}>{Object.entries(presets).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
+      <label>Modelo <input value={draft.model} onChange={(ev) => setDraft({ ...draft, model: ev.target.value })} placeholder={preset?.model || (draft.preset === "openrouter" ? "anthropic/claude-sonnet-5.5" : "nome do modelo")} /></label>
+      {preset?.kind === "openai" && <label>Endereço <input value={draft.baseUrl} onChange={(ev) => setDraft({ ...draft, baseUrl: ev.target.value })} placeholder={preset?.baseUrl || "https://…/v1"} /></label>}
+      <label>Chave da API <input type="password" autoComplete="off" value={draft.apiKey} onChange={(ev) => setDraft({ ...draft, apiKey: ev.target.value })} placeholder={draft.preset === "custom" ? "opcional para endpoint local" : "sk-…"} /></label>
+      <label>Nome <input value={draft.label} onChange={(ev) => setDraft({ ...draft, label: ev.target.value })} placeholder={preset?.label || "Meu modelo"} /></label>
+      <button className="btn btn-primary btn-sm" disabled={busy} onClick={add}>Adicionar</button>
+    </div>
+    {error && <p role="alert" className="memory-form-error">{error}</p>}
+  </div>;
+}

@@ -20,7 +20,7 @@ import { startTurn, setStage, setPartial, endTurn, pushTurnStep, requestApproval
 import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
-import { CHAT_ONLY, ENGINES, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
+import { CHAT_ONLY, ENGINES, refreshApiEngines, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
@@ -773,6 +773,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const engineApproval = toolContext.mode === "manual" ? (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); } : null;
           // A task agent set to work with Claude or Codex (agents.js engine) hands them every task it can do
           // blind, its scheduled runs too; the local Aurora keeps only what needs the company's documents.
+          if (env.AURORA_AGENT_ENGINE) await refreshApiEngines();
           const agentEngine = ENGINES[env.AURORA_AGENT_ENGINE] ? env.AURORA_AGENT_ENGINE : null;
           if (conversation.provider === "local" && !asked && toolContext.workspace && toolContext.mode !== "plan" && (agentEngine || ((!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && (await helpMode(env)) === "ativa")) && await escalationOn(env)) {
             // The last answer was a strong engine's delivery: "agora em azul" goes back to it, with its script.
@@ -847,7 +848,7 @@ ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proa
               const privacy = await privacyMode(env);
               const allowed = toolContext.restrictedSources.size === 0 || privacy === "espelho" || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
               if (allowed) {
-                const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : Object.keys(ENGINES);
+                const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : null;
                 const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), approveRun: engineApproval, context: engineContext };
                 // Espelho (default): the paid engine sees a copy with fake values and its script runs here. A task
                 // that needs the documents' real content goes out only with the person's yes, this once.

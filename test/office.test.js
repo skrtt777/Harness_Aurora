@@ -19,7 +19,11 @@ test('office: what a running turn is doing, from its stage, steps and approval',
 });
 
 test('office: Claude or Codex doing a task appears next to whoever handed it over, and agents show their engine', () => {
-  assert.deepEqual(turnState({ stage: 'A Aurora está fazendo com o Claude, sem enviar seus dados…', steps: [] }), { state: 'delegado', activity: 'Passou a tarefa ao Claude, sem enviar seus dados', engine: 'claude' });
+  assert.deepEqual(turnState({ stage: 'A Aurora está fazendo com o Claude, sem enviar seus dados…', steps: [] }), { state: 'delegado', activity: 'Passou a tarefa ao Claude, sem enviar seus dados', engine: 'claude', engineLabel: 'Claude' });
+  // An engine set up with an API key, by its own name.
+  const api = turnState({ stage: 'A Aurora está fazendo com o OpenRouter, sem enviar seus dados…', steps: [] });
+  assert.deepEqual([api.state, api.engineLabel, api.engine], ['delegado', 'OpenRouter', 'outro']);
+  assert.equal(turnState({ stage: 'A Aurora está fazendo com o Claude (API), sem enviar seus dados…', steps: [] }).engine, 'claude');
   assert.equal(turnState({ stage: 'A Aurora pediu ajuda ao Codex…', steps: [] }).engine, 'codex');
   assert.equal(turnState({ stage: 'O script falhou nos dados reais; o Claude está corrigindo…', steps: [] }).state, 'delegado');
   assert.deepEqual(turnState({ stage: 'A Aurora está rodando aqui o script do Codex, nos dados reais…', steps: [] }).tool, 'run_command');

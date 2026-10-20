@@ -19,7 +19,8 @@ import { diaryEntries } from "./diary.js";
 import { connectTelegram, disconnectTelegram, notifyRunOnPhone, sendToPhone, startTelegram, stopTelegram, telegramStatus } from "./telegram.js";
 import { importMemories } from "./memoryImport.js";
 import { readFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildProviderConfig, parseCodexOutput } from "./codex.js";
@@ -56,6 +57,8 @@ import { rules, DEFAULT_BUDGET } from "./economy.js";
 import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill } from "./skills.js";
 import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, recheckWorkflow } from "./workflows.js";
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skillCatalog.js";
+import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
+import { engineStatus, refreshApiEngines } from "./engine.js";
 // Tests and scripts import these from here.
 export { buildPrompt, handleChatTurn, agentHistory, asksForInformation, fileMentions, knowledgeQuery } from "./chatTurn.js";
 
@@ -225,6 +228,33 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         return sendJson(response, 200, {
           providers: [buildProviderConfig(), buildClaudeProviderConfig(), await buildLocalProviderConfig()],
         });
+      }
+
+      // ---------- Engines by API key (app/apiEngines.js) ----------
+      // The keys stay in the local database; the screen only sees "…1234".
+      if (method === "GET" && pathname === "/api/engines") {
+        return sendJson(response, 200, { engines: (await listApiEngines()).map(publicEngine), presets: API_PRESETS, status: await engineStatus() });
+      }
+      if (method === "POST" && pathname === "/api/engines") {
+        const saved = await saveApiEngine(await readJson(request));
+        await refreshApiEngines();
+        return sendJson(response, 201, { engine: publicEngine(saved) });
+      }
+      if (pathname.startsWith("/api/engines/")) {
+        const [id, sub] = pathname.slice("/api/engines/".length).split("/");
+        if (method === "DELETE" && !sub) { await deleteApiEngine(decodeURIComponent(id)); await refreshApiEngines(); return sendJson(response, 200, { deleted: true }); }
+        if (method === "POST" && sub === "test") {
+          // A small real task in a throwaway folder: the key, the model and the tools all answer.
+          const engine = (await listApiEngines()).find((e) => e.id === decodeURIComponent(id));
+          if (!engine) throw httpError(404, "Motor não encontrado.");
+          const dir = mkdtempSync(join(tmpdir(), "aurora-teste-motor-"));
+          try {
+            const started = Date.now();
+            const out = await runApiEngine(engine, "Grave o arquivo ok.txt com o texto OK, confira com read_file e responda só: pronto.", { cwd: dir });
+            const wrote = existsSync(join(dir, "ok.txt")) && /OK/.test(readFileSync(join(dir, "ok.txt"), "utf8"));
+            return sendJson(response, 200, { ok: out.ok && wrote, ms: Date.now() - started, error: out.ok ? (wrote ? null : "respondeu, mas não usou as ferramentas") : out.error });
+          } finally { rmSync(dir, { recursive: true, force: true }); }
+        }
       }
 
       // ---------- Settings (Central de Configurações) ----------

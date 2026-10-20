@@ -19,6 +19,8 @@ import { personalFolders } from "./fileAccess.js";
 export const AGENT_KINDS = ["setor", "pessoal"];
 // Who does the agent's work (20/10): the local Aurora, or Claude/Codex — blind, through the mirror (app/engine.js).
 export const AGENT_ENGINES = ["local", "claude", "codex"];
+// Plus any engine set up with an API key (app/apiEngines.js ids: "api-…").
+const validEngine = (engine) => AGENT_ENGINES.includes(engine) || /^api-[a-z0-9-]+$/.test(String(engine || ""));
 let recovered = false;
 
 async function ready() {
@@ -52,7 +54,7 @@ const parse = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } ca
 const mapAgent = (r) => r && ({
   id: r.id, name: r.name, kind: r.kind, mission: r.mission, department: r.department || null, workDir: r.work_dir,
   tools: parse(r.tools, null), trigger: parse(r.trigger, { type: "manual" }), enabled: Boolean(r.enabled), projectId: r.project_id,
-  engine: AGENT_ENGINES.includes(r.engine) ? r.engine : "local",
+  engine: validEngine(r.engine) ? r.engine : "local",
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapRun = (r) => r && ({
@@ -121,7 +123,7 @@ export async function createAgent({ name, kind = "pessoal", mission, department 
   if (!String(name || "").trim()) throw httpError(400, "Dê um nome ao agente.");
   if (!String(mission || "").trim()) throw httpError(400, "Descreva a missão do agente.");
   if (!AGENT_KINDS.includes(kind)) throw httpError(400, "Tipo de agente inválido.");
-  if (!AGENT_ENGINES.includes(engine)) throw httpError(400, "Motor do agente inválido.");
+  if (!validEngine(engine)) throw httpError(400, "Motor do agente inválido.");
   // No folder given: one of its own under Documentos\Aurora\Agentes (a path to type was the hard
   // part of creating an agent for someone who just wants "um resumo toda manhã").
   if (!String(workDir || "").trim()) workDir = defaultAgentFolder(name);
@@ -142,7 +144,7 @@ export async function updateAgent(id, patch = {}) {
   const agent = await getAgent(id);
   if (!agent) throw httpError(404, "Agente não encontrado.");
   const next = { ...agent, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
-  if (!AGENT_ENGINES.includes(next.engine)) throw httpError(400, "Motor do agente inválido.");
+  if (!validEngine(next.engine)) throw httpError(400, "Motor do agente inválido.");
   const db = await ready();
   db.prepare("UPDATE agents SET engine = ? WHERE id = ?").run(next.engine, id);
   db.prepare("UPDATE agents SET name = ?, mission = ?, department = ?, tools = ?, trigger = ?, enabled = ?, updated_at = ? WHERE id = ?")

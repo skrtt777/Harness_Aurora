@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { resolveCli } from "./cliRuntime.js";
+import { listApiEngines, runApiEngine } from "./apiEngines.js";
 import { buildMirror, codeChanges, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
 import { runClaudeAgent } from "./claude.js";
 import { runCodexAgent } from "./codex.js";
@@ -15,6 +16,17 @@ import { detectSignals, requestsFile, WRITE_TOOLS } from "./teacher.js";
 
 export const ENGINES = { claude: { label: "Claude", run: runClaudeAgent }, codex: { label: "Codex", run: runCodexAgent } };
 const DEFAULT_ORDER = ["claude", "codex"];
+
+// The engines set up with an API key (app/apiEngines.js) join the CLIs here, under their own ids ("api-…"):
+// everything that hands work to an engine (active help, escalation, agents, the Office) sees them all.
+export async function refreshApiEngines() {
+  const configured = await listApiEngines().catch(() => []);
+  for (const id of Object.keys(ENGINES)) if (ENGINES[id].api && !configured.some((e) => e.id === id)) delete ENGINES[id];
+  for (const cfg of configured) ENGINES[cfg.id] = { label: cfg.label, api: true, configured: Boolean(cfg.apiKey || (cfg.kind === "openai" && cfg.baseUrl)), run: (prompt, opts) => runApiEngine(cfg, prompt, opts) };
+  return ENGINES;
+}
+/** The order engines are tried in: the CLIs first (their subscription), then the API ones. */
+export const engineOrder = () => [...DEFAULT_ORDER, ...Object.keys(ENGINES).filter((id) => !DEFAULT_ORDER.includes(id))];
 const DEFAULT_COOLDOWN_MS = 60 * 60_000;
 const MAX_COOLDOWN_MS = 7 * 24 * 60 * 60_000;
 
@@ -54,10 +66,11 @@ export async function markLimited(engine, until, reason = "") {
 
 /** Each strong engine now: installed, and whether (and until when) it is out of its limit. */
 export async function engineStatus({ env = process.env, now = Date.now() } = {}) {
+  await refreshApiEngines();
   const limits = await readLimits();
   return Object.fromEntries(Object.keys(ENGINES).map((id) => {
     const limit = limits[id] && limits[id].until > now ? limits[id] : null;
-    return [id, { installed: resolveCli(id, env).installed, limitedUntil: limit?.until || null, reason: limit?.reason || null }];
+    return [id, { label: ENGINES[id].label, api: Boolean(ENGINES[id].api), installed: ENGINES[id].api ? ENGINES[id].configured : resolveCli(id, env).installed, limitedUntil: limit?.until || null, reason: limit?.reason || null }];
   }));
 }
 
@@ -327,8 +340,9 @@ async function runOnMirror({ id, task, reason, history, workspace, env, signal, 
  * the engine only sees the synthetic mirror and its script runs here. Returns { ok, engine, label, text,
  * files, steps } on success; { ok: false, tried, limited, allLimited, needsContent? } otherwise.
  */
-export async function escalate({ task, reason = "", history = [], workspace, order = DEFAULT_ORDER, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs, context = [] }) {
+export async function escalate({ task, reason = "", history = [], workspace, order = null, env = process.env, signal, onStage = () => {}, run = null, now = () => Date.now(), privacy = "livre", proactive = false, followUp = false, approveRun = null, timeoutMs, context = [] }) {
   const status = await engineStatus({ env, now: now() });
+  order = (order || engineOrder()).filter((id) => ENGINES[id]);
   const tried = [];
   const limited = [];
   for (const id of order.filter((x) => ENGINES[x])) {
@@ -363,7 +377,10 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
     // What the script printed is computed here from the real data: it is the answer itself. The engine's own
     // words describe the script (about the mirror) and stay below.
     const printed = answer.ran.stdout.trim().slice(0, 3000);
-    const text = [printed, answer.text.trim(), files.length ? `Arquivos:\n${files.map((f) => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    // Its words come under a label: a number in them is from the mirror (fake), the real ones are above.
+    const said = answer.text.trim();
+    const how = said ? `**Como o ${ENGINES[id].label} fez** (testado numa cópia com valores falsos${printed ? "; os números acima são os reais" : ""}):\n${said}` : "";
+    const text = [printed, how, files.length ? `Arquivos:\n${files.map((f) => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
     return { ok: true, engine: id, label: ENGINES[id].label, text, files, steps: [...steps, { tool: "run_command", ok: true, by: id, args: { command: `python ${MIRROR_SCRIPT}` }, summary: `Rodei aqui, nos dados reais, o script do ${ENGINES[id].label}.` }], ms: now() - started, privacy };
   }
   return { ok: false, tried, limited, allLimited: limited.length > 0 && limited.length + tried.filter((t) => /não instalado/.test(t)).length >= order.length };

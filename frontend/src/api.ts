@@ -550,7 +550,7 @@ export type TaskAgent = {
   /** Who does the work: the local Aurora, or Claude/Codex without seeing the data (a copy with fake values). */
   engine: AgentEngine;
 };
-export type AgentEngine = "local" | "claude" | "codex";
+export type AgentEngine = "local" | "claude" | "codex" | `api-${string}`;
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;
@@ -689,3 +689,12 @@ export type HrSnapshot = { team: Array<{ id: string; name: string; role: string 
 export const getHr = () => request<HrSnapshot>("/hr");
 export const reviewHr = () => request<HrSnapshot>("/hr/review", { method: "POST", body: "{}" });
 export const rehireAgent = (agentId: string) => request<HrSnapshot>("/hr/rehire", { method: "POST", body: JSON.stringify({ agentId }) });
+
+// ---------- Engines by API key (app/apiEngines.js) ----------
+export type ApiEnginePreset = { kind: "anthropic" | "openai"; label: string; baseUrl?: string; model?: string };
+export type ApiEngine = { id: string; label: string; kind: "anthropic" | "openai"; baseUrl: string; model: string; hasKey: boolean; keyHint: string };
+export type EngineState = { label: string; api: boolean; installed: boolean; limitedUntil: number | null; reason: string | null };
+export const listApiEngines = () => request<{ engines: ApiEngine[]; presets: Record<string, ApiEnginePreset>; status: Record<string, EngineState> }>("/engines");
+export const saveApiEngine = (engine: { id?: string; preset?: string; label?: string; kind?: string; baseUrl?: string; model?: string; apiKey?: string }) => request<{ engine: ApiEngine }>("/engines", { method: "POST", body: JSON.stringify(engine) }).then((r) => r.engine);
+export const deleteApiEngine = (id: string) => request<{ deleted: boolean }>(`/engines/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const testApiEngine = (id: string) => request<{ ok: boolean; ms: number; error: string | null }>(`/engines/${encodeURIComponent(id)}/test`, { method: "POST" });

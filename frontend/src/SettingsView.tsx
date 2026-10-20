@@ -33,6 +33,7 @@ import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
+import ModelsPanel from './ModelsPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "IA local" };
 const SECTIONS = [
@@ -43,6 +44,7 @@ const SECTIONS = [
   { id: "privacy", label: "Privacidade" },
   { id: "phone", label: "Celular" },
   { id: "teacher", label: "Professor" },
+  { id: "models", label: "Modelos" },
   { id: "local", label: "IA local" },
   { id: "knowledge", label: "Documentos lidos" },
   { id: "learning", label: "Aprendizado" },
@@ -362,6 +364,14 @@ export default function SettingsView({
                 </div>
               ))}
             </div>}
+          </>}
+
+          {section === "models" && <>
+            <header className="page-header">
+              <h2 className="page-title">Modelos</h2>
+              <p className="page-desc">Os motores que a Aurora usa além da IA local: assinaturas (Claude Code, Codex) e qualquer modelo por chave de API.</p>
+            </header>
+            <ModelsPanel />
           </>}
 
           {section === "teacher" && <>
