@@ -142,3 +142,28 @@ test("only real values count for a disagreement: amounts, percentages, dates —
   assert.deepEqual([...valuesIn("Registro 110 do pedido 4512")], []);
   assert.deepEqual([...valuesIn("Custo de R$ 1.200,50 por mês")], ["r$ 1.200,50"]);
 });
+
+test("the person calls her: a resting Zeladora wakes up, goes to the memories asked and tends them", async () => {
+  const { startMemoryKeeper, stopMemoryKeeper, visitMemories, keeperState } = await import("../app/memoryKeeper.js");
+  await store.setSetting("memory_keeper", "on");
+  const project = await store.createProject({ name: "Chamado" });
+  const m1 = await store.createMemory({ scope: "project", projectId: project.id, title: "Cliente Gama: entrega", content: "O cliente Gama recebe as entregas sempre na segunda pela manhã no galpão dois.", kind: "extracted", dedupe: false, env });
+  const m2 = await store.createMemory({ scope: "project", projectId: project.id, title: "Fornecedor Delta", content: "O fornecedor Delta fatura no dia 5 e aceita pedidos só por e-mail.", kind: "extracted", dedupe: false, env });
+  const seen = [];
+  const listen = (e) => { if (e.type === "keeper") seen.push(e); };
+  memoryEvents.on("event", listen);
+  startMemoryKeeper({ paceMs: 0, restMs: 60_000, firstDelayMs: 0 });
+  try {
+    const until = async (check, ms = 5000) => { const t0 = Date.now(); while (!check()) { if (Date.now() - t0 > ms) throw new Error(`timeout: ${seen.map((e) => e.action).join(",")}`); await new Promise((r) => setTimeout(r, 20)); } };
+    await until(() => seen.some((e) => e.action === "rest"));
+    const before = seen.length;
+    assert.equal(visitMemories([m1.id, m2.id, "nao-existe"], "Chamado"), 3);
+    await until(() => seen.slice(before).filter((e) => e.action === "read").length >= 2 && seen.slice(before).some((e) => e.action === "rest"));
+    const after = seen.slice(before);
+    assert.equal(after[0].action, "called");
+    assert.ok(after.some((e) => e.action === "walk" && e.called && e.label === "Chamado"));
+    assert.ok(after.some((e) => e.action === "read" && e.called && [m1.id, m2.id].includes(e.id)));
+    assert.ok((await keeperState()).readIds.length > 0);
+  } finally { stopMemoryKeeper(); memoryEvents.off("event", listen); }
+  assert.equal(visitMemories([]), 0);
+});

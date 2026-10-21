@@ -187,3 +187,19 @@
 .lm-node-label.vague { border-color: var(--lm-pink); background: rgba(240,90,140,.85); color: #fff; }
 .lm-keeper .lm-k-item.flag.vague span { color: var(--lm-pink); }
 .lm-metrics b.yellow { color: #f2d14b; }
+
+/* The Zeladora's speech bubble: what she is doing right now */
+.lm-bubble { font: 10.5px var(--lm-mono); color: #d8fffb; background: rgba(4,22,22,.9); border: 1px solid rgba(63,214,198,.65); padding: 4px 8px; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 14px rgba(63,214,198,.25); position: relative; }
+.lm-bubble::before { content: ""; position: absolute; left: -7px; bottom: -7px; width: 10px; height: 10px; border-left: 1px solid rgba(63,214,198,.65); border-bottom: 1px solid rgba(63,214,198,.65); transform: skewX(-30deg); }
+.lm-bubble b { color: var(--lm-teal); font-weight: 500; margin-right: 6px; text-transform: uppercase; letter-spacing: .08em; font-size: 9.5px; }
+.lm-bubble i { color: var(--lm-pink); font-style: normal; margin-right: 6px; }
+.lm-bubble.link { border-color: #7ff3e6; }
+.lm-bubble.compact, .lm-bubble.join { border-color: #9b7cf0; color: #e4dcff; box-shadow: 0 0 16px rgba(155,124,240,.35); }
+.lm-bubble.flag { border-color: #f2d14b; color: #fff4c2; }
+.lm-bubble.rest { opacity: .7; }
+.lm-sections li { display: flex; align-items: stretch; gap: 4px; }
+.lm-sections li > button:first-child { flex: 1; min-width: 0; }
+.lm-call-mini { background: none; border: 1px solid #2a3442; color: var(--lm-teal); font: 12px var(--lm-mono); width: 22px; padding: 0; cursor: pointer; }
+.lm-call-mini:hover, .lm-call:hover { border-color: var(--lm-teal); background: rgba(63,214,198,.12); }
+.lm-call { border-color: rgba(63,214,198,.55); color: var(--lm-teal); }
+.lm-bars .lm-call-mini { width: 22px; flex: none; display: block; text-align: center; }

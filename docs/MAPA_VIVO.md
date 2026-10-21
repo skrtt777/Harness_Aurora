@@ -128,3 +128,20 @@ funcionamento do cérebro** — uma pergunta no chat nunca espera por ela; ela c
   join, compact com `merged`, flag, rest) em `/api/memories/live`.
 - Testes: `test/memoryKeeper.test.js`, `frontend/test/livemap.test.mjs`; laboratório
   `scripts/livemap-lab/lab.mjs --keeper-pace 250 --no-chat` (planta cópias, um conflito e um pensamento a compactar).
+
+### Zeladora viva e auto foco (21/10)
+
+- **Auto foco** (botão `auto foco on/off`, salvo nas preferências do mapa): a câmera vai sozinha até o que está
+  acontecendo (a Zeladora, as memórias de uma pergunta). Quando você arrasta ou dá zoom, o movimento automático
+  em curso para na hora e só volta 10 s depois do último toque — a câmera nunca briga com você.
+- **A aranha**: corpo com mola que vira na direção em que anda; **16 pernas articuladas** (joelho para fora e
+  para cima) com os pés **plantados em memórias reais**, que dão passos alternados mirando um pouco à frente
+  (`frontend/src/livemap/legs.ts`, testado: nenhum pé fica para trás); **22 tentáculos** que se estendem até a
+  memória lida — ela ondula e um pacote de luz volta pelo tentáculo até o corpo; ligações disparam um fio com
+  as pontas pulsando; compactação puxa as memórias umas para as outras até virarem uma, com um estouro de luz;
+  **balão de fala** com o que ela está fazendo ("lendo «…» · regra", "ligando «…» ↔ «…»", "compactando 3…").
+- **Memórias acendendo**: enquanto ela anda, as memórias que ainda não leu nesta ronda ficam apagadas e cada uma
+  acende quando é lida — a seção vai se preenchendo.
+- **Chamar a Zeladora**: o botão ⌖ em cada seção do painel SEÇÕES e "chamar a zeladora aqui" na memória
+  selecionada. Ela larga a ronda (ou acorda do descanso), vai até lá, organiza aquelas memórias e depois volta.
+  API `POST /api/memories/keeper/visit {ids, label}`; evento `called`.

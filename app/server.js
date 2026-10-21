@@ -64,7 +64,7 @@ import { engineStatus, refreshApiEngines } from "./engine.js";
 import { listEgress, secretTerms } from "./blind.js";
 import { memoryGraphSnapshot } from "./memoryGraph.js";
 import { memoryEvents } from "./memoryEvents.js";
-import { dismissFlag, keeperState, startMemoryKeeper, stopMemoryKeeper, undoJoin } from "./memoryKeeper.js";
+import { dismissFlag, keeperEnabled, keeperState, startMemoryKeeper, stopMemoryKeeper, undoJoin, visitMemories } from "./memoryKeeper.js";
 // Tests and scripts import these from here.
 export { buildPrompt, handleChatTurn, agentHistory, asksForInformation, fileMentions, knowledgeQuery } from "./chatTurn.js";
 
@@ -970,6 +970,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const body = await readJson(request);
         const memory = await undoJoin(String(body.id || ""));
         return memory ? sendJson(response, 200, { memory }) : sendJson(response, 404, { error: "Memória não encontrada." });
+      }
+      if (method === "POST" && pathname === "/api/memories/keeper/visit") {
+        const body = await readJson(request);
+        if (!(await keeperEnabled())) return sendJson(response, 409, { error: "A Zeladora está desligada." });
+        const queued = visitMemories(Array.isArray(body.ids) ? body.ids : [], body.label ? String(body.label) : undefined);
+        return queued ? sendJson(response, 200, { queued }) : sendJson(response, 400, { error: "Nenhuma memória para organizar." });
       }
       if (method === "POST" && pathname === "/api/memories/keeper/dismiss") {
         const body = await readJson(request);

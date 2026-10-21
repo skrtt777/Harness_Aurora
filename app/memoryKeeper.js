@@ -75,8 +75,12 @@ export function compactText(texts) {
 }
 
 const emptyStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0 });
-const state = { running: false, phase: "parada", section: null, sectionLabel: null, area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: emptyStats(), sections: [], areas: [], recent: [] };
+const state = { running: false, phase: "parada", section: null, sectionLabel: null, area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: emptyStats(), sections: [], areas: [], recent: [], readIds: [], visiting: null };
 let controller = null;
+// The person can call her: "come and organize these memories". The queue is served before the next memory of
+// the round, and a call wakes her up if she is resting.
+const visits = [];
+let wake = null;
 
 function remember(action) {
   state.recent.unshift({ ...action, at: new Date().toISOString() });
@@ -240,6 +244,7 @@ export async function keeperRound({ paceMs = 1200, signal, env = process.env } =
   const round = await loadRound(db, env);
   state.round += 1; state.startedAt = new Date().toISOString(); state.restUntil = null; state.phase = "andando";
   state.stats = emptyStats();
+  state.readIds = [];
   state.sections = round.sections.map(({ key, label, total }) => ({ key, label, total, read: 0 }));
   state.areas = state.sections;
   emit("round", { round: state.round, total: round.memories.length, sections: state.sections, areas: state.sections });
@@ -250,6 +255,11 @@ export async function keeperRound({ paceMs = 1200, signal, env = process.env } =
     emit("walk", { section: section.key, area: section.key, label: section.label, total: section.total, index });
     for (const memory of section.list) {
       if (signal?.aborted) return state.stats;
+      if (visits.length) {
+        await serveVisits(round, ctx, { paceMs, signal });
+        state.section = state.area = section.key; state.sectionLabel = state.areaLabel = section.label;
+        emit("walk", { section: section.key, area: section.key, label: section.label, total: section.total, index, back: true });
+      }
       if (!(await keeperEnabled())) { state.phase = "parada"; return state.stats; }
       const progress = state.sections[index];
       if (ctx.archived.has(memory.id)) { progress.read += 1; continue; }
@@ -259,7 +269,7 @@ export async function keeperRound({ paceMs = 1200, signal, env = process.env } =
       const kind = classifyMemory(memory);
       emit("read", { id: memory.id, section: section.key, area: section.key, title: memory.title, kind }, false);
       await tendMemory(memory, round, ctx);
-      state.stats.read += 1; progress.read += 1;
+      state.stats.read += 1; progress.read += 1; state.readIds.push(memory.id);
       if (paceMs) await sleep(paceMs, signal);
     }
   }
@@ -284,11 +294,56 @@ export function startMemoryKeeper({ paceMs = 1200, restMs = 15 * 60_000, firstDe
       state.phase = "descansando"; state.section = state.area = null; state.sectionLabel = state.areaLabel = null;
       state.restUntil = new Date(Date.now() + restMs).toISOString();
       emit("rest", { until: state.restUntil, stats: state.stats });
-      await sleep(restMs, signal);
+      // Resting until the time is up — or until the person calls her.
+      await new Promise((resolve) => { const t = setTimeout(resolve, restMs); wake = () => { clearTimeout(t); resolve(); }; signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true }); });
+      wake = null;
+      while (visits.length && !signal.aborted && (await keeperEnabled())) {
+        try {
+          const db = await getDb();
+          const round = await loadRound(db, process.env);
+          const ctx = { db, env: process.env, relations: related(db), archived: new Set(), done: new Set(), flags: await keeperFlags(), keep: await spared() };
+          await serveVisits(round, ctx, { paceMs, signal });
+        } catch (error) { emit("error", { reason: String(error?.message || error).slice(0, 200) }); visits.length = 0; }
+      }
     }
     state.running = false; state.phase = "parada";
   })();
   return stopMemoryKeeper;
+}
+
+/**
+ * The person asked her to organize some memories (a section, or one memory) now: she walks there, reads and
+ * tends each one, and then goes back to where she was. Returns how many were queued.
+ */
+export function visitMemories(ids, label = "a seu pedido") {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))].slice(0, 300);
+  if (!list.length) return 0;
+  visits.push({ ids: list, label: String(label || "a seu pedido").slice(0, 80) });
+  emit("called", { label, total: list.length });
+  wake?.();
+  return list.length;
+}
+
+async function serveVisits(round, ctx, { paceMs, signal }) {
+  const byId = new Map(round.memories.map((m) => [m.id, m]));
+  while (visits.length && !signal?.aborted) {
+    const visit = visits.shift();
+    const list = walkOrder(visit.ids.map((id) => byId.get(id)).filter(Boolean));
+    state.visiting = visit.label; state.phase = "andando";
+    state.section = state.area = "pedido"; state.sectionLabel = state.areaLabel = visit.label;
+    emit("walk", { section: "pedido", area: "pedido", label: visit.label, total: list.length, called: true });
+    for (const memory of list) {
+      if (signal?.aborted || ctx.archived.has(memory.id)) continue;
+      const still = ctx.db.prepare("SELECT status FROM memories WHERE id = ?").get(memory.id);
+      if (!still || still.status === "archived") continue;
+      state.current = memory.id;
+      emit("read", { id: memory.id, section: "pedido", area: "pedido", title: memory.title, kind: classifyMemory(memory), called: true }, false);
+      await tendMemory(memory, round, ctx);
+      state.stats.read += 1; if (!state.readIds.includes(memory.id)) state.readIds.push(memory.id);
+      if (paceMs) await sleep(paceMs, signal);
+    }
+    state.visiting = null;
+  }
 }
 
 export function stopMemoryKeeper() {

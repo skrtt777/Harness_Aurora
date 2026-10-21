@@ -14,6 +14,7 @@
     "src/adjustOptions.ts",
     "src/officeSim.ts",
     "src/livemap/adapter.ts",
-    "src/livemap/layout.ts"
+    "src/livemap/layout.ts",
+    "src/livemap/legs.ts"
   ]
 }

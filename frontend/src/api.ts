@@ -728,7 +728,8 @@ export type MemoryLiveEvent = {
   /** answered: what the saved answer used and created. */
   used?: string[]; created?: string[]; ok?: boolean;
   /** keeper: what the Zeladora did (app/memoryKeeper.js). */
-  action?: "round" | "walk" | "read" | "link" | "join" | "compact" | "flag" | "rest" | "error";
+  action?: "round" | "walk" | "read" | "link" | "join" | "compact" | "flag" | "rest" | "called" | "error";
+  called?: boolean; back?: boolean;
   from?: string; to?: string; kept?: string; section?: string; sentences?: number; merged?: string[]; archived?: string; otherId?: string; reason?: string; similarity?: number;
   otherTitle?: string; archivedTitle?: string; label?: string; total?: number; index?: number; round?: number; until?: string; area?: string;
   areas?: { key: string; label: string; total: number }[];
@@ -751,6 +752,7 @@ export type KeeperStateApi = {
   areas: { key: string; label: string; total: number; read: number }[];
   sections?: { key: string; label: string; total: number; read: number }[];
   compactions?: { id: string; from: string[]; title?: string; at: string }[];
+  readIds?: string[]; visiting?: string | null;
   recent: (MemoryLiveEvent & { action: string; at: string })[];
   flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string; similarity?: number; at?: string }[];
   last: { round: number; at: string; read: number; linked: number; joined: number; flagged: number } | null;
@@ -758,6 +760,7 @@ export type KeeperStateApi = {
 export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");
 export const setKeeperEnabled = (enabled: boolean) => request<KeeperStateApi>("/memories/keeper", { method: "PUT", body: JSON.stringify({ enabled }) });
 export const undoKeeperJoin = (id: string) => request<{ memory: unknown }>("/memories/keeper/undo", { method: "POST", body: JSON.stringify({ id }) });
+export const visitKeeper = (ids: string[], label: string) => request<{ queued: number }>("/memories/keeper/visit", { method: "POST", body: JSON.stringify({ ids, label }) });
 export const dismissKeeperFlag = (id: string, otherId?: string) => request<{ flags: KeeperStateApi["flags"] }>("/memories/keeper/dismiss", { method: "POST", body: JSON.stringify({ id, otherId }) });
 
 /**

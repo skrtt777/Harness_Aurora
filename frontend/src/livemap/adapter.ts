@@ -215,6 +215,12 @@ export function applyEvent(snap: MemoryGraphSnapshot, event: MemoryLiveEvent): {
 export type KeeperView = {
   enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
   trail: string[]; readIds: string[]; kinds: Record<string, string>; links: { from: string; to: string; at: number }[];
+  /** When each memory of the trail was read (ms): her tentacle reaches it, then reads it back. */
+  trailAt: Record<string, number>;
+  /** What she is doing now, in words (her speech bubble), and when it started. */
+  saying: { text: string; action: string; at: number } | null;
+  /** The section the person called her to, while she is there. */
+  called: string | null;
   flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string }[];
   joins: { kept: string; archived: string; title?: string; archivedTitle?: string; at: string }[];
   compactions: { id: string; from: string[]; title?: string; at: string }[];
@@ -228,7 +234,8 @@ export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView
   if (!k) return null;
   return {
     enabled: k.enabled, phase: k.phase, round: k.round, current: k.current, area: k.area, areaLabel: k.areaLabel,
-    trail: k.current ? [k.current] : [], readIds: [], kinds: {}, links: [], flags: k.flags || [],
+    trail: k.current ? [k.current] : [], readIds: k.readIds || [], kinds: {}, links: [], flags: k.flags || [], trailAt: {}, called: k.visiting || null,
+    saying: k.phase === "descansando" ? { text: "descansando", action: "rest", at: 0 } : k.areaLabel ? { text: `andando por ${k.areaLabel}`, action: "walk", at: 0 } : null,
     joins: (k.recent || []).filter((a) => a.action === "join").map((a) => ({ kept: a.kept!, archived: a.archived!, title: a.title, archivedTitle: a.archivedTitle, at: a.at })),
     compactions: (k.compactions || []).map((c) => ({ id: c.id, from: c.from, title: c.title, at: c.at })),
     areas: k.sections || k.areas || [], stats: { ...emptyKeeperStats(), ...k.stats }, restUntil: k.restUntil,
@@ -236,24 +243,30 @@ export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView
 }
 export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, now = Date.now()): KeeperView | null {
   if (event.type !== "keeper" || !event.action) return view;
-  const v: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null };
+  const base: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null, trailAt: {}, saying: null, called: null };
+  const say = (text: string) => ({ text, action: event.action!, at: now });
+  const short = (t?: string) => (t ? (t.length > 34 ? `«${t.slice(0, 33)}…»` : `«${t}»`) : "uma memória");
+  const v = base;
   switch (event.action) {
+    case "called": return { ...v, saying: say(`chamada: ${event.label || "a seu pedido"} · ${event.total || 0} memórias`) };
     case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.sections || event.areas || []).map((a) => ({ ...a, read: 0 })), readIds: [], stats: emptyKeeperStats(), restUntil: null };
-    case "walk": return { ...v, phase: "andando", area: event.section || event.area || null, areaLabel: event.label || null, trail: [] };
+    case "walk": return { ...v, phase: "andando", area: event.section || event.area || null, areaLabel: event.label || null, trail: [], called: event.called ? event.label || "a seu pedido" : null, saying: say(event.called ? `indo até ${event.label}` : event.back ? `voltando para ${event.label}` : `andando para ${event.label}`) };
     case "read": {
       if (!event.id) return v;
       const section = event.section || event.area;
       const areas = v.areas.map((a) => (a.key === section ? { ...a, read: Math.min(a.total, a.read + 1) } : a));
-      return { ...v, phase: "andando", current: event.id, trail: [event.id, ...v.trail.filter((x) => x !== event.id)].slice(0, TRAIL), readIds: v.readIds.includes(event.id) ? v.readIds : [...v.readIds, event.id], kinds: event.kind ? { ...v.kinds, [event.id]: event.kind } : v.kinds, areas, stats: { ...v.stats, read: v.stats.read + 1 } };
+      const trailAt = { ...v.trailAt, [event.id]: now };
+      for (const id of Object.keys(trailAt)) if (now - trailAt[id] > 120_000) delete trailAt[id];
+      return { ...v, phase: "andando", current: event.id, trailAt, saying: say(`lendo ${short(event.title)}${event.kind ? ` · ${event.kind}` : ""}`), trail: [event.id, ...v.trail.filter((x) => x !== event.id)].slice(0, TRAIL), readIds: v.readIds.includes(event.id) ? v.readIds : [...v.readIds, event.id], kinds: event.kind ? { ...v.kinds, [event.id]: event.kind } : v.kinds, areas, stats: { ...v.stats, read: v.stats.read + 1 } };
     }
-    case "link": return event.from && event.to ? { ...v, links: [...v.links.filter((l) => now - l.at < 8000), { from: event.from, to: event.to, at: now }], stats: { ...v.stats, linked: v.stats.linked + 1 } } : v;
-    case "join": return event.kept && event.archived ? { ...v, trail: v.trail.filter((x) => x !== event.archived), joins: [{ kept: event.kept, archived: event.archived, title: event.title, archivedTitle: event.archivedTitle, at: event.at }, ...v.joins].slice(0, 30), stats: { ...v.stats, joined: v.stats.joined + 1 } } : v;
-    case "compact": return event.id && event.merged ? { ...v, trail: [event.id, ...v.trail.filter((x) => !event.merged!.includes(x))].slice(0, TRAIL), readIds: [...v.readIds, event.id], compactions: [{ id: event.id, from: event.merged, title: event.title, at: event.at }, ...v.compactions].slice(0, 30), stats: { ...v.stats, compacted: v.stats.compacted + 1 } } : v;
+    case "link": return event.from && event.to ? { ...v, saying: say(`ligando ${short(event.title)} ↔ ${short(event.otherTitle)}`), links: [...v.links.filter((l) => now - l.at < 8000), { from: event.from, to: event.to, at: now }], stats: { ...v.stats, linked: v.stats.linked + 1 } } : v;
+    case "join": return event.kept && event.archived ? { ...v, saying: say(`juntando a cópia ${short(event.archivedTitle)}`), trail: v.trail.filter((x) => x !== event.archived), joins: [{ kept: event.kept, archived: event.archived, title: event.title, archivedTitle: event.archivedTitle, at: event.at }, ...v.joins].slice(0, 30), stats: { ...v.stats, joined: v.stats.joined + 1 } } : v;
+    case "compact": return event.id && event.merged ? { ...v, saying: say(`compactando ${event.merged.length} memórias em uma · ${short(event.title)}`), trailAt: { ...v.trailAt, [event.id]: now }, trail: [event.id, ...v.trail.filter((x) => !event.merged!.includes(x))].slice(0, TRAIL), readIds: [...v.readIds, event.id], compactions: [{ id: event.id, from: event.merged, title: event.title, at: event.at }, ...v.compactions].slice(0, 30), stats: { ...v.stats, compacted: v.stats.compacted + 1 } } : v;
     case "flag": {
       if (!event.id || v.flags.some((f) => f.id === event.id && (f.otherId || null) === (event.otherId || null))) return v;
-      return { ...v, flags: [{ id: event.id, otherId: event.otherId || null, reason: event.reason || "", title: event.title, otherTitle: event.otherTitle }, ...v.flags], stats: { ...v.stats, flagged: v.stats.flagged + 1 } };
+      return { ...v, saying: say(event.otherId ? `marcando conflito · ${event.reason || ""}` : `marcando ${short(event.title)} como vaga`), flags: [{ id: event.id, otherId: event.otherId || null, reason: event.reason || "", title: event.title, otherTitle: event.otherTitle }, ...v.flags], stats: { ...v.stats, flagged: v.stats.flagged + 1 } };
     }
-    case "rest": return { ...v, phase: "descansando", current: null, area: null, areaLabel: null, trail: [], restUntil: event.until || null };
+    case "rest": return { ...v, phase: "descansando", current: null, area: null, areaLabel: null, trail: [], called: null, restUntil: event.until || null, saying: say("ronda completa · descansando") };
     default: return v;
   }
 }

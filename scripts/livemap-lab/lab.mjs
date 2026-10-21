@@ -95,7 +95,7 @@ const fps = await page.evaluate(() => new Promise((resolve) => { let n = 0; cons
 console.log(`quadros por segundo (headless): ${fps}`);
 
 // A cluster in focus (from the strip of indicators), then a memory selected from the "consultadas" path.
-await page.locator(".lm-bars button").nth(1).click();
+await page.locator(".lm-bars li > button:first-child").nth(1).click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: join(out, "02_agrupamento_em_foco.png") });
 
@@ -106,6 +106,14 @@ for (let k = 1; k <= 3; k += 1) {
   await page.screenshot({ path: join(out, `08_zeladora_${k}.png`) });
 }
 console.log("zeladora:", await page.locator(".lm-keeper").innerText().catch(() => "?"));
+// A quick sequence: her steps, tentacles and what she says, a third of a second apart.
+for (let k = 1; k <= 4; k += 1) { await page.waitForTimeout(330); await page.screenshot({ path: join(out, `11_anim_${k}.png`) }); }
+console.log("balão:", await page.locator(".lm-bubble").first().innerText().catch(() => "?"));
+// The person calls her to another section (the ⌖ button of the 3rd section).
+await page.locator(".lm-call-mini").nth(2).click();
+await page.waitForTimeout(3500);
+await page.screenshot({ path: join(out, "10_chamado.png") });
+console.log("depois do chamado:", await page.locator(".lm-bubble").first().innerText().catch(() => "?"));
 
 // The brain working (not the Zeladora): a turn's events as the chat emits them, with memories of three
 // different sections — the map draws the path from one to the next.
