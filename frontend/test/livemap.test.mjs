@@ -55,7 +55,8 @@ test("the three views: semantic, by folder/project, by conversation — the gene
   assert.deepEqual(overview.clusters.map((c) => c.id), ["geral", "sem:0", "sem:1"]);
   assert.equal(overview.clusters[0].general, true);
   const sem0 = overview.clusters.find((c) => c.id === "sem:0");
-  assert.deepEqual([sem0.label, sem0.sublabel], ["vendas", "semântico · metas vendas"], "named after the project most of it comes from, keywords kept");
+  assert.deepEqual([sem0.label, sem0.sublabel], ["vendas · metas", "semântico · metas vendas"], "named after the project most of it comes from; two cells of it keep their own subject");
+  assert.equal(new Set(overview.clusters.map((c) => c.label)).size, overview.clusters.length, "no two cells with the same name");
   const byFolder = buildMemoryGraph(snapshot(), { mode: "pasta", now: NOW });
   assert.deepEqual(byFolder.clusters.map((c) => [c.id, c.label, c.nodeIds.length]), [["geral", "memória geral", 1], ["proj:proj", "vendas", 4]], "the conversation's memory goes with its conversation's project");
   const byConversation = buildMemoryGraph(snapshot(), { mode: "conversa", now: NOW });
@@ -181,6 +182,7 @@ test("sections: waiting, being read, done — from the memories she really read;
   k = reduceKeeper(k, { type: "keeper", at: "5", action: "compact", id: "n", merged: ["a", "b"], title: "Pensamento" });
   assert.deepEqual([k.compactions[0].from, k.stats.compacted, k.trail[0]], [["a", "b"], 1, "n"]);
   assert.equal(sectionProgress(graph, { ...k, enabled: false }).size, 0, "off: no sections greyed");
+  assert.equal(sectionProgress(graph, { ...k, running: false }).size, 0, "on but not running on this server: nothing waits for her");
 });
 
 test("layout: deterministic, the general memory at the core, clusters apart, a new memory does not move the others", () => {

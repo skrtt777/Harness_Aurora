@@ -492,7 +492,7 @@ function Medusa({ keeper, core, pos, has, world, reduced, touch }: { keeper: Kee
   useFrame(({ clock }, rawDelta) => {
     const dt = Math.min(rawDelta, 0.05);
     const t = reduced ? 0 : clock.getElapsedTime();
-    const visible = Boolean(keeper?.enabled);
+    const visible = Boolean(keeper?.enabled && keeper.running);
     if (group.current) group.current.visible = visible;
     if (!visible || !keeper) { lines.setDrawRange(0, 0); dots.setDrawRange(0, 0); world.current.jelly.r = 0; return; }
     const now = Date.now();

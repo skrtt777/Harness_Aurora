@@ -128,6 +128,17 @@ export function buildMemoryGraph(snap: MemoryGraphSnapshot, { mode = "geral", fi
     }
     c.category = [...cats].sort((a, b) => b[1] - a[1])[0]?.[0] || c.category;
   }
+  // Two cells of the same project get the same name: each keeps its own subject (the atlas's keyword).
+  const byLabel = new Map<string, GraphCluster[]>();
+  for (const c of clusters.values()) byLabel.set(c.label, [...(byLabel.get(c.label) || []), c]);
+  for (const group of byLabel.values()) {
+    if (group.length < 2) continue;
+    group.forEach((c, i) => {
+      const words = c.sublabel.startsWith("semântico · ") ? c.sublabel.slice("semântico · ".length).split(/\s*·\s*|\s+/) : [];
+      const keyword = words.find((w) => w && !c.label.includes(w));
+      c.label = keyword ? `${c.label} · ${keyword}` : `${c.label} ${i + 1}`;
+    });
+  }
 
   const edges: GraphEdge[] = [];
   const seen = new Set<string>();
@@ -213,7 +224,7 @@ export function applyEvent(snap: MemoryGraphSnapshot, event: MemoryLiveEvent): {
  * this round (each section's progress). Built from the snapshot's `keeper`, then only from "keeper" events.
  */
 export type KeeperView = {
-  enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
+  enabled: boolean; running: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
   trail: string[]; readIds: string[]; kinds: Record<string, string>; links: { from: string; to: string; at: number }[];
   /** When each memory of the trail was read (ms): her tentacle reaches it, then reads it back. */
   trailAt: Record<string, number>;
@@ -233,7 +244,7 @@ const emptyKeeperStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, f
 export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView | null {
   if (!k) return null;
   return {
-    enabled: k.enabled, phase: k.phase, round: k.round, current: k.current, area: k.area, areaLabel: k.areaLabel,
+    enabled: k.enabled, running: Boolean(k.running), phase: k.phase, round: k.round, current: k.current, area: k.area, areaLabel: k.areaLabel,
     trail: k.current ? [k.current] : [], readIds: k.readIds || [], kinds: {}, links: [], flags: k.flags || [], trailAt: {}, called: k.visiting || null,
     saying: k.phase === "descansando" ? { text: "descansando", action: "rest", at: 0 } : k.areaLabel ? { text: `andando por ${k.areaLabel}`, action: "walk", at: 0 } : null,
     joins: (k.recent || []).filter((a) => a.action === "join").map((a) => ({ kept: a.kept!, archived: a.archived!, title: a.title, archivedTitle: a.archivedTitle, at: a.at })),
@@ -243,10 +254,11 @@ export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView
 }
 export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, now = Date.now()): KeeperView | null {
   if (event.type !== "keeper" || !event.action) return view;
-  const base: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null, trailAt: {}, saying: null, called: null };
+  const base: KeeperView = view || { enabled: true, running: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null, trailAt: {}, saying: null, called: null };
   const say = (text: string) => ({ text, action: event.action!, at: now });
   const short = (t?: string) => (t ? (t.length > 34 ? `«${t.slice(0, 33)}…»` : `«${t}»`) : "uma memória");
-  const v = base;
+  // Any event from her means she is running here.
+  const v = base.running ? base : { ...base, running: true };
   switch (event.action) {
     case "called": return { ...v, saying: say(`chamada: ${event.label || "a seu pedido"} · ${event.total || 0} memórias`) };
     case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.sections || event.areas || []).map((a) => ({ ...a, read: 0 })), readIds: [], stats: emptyKeeperStats(), restUntil: null };
@@ -279,7 +291,7 @@ export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, no
 export type SectionState = { read: number; total: number; state: "feito" | "lendo" | "na fila" };
 export function sectionProgress(graph: MemoryGraph, keeper: KeeperView | null): Map<string, SectionState> {
   const out = new Map<string, SectionState>();
-  if (!keeper || !keeper.enabled) return out;
+  if (!keeper || !keeper.enabled || !keeper.running) return out;
   const read = new Set(keeper.readIds);
   const here = keeper.current ? graph.nodes.find((n) => n.id === keeper.current)?.clusterId : undefined;
   for (const c of graph.clusters) {

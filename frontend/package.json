@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.tests.json && node --test test/*.test.mjs"
+    "test": "tsc --noEmit -p tsconfig.app.json && tsc -p tsconfig.tests.json && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.117.3",

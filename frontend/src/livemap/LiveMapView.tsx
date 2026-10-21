@@ -351,7 +351,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
             <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
-              readSet={keeper?.enabled && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} onUserMove={onUserMove}
+              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} onUserMove={onUserMove}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
           </Suspense>
         ) : (
@@ -441,7 +441,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             {!lastRecall && snap.recalls[0] && <small className="lm-muted">última resposta: “{snap.recalls[0].prompt.slice(0, 60)}”</small>}
           </div>
           <div className="lm-panel lm-keeper">
-            <h4>zeladora <span>{!keeper ? "—" : !keeper.enabled ? "desligada" : keeper.phase === "descansando" ? `descansa até ${keeper.restUntil ? fmtTime(keeper.restUntil) : "…"}` : keeper.phase}</span></h4>
+            <h4>zeladora <span>{!keeper ? "—" : !keeper.running ? "não roda aqui" : !keeper.enabled ? "desligada" : keeper.phase === "descansando" ? `descansa até ${keeper.restUntil ? fmtTime(keeper.restUntil) : "…"}` : keeper.phase}</span></h4>
             {!keeper ? <p className="lm-muted">A zeladora roda no app instalado e anda pelas memórias sozinha.</p> : <>
               <div className="lm-k-head"><b>{keeper.areaLabel || (keeper.phase === "descansando" ? "ronda completa" : "—")}</b><button className="lm-btn" onClick={() => void setKeeperEnabled(!keeper.enabled).then((k) => setKeeper((v) => (v ? { ...v, enabled: k.enabled } : v)))}>{keeper.enabled ? "desligar" : "ligar"}</button></div>
               <div className="lm-k-stats">
