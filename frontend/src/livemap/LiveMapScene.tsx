@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
@@ -54,12 +54,17 @@ const DUST_PER_NODE: Record<Quality, number> = { alta: 6, media: 3, baixa: 1 };
 const NEBULA_PER_CLUSTER: Record<Quality, number> = { alta: 150, media: 70, baixa: 16 };
 const CURVE_STEPS = 8;
 const ACTIVE_MS = 9000;
+// The living web: how long a touch lasts, how fast a signal runs a strand, how hard each event touches.
+const WEB_DECAY_MS = 900;
+const SIGNAL_MS = 650;
+const TOUCH_STRENGTH: Partial<Record<string, number>> = { read: 1, linked: 1, recalled: 1, created: 0.9, joined: 1, flagged: 0.8, search: 0.45 };
 const KEEPER_SUFFIX: Partial<Record<Highlight["kind"], string>> = { created: " · nova", read: " · lida", linked: " · ligada", flagged: " · conflito", joined: " · juntou" };
 const color = (hex: string) => new THREE.Color(hex);
 const ACTIVITY = color(ACTIVITY_COLOR);
 const TEAL = color("#3fd6c6");
 const MAGENTA = color("#f05a8c");
 const WHITE = color("#eef2f6");
+const WEB_GLOW = color("#9ff8ee");
 const YELLOW = color("#f2d14b");
 
 // Soft round points, sized in world units with perspective; alpha per point.
@@ -181,17 +186,16 @@ function Scene(props: SceneProps) {
   const dustGeo = useMemo(() => { const g = new THREE.BufferGeometry(); const n = dustCount + nebulaCount; g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(n), 1)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(n), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(n * 3), 3)); return g; }, [dustCount, nebulaCount]);
   const edgeVerts = graph.edges.length * CURVE_STEPS * 2;
   const edgeGeo = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(edgeVerts * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(edgeVerts), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(edgeVerts * 3), 3)); return g; }, [edgeVerts]);
-  // Spokes core → each cluster, and branches of expanded/focused clusters → their members (dotted: every other segment).
-  // With nothing in focus, the core reaches its most proven general memories (the reference's tentacles).
+  // Branches of expanded/focused clusters → their members (dotted: every other segment).
   const branchIds = useMemo(() => {
     const relevance = new Map(nodes.map((n) => [n.id, n.relevance]));
     return graph.clusters
-      .filter((c) => c.id === focusClusterId || expanded.has(c.id) || (!focusClusterId && c.general))
-      .flatMap((c) => [...c.nodeIds].sort((a, b) => (relevance.get(b) || 0) - (relevance.get(a) || 0)).slice(0, c.general && c.id !== focusClusterId ? 28 : 80).map((id) => ({ c, id })));
+      .filter((c) => c.id === focusClusterId || expanded.has(c.id))
+      .flatMap((c) => [...c.nodeIds].sort((a, b) => (relevance.get(b) || 0) - (relevance.get(a) || 0)).slice(0, 80).map((id) => ({ c, id })));
   }, [graph.clusters, focusClusterId, expanded, nodes]);
-  const spokeVerts = (graph.clusters.length + branchIds.length) * 12 * 2;
+  const spokeVerts = Math.max(1, branchIds.length) * 12 * 2;
   const spokeGeo = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(spokeVerts * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(spokeVerts), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(spokeVerts * 3), 3)); return g; }, [spokeVerts]);
-  const PULSES = 240;
+  const PULSES = 600;
   const pulseGeo = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PULSES * 3), 3)); g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(PULSES), 1)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(PULSES), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(PULSES * 3), 3)); return g; }, []);
   const materials = useMemo(() => ({ nodes: pointMaterial(2.4), dust: pointMaterial(1.1), edges: lineMaterial(), spokes: lineMaterial(), pulses: pointMaterial(4) }), []);
   useEffect(() => () => { Object.values(materials).forEach((m) => m.dispose()); }, [materials]);
@@ -209,6 +213,32 @@ function Scene(props: SceneProps) {
   }, [graph.edges, hoveredId, selectedId]);
 
   const tmp = useMemo(() => new THREE.Vector3(), []);
+  // ---- the living web: a memory that is touched (read, linked, recalled, created, stepped on by the Zeladora,
+  // hovered or selected by the person) makes its strands vibrate, and a signal runs along them to its
+  // neighbours, which tremble in turn (up to two hops). Every touch comes from something that really happened.
+  const touches = useRef(new Map<string, { at: number; s: number; hop: number; spread: boolean }>());
+  const touch = useCallback((id: string, strength: number, hop = 0, at = performance.now()) => {
+    const cur = touches.current.get(id);
+    const curAmp = cur ? cur.s * Math.exp(-(at - cur.at) / WEB_DECAY_MS) : 0;
+    if (strength > curAmp) touches.current.set(id, { at, s: strength, hop, spread: false });
+  }, []);
+  const amp = (id: string, now: number) => { const t = touches.current.get(id); if (!t) return 0; const age = now - t.at; return age < 0 ? 0 : t.s * Math.exp(-age / WEB_DECAY_MS); };
+  const neighbours = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const e of graph.edges) { (m.get(e.from) || m.set(e.from, []).get(e.from)!).push(e.to); (m.get(e.to) || m.set(e.to, []).get(e.to)!).push(e.from); }
+    return m;
+  }, [graph.edges]);
+  // Each new event touches its memory once.
+  const lastTouch = useRef(0);
+  useEffect(() => {
+    let newest = lastTouch.current;
+    for (const [id, h] of highlights) {
+      if (h.at <= lastTouch.current) continue;
+      touch(id, TOUCH_STRENGTH[h.kind] ?? 0.6, 0, h.at);
+      newest = Math.max(newest, h.at);
+    }
+    lastTouch.current = newest;
+  }, [highlights, touch]);
   const segA = useMemo(() => new THREE.Vector3(), []);
   const segB = useMemo(() => new THREE.Vector3(), []);
   const tmpColor = useMemo(() => new THREE.Color(), []);
@@ -228,8 +258,23 @@ function Scene(props: SceneProps) {
   };
   const pos = (id: string): Vec3 => { const v = current.current.get(id); return v ? [v.x, v.y, v.z] : layout.nodes.get(id) || [0, 0, 0]; };
 
+  const lastPluck = useRef(0);
   useFrame(({ clock }, delta) => {
     const now = performance.now();
+    // ---- the web: the person's own memory keeps plucking its strands; signals hop to the neighbours ----
+    if (now - lastPluck.current > 1500) {
+      lastPluck.current = now;
+      if (selectedId) touch(selectedId, 0.85);
+      if (hoveredId && hoveredId !== selectedId) touch(hoveredId, 0.6);
+    }
+    for (const [id, tch] of touches.current) {
+      const age = now - tch.at;
+      if (age > WEB_DECAY_MS * 4) { touches.current.delete(id); continue; }
+      if (!tch.spread && age >= SIGNAL_MS) {
+        tch.spread = true;
+        if (tch.hop < 2) for (const other of (neighbours.get(id) || []).slice(0, 8)) touch(other, tch.s * 0.55, tch.hop + 1, tch.at + SIGNAL_MS);
+      }
+    }
     const t = clock.getElapsedTime();
     const ease = settings.reducedMotion ? 1 : 1 - Math.pow(0.0025, delta);
     // ---- nodes ----
@@ -291,20 +336,27 @@ function Scene(props: SceneProps) {
     let v = 0;
     for (const e of graph.edges) {
       const lit = focusIds.has(e.from) && focusIds.has(e.to) && (e.from === selectedId || e.to === selectedId || e.from === hoveredId || e.to === hoveredId);
-      // A link between two clusters is drawn on its own only for the memory in focus (otherwise it is in the arcs).
-      if (e.cross && !lit) continue;
+      // How much this strand is vibrating now (the stronger end).
+      const shake = motion ? Math.max(amp(e.from, now), amp(e.to, now)) : 0;
+      // A link between two clusters is drawn on its own only for the memory in focus or while it vibrates.
+      if (e.cross && !lit && shake < 0.08) continue;
       const a = pos(e.from); const b = pos(e.to);
-      // Thin and faint inside a cloud (many overlap, additively); strong only for the memory in focus.
-      const alpha = lit ? 0.75 : (e.kind === "relacao" ? 0.16 : 0.025 + (e.weight - 0.5) * 0.1) * dim;
+      // Thin and faint inside a cloud (many overlap, additively); strong for the memory in focus and while touched.
+      const alpha = (lit ? 0.75 : (e.kind === "relacao" ? 0.16 : 0.025 + (e.weight - 0.5) * 0.1) * dim) + shake * 0.75;
       const from = index.get(e.from); const fromNode = from !== undefined ? nodes[from] : null;
       tmpColor.set(fromNode ? CATEGORY_COLOR[fromNode.category] : "#8a93a3");
       if (e.kind === "relacao") tmpColor.lerp(TEAL, 0.4);
-      const bend = 0.18 * (hash01(e.id) - 0.5);
+      if (shake > 0) tmpColor.lerp(WEB_GLOW, Math.min(1, shake * 1.2));
+      // The web breathes: every strand sways a little; a touched one vibrates like a plucked string.
+      const bend = 0.18 * (hash01(e.id) - 0.5) + (motion ? Math.sin(t * 0.7 + hash01(e.id, 3) * 6.28) * 0.025 : 0);
+      const dx = b[0] - a[0], dy = b[1] - a[1]; const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      const wave = (u: number, out: THREE.Vector3) => { if (shake > 0.01) { const o = shake * Math.min(5, len * 0.08) * Math.sin(Math.PI * u) * Math.sin(t * 24 - u * 9 + hash01(e.id) * 6); out.x += nx * o; out.y += ny * o; } return out; };
       // Two reused vectors (no allocation per segment: thousands of curves are redrawn each frame).
-      let prev = curvePoint(a, b, 0, bend, segA);
+      let prev = wave(0, curvePoint(a, b, 0, bend, segA));
       let next = segB;
       for (let s = 1; s <= CURVE_STEPS; s += 1) {
-        curvePoint(a, b, s / CURVE_STEPS, bend, next);
+        wave(s / CURVE_STEPS, curvePoint(a, b, s / CURVE_STEPS, bend, next));
         ep.setXYZ(v, prev.x, prev.y, prev.z); ea.setX(v, Math.min(0.9, alpha)); et.setXYZ(v, tmpColor.r, tmpColor.g, tmpColor.b); v += 1;
         ep.setXYZ(v, next.x, next.y, next.z); ea.setX(v, Math.min(0.9, alpha)); et.setXYZ(v, tmpColor.r, tmpColor.g, tmpColor.b); v += 1;
         [prev, next] = [next, prev];
@@ -313,7 +365,7 @@ function Scene(props: SceneProps) {
     ep.needsUpdate = ea.needsUpdate = et.needsUpdate = true;
     edgeGeo.setDrawRange(0, v);
 
-    // ---- spokes (core → cluster) and branches (focused cluster → members), dotted ----
+    // ---- branches (focused cluster → members), dotted ----
     const sp = spokeGeo.getAttribute("position") as THREE.BufferAttribute;
     const sa = spokeGeo.getAttribute("alpha") as THREE.BufferAttribute;
     const st = spokeGeo.getAttribute("tint") as THREE.BufferAttribute;
@@ -324,12 +376,6 @@ function Scene(props: SceneProps) {
         const p1 = curvePoint(a, b, (s + 1) / 12, bend, tmp); sp.setXYZ(w, p1.x, p1.y, p1.z); sa.setX(w, alpha); st.setXYZ(w, tint.r, tint.g, tint.b); w += 1;
       }
     };
-    for (const c of graph.clusters) {
-      if (c.general) continue;
-      const box = layout.clusters.get(c.id); if (!box) continue;
-      const lit = c.id === focusClusterId;
-      dotted(layout.core, box.center, lit ? 0.5 : 0.07, tmpColor.set(CATEGORY_COLOR[c.category]), 0.08 * (hash01(c.id) - 0.5));
-    }
     for (const { c, id } of branchIds) {
       const box = layout.clusters.get(c.id); if (!box) continue;
       dotted(box.center, pos(id), 0.55, tmpColor.set("#e6edf3"), 0.1 * (hash01(id) - 0.5));
@@ -343,13 +389,25 @@ function Scene(props: SceneProps) {
     const pa = pulseGeo.getAttribute("alpha") as THREE.BufferAttribute;
     const pt = pulseGeo.getAttribute("tint") as THREE.BufferAttribute;
     let q = 0;
+    // Signals: from each touched memory, a bright point runs along each of its strands to the neighbour.
+    if (motion) for (const [id, tch] of touches.current) {
+      const age = now - tch.at; if (age < 0 || age > SIGNAL_MS || tch.s < 0.15) continue;
+      const a = pos(id); const u = age / SIGNAL_MS;
+      tmpColor.copy(WEB_GLOW);
+      for (const other of (neighbours.get(id) || []).slice(0, 8)) {
+        if (q >= PULSES) break;
+        const b = pos(other);
+        const p = curvePoint(a, b, u, 0.18 * (hash01(id < other ? `${id}|${other}` : `${other}|${id}`) - 0.5), tmp);
+        pp.setXYZ(q, p.x, p.y, p.z); ps.setX(q, 1.4 + tch.s * 1.8); pa.setX(q, Math.min(1, tch.s * 1.3) * (1 - u * 0.4)); pt.setXYZ(q, tmpColor.r, tmpColor.g, tmpColor.b); q += 1;
+      }
+    }
     for (const [id, hl] of highlights) {
       if (q >= PULSES) break;
       const age = now - hl.at; if (age > 2600 || (hl.kind !== "recalled" && hl.kind !== "created")) continue;
       const n = index.get(id); if (n === undefined) continue;
       const box = layout.clusters.get(nodes[n].clusterId); if (!box) continue;
       const travel = settings.reducedMotion ? 1 : Math.min(1, age / 1800);
-      const leg = travel < 0.5 ? curvePoint(layout.core, box.center, travel * 2, 0.05, tmp) : curvePoint(box.center, pos(id), (travel - 0.5) * 2, 0.08, tmp);
+      const leg = curvePoint(box.center, pos(id), travel, 0.08, tmp);
       pp.setXYZ(q, leg.x, leg.y, leg.z); ps.setX(q, 3.2); pa.setX(q, 1 - age / 2600);
       tmpColor.set(hl.kind === "created" ? ACTIVITY_COLOR : "#7ff3e6"); pt.setXYZ(q, tmpColor.r, tmpColor.g, tmpColor.b); q += 1;
     }
@@ -374,12 +432,11 @@ function Scene(props: SceneProps) {
         onClick={(e) => { e.stopPropagation(); onSelect(pick(e)); }}
       />
       <points geometry={pulseGeo} material={materials.pulses} frustumCulled={false} />
-      <Core motion={motion} />
       {graph.clusters.map((c) => <ClusterHub key={c.id} cluster={c} center={layout.clusters.get(c.id)?.center || [0, 0, 0]} focused={c.id === focusClusterId} motion={motion} onCluster={onCluster} />)}
       {settings.labels && <Labels {...props} index={index} clusterOf={clusterOf} pos={pos} />}
       <CameraRig command={camera} reduced={settings.reducedMotion} onUserMove={props.onUserMove} />
-      <Creature keeper={props.keeper} core={layout.core} pos={pos} has={has} nearest={nearest} merges={props.merges} reduced={settings.reducedMotion} />
-      <AccessPath agent={props.agent} core={layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
+      <Creature keeper={props.keeper} core={layout.core} pos={pos} has={has} nearest={nearest} merges={props.merges} reduced={settings.reducedMotion} touch={touch} />
+      <AccessPath agent={props.agent} hubOf={(id) => layout.clusters.get(nodes[index.get(id) ?? -1]?.clusterId)?.center || layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
     </>
   );
 }
@@ -406,7 +463,8 @@ const VAGUE_COLOR = color("#f05a8c");
 const KIND_COLOR: Record<string, string> = { valor: "#f2d14b", regra: "#7ff3e6", "preferência": "#f05a8c", combinado: "#9b7cf0", fato: "#eef2f6", vaga: "#f05a8c" };
 const LEG_OPTIONS: LegOptions = { ...LEG_DEFAULTS, count: LEGS };
 
-function Creature({ keeper, core, pos, has, nearest, merges, reduced }: { keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; nearest: Nearest; merges: Merge[]; reduced: boolean }) {
+function Creature({ keeper, core, pos, has, nearest, merges, reduced, touch }: { keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; nearest: Nearest; merges: Merge[]; reduced: boolean; touch: (id: string, strength: number) => void }) {
+  const standing = useRef<(string | null)[]>([]);
   const outer = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const coreMesh = useRef<THREE.Mesh>(null);
@@ -490,6 +548,8 @@ function Creature({ keeper, core, pos, has, nearest, merges, reduced }: { keeper
 
     // ---- 16 legs standing on memories: plant, and step (alternate legs) when she has moved on (legs.ts) ----
     const feet = stepLegs(legs.current, from, H, now, nearest, LEG_OPTIONS, reduced ? [0, 0, 0] : [vel.current.x * 6, vel.current.y * 6, 0]);
+    // A foot that lands on a memory makes the web tremble there.
+    legs.current.forEach((leg, i) => { if (leg.stepAt === -2 && leg.on && standing.current[i] !== leg.on) touch(leg.on, 0.35); standing.current[i] = leg.stepAt === -2 ? leg.on : standing.current[i]; });
     c3.set("#3fd6c6");
     feet.forEach((foot, i) => {
       const ang = (i / LEGS) * Math.PI * 2 + H;
@@ -605,7 +665,7 @@ function Creature({ keeper, core, pos, has, nearest, merges, reduced }: { keeper
  * as faint points. All from the turn's real events; it fades out when the turn ends.
  */
 const PATH_COLOR = color("#f6d9a6");
-function AccessPath({ agent, core, pos, has, reduced }: { agent: AgentState; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
+function AccessPath({ agent, hubOf, pos, has, reduced }: { agent: AgentState; hubOf: (id: string) => Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
   const born = useRef(0);
   const endedAt = useRef<number | null>(null);
   const MAX = 12 * 28 * 2;
@@ -635,8 +695,10 @@ function AccessPath({ agent, core, pos, has, reduced }: { agent: AgentState; cor
     c3.set("#9fb3c8");
     for (const tent of agent.tentacles) if (tent.kind === "scanned" && has(tent.id)) dot(pos(tent.id), 1.4, (0.25 + tent.strength * 0.4) * fade);
     // The path: the memories used, in order; one memory alone is reached from the core.
-    const stops = agent.tentacles.filter((x) => (x.kind === "recalled" || x.kind === "used" || x.kind === "created") && has(x.id)).sort((a, b) => a.order - b.order).map((x) => pos(x.id)).slice(0, 12);
-    const points: Vec3[] = stops.length === 1 ? [core, stops[0]] : stops;
+    const used = agent.tentacles.filter((x) => (x.kind === "recalled" || x.kind === "used" || x.kind === "created") && has(x.id)).sort((a, b) => a.order - b.order).slice(0, 12);
+    const stops = used.map((x) => pos(x.id));
+    // One memory alone is reached from the middle of its section.
+    const points: Vec3[] = stops.length === 1 ? [hubOf(used[0].id), stops[0]] : stops;
     const HOP = reduced ? 1 : 700;
     let head: THREE.Vector3 | null = null;
     c3.copy(PATH_COLOR);
@@ -662,28 +724,6 @@ function AccessPath({ agent, core, pos, has, reduced }: { agent: AgentState; cor
       <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
       <points geometry={dots} material={dotMat} frustumCulled={false} />
     </>
-  );
-}
-
-/** The Aurora's core: identity and global context (not a memory) — a turquoise crown, a magenta centre. */
-function Core({ motion }: { motion: boolean }) {
-  const ring = useRef<THREE.Group>(null);
-  useFrame(({ clock }) => { if (ring.current && motion) { const s = 1 + Math.sin(clock.getElapsedTime() * 1.1) * 0.035; ring.current.scale.set(s, s * 0.78, s); ring.current.rotation.z += 0.0012; } });
-  const spikes = useMemo(() => {
-    const pts: number[] = [];
-    for (let i = 0; i < 28; i += 1) { const a = (i / 28) * Math.PI * 2; const r0 = 6.4; const r1 = 8.8 + hash01(String(i)) * 4.5; pts.push(Math.cos(a) * r0, Math.sin(a) * r0 * 0.78, 0, Math.cos(a) * r1, Math.sin(a) * r1 * 0.78, 0); }
-    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3)); return g;
-  }, []);
-  return (
-    <group scale={1.7} renderOrder={10}>
-      <group ref={ring} scale={[1, 0.78, 1]}>
-        <mesh><ringGeometry args={[5.6, 6.3, 64]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.75} side={THREE.DoubleSide} /></mesh>
-        <mesh><circleGeometry args={[5.6, 48]} /><meshBasicMaterial color="#0b3b38" transparent opacity={0.55} /></mesh>
-        <mesh><sphereGeometry args={[5.5, 18, 12]} /><meshBasicMaterial color="#3fd6c6" wireframe transparent opacity={0.12} /></mesh>
-      </group>
-      <lineSegments geometry={spikes}><lineBasicMaterial color="#3fd6c6" transparent opacity={0.45} /></lineSegments>
-      <mesh><boxGeometry args={[1.9, 1.9, 0.4]} /><meshBasicMaterial color="#f05a8c" /></mesh>
-    </group>
   );
 }
 

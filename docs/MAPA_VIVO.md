@@ -145,3 +145,16 @@ funcionamento do cérebro** — uma pergunta no chat nunca espera por ela; ela c
 - **Chamar a Zeladora**: o botão ⌖ em cada seção do painel SEÇÕES e "chamar a zeladora aqui" na memória
   selecionada. Ela larga a ronda (ou acorda do descanso), vai até lá, organiza aquelas memórias e depois volta.
   API `POST /api/memories/keeper/visit {ids, label}`; evento `called`.
+
+### Teia viva (21/10)
+
+- **Sem núcleo central**: o anel com raios no meio do mapa saiu, junto com os raios núcleo → seção e os
+  tentáculos padrão da memória geral. Pulsos de evento partem do centro da seção da memória; o caminho de
+  uma pergunta com uma só memória também.
+- **Os laços vivem com a Zeladora** (`touch`/`amp` em `LiveMapScene.tsx`): cada **toque** numa memória — lida,
+  ligada, consultada numa pergunta, criada, compactada, marcada, **cada pé da Zeladora que pousa nela**, e a
+  memória que você passa o mouse ou seleciona — faz os fios dela **vibrarem como corda** e brilharem; um
+  **sinal** corre por cada fio até a vizinha (650 ms), que treme também, até dois saltos (força × 0,55 a cada
+  salto). Laços entre seções aparecem enquanto vibram. Em repouso, a teia respira (balanço leve de todos os fios).
+- Nada é inventado: todo toque vem de um evento real ou de você. Com "pausar" ou movimento reduzido a teia
+  fica parada.
