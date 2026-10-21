@@ -700,11 +700,11 @@ export const deleteApiEngine = (id: string) => request<{ deleted: boolean }>(`/e
 export const testApiEngine = (id: string) => request<{ ok: boolean; ms: number; error: string | null }>(`/engines/${encodeURIComponent(id)}/test`, { method: "POST" });
 
 // ---------- WhatsApp (app/whatsapp.js), a channel of the gateway (app/gateway.js) ----------
-export type WhatsappStatus = { status: "desligado" | "conectando" | "aguardando_qr" | "conectado"; qr: string | null; number: string | null; linked: boolean; mode: "proprio" | "numero"; pairCode: string | null; error: string | null };
+export type WhatsappStatus = { status: "desligado" | "conectando" | "aguardando_qr" | "conectado"; qr: string | null; number: string | null; linked: boolean; mode: "proprio" | "numero"; pairCode: string | null; error: string | null; lastClose?: { code: number | null; reason: string; at: string } | null };
 export const getWhatsapp = () => request<WhatsappStatus>("/whatsapp");
 export const enableWhatsapp = (own = false) => request<WhatsappStatus>("/whatsapp", { method: "PUT", body: JSON.stringify({ own }) });
 export const disableWhatsapp = () => request<WhatsappStatus>("/whatsapp", { method: "DELETE" });
-export const testWhatsapp = () => request<{ sent: boolean }>("/whatsapp/test", { method: "POST" });
+export const testWhatsapp = () => request<{ sent: boolean; error?: string }>("/whatsapp/test", { method: "POST" });
 
 // ---------- Top secret (app/blind.js): secret terms and what went out to a paid AI ----------
 export type EgressItem = { at: string; engine: string; kind: string; privacy: string; chars: number; text: string; files: string[] };

@@ -41,8 +41,8 @@ export async function sendToPhone(text, { channel = null, choices = null, onChoi
   const id = channel || (await replyChannel());
   const ch = id ? channels.get(id) : null;
   if (!ch) return false;
-  await ch.send(String(text || "").trim() || "(sem texto)", { choices, onChoice });
-  return true;
+  const sent = await ch.send(String(text || "").trim() || "(sem texto)", { choices, onChoice });
+  return sent !== false;
 }
 export async function sendFileToPhone(file, { channel = null } = {}) {
   const id = channel || (await replyChannel());

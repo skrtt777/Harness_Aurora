@@ -141,3 +141,40 @@ test("start: the QR shows while pairing, and the first connection listens to you
   assert.deepEqual([on.status, on.linked, on.mode, on.number, on.qr], ["conectado", true, "proprio", "5511999990000", null]);
   wa.stopWhatsapp();
 });
+
+test("WhatsApp: a late 'close' of an old socket never wipes the live connection nor starts a second session", async () => {
+  await store.setSetting("whatsapp_chat", "self");
+  const sockets = [];
+  const createSocket = () => { const s = fakeSock(); sockets.push(s); return s; };
+  await wa.startWhatsapp({ createSocket, handleChatTurn: async () => ({ ok: true, message: { content: "ok" } }) });
+  sockets[0].ev.emit("connection.update", { connection: "open" });
+  await new Promise((r) => setTimeout(r, 20));
+  // A reconnect (e.g. turning it on again): socket 2 is the live one…
+  await wa.startWhatsapp({ createSocket, handleChatTurn: async () => ({ ok: true, message: { content: "ok" } }) });
+  sockets[1].ev.emit("connection.update", { connection: "open" });
+  await new Promise((r) => setTimeout(r, 20));
+  // …and socket 1's close arrives late.
+  sockets[0].ev.emit("connection.update", { connection: "close", lastDisconnect: { error: { output: { statusCode: 428 } } } });
+  await new Promise((r) => setTimeout(r, 2600));
+  assert.equal((await wa.whatsappStatus()).status, "conectado", "the live socket is still connected");
+  assert.equal(sockets.length, 2, "no third socket was started by the stale close");
+  assert.equal(await gateway.sendToPhone("teste", { channel: "whatsapp" }), true);
+  assert.equal(sockets[1].sent.at(-1).content.text, "teste");
+  wa.stopWhatsapp();
+  // Not connected: the test says why instead of pretending.
+  await assert.rejects(() => gateway.sendToPhone("teste", { channel: "whatsapp" }), /não está conectado/);
+});
+
+test("WhatsApp: the self chat may come with its alternative address; the answer goes back to the chat it came from", async () => {
+  const sock = fakeSock();
+  wa._connectedForTest(sock, ME);
+  await store.setSetting("whatsapp_chat", "self");
+  const turns = [];
+  const handleChatTurn = async ({ message }) => { turns.push(message); return { ok: true, message: { content: "Feito." } }; };
+  // remoteJid in an unknown form, remoteJidAlt with the person's LID: heard.
+  await wa.handleMessage({ key: { remoteJid: "999@s.whatsapp.net", remoteJidAlt: "123456789:3@lid", fromMe: true, id: "X1" }, message: { conversation: "oi" } }, { handleChatTurn });
+  assert.deepEqual(turns, ["oi"]);
+  // Written from the LID address: the reply goes to that same address.
+  await wa.handleMessage({ key: { remoteJid: "123456789@lid", fromMe: true, id: "X2" }, message: { conversation: "e agora?" } }, { handleChatTurn });
+  assert.equal(sock.sent.at(-1).jid, "123456789@lid");
+});

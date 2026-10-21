@@ -14,7 +14,10 @@ import { getSetting, setSetting } from "./store.js";
 
 const MAX_FILE = 50 * 1024 * 1024;
 const MAX_TEXT = 4000;
-const state = { sock: null, status: "desligado", qr: null, me: null, error: null, env: process.env, handleChatTurn: null, sent: new Set(), wrongCodes: new Map(), stopping: false };
+// `gen` numbers each connection: the events of an older socket (its late "close" after a reconnect) are
+// ignored, so a stale socket can never wipe the live one or start a second session with the same login
+// (two sessions make WhatsApp drop one, then the other — the endless reconnect that left it "desligado").
+const state = { sock: null, status: "desligado", qr: null, me: null, error: null, env: process.env, handleChatTurn: null, sent: new Set(), wrongCodes: new Map(), stopping: false, gen: 0, retry: null, attempts: 0, lastClose: null, lastChat: null };
 
 // Next to the Aurora's database (%APPDATA%\Harness Aurora; the temp folder in tests).
 const authDir = (env = process.env) => join(env.HARNESS_DB_FILE ? dirname(env.HARNESS_DB_FILE) : join(env.APPDATA || homedir(), "Harness Aurora"), "whatsapp-auth");
@@ -25,25 +28,28 @@ export async function whatsappStatus() {
   const linked = await getSetting("whatsapp_chat");
   let qr = null;
   if (state.qr) { try { qr = await (await import("qrcode")).toDataURL(state.qr, { margin: 1, width: 240 }); } catch { qr = null; } }
-  return { status: state.status, qr, number: state.me?.id ? bare(state.me.id).split("@")[0] : null, linked: Boolean(linked), mode: linked && linked !== "self" ? "numero" : "proprio", pairCode: linked ? null : await getSetting("whatsapp_pair_code"), error: state.error };
+  return { status: state.status, qr, number: state.me?.id ? bare(state.me.id).split("@")[0] : null, linked: Boolean(linked), mode: linked && linked !== "self" ? "numero" : "proprio", pairCode: linked ? null : await getSetting("whatsapp_pair_code"), error: state.error, lastClose: state.lastClose };
 }
 
 /** The chat the Aurora answers: the person's own chat ("self") or the one paired by code. */
-async function isHeard(jid) {
+async function isHeard(jid, alt = null) {
   const linked = await getSetting("whatsapp_chat");
-  const j = bare(jid);
-  if (!linked || linked === "self") return [state.me?.id, state.me?.lid].filter(Boolean).map(bare).includes(j);
-  return j === linked;
+  const ids = [jid, alt].filter(Boolean).map(bare);
+  if (!linked || linked === "self") { const mine = [state.me?.id, state.me?.lid].filter(Boolean).map(bare); return ids.some((j) => mine.includes(j)); }
+  return ids.includes(linked);
 }
 async function replyJid() {
   const linked = await getSetting("whatsapp_chat");
-  return linked && linked !== "self" ? linked : bare(state.me?.id || "");
+  if (linked && linked !== "self") return linked;
+  // The person's own chat: the address it last wrote from (number or LID), else the number.
+  return state.lastChat || bare(state.me?.id || "");
 }
 
+/** Sends to the phone; says why when it cannot (the test button shows it). */
 async function send(text) {
-  if (!state.sock || state.status !== "conectado") return false;
+  if (!state.sock || state.status !== "conectado") throw new Error(state.status === "aguardando_qr" ? "o WhatsApp ainda espera a leitura do QR" : `o WhatsApp não está conectado agora (${state.status}${state.lastClose ? `, última queda: ${state.lastClose.reason}` : ""})`);
   const jid = await replyJid();
-  if (!jid) return false;
+  if (!jid) throw new Error("não sei para qual conversa mandar");
   for (let rest = String(text || "").trim() || "(sem texto)"; rest.length; rest = rest.slice(MAX_TEXT)) {
     const sent = await state.sock.sendMessage(jid, { text: rest.slice(0, MAX_TEXT) });
     if (sent?.key?.id) state.sent.add(sent.key.id);   // its own answer lands in the same chat: never a new request
@@ -92,7 +98,7 @@ export async function handleMessage(msg, { env = state.env, handleChatTurn = sta
   let text = String(m.conversation || m.extendedTextMessage?.text || doc?.caption || image?.caption || "").trim();
   const linked = await getSetting("whatsapp_chat");
   // A number of its own: the chat that sends the code shown in Configurações. Five wrong codes: ignored.
-  if (linked !== "self" && !(await isHeard(jid))) {
+  if (linked !== "self" && !(await isHeard(jid, msg.key.remoteJidAlt))) {
     if (msg.key.fromMe || (state.wrongCodes.get(jid) || 0) >= 5) return;
     const code = await getSetting("whatsapp_pair_code");
     if (code && text === code) {
@@ -101,7 +107,8 @@ export async function handleMessage(msg, { env = state.env, handleChatTurn = sta
     } else if (code && /^\d{4,8}$/.test(text)) state.wrongCodes.set(jid, (state.wrongCodes.get(jid) || 0) + 1);
     return;
   }
-  if (!(await isHeard(jid))) return;
+  if (!(await isHeard(jid, msg.key.remoteJidAlt))) return;
+  if (linked === "self" || !linked) state.lastChat = bare(jid);
   if (!text && !doc && !image && !m.audioMessage) return;
   if (m.audioMessage) { await send("Ainda não consigo ouvir áudios por aqui. Mande por texto, por favor."); return; }
   if (/^\/?(ajuda|help)\b/i.test(text)) {
@@ -135,6 +142,7 @@ async function onApproval({ conversationId: convId, summary }) {
 export async function startWhatsapp({ env = process.env, handleChatTurn = null, createSocket = null } = {}) {
   if (!createSocket && (await getSetting("whatsapp_enabled")) !== "true") return false;
   stopWhatsapp();
+  const gen = (state.gen += 1);
   state.env = env; state.handleChatTurn = handleChatTurn; state.stopping = false; state.error = null;
   const baileys = await import("@whiskeysockets/baileys");
   const dir = authDir(env);
@@ -144,25 +152,38 @@ export async function startWhatsapp({ env = process.env, handleChatTurn = null, 
   const version = createSocket ? undefined : (await baileys.fetchLatestBaileysVersion().catch(() => null))?.version;
   // Baileys logs every frame as JSON on the console: only its errors.
   const logger = (await import("pino")).default({ level: "error" });
+  if (gen !== state.gen) return false; // another start began while this one was loading
   const sock = make({ auth, logger, ...(version ? { version } : {}), browser: baileys.Browsers.windows("Aurora"), syncFullHistory: false, markOnlineOnConnect: false });
   state.sock = sock; state.status = "conectando";
+  const live = () => gen === state.gen && state.sock === sock;
   sock.ev.on("creds.update", saveCreds);
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+    if (!live()) return; // an older socket's late event: never touches the live connection
     if (qr) { state.qr = qr; state.status = "aguardando_qr"; }
     if (connection === "open") {
-      state.qr = null; state.status = "conectado"; state.me = sock.user || null;
+      state.qr = null; state.status = "conectado"; state.me = sock.user || null; state.attempts = 0;
       // First time: the person's own chat, unless a pairing code is waiting for a number of its own.
       if (!(await getSetting("whatsapp_chat")) && !(await getSetting("whatsapp_pair_code"))) await setSetting("whatsapp_chat", "self");
     }
     if (connection === "close") {
       const code = lastDisconnect?.error?.output?.statusCode;
       state.status = "desligado"; state.sock = null;
-      if (code === baileys.DisconnectReason.loggedOut) { state.error = "O WhatsApp desconectou este computador. Leia o QR de novo."; rmSync(dir, { recursive: true, force: true }); await setSetting("whatsapp_chat", ""); }
-      else if (!state.stopping) setTimeout(() => { void startWhatsapp({ env, handleChatTurn, createSocket }).catch((e) => { state.error = e.message; }); }, 5000).unref?.();
+      state.lastClose = { code: code ?? null, reason: closeReason(code, baileys.DisconnectReason), at: new Date().toISOString() };
+      if (code === baileys.DisconnectReason.loggedOut) { state.error = "O WhatsApp desconectou este computador. Leia o QR de novo."; rmSync(dir, { recursive: true, force: true }); await setSetting("whatsapp_chat", ""); return; }
+      // Another session took over with this login (WhatsApp Web opened elsewhere with the same pairing):
+      // retrying would only fight it. Stop and say so.
+      if (code === baileys.DisconnectReason.connectionReplaced) { state.error = "Outra sessão abriu com este mesmo pareamento e o WhatsApp fechou esta. Feche a outra (ou leia o QR de novo) e ligue outra vez."; return; }
+      if (state.stopping) return;
+      // One reconnect at a time, waiting longer after each failure (restart-required after pairing: at once).
+      state.attempts += 1;
+      const wait = code === baileys.DisconnectReason.restartRequired ? 500 : Math.min(60_000, 2000 * 2 ** Math.min(5, state.attempts - 1));
+      clearTimeout(state.retry);
+      state.retry = setTimeout(() => { if (gen === state.gen) void startWhatsapp({ env, handleChatTurn, createSocket }).catch((e) => { state.error = e.message; }); }, wait);
+      state.retry.unref?.();
     }
   });
   sock.ev.on("messages.upsert", ({ messages, type }) => {
-    if (type !== "notify") return;
+    if (!live() || type !== "notify") return;
     for (const msg of messages) void handleMessage(msg, { env, handleChatTurn }).catch((e) => { state.error = e.message; });
   });
   approvalEvents.off("requested", onApproval);
@@ -185,11 +206,21 @@ export async function disableWhatsapp({ env = process.env } = {}) {
   state.me = null; state.qr = null; state.error = null;
   return whatsappStatus();
 }
+function closeReason(code, R) {
+  if (code === R.loggedOut) return "desconectado no celular";
+  if (code === R.connectionReplaced) return "outra sessão com o mesmo pareamento";
+  if (code === R.restartRequired) return "reinício pedido pelo WhatsApp";
+  if (code === R.timedOut || code === R.connectionLost) return "conexão perdida";
+  if (code === R.badSession) return "sessão inválida";
+  return code ? `código ${code}` : "fechada";
+}
+
 export function stopWhatsapp() {
   state.stopping = true;
+  clearTimeout(state.retry); state.retry = null;
   try { state.sock?.end?.(undefined); } catch { /* closed */ }
   state.sock = null; state.status = "desligado"; state.qr = null;
   approvalEvents.off("requested", onApproval);
 }
 /** For the tests: the state as a connected socket would leave it. */
-export function _connectedForTest(sock, me) { state.sock = sock; state.status = "conectado"; state.me = me; state.sent.clear(); state.wrongCodes.clear(); }
+export function _connectedForTest(sock, me) { state.sock = sock; state.status = "conectado"; state.me = me; state.sent.clear(); state.wrongCodes.clear(); state.lastChat = null; }

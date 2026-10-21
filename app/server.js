@@ -562,7 +562,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (pathname === "/api/whatsapp" && method === "GET") return sendJson(response, 200, await whatsappStatus());
       if (pathname === "/api/whatsapp" && method === "PUT") return sendJson(response, 200, await enableWhatsapp({ own: Boolean((await readJson(request)).own), handleChatTurn }));
       if (pathname === "/api/whatsapp" && method === "DELETE") return sendJson(response, 200, await disableWhatsapp());
-      if (pathname === "/api/whatsapp/test" && method === "POST") return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este WhatsApp está ligado ao seu computador.", { channel: "whatsapp" }) });
+      if (pathname === "/api/whatsapp/test" && method === "POST") {
+        try { return sendJson(response, 200, { sent: await sendToPhone("Teste da Aurora: este WhatsApp está ligado ao seu computador.", { channel: "whatsapp" }) }); }
+        catch (error) { return sendJson(response, 200, { sent: false, error: error.message }); }
+      }
       // The Aurora's diary (today and yesterday): the start screen shows the files it made.
       if (pathname === "/api/diary" && method === "GET") return sendJson(response, 200, { entries: await diaryEntries() });
       // "Sobre você": the person's profile, in every conversation.

@@ -15,7 +15,8 @@ export default function WhatsappPanel() {
   useEffect(() => { void refresh(); }, [refresh]);
   // While the QR is on the screen or the connection comes up, follow it.
   useEffect(() => {
-    if (!status || status.status === 'desligado' || (status.status === 'conectado' && status.linked)) return undefined;
+    // Also while it reconnects (linked but not connected now): the status comes back by itself.
+    if (!status || (status.status === 'desligado' && !status.linked) || (status.status === 'conectado' && status.linked)) return undefined;
     const id = setInterval(() => void refresh(), 2000);
     return () => clearInterval(id);
   }, [status, refresh]);
@@ -37,6 +38,7 @@ export default function WhatsappPanel() {
       <small>Esperando a leitura…</small>
     </div>}
     {on && status.status === 'conectando' && <p className="section-desc" role="status">Conectando ao WhatsApp…</p>}
+    {on && status.status === 'desligado' && status.linked && <p className="section-desc" role="status">Reconectando ao WhatsApp…{status.lastClose ? ` (última queda: ${status.lastClose.reason})` : ''}</p>}
     {on && status.status === 'conectado' && !status.linked && status.pairCode && <div className="phone-pair" role="status">
       <p>Do seu celular, mande este código para o número {status.number ? <b>+{status.number}</b> : 'da Aurora'}:</p>
       <p className="phone-code">Código: <b>{status.pairCode}</b></p>
@@ -45,7 +47,7 @@ export default function WhatsappPanel() {
     {on && status.status === 'conectado' && status.linked && <div className="phone-linked">
       <p><span className="phone-dot" aria-hidden="true" />Ligado ao WhatsApp{status.number ? ` (+${status.number})` : ''}. {status.mode === 'proprio' ? 'Escreva para a Aurora em "Mensagem para você"' : 'A conversa que mandou o código fala com a Aurora'}; é a mesma conversa do Telegram, e as autorizações chegam como "responda sim ou não".</p>
       <div className="form-actions">
-        <button className="btn" disabled={busy} onClick={() => act(() => testWhatsapp().then((r) => setNote(r.sent ? 'Mensagem de teste enviada.' : 'Não foi possível enviar.')))}>Mandar teste</button>
+        <button className="btn" disabled={busy} onClick={() => act(() => testWhatsapp().then((r) => { if (r.sent) setNote('Mensagem de teste enviada — veja em "Mensagem para você".'); else setError(`Não foi possível enviar: ${r.error || 'o WhatsApp recusou'}.`); }))}>Mandar teste</button>
         <button className="btn btn-ghost" disabled={busy} onClick={() => { if (window.confirm('Desconectar o WhatsApp deste computador?')) act(() => disableWhatsapp().then(setStatus)); }}>Desconectar</button>
       </div>
     </div>}
