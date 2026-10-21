@@ -100,6 +100,29 @@ await page.press(".lm-search", "Enter");
 await page.waitForTimeout(2500);
 await page.screenshot({ path: join(out, "04_busca_e_memoria.png") });
 
+// A real chat turn from the map's own chat (the local model answers): the Aurora walks through the map.
+if (!process.argv.includes("--no-chat")) {
+  await page.locator(".lm-side .lm-x").click().catch(() => {});
+  await page.fill(".lm-search", "");
+  // A conversation of the Vendas folder: its memories are the ones the search weighs.
+  await page.selectOption(".lm-dock header select", conversations[0].conv.id);
+  await page.waitForTimeout(800);
+  const before = await page.locator(".lm-msg.assistant:not(.pending)").count();
+  await page.fill(".lm-dock textarea", "Qual é a meta de vendas do trimestre e o que combinamos sobre a comissão dos vendedores?");
+  await page.press(".lm-dock textarea", "Enter");
+  const t0 = Date.now();
+  let shot = 0;
+  while (Date.now() - t0 < 180_000) {
+    await page.waitForTimeout(1500);
+    const phase = await page.locator(".lm-steps li.now b").first().textContent().catch(() => "");
+    if (shot < 3 && phase && /busca|memórias no contexto/.test(phase)) { shot += 1; await page.screenshot({ path: join(out, `06_turno_${shot}_${phase.replace(/[^a-z]+/gi, "_")}.png`) }); }
+    if ((await page.locator(".lm-msg.assistant:not(.pending)").count()) > before) break;
+  }
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: join(out, "07_resposta_no_chat.png") });
+  console.log(`turno pelo chat do mapa: ${Math.round((Date.now() - t0) / 1000)} s`);
+}
+
 await page.getByRole("button", { name: "por pasta / projeto" }).click();
 await page.waitForTimeout(3500);
 await page.screenshot({ path: join(out, "05_por_pasta.png") });

@@ -241,6 +241,27 @@ export function steadyAtlas(atlas: MemoryGraphSnapshot["atlas"], state: FrozenAt
   return { ...atlas, points, clusters };
 }
 
+/**
+ * A turn of the Aurora as the map follows it, step by step from the real events: pergunta (turn-start), busca
+ * (scanned: the candidates the search scored), consulta (recalled: what went into the context), resposta
+ * (answered: what the saved answer used and created), then ended. Events of another conversation do not mix in.
+ */
+export type TurnPhase = "pergunta" | "busca" | "consulta" | "resposta";
+export type TurnState = { key: string; conversationId: string | null; message: string; phase: TurnPhase; scanned: { id: string; score: number }[]; recalled: string[]; used: string[]; created: string[]; ended: boolean };
+export function reduceTurn(turn: TurnState | null, event: MemoryLiveEvent): TurnState | null {
+  if (event.type === "turn-start") return { key: `${event.seq ?? event.at}`, conversationId: event.conversationId || null, message: event.message || "", phase: "pergunta", scanned: [], recalled: [], used: [], created: [], ended: false };
+  const ours = turn && !turn.ended && (!event.conversationId || !turn.conversationId || turn.conversationId === event.conversationId);
+  if (event.type === "turn-end") return turn && (!event.conversationId || turn.conversationId === event.conversationId) ? { ...turn, ended: true } : turn;
+  // Memories extracted from the answer are saved just after the turn ends: still this turn's, if of its conversation.
+  if (event.type === "created" && event.id && turn?.ended && turn.conversationId && event.conversationId === turn.conversationId) return { ...turn, created: [...new Set([...turn.created, event.id])] };
+  if (!ours) return turn;
+  if (event.type === "scanned" && event.candidates?.length) return { ...turn!, phase: "busca", scanned: event.candidates.map((c) => ({ id: c.id, score: c.score })) };
+  if (event.type === "recalled" && event.ids?.length) return { ...turn!, phase: "consulta", recalled: event.ids };
+  if (event.type === "created" && event.id) return { ...turn!, created: [...new Set([...turn!.created, event.id])] };
+  if (event.type === "answered") return { ...turn!, phase: "resposta", used: event.used || [], created: [...new Set([...turn!.created, ...(event.created || [])])] };
+  return turn;
+}
+
 /** The ids a search lights up (all visible memories matching the words), best first by relevance. */
 export function searchIds(graph: MemoryGraph, query: string): string[] {
   if (!query.trim()) return [];

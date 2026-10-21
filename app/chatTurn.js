@@ -570,6 +570,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
     if (!conversation) return { ok: false, status: 404, error: "Conversa não encontrada." };
 
     const trimmed = typeof message === "string" ? message.trim() : "";
+    if (trimmed) emitMemoryEvent("turn-start", { conversationId, message: trimmed.slice(0, 160) });
     if (!trimmed) return { ok: false, status: 400, error: "A mensagem é obrigatória." };
     if (trimmed.length + 13 > Math.min(64000, Math.max(1000, Number(contextLimit) || 12000))) return { ok: false, status: 400, error: "A mensagem excede o limite de contexto. Divida-a em partes menores." };
 
@@ -991,6 +992,8 @@ ${engineNote(escalated)}` };
       memoryAccess: usedContext ? usedContext.memoryIds : relevant.map((m) => m.id),
       memoryCreated: memoryCreated.map((m) => m.id),
     });
+    // The answer is saved with what it used and created: the same ids the message keeps.
+    emitMemoryEvent("answered", { conversationId, ok: result.ok !== false, used: assistantMessage.memoryAccess || [], created: assistantMessage.memoryCreated || [] });
 
     if (conversation.provider !== "local") {
       // The answer is durable and can be returned immediately; extraction is best effort.
@@ -1016,5 +1019,8 @@ ${engineNote(escalated)}` };
       threadId: result.threadId,
     };
   } catch(error) { return {ok:false,status:error.status||500,error:error.message}; }
-  finally { endTurn(conversationId, controller); }
+  finally {
+    endTurn(conversationId, controller);
+    emitMemoryEvent("turn-end", { conversationId });
+  }
 }

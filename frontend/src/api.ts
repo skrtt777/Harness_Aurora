@@ -718,7 +718,16 @@ export type GraphMemory = {
   kind: string; source: string | null; tags: string[]; snippet: string | null; sensitive: boolean;
   createdAt: string; updatedAt: string; uses: number; helped: number; failed: number; status: string;
 };
-export type MemoryLiveEvent = { type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled"; at: string; seq?: number; id?: string; ids?: string[]; title?: string; scope?: string; projectId?: string | null; conversationId?: string | null; kind?: string };
+export type MemoryLiveEvent = {
+  type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled" | "scanned" | "turn-start" | "turn-end" | "answered";
+  at: string; seq?: number; id?: string; ids?: string[]; title?: string; scope?: string; projectId?: string | null; conversationId?: string | null; kind?: string;
+  /** scanned: the candidates the memory search really scored, best first. */
+  candidates?: { id: string; score: number; similarity: number | null }[];
+  /** turn-start: the person's message (start of it). */
+  message?: string;
+  /** answered: what the saved answer used and created. */
+  used?: string[]; created?: string[]; ok?: boolean;
+};
 export type MemoryGraphSnapshot = {
   generatedAt: string;
   memories: GraphMemory[];

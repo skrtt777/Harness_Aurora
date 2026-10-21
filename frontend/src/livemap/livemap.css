@@ -118,3 +118,40 @@
   .lm-title h1 { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .livemap * { transition: none !important; animation: none !important; } }
+
+/* The turn as it happens: four steps, like the reference's sections (each lights up on its real event). */
+.lm-steps { list-style: none; margin: 0; padding: 4px 14px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; z-index: 3; }
+.lm-steps li { border-top: 2px solid #1b212c; padding: 3px 2px 0; min-width: 0; color: var(--lm-faint); font-size: 10.5px; }
+.lm-steps li b { display: block; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
+.lm-steps li span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.lm-steps.on li { color: var(--lm-dim); }
+.lm-steps li.done { border-color: var(--lm-teal); color: var(--lm-text); }
+.lm-steps li.now { border-color: var(--lm-pink); color: #fff; }
+.lm-steps li.now b::after { content: " ●"; color: var(--lm-pink); animation: lm-blink 1s steps(2) infinite; }
+@keyframes lm-blink { 50% { opacity: 0; } }
+
+/* Chat beside the map */
+.lm-dock { position: absolute; top: 10px; right: 12px; bottom: 10px; width: min(380px, 44vw); z-index: 6; display: flex; flex-direction: column; background: rgba(9,12,17,.94); border: 1px solid var(--lm-line); }
+.lm-dock header { display: flex; gap: 6px; padding: 6px; border-bottom: 1px solid var(--lm-line); }
+.lm-dock header select { flex: 1; min-width: 0; background: #0f131a; color: var(--lm-text); border: 1px solid var(--lm-line); font: inherit; font-size: 11px; padding: 3px 6px; }
+.lm-dock-list { flex: 1; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.lm-msg { font-size: 12px; line-height: 1.5; font-family: system-ui, "Segoe UI", sans-serif; }
+.lm-msg p { margin: 0; }
+.lm-msg.user { align-self: flex-end; max-width: 88%; background: #182231; padding: 6px 9px; border-radius: 8px 8px 2px 8px; color: #e6edf3; }
+.lm-msg.assistant { color: #c9d1d9; }
+.lm-msg.assistant .aurora-markdown { font-size: 12px; }
+.lm-msg.pending .lm-stage { font-family: var(--lm-mono); font-size: 11px; color: var(--lm-teal); }
+.lm-msg.pending .lm-stage::before { content: "▸ "; color: var(--lm-pink); }
+.lm-chips-mem { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.lm-chips-mem button { font-family: var(--lm-mono); font-size: 10px; background: transparent; border: 1px solid #2a3442; color: #b9c2cd; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-chips-mem button.used { border-color: rgba(127,243,230,.5); color: #7ff3e6; }
+.lm-chips-mem button.created { border-color: rgba(111,220,140,.55); color: var(--lm-green); }
+.lm-dock form { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--lm-line); }
+.lm-dock textarea { flex: 1; resize: none; background: #0f131a; color: var(--lm-text); border: 1px solid var(--lm-line); font: 12px system-ui, sans-serif; padding: 6px 8px; }
+.lm-dock textarea:focus { outline: 1px solid var(--lm-teal); }
+.lm-dock-error { color: var(--lm-pink); font-size: 11px; margin: 0; padding: 0 10px 4px; }
+.lm-dock-open { position: absolute; right: 12px; bottom: 12px; z-index: 6; background: rgba(11,14,20,.92); color: var(--lm-teal); border: 1px solid rgba(63,214,198,.5); font: 11px var(--lm-mono); padding: 6px 12px; cursor: pointer; }
+.lm-side.with-dock { right: auto; left: 14px; top: 64px; }
+@media (max-width: 900px) { .lm-dock { width: auto; left: 12px; top: auto; height: 55%; } }
+/* The panels stay above the map's labels (drei puts each label in its own layer). */
+.lm-dock, .lm-dock-open, .lm-side, .lm-hover { z-index: 60; }

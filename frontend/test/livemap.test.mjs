@@ -123,6 +123,27 @@ test("the semantic atlas holds steady: the server re-clusters, the map keeps gro
   assert.equal(later.clusters.find((c) => c.id === 0).label, "metas vendas", "names stay as first seen");
 });
 
+test("a turn followed step by step from real events; another conversation's events do not mix in", async () => {
+  const { reduceTurn } = await import("../.test-build/livemap/adapter.js");
+  let t = reduceTurn(null, { type: "turn-start", at: "a", seq: 1, conversationId: "conv", message: "qual a meta do Sul?" });
+  assert.deepEqual([t.phase, t.message, t.ended], ["pergunta", "qual a meta do Sul?", false]);
+  t = reduceTurn(t, { type: "scanned", at: "b", conversationId: "conv", candidates: [{ id: "p1", score: 2.4, similarity: 0.8 }, { id: "p2", score: 1.1, similarity: 0.6 }] });
+  assert.deepEqual([t.phase, t.scanned.map((c) => c.id)], ["busca", ["p1", "p2"]]);
+  t = reduceTurn(t, { type: "recalled", at: "c", conversationId: "outra", ids: ["x"] });
+  assert.deepEqual(t.recalled, [], "another conversation's recall is not this turn's");
+  t = reduceTurn(t, { type: "recalled", at: "c", conversationId: "conv", ids: ["p1"] });
+  assert.deepEqual([t.phase, t.recalled], ["consulta", ["p1"]]);
+  t = reduceTurn(t, { type: "created", at: "d", id: "n1" });
+  t = reduceTurn(t, { type: "answered", at: "e", conversationId: "conv", used: ["p1"], created: ["n1", "n2"] });
+  assert.deepEqual([t.phase, t.used, t.created], ["resposta", ["p1"], ["n1", "n2"]]);
+  t = reduceTurn(t, { type: "turn-end", at: "f", conversationId: "conv" });
+  assert.equal(t.ended, true);
+  t = reduceTurn(t, { type: "created", at: "f2", id: "n3", conversationId: "conv" });
+  assert.ok(t.created.includes("n3"), "a memory extracted right after the end is still this turn's");
+  assert.equal(reduceTurn(t, { type: "created", at: "f3", id: "n4", conversationId: "outra" }).created.includes("n4"), false);
+  assert.equal(reduceTurn(t, { type: "recalled", at: "g", conversationId: "conv", ids: ["late"] }).recalled.includes("late"), false, "an ended turn takes nothing more");
+});
+
 test("layout: deterministic, the general memory at the core, clusters apart, a new memory does not move the others", () => {
   const s = snapshot();
   const g = buildMemoryGraph(s, { mode: "pasta", now: NOW });

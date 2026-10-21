@@ -1,8 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getMemoryGraph, subscribeMemoryEvents, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
-import { applyEvent, buildMemoryGraph, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
+import { applyEvent, buildMemoryGraph, reduceTurn, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
 import { layoutGraph } from "./layout";
-import type { CameraCommand, Highlight, MapSettings, Quality } from "./LiveMapScene";
+import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Quality } from "./LiveMapScene";
+import type { Vec3 } from "./layout";
+import ChatDock from "./ChatDock";
 import "./livemap.css";
 
 const LiveMapScene = lazy(() => import("./LiveMapScene"));
@@ -13,7 +15,11 @@ const LiveMapScene = lazy(() => import("./LiveMapScene"));
  * created, found by a search). No demo data: with nothing stored, the map says so.
  */
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
-const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada" };
+const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu" };
+// The steps of a turn, as the reference's sections: each lights up when its real event arrives.
+const STEPS: [Phase, string][] = [["pergunta", "pergunta"], ["busca", "busca na memória"], ["consulta", "memórias no contexto"], ["resposta", "resposta"]];
+type Phase = TurnPhase;
+type Turn = TurnState;
 const PERIODS: [number, string][] = [[0, "todo o período"], [1, "últimas 24 h"], [7, "últimos 7 dias"], [30, "últimos 30 dias"], [90, "últimos 90 dias"]];
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -44,6 +50,10 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [camera, setCamera] = useState<CameraCommand>(null);
   const [activityMode, setActivityMode] = useState(true);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [turn, setTurn] = useState<Turn | null>(null);
+  const [dockOpen, setDockOpen] = useState(true);
+  const [dockConversation, setDockConversation] = useState<string | null>(null);
+  const turnTimer = useRef<number | null>(null);
   const [gl, setGl] = useState(webglAvailable);
   const refreshTimer = useRef<number | null>(null);
   useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused })); } catch { /* private mode */ } }, [settings]);
@@ -68,9 +78,21 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     if (event.type === "hello") return;
     setEvents((old) => [event, ...old].slice(0, 80));
     const now = performance.now();
+    // ---- the turn as it happens (pergunta → busca → consulta → resposta), only from real events ----
+    setTurn((t) => reduceTurn(t, event));
+    if (event.type === "turn-start" && turnTimer.current) window.clearTimeout(turnTimer.current);
+    if (event.type === "answered") for (const id of event.created || []) setHighlights((old) => new Map(old).set(id, { kind: "created", at: now }));
+    if (event.type === "turn-end") {
+      if (turnTimer.current) window.clearTimeout(turnTimer.current);
+    }
     if (event.type === "recalled" && event.ids?.length) {
       setLastRecall({ ids: event.ids, at: event.at, conversationId: event.conversationId });
-      setHighlights((old) => { const next = new Map(old); for (const id of event.ids!) next.set(id, { kind: "recalled", at: now }); return next; });
+      setHighlights((old) => {
+        const next = new Map(old);
+        const scores = new Map((turnRef.current?.scanned || []).map((c) => [c.id, c.score]));
+        for (const id of event.ids!) next.set(id, { kind: "recalled", at: now, score: scores.get(id) });
+        return next;
+      });
       if (activityModeRef.current) {
         const first = graphRef.current?.nodes.find((n) => event.ids!.includes(n.id));
         const box = first && layoutRef.current?.clusters.get(first.clusterId);
@@ -86,6 +108,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     }
   }, setLive), [quietRefresh]);
   const activityModeRef = useRef(activityMode); activityModeRef.current = activityMode;
+  const turnRef = useRef(turn); turnRef.current = turn;
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
   const graph = useMemo(() => (snap ? buildMemoryGraph(snap, { mode, filters }) : null), [snap, mode, filters]);
@@ -94,6 +117,33 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const nodeById = useMemo(() => new Map((graph?.nodes || []).map((n) => [n.id, n])), [graph]);
   const projectName = useMemo(() => new Map((snap?.projects || []).map((p) => [p.id, p.name])), [snap]);
   const convTitle = useMemo(() => new Map((snap?.conversations || []).map((c) => [c.id, c.title])), [snap]);
+
+  // ---------- The Aurora's agent for the turn: where she goes and what she reaches ----------
+  const agent: AgentState = useMemo(() => {
+    if (!turn || !layout) return null;
+    const known = (id: string) => layout.nodes.has(id);
+    const max = Math.max(0.001, ...turn.scanned.map((c) => c.score));
+    const chosen = new Set([...turn.recalled, ...turn.used]);
+    const tentacles: AgentTentacle[] = [
+      ...turn.scanned.filter((c) => known(c.id) && !chosen.has(c.id)).slice(0, 24).map((c, i) => ({ id: c.id, kind: "scanned" as const, strength: c.score / max, order: i })),
+      ...[...chosen].filter(known).map((id, i) => ({ id, kind: (turn.recalled.includes(id) ? "recalled" : "used") as AgentTentacle["kind"], strength: 1, order: 6 + i })),
+      ...turn.created.filter(known).map((id, i) => ({ id, kind: "created" as const, strength: 1, order: 10 + i })),
+    ];
+    // Her place: the centre of what she is reaching for (the chosen ones first, else the best candidates).
+    const focus = (chosen.size ? [...chosen] : turn.scanned.slice(0, 6).map((c) => c.id)).filter(known);
+    const target: Vec3 | null = focus.length ? (([0, 1, 2] as const).map((a) => focus.reduce((sum, id) => sum + layout.nodes.get(id)![a], 0) / focus.length) as Vec3) : null;
+    return { key: turn.key, target, tentacles, ended: turn.ended };
+  }, [turn, layout]);
+  // The activity mode follows her (the reference's camera walking from section to section).
+  const followed = useRef("");
+  useEffect(() => {
+    if (!activityMode || !agent?.target || agent.ended) return;
+    const key = `${agent.key}:${turn?.phase}`;
+    if (followed.current === key) return;
+    followed.current = key;
+    const spread = Math.max(40, ...agent.tentacles.map((t) => { const p = layout?.nodes.get(t.id); return p ? Math.hypot(p[0] - agent.target![0], p[1] - agent.target![1]) : 0; }));
+    setCamera({ target: agent.target, distance: Math.min(520, 60 + spread * 2.2), key: Date.now() });
+  }, [agent, activityMode, turn?.phase, layout]);
 
   // Search: results light up, the camera goes to the best one.
   const results = useMemo(() => (graph && query.trim() ? searchIds(graph, query) : []), [graph, query]);
@@ -163,6 +213,15 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         </nav>
       </header>
 
+      <ol className={`lm-steps ${turn ? "on" : ""}`} aria-label="O turno da Aurora agora">
+        {STEPS.map(([id, label], i) => {
+          const at = turn ? STEPS.findIndex(([x]) => x === turn.phase) : -1;
+          const state = !turn ? "" : i < at || (turn.ended && i <= at) ? "done" : i === at ? "now" : "";
+          const detail = !turn ? "" : id === "pergunta" ? turn.message : id === "busca" ? (turn.scanned.length ? `${turn.scanned.length} avaliadas · melhor ${turn.scanned[0].score.toFixed(2).replace(".", ",")}` : "") : id === "consulta" ? (turn.recalled.length ? `${turn.recalled.length} no contexto` : "") : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : "";
+          return <li key={id} className={state}><b>{String(i + 1).padStart(2, "0")} {label}</b><span>{detail || (turn ? "…" : "aguardando uma pergunta")}</span></li>;
+        })}
+      </ol>
+
       <div className="lm-tools" role="toolbar" aria-label="Busca, filtros e controles">
         <input ref={searchRef} className="lm-search" type="search" placeholder="buscar memória, tag ou id  ( / )" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && results[0]) goTo(results[0]); }} aria-label="Buscar memória" />
         {query && <span className="lm-count">{results.length} encontrada(s)</span>}
@@ -205,20 +264,26 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
       <div className="lm-stage">
         <div className="lm-title" aria-live="polite">
+        {turn && !turn.ended ? <>
+          <h1>{String(STEPS.findIndex(([x]) => x === turn.phase) + 1).padStart(2, "0")} {STEPS.find(([x]) => x === turn.phase)![1].toUpperCase()}</h1>
+          <p>{turn.phase === "busca" ? `avaliando ${turn.scanned.length} memórias` : turn.phase === "consulta" ? `${turn.recalled.length} memórias no contexto · respondendo` : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : `“${turn.message.slice(0, 60)}”`}{turn.conversationId && turn.conversationId === dockConversation ? " · nesta conversa" : ""}</p>
+        </> : <>
           <h1>{String(focusIndex || 0).padStart(2, "0")} {(focused?.label || "memória da aurora").toUpperCase()}</h1>
           <p>{focused ? `${focused.nodeIds.length} memórias · ${focused.sublabel}` : `${graph.stats.memories} memórias · ${graph.stats.clusters} agrupamentos`}</p>
+        </>}
         </div>
 
         {graph.nodes.length === 0 ? (
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera}
+            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
           </Suspense>
         ) : (
           <FallbackList graph={graph} onSelect={goTo} />
         )}
+        <ChatDock open={dockOpen} onToggle={() => setDockOpen((v) => !v)} onGoTo={goTo} onConversation={setDockConversation} projectId={filters.projectId || null} />
         {hoveredId && nodeById.get(hoveredId) && hoveredId !== selectedId && (
           <div className="lm-hover" role="status">
             <i style={{ background: CATEGORY_COLOR[nodeById.get(hoveredId)!.category] }} />{nodeById.get(hoveredId)!.memory.title}
@@ -226,7 +291,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           </div>
         )}
         {selected && (
-          <aside className="lm-side" aria-label="Memória selecionada">
+          <aside className={`lm-side ${dockOpen ? "with-dock" : ""}`} aria-label="Memória selecionada">
             <header><span className="lm-cat" style={{ color: CATEGORY_COLOR[selected.category] }}>{CATEGORY_LABEL[selected.category]}</span><button className="lm-x" onClick={() => setSelectedId(null)} aria-label="Fechar">×</button></header>
             <h2>{selected.memory.title}</h2>
             {selected.memory.sensitive ? <p className="lm-muted">Conteúdo sensível: não aparece no mapa. Abra na Memória para ver.</p> : <p>{selected.memory.snippet}{(selected.memory.snippet || "").length >= 280 ? "…" : ""}</p>}
@@ -263,7 +328,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             <ol className="lm-log">
               {events.length === 0 && <li className="lm-muted">Nenhum evento desde que o app abriu.</li>}
               {events.slice(0, 14).map((e, i) => (
-                <li key={`${e.seq}-${i}`} className={e.type}><time>{fmtTime(e.at)}</time><b>{EVENT_LABEL[e.type] || e.type}</b><span>{e.type === "recalled" ? `${e.ids?.length || 0} memórias · ${convTitle.get(e.conversationId || "") || "conversa"}` : e.title || nodeById.get(e.id || "")?.label || (e.id || "").slice(0, 8)}</span></li>
+                <li key={`${e.seq}-${i}`} className={e.type}><time>{fmtTime(e.at)}</time><b>{EVENT_LABEL[e.type] || e.type}</b><span>{e.type === "recalled" ? `${e.ids?.length || 0} memórias · ${convTitle.get(e.conversationId || "") || "conversa"}` : e.type === "scanned" ? `${e.candidates?.length || 0} candidatas · melhor ${(e.candidates?.[0]?.score ?? 0).toFixed(2).replace(".", ",")}` : e.type === "turn-start" ? `“${(e.message || "").slice(0, 40)}”` : e.type === "answered" ? `usou ${e.used?.length || 0} · criou ${e.created?.length || 0}` : e.type === "turn-end" ? convTitle.get(e.conversationId || "") || "conversa" : e.title || nodeById.get(e.id || "")?.label || (e.id || "").slice(0, 8)}</span></li>
               ))}
             </ol>
           </div>

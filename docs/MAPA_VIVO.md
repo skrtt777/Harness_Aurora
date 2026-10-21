@@ -68,3 +68,22 @@ mapa diz isso.
   "sem posição semântica".
 - **Desempenho:** o objetivo de 60 quadros por segundo com cerca de 1.000 memórias foi medido no Chromium de
   teste. Em máquinas fracas, use a qualidade média ou baixa.
+
+## Interação em tempo real e chat dentro do mapa (20/10)
+
+Inspirado no vídeo de referência (o "crawler" que percorre o mapa enquanto um prompt toma forma):
+
+- **Chat ao lado do mapa** (`frontend/src/livemap/ChatDock.tsx`): as mesmas conversas do chat; uma conversa
+  nova criada ali entra na pasta filtrada no mapa. Mostra a etapa real da resposta e, embaixo de cada resposta,
+  chips "usou · …" / "criou · …" que levam à memória no mapa.
+- **Etapas do turno** (faixa abaixo das abas): 01 pergunta → 02 busca na memória → 03 memórias no contexto →
+  04 resposta. Cada etapa acende quando o evento real chega (`reduceTurn` em `adapter.ts`).
+- **A Aurora no mapa** (`Agent` em `LiveMapScene.tsx`): sai do núcleo para o centro das memórias do turno e
+  estende tentáculos pontilhados — fracos para as candidatas avaliadas (mais fortes quanto maior a nota),
+  acesos para as consultadas, verdes para as criadas — e volta quando o turno termina. A câmera a segue no
+  modo atividade. Os rótulos das consultadas mostram a nota da busca.
+- **Eventos novos** (`app/memoryEvents.js`): `turn-start` (mensagem), `scanned` (até 24 candidatas com nota,
+  emitido por `selectRelevantMemories`), `answered` (ids usados e criados, os mesmos gravados na mensagem),
+  `turn-end`. Memórias extraídas logo após o fim do turno ainda contam para ele.
+- Teste: `test/memoryGraph.test.js` (ordem real dos eventos num turno) e `frontend/test/livemap.test.mjs`
+  (`reduceTurn`); laboratório `scripts/livemap-lab/lab.mjs` faz um turno real pelo chat do mapa (`--no-chat` pula).

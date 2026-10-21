@@ -45,6 +45,36 @@ test("the snapshot is what is stored: memories, explicit relations, projects, co
   assert.ok(general.id);
 });
 
+test("a chat turn emits its real steps in order: turn-start, scanned (with scores), recalled, answered, turn-end", async () => {
+  const { handleChatTurn } = await import("../app/server.js");
+  const project = await store.createProject({ name: "Metas" });
+  const memory = await store.createMemory({ scope: "project", projectId: project.id, title: "Meta de vendas do Sul", content: "A meta de vendas do Sul em outubro é 263 mil reais.", tags: ["vendas", "meta"], env: { EMBEDDINGS_ENABLED: "false" } });
+  const conversation = await store.createConversation({ provider: "local", projectId: project.id });
+  const stub = http.createServer(async (req, res) => {
+    let raw = ""; for await (const c of req) raw += c;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ message: { role: "assistant", content: "A meta de vendas do Sul é 263 mil." }, prompt_eval_count: 5, eval_count: 5 }));
+  });
+  await new Promise((r) => stub.listen(0, "127.0.0.1", r));
+  const seen = [];
+  const listen = (e) => { if (!e.conversationId || e.conversationId === conversation.id) seen.push(e); };
+  memoryEvents.on("event", listen);
+  try {
+    const out = await handleChatTurn({ conversationId: conversation.id, message: "qual é a meta de vendas do Sul?", env: { ...process.env, LOCAL_BASE_URL: `http://127.0.0.1:${stub.address().port}`, LOCAL_MODEL: "qwen3.5:4b" } });
+    assert.equal(out.ok, true, out.error);
+  } finally { memoryEvents.off("event", listen); await new Promise((r) => stub.close(r)); }
+  const types = seen.map((e) => e.type);
+  for (const step of ["turn-start", "scanned", "answered", "turn-end"]) assert.ok(types.includes(step), `${step} in ${types.join(",")}`);
+  assert.ok(types.indexOf("turn-start") < types.indexOf("scanned") && types.indexOf("scanned") < types.indexOf("answered") && types.indexOf("answered") < types.indexOf("turn-end"), types.join(","));
+  const scanned = seen.find((e) => e.type === "scanned");
+  assert.equal(scanned.candidates[0].id, memory.id);
+  assert.ok(scanned.candidates[0].score > 0);
+  assert.equal(seen.find((e) => e.type === "turn-start").message, "qual é a meta de vendas do Sul?");
+  const answered = seen.find((e) => e.type === "answered");
+  assert.ok(Array.isArray(answered.used) && Array.isArray(answered.created));
+  if (types.includes("recalled")) assert.ok(types.indexOf("recalled") < types.indexOf("answered"));
+});
+
 test("/api/memories/live streams each real memory event as it happens", async () => {
   const { createServer } = await import("../app/server.js");
   const server = createServer({ centralSync: false, agentScheduler: false, warmLocal: false });

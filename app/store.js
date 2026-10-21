@@ -617,6 +617,8 @@ export async function selectRelevantMemories(input, { conversationId, projectId 
     }
   }
   scored.sort((a, b) => b.score - a.score);
+  // The Mapa Vivo sees what the search really weighed: the best candidates with their scores.
+  if (scored.length) emitMemoryEvent("scanned", { conversationId: conversationId || null, projectId: projectId || null, candidates: scored.slice(0, 24).map((s) => ({ id: s.memory.id, score: Math.round(s.score * 1000) / 1000, similarity: s.memory.retrieval?.similarity == null ? null : Math.round(s.memory.retrieval.similarity * 1000) / 1000 })) });
   if(!selective)return scored.slice(0,limit).map(s=>s.memory);
   const seen = new Set();
   return scored.filter(({memory})=>{const key=memory.content.trim().replace(/\s+/g,' ').toLowerCase();if(seen.has(key))return false;seen.add(key);return true;}).slice(0, Math.min(limit,3)).map((s) => s.memory);

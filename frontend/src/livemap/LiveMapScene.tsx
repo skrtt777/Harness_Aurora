@@ -15,7 +15,10 @@ import { hash01, type Layout, type Vec3 } from "./layout";
  */
 export type Quality = "alta" | "media" | "baixa";
 export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean };
-export type Highlight = { kind: "recalled" | "created" | "search"; at: number };
+export type Highlight = { kind: "recalled" | "created" | "search"; at: number; score?: number };
+/** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
+export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
+export type AgentState = { key: string; target: Vec3 | null; tentacles: AgentTentacle[]; ended: boolean } | null;
 export type CameraCommand = { target: Vec3; distance: number; key: number } | null;
 
 type SceneProps = {
@@ -28,6 +31,7 @@ type SceneProps = {
   expanded: Set<string>;
   highlights: Map<string, Highlight>;
   camera: CameraCommand;
+  agent: AgentState;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
   onCluster: (id: string, double: boolean) => void;
@@ -347,6 +351,78 @@ function Scene(props: SceneProps) {
       {graph.clusters.map((c) => <ClusterHub key={c.id} cluster={c} center={layout.clusters.get(c.id)?.center || [0, 0, 0]} focused={c.id === focusClusterId} motion={motion} onCluster={onCluster} />)}
       {settings.labels && <Labels {...props} index={index} clusterOf={clusterOf} pos={pos} />}
       <CameraRig command={camera} reduced={settings.reducedMotion} />
+      <Agent agent={props.agent} core={layout.core} pos={pos} reduced={settings.reducedMotion} />
+    </>
+  );
+}
+
+
+/**
+ * The Aurora in a turn (the reference's crawler): she leaves the core for where the memories she is weighing
+ * are, reaches each one with a tentacle — faint for a candidate the search scored (stronger the higher the
+ * score), lit for one recalled into the turn, green for one created — and comes back when the turn ends.
+ * Everything she reaches is an id from a real event; nothing is drawn without one.
+ */
+const TENTACLE_COLOR: Record<AgentTentacle["kind"], string> = { scanned: "#9fb3c8", recalled: "#7ff3e6", used: "#7ff3e6", created: ACTIVITY_COLOR };
+function Agent({ agent, core, pos, reduced }: { agent: AgentState; core: Vec3; pos: (id: string) => Vec3; reduced: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const ring = useRef<THREE.Mesh>(null);
+  const born = useRef(0);
+  const endedAt = useRef<number | null>(null);
+  const place = useRef(new THREE.Vector3(...core));
+  const MAX = 64 * 14 * 2;
+  const geo = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); return g; }, [MAX]);
+  const material = useMemo(() => lineMaterial(), []);
+  useEffect(() => () => { geo.dispose(); material.dispose(); }, [geo, material]);
+  useEffect(() => { born.current = performance.now(); endedAt.current = null; }, [agent?.key]);
+  useEffect(() => { if (agent?.ended && endedAt.current === null) endedAt.current = performance.now(); }, [agent?.ended]);
+  const v = useMemo(() => new THREE.Vector3(), []);
+  const c3 = useMemo(() => new THREE.Color(), []);
+  useFrame(({ clock }, delta) => {
+    const g = group.current; if (!g) return;
+    const now = performance.now();
+    const leaving = endedAt.current !== null ? Math.min(1, (now - endedAt.current) / 1600) : 0;
+    const visible = Boolean(agent) && leaving < 1;
+    g.visible = visible;
+    if (!agent || !visible) { geo.setDrawRange(0, 0); return; }
+    // Where she goes: the memories of this turn (their centre); back to the core when the turn is over.
+    const target = agent.target && leaving === 0 ? agent.target : core;
+    place.current.lerp(v.set(target[0], target[1], target[2] + 4), reduced ? 1 : 1 - Math.pow(0.03, delta));
+    g.position.copy(place.current);
+    if (ring.current) { const s = 1 + Math.sin(clock.getElapsedTime() * 3) * 0.06; ring.current.scale.set(s, s * 0.8, s); }
+    // Tentacles: each grows from her to its memory (staggered), and pulls back as the turn ends.
+    const p = geo.getAttribute("position") as THREE.BufferAttribute;
+    const a = geo.getAttribute("alpha") as THREE.BufferAttribute;
+    const t = geo.getAttribute("tint") as THREE.BufferAttribute;
+    let k = 0;
+    const from: Vec3 = [place.current.x, place.current.y, place.current.z];
+    for (const tent of agent.tentacles.slice(0, 64)) {
+      const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - tent.order * 45) / 650)) * (1 - leaving);
+      if (grow <= 0) continue;
+      const to = pos(tent.id);
+      const alpha = tent.kind === "scanned" ? 0.12 + tent.strength * 0.35 : 0.85;
+      c3.set(TENTACLE_COLOR[tent.kind]);
+      const bend = 0.12 * (hash01(tent.id) - 0.5);
+      // Dotted, like the reference: every other of 14 segments, up to how far it has grown.
+      for (let sgm = 0; sgm < 14; sgm += 2) {
+        const t0 = sgm / 14, t1 = (sgm + 1) / 14;
+        if (t0 > grow) break;
+        const p0 = curvePoint(from, to, t0, bend, v); p.setXYZ(k, p0.x, p0.y, p0.z); a.setX(k, alpha); t.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
+        const p1 = curvePoint(from, to, Math.min(t1, grow), bend, v); p.setXYZ(k, p1.x, p1.y, p1.z); a.setX(k, alpha); t.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
+      }
+    }
+    p.needsUpdate = a.needsUpdate = t.needsUpdate = true;
+    geo.setDrawRange(0, k);
+    g.scale.setScalar(1 - leaving * 0.6);
+  });
+  return (
+    <>
+      <lineSegments geometry={geo} material={material} frustumCulled={false} />
+      <group ref={group} visible={false}>
+        <mesh ref={ring}><ringGeometry args={[3.2, 3.7, 48]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.85} side={THREE.DoubleSide} /></mesh>
+        <mesh><circleGeometry args={[3.2, 40]} /><meshBasicMaterial color="#0b3b38" transparent opacity={0.6} /></mesh>
+        <mesh><boxGeometry args={[1.4, 1.4, 0.3]} /><meshBasicMaterial color="#f05a8c" /></mesh>
+      </group>
     </>
   );
 }
@@ -437,7 +513,7 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
         const text = focusClusterId === n.clusterId && id !== selectedId && id !== hoveredId ? (n.label.length > 22 ? `${n.label.slice(0, 21)}…` : n.label) : n.label;
         return (
           <Html key={`n:${id}`} position={[x + (left ? -1.6 : 1.6), y + 1.2, z]} zIndexRange={[20, 10]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? " · consultada" : h?.kind === "created" && now - h.at < ACTIVE_MS ? " · nova" : ""}</div>
+            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h?.kind === "created" && now - h.at < ACTIVE_MS ? " · nova" : ""}</div>
           </Html>
         );
       })}
