@@ -191,3 +191,32 @@ um gráfico no topo e um código de barras de eventos embaixo.
   quatro passos da pergunta e o crescimento da memória ao longo do tempo. Os indicadores detalhados ficam
   recolhidos e abrem com um clique.
 - Tudo vem de memórias e eventos reais. Com "pausar" ou movimento reduzido, nada se move sozinho.
+
+## A Zeladora cuida dos nódulos e poda o que ficou velho (21/10)
+
+As seções do mapa deixaram de ser recalculadas do zero (k-means) a cada mudança: agora são os **nódulos da
+Zeladora** (`app/memoryNodes.js`, puro e testado em `test/memoryNodes.test.js`), guardados na configuração
+`memory_keeper_nodes`. O atlas (`memoryAtlas.js`) usa os nódulos dela quando existem (`atlas.nodes = true`), e
+o mapa confia neles entre recargas. A memória geral também entra nos nódulos (ela também tem assuntos).
+
+- **Plantar**: sem nódulos, ela planta os primeiros a partir de um agrupamento do que existe.
+- **Adotar**: uma memória nova chama a Zeladora na hora (mesmo descansando, ou no meio de um chamado longo);
+  ela vai até a memória, lê e coloca no nódulo de sentido mais próximo. No mapa, um caminho verde sobe da raiz.
+- **Brotar** (nódulo novo, "assunto novo"): memórias mais longe de todos os nódulos do que a maioria dos
+  próprios membros deles (25º percentil da similaridade ao centro) e mais perto umas das outras viram um
+  nódulo próprio. Uma sozinha espera até 7 dias por outras parecidas, depois vai para o mais próximo. O limite
+  é relativo porque, com o modelo real (nomic), até assuntos sem relação dão ~0,75 contra o centro de um
+  nódulo. Na cópia do banco real, 4 memórias jurídicas brotaram "contrato · atlas".
+- **Dividir** (nódulo novo, "saiu de …"): um nódulo maior que `2·√(3·N)` memórias se divide em dois pelo
+  próprio sentido; o maior fica com o nódulo e o outro nasce com nome próprio. No mapa, o nódulo novo acende
+  a partir da base, com um fio vindo do nódulo de onde saiu.
+- **Recolher**: um nódulo que ficou com menos de 3 memórias (podadas, compactadas, apagadas) passa o que sobrou
+  para o vizinho mais próximo e sai; no mapa ele se fecha em anéis lilás.
+- **Podar** (arquivar, sempre reversível, só memórias que a própria Aurora extraiu, nunca as que a pessoa
+  trouxe de volta): uma substituída por outra mais nova do mesmo lugar que diz que o fato mudou ("passou a",
+  "agora", "revisada"…; vira relação `correction`); uma vaga e sem uso há 30 dias; uma sobre um momento que
+  já passou ("hoje", "amanhã"…) sem uso há 14 dias. No máximo 12 por ronda. No mapa, a folha é cortada e cai
+  até o chão; no painel da Zeladora aparece "✂ … · motivo" com **desfazer**.
+- Eventos novos da Zeladora: `prune`, `arrival`, `adopt`, `plant`, `node-born`, `node-gone`.
+- Laboratório: `scripts/livemap-lab/lab.mjs` cria uma memória vaga antiga, uma meta revisada e quatro
+  memórias de um assunto novo e captura `14_zeladora_molda_*.png`.

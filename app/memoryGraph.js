@@ -38,6 +38,8 @@ export async function memoryGraphSnapshot({ env = process.env, limit = 5000 } = 
     atlas: atlas ? {
       model: atlas.model,
       clusters: atlas.clusters,
+      // The sections are the Zeladora's nodes (stable): the map follows them as they are born and fold.
+      nodes: Boolean(atlas.nodes),
       points: atlas.memories.filter((m) => ids.has(m.id)).map((m) => ({ id: m.id, position: m.position, cluster: m.cluster, neighbors: m.neighbors })),
     } : null,
     projects,

@@ -131,6 +131,30 @@ await page.waitForTimeout(3500);
 await page.screenshot({ path: join(out, "10_chamado.png") });
 console.log("depois do chamado:", await page.locator(".lm-keeper .lm-k-head").first().innerText().catch(() => "?"));
 
+// The Zeladora shaping the tree: an old vague memory and one replaced by a newer one (she prunes them), and a
+// subject no node holds yet (a node sprouts for it).
+{
+  const { getDb } = await import("../../app/db.js");
+  const { memoryEvents } = await import("../../app/memoryEvents.js");
+  const db = await getDb();
+  const shaped = [];
+  const log = (e) => { if (e.type === "keeper" && ["prune", "adopt", "node-born", "node-gone", "plant"].includes(e.action)) shaped.push(`${e.action}: ${e.label || e.title || ""}${e.reason ? ` (${e.reason})` : ""}`); };
+  memoryEvents.on("event", log);
+  const vague = await store.createMemory({ scope: "project", projectId: projects["Operações"].id, kind: "extracted", dedupe: false, title: "Coisa do estoque", content: "ver isso depois" });
+  db.prepare("UPDATE memories SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 40 * 86_400_000).toISOString(), vague.id);
+  await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Meta de vendas do Sul", content: "A meta de vendas da região Sul em outubro passou a ser de 300 mil reais." });
+  const legal = await store.createProject({ name: "Jurídico" });
+  for (const [title, content] of [
+    ["Contrato da Atlas: multa", "O contrato com a Atlas prevê multa de rescisão de duas mensalidades e aviso prévio de trinta dias."],
+    ["LGPD: consentimento", "Pela LGPD, os dados de clientes só entram no cadastro com consentimento registrado e prazo de guarda definido."],
+    ["Procuração do sócio", "A procuração do sócio para assinar contratos vence em março e precisa ser renovada no cartório."],
+    ["Processo trabalhista", "O processo trabalhista do ex-funcionário tem audiência de conciliação marcada na vara do trabalho."],
+  ]) { await store.createMemory({ scope: "project", projectId: legal.id, kind: "extracted", dedupe: false, title, content }); await page.waitForTimeout(250); }
+  for (let k = 1; k <= 6; k += 1) { await page.waitForTimeout(900); await page.screenshot({ path: join(out, `14_zeladora_molda_${k}.png`) }); }
+  memoryEvents.off("event", log);
+  console.log("a zeladora moldou a árvore:\n  " + (shaped.join("\n  ") || "(nada)"));
+}
+
 // The brain working (not the Zeladora): a turn's events as the chat emits them, with memories of three
 // different sections — the map draws the path from one to the next.
 {

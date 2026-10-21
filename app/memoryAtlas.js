@@ -127,7 +127,11 @@ export async function memoryAtlas({ env = process.env } = {}) {
   const db = await getDb();
   const model = resolveEmbeddingModel(env);
   const version = db.prepare("SELECT count(*) n, max(updated_at) u, sum(uses) s, sum(helped) h, sum(failed) f FROM memories").get();
-  const key = `${model}|${version.n}|${version.u}|${version.s}|${version.h}|${version.f}`;
+  // The Zeladora's nodes (memoryNodes.js), when she has planted them: the sections are hers, not k-means'.
+  const nodesRow = db.prepare("SELECT value, updated_at FROM settings WHERE key = 'memory_keeper_nodes'").get();
+  let book = null;
+  try { book = nodesRow ? JSON.parse(nodesRow.value) : null; } catch { book = null; }
+  const key = `${model}|${version.n}|${version.u}|${version.s}|${version.h}|${version.f}|${nodesRow?.updated_at || ""}|${nodesRow?.value.length || 0}`;
   if (cache?.key === key) return cache.value;
 
   const rows = db.prepare("SELECT id, title, tags, embedding, embedding_model, uses, helped, failed, status FROM memories WHERE status != 'archived'").all();
@@ -137,9 +141,32 @@ export async function memoryAtlas({ env = process.env } = {}) {
     const vector = row.embedding && row.embedding_model === model ? decodeEmbedding(row.embedding) : null;
     (vector?.length ? embedded : loose).push({ row, vector: vector?.length ? normalize(vector) : null });
   }
-  const k = Math.max(1, Math.min(12, Math.round(Math.sqrt(embedded.length / 3))));
-  const assign = embedded.length ? kmeans(embedded.map((e) => e.vector), k) : [];
-  const labels = embedded.length ? clusterLabels(embedded.map((e) => `${e.row.title} ${(JSON.parse(e.row.tags || "[]")).join(" ")}`), assign, k) : [];
+  let assign, groups;
+  if (book?.nodes?.length && embedded.length) {
+    // Each memory in the node that holds it; one she has not adopted yet, in the node closest in meaning.
+    const memberOf = new Map();
+    for (const n of book.nodes) for (const id of n.members) memberOf.set(id, n.id);
+    const centers = new Map();
+    for (const [i, e] of embedded.entries()) {
+      const c = memberOf.get(e.row.id); if (c === undefined) continue;
+      let sum = centers.get(c); if (!sum) centers.set(c, (sum = new Float32Array(e.vector.length)));
+      for (let d = 0; d < sum.length; d += 1) sum[d] += embedded[i].vector[d];
+    }
+    for (const [c, sum] of centers) centers.set(c, normalize(sum));
+    assign = embedded.map((e) => {
+      const own = memberOf.get(e.row.id);
+      if (own !== undefined) return own;
+      let best = book.nodes[0].id, bestSim = -2;
+      for (const [c, center] of centers) { const s = dot(e.vector, center); if (s > bestSim) { bestSim = s; best = c; } }
+      return best;
+    });
+    groups = book.nodes.map((n) => ({ id: n.id, label: n.label }));
+  } else {
+    const k = Math.max(1, Math.min(12, Math.round(Math.sqrt(embedded.length / 3))));
+    assign = embedded.length ? kmeans(embedded.map((e) => e.vector), k) : [];
+    const labels = embedded.length ? clusterLabels(embedded.map((e) => `${e.row.title} ${(JSON.parse(e.row.tags || "[]")).join(" ")}`), assign, k) : [];
+    groups = labels.map((label, id) => ({ id, label }));
+  }
 
   // 3D: principal components, each axis scaled to the same spread, then relaxed.
   let points = [];
@@ -159,7 +186,7 @@ export async function memoryAtlas({ env = process.env } = {}) {
 
   // Neighbours and duplicates, compared within each cluster (scales to thousands).
   const neighbors = embedded.map(() => []);
-  for (let c = 0; c < k; c += 1) {
+  for (const { id: c } of groups) {
     const members = embedded.map((_, i) => i).filter((i) => assign[i] === c);
     for (const i of members) {
       const sims = members.filter((j) => j !== i).map((j) => ({ j, s: dot(embedded[i].vector, embedded[j].vector) })).filter((x) => x.s >= NEIGHBOR_MIN).sort((a, b) => b.s - a.s);
@@ -177,13 +204,14 @@ export async function memoryAtlas({ env = process.env } = {}) {
     })),
     ...loose.map(({ row }, i) => ({ id: row.id, position: round(loosePoints[i]), cluster: -1, neighbors: [], duplicates: [], stats: { uses: row.uses || 0, helped: row.helped || 0, failed: row.failed || 0 } })),
   ];
-  const clusters = labels.map((label, c) => {
+  const clusters = groups.map(({ id: c, label }) => {
     const members = memories.filter((m) => m.cluster === c);
     const center = [0, 1, 2].map((a) => members.reduce((s, m) => s + m.position[a], 0) / (members.length || 1));
     return { id: c, label, count: members.length, center: round(center) };
-  });
+  }).filter((c) => c.count > 0);
   if (loose.length) clusters.push({ id: -1, label: "sem embedding", count: loose.length, center: [0, 0, 0] });
-  const value = { model, memories, clusters };
+  // nodes: the sections are the Zeladora's and stay put (the map may trust them across reloads).
+  const value = { model, memories, clusters, nodes: Boolean(book?.nodes?.length && embedded.length) };
   cache = { key, value };
   return value;
 }

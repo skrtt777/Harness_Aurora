@@ -67,7 +67,9 @@ export function matches(m: GraphMemory, f: Filters = {}, now = Date.now()): bool
 }
 
 /** The cluster a memory goes in, for a view mode. The general memory always has its own. */
-function clusterFor(m: GraphMemory, mode: ViewMode, atlasCluster: number | undefined, convProject: Map<string, string | null>): { id: string; label: string; sublabel: string; category: Category } {
+function clusterFor(m: GraphMemory, mode: ViewMode, atlasCluster: number | undefined, convProject: Map<string, string | null>, nodes = false): { id: string; label: string; sublabel: string; category: Category } {
+  // With the Zeladora's nodes, the general memory is in its node like any other (it has thoughts too).
+  if (nodes && mode === "geral" && atlasCluster !== undefined && atlasCluster >= 0) return { id: `sem:${atlasCluster}`, label: "", sublabel: "nódulo da zeladora", category: categoryOf(m) };
   if (m.scope === "global") return { id: GENERAL, label: "memória geral", sublabel: "identidade e contexto global", category: "geral" };
   if (mode === "geral") {
     if (atlasCluster !== undefined && atlasCluster >= 0) return { id: `sem:${atlasCluster}`, label: "", sublabel: "agrupamento semântico", category: categoryOf(m) };
@@ -97,7 +99,7 @@ export function buildMemoryGraph(snap: MemoryGraphSnapshot, { mode = "geral", fi
 
   const clusters = new Map<string, GraphCluster>();
   const nodes: GraphNode[] = visible.map((m) => {
-    const c = clusterFor(m, mode, atlasById.get(m.id)?.cluster, convProject);
+    const c = clusterFor(m, mode, atlasById.get(m.id)?.cluster, convProject, Boolean(snap.atlas?.nodes));
     if (!clusters.has(c.id)) {
       const label = c.label
         || (c.id.startsWith("sem:") ? atlasLabel.get(Number(c.id.slice(4))) || "agrupamento" : "")
@@ -210,6 +212,8 @@ export function applyEvent(snap: MemoryGraphSnapshot, event: MemoryLiveEvent): {
     return { snapshot: { ...snap, memories: [...snap.memories, memory] }, needsRefresh: true };
   }
   if (event.type === "updated" || event.type === "restored") return { snapshot: snap, needsRefresh: true };
+  // The Zeladora changed her nodes (a memory adopted, a node born or folded): the sections come with a refresh.
+  if (event.type === "keeper" && (event.action === "adopt" || event.action === "node-born" || event.action === "node-gone" || event.action === "plant")) return { snapshot: snap, needsRefresh: true };
   // The Zeladora linked two memories: the relation is real from now on.
   if (event.type === "keeper" && event.action === "link" && event.from && event.to && !snap.relations.some((r) => r.from === event.from && r.to === event.to)) {
     return { snapshot: { ...snap, relations: [...snap.relations, { from: event.from, to: event.to, type: "thematic" }] }, needsRefresh: false };
@@ -235,12 +239,24 @@ export type KeeperView = {
   flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string }[];
   joins: { kept: string; archived: string; title?: string; archivedTitle?: string; at: string }[];
   compactions: { id: string; from: string[]; title?: string; at: string }[];
+  /** The obsolete memories she pruned (archived; undo brings one back). */
+  prunes: { id: string; title?: string; reason: string; byTitle?: string | null; at: string }[];
+  /** What she just did to the shape of the tree, for the map to show it (newest first, a few seconds each). */
+  growth: Growth[];
+  /** Her nodes: the sections of the map. */
+  nodes: { id: number; label: string; count: number }[];
   areas: { key: string; label: string; total: number; read: number }[];
-  stats: { read: number; linked: number; joined: number; compacted: number; flagged: number };
+  stats: { read: number; linked: number; joined: number; compacted: number; flagged: number; pruned: number; born: number; folded: number; adopted: number };
   restUntil: string | null;
 };
+/**
+ * prune: a leaf she cut (it falls); arrival: a new memory she goes to; adopt: a new memory put in its node (it
+ * grows in); born: a new node (split from `from`, or sprouted for a new subject); gone: a node folded into `into`.
+ */
+export type Growth = { kind: "prune" | "arrival" | "adopt" | "born" | "gone"; id?: string; section?: string; from?: string | null; into?: string | null; label?: string; reason?: string; at: number };
 const TRAIL = 22;
-const emptyKeeperStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0 });
+const GROWTH = 16;
+const emptyKeeperStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0, pruned: 0, born: 0, folded: 0, adopted: 0 });
 export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView | null {
   if (!k) return null;
   return {
@@ -249,17 +265,26 @@ export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView
     saying: k.phase === "descansando" ? { text: "descansando", action: "rest", at: 0 } : k.areaLabel ? { text: `andando por ${k.areaLabel}`, action: "walk", at: 0 } : null,
     joins: (k.recent || []).filter((a) => a.action === "join").map((a) => ({ kept: a.kept!, archived: a.archived!, title: a.title, archivedTitle: a.archivedTitle, at: a.at })),
     compactions: (k.compactions || []).map((c) => ({ id: c.id, from: c.from, title: c.title, at: c.at })),
+    prunes: (k.prunes || []).map((p) => ({ id: p.id, title: p.title, reason: p.reason, byTitle: p.byTitle, at: p.at })),
+    growth: [], nodes: (k.nodes || []).map((n) => ({ id: n.id, label: n.label, count: n.count })),
     areas: k.sections || k.areas || [], stats: { ...emptyKeeperStats(), ...k.stats }, restUntil: k.restUntil,
   };
 }
 export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, now = Date.now()): KeeperView | null {
   if (event.type !== "keeper" || !event.action) return view;
-  const base: KeeperView = view || { enabled: true, running: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null, trailAt: {}, saying: null, called: null };
+  const base: KeeperView = view || { enabled: true, running: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], prunes: [], growth: [], nodes: [], areas: [], stats: emptyKeeperStats(), restUntil: null, trailAt: {}, saying: null, called: null };
   const say = (text: string) => ({ text, action: event.action!, at: now });
   const short = (t?: string) => (t ? (t.length > 34 ? `«${t.slice(0, 33)}…»` : `«${t}»`) : "uma memória");
   // Any event from her means she is running here.
   const v = base.running ? base : { ...base, running: true };
+  const grow = (g: Omit<Growth, "at">) => [{ ...g, at: now }, ...v.growth.filter((x) => now - x.at < 20_000)].slice(0, GROWTH);
   switch (event.action) {
+    case "prune": return event.id ? { ...v, saying: say(`podando ${short(event.title)} · ${event.reason || "obsoleta"}`), current: v.current === event.id ? null : v.current, trail: v.trail.filter((x) => x !== event.id), prunes: [{ id: event.id, title: event.title, reason: event.reason || "", byTitle: event.byTitle, at: event.at }, ...v.prunes.filter((p) => p.id !== event.id)].slice(0, 30), growth: grow({ kind: "prune", id: event.id, section: event.section, reason: event.reason, label: event.title }), stats: { ...v.stats, pruned: v.stats.pruned + 1 } } : v;
+    case "arrival": return event.id ? { ...v, saying: say(`memória nova · ${short(event.title)}`), growth: grow({ kind: "arrival", id: event.id, label: event.title }) } : v;
+    case "adopt": return event.id ? { ...v, saying: say(`${short(event.title)} entra no nódulo ${event.label || ""}`), growth: grow({ kind: "adopt", id: event.id, section: event.section, label: event.label }), stats: { ...v.stats, adopted: v.stats.adopted + 1 } } : v;
+    case "plant": return { ...v, saying: say(`plantou ${event.nodes?.length || 0} nódulos`) };
+    case "node-born": return { ...v, saying: say(event.parentLabel ? `nódulo novo · ${event.label} (saiu de ${event.parentLabel})` : `nódulo novo · ${event.label} (assunto novo)`), growth: grow({ kind: "born", section: event.section, from: event.parentSection || null, label: event.label }), stats: { ...v.stats, born: v.stats.born + 1 } };
+    case "node-gone": return { ...v, saying: say(event.intoLabel ? `recolheu o nódulo ${event.label} em ${event.intoLabel}` : `o nódulo ${event.label} ficou vazio e saiu`), growth: grow({ kind: "gone", section: event.section, into: event.intoSection || null, label: event.label }), stats: { ...v.stats, folded: v.stats.folded + 1 } };
     case "called": return { ...v, saying: say(`chamada: ${event.label || "a seu pedido"} · ${event.total || 0} memórias`) };
     case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.sections || event.areas || []).map((a) => ({ ...a, read: 0 })), readIds: [], stats: emptyKeeperStats(), restUntil: null };
     case "walk": return { ...v, phase: "andando", area: event.section || event.area || null, areaLabel: event.label || null, trail: [], called: event.called ? event.label || "a seu pedido" : null, saying: say(event.called ? `indo até ${event.label}` : event.back ? `voltando para ${event.label}` : `andando para ${event.label}`) };
@@ -313,6 +338,17 @@ export const newFrozenAtlas = (): FrozenAtlas => ({ points: new Map(), labels: n
 const jitter = (id: string, salt: number) => { let h = 2166136261 ^ salt; for (let i = 0; i < id.length; i += 1) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 1000) / 1000 - 0.5; };
 export function steadyAtlas(atlas: MemoryGraphSnapshot["atlas"], state: FrozenAtlas): MemoryGraphSnapshot["atlas"] {
   if (!atlas) return atlas;
+  // The Zeladora's nodes are already stable (and change on purpose, as she tends them): only the positions are
+  // held steady, the node of each memory and the names are hers.
+  if (atlas.nodes) {
+    const points = atlas.points.map((p) => {
+      const kept = state.points.get(p.id);
+      if (kept) { kept.cluster = p.cluster; return { ...p, position: kept.position }; }
+      state.points.set(p.id, { cluster: p.cluster, position: p.position });
+      return p;
+    });
+    return { ...atlas, points };
+  }
   const frozen = state.points;
   const firstTime = frozen.size === 0;
   const points = atlas.points.map((p) => {

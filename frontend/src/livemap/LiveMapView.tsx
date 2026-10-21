@@ -18,7 +18,7 @@ const LiveMapScene = lazy(() => import("./LiveMapScene"));
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
 const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu", keeper: "zeladora" };
 // The Zeladora's actions in the log, the reference's crawl log (read · link · flag · walk).
-const KEEPER_LABEL: Record<string, string> = { called: "chamada", read: "lê", link: "liga", join: "junta", compact: "compacta", flag: "marca", walk: "anda", rest: "descansa", round: "ronda", error: "erro" };
+const KEEPER_LABEL: Record<string, string> = { called: "chamada", read: "lê", link: "liga", join: "junta", compact: "compacta", flag: "marca", walk: "anda", rest: "descansa", round: "ronda", error: "erro", prune: "poda", arrival: "chegou", adopt: "adota", plant: "planta", "node-born": "nódulo +", "node-gone": "nódulo −" };
 // The steps of a turn, as the reference's sections: each lights up when its real event arrives.
 const STEPS: [Phase, string][] = [["pergunta", "pergunta"], ["busca", "busca na memória"], ["consulta", "memórias no contexto"], ["resposta", "resposta"]];
 type Phase = TurnPhase;
@@ -77,7 +77,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
   const frozen = useRef(newFrozenAtlas());
   const steady = useCallback((s: MemoryGraphSnapshot) => ({ ...s, atlas: steadyAtlas(s.atlas, frozen.current) }), []);
-  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setKeeper((k) => { const base = keeperFromSnapshot(s.keeper); return !k || !base ? k || base : { ...base, current: k.current ?? base.current, trail: k.trail.length ? k.trail : base.trail, links: k.links, flags: k.flags.length > base.flags.length ? k.flags : base.flags }; }); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
+  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setKeeper((k) => { const base = keeperFromSnapshot(s.keeper); return !k || !base ? k || base : { ...base, current: k.current ?? base.current, trail: k.trail.length ? k.trail : base.trail, links: k.links, flags: k.flags.length > base.flags.length ? k.flags : base.flags, growth: k.growth, prunes: k.prunes.length > base.prunes.length ? k.prunes : base.prunes }; }); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
   useEffect(() => { void load(); }, [load]);
   const reorganize = useCallback(() => { frozen.current = newFrozenAtlas(); void load(); }, [load]);
   const quietRefresh = useCallback(() => {
@@ -105,6 +105,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
       if (event.action === "flag" && event.otherId) mark([event.id, event.otherId], "flagged");
       if (event.action === "join") mark([event.kept], "joined");
       if (event.action === "compact") note(event.id, "joined", `compactou ${event.merged?.length || 0}`);
+      if (event.action === "adopt") note(event.id, "created", `entrou em ${event.label || "um nódulo"}`);
       // She pulls the memories into one: they fly from where they were (kept even after they leave the map).
       const where = (id?: string) => (id ? lastPos.current.get(id) : undefined);
       const merge = (from: (string | undefined)[], to?: string) => {
@@ -163,6 +164,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const label = useCallback((id?: string) => (id ? nodeByIdRef.current.get(id)?.label || id.slice(0, 8) : ""), []);
   const keeperLine = (e: MemoryLiveEvent) =>
     e.action === "read" ? `${label(e.id)}${e.kind ? ` · ${e.kind}` : ""}` : e.action === "compact" ? `${e.merged?.length || 0} memórias → ${e.title || label(e.id)}` : e.action === "link" ? `${label(e.from)} ↔ ${label(e.to)}` : e.action === "join" ? `${e.archivedTitle || "cópia"} → ${e.title || label(e.kept)}`
+      : e.action === "prune" ? `${e.title || "memória"} · ${e.reason || "obsoleta"}` : e.action === "arrival" ? `${e.title || label(e.id)}` : e.action === "adopt" ? `${e.title || label(e.id)} → ${e.label || "nódulo"}`
+      : e.action === "plant" ? `${e.nodes?.length || 0} nódulos` : e.action === "node-born" ? `${e.label} · ${e.members || 0} memórias${e.parentLabel ? ` · saiu de ${e.parentLabel}` : " · assunto novo"}` : e.action === "node-gone" ? `${e.label}${e.intoLabel ? ` → ${e.intoLabel}` : " · vazio"}`
       : e.action === "flag" ? `${e.title || label(e.id)} · ${e.reason || ""}` : e.action === "walk" ? `${e.label} · ${e.total} memórias` : e.action === "called" ? `${e.label || "a seu pedido"} · ${e.total || 0} memórias` : e.action === "rest" ? "ronda completa" : e.action === "round" ? `ronda ${e.round} · ${e.total} memórias` : e.reason || "";
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
@@ -292,6 +295,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
               <span>ligações <b>{keeper.stats.linked}</b></span>
               <span>compactadas <b>{keeper.stats.compacted + keeper.stats.joined}</b></span>
               <span>marcas <b className="yellow">{keeper.flags.length}</b></span>
+              <span>nódulos <b className="teal">{keeper.nodes.length || graph.stats.clusters}</b></span>
+              {keeper.stats.pruned > 0 && <span>podadas <b>{keeper.stats.pruned}</b></span>}
             </>}
             <span className={`lm-live ${live ? "on" : ""}`} title={live ? "Recebendo os eventos da memória ao vivo" : "Sem conexão com os eventos ao vivo"}>{live ? "ao vivo" : "sem conexão"}</span>
           </div>
@@ -476,6 +481,10 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
               <div className="lm-k-stats">
                 <span><b>{keeper.stats.read}</b>lidas</span><span><b>{keeper.stats.linked}</b>ligadas</span><span><b>{keeper.stats.compacted + keeper.stats.joined}</b>compactadas</span><span><b>{keeper.flags.length}</b>marcas</span>
               </div>
+              <div className="lm-k-stats">
+                <span><b>{keeper.nodes.length || "—"}</b>nódulos</span><span><b>{keeper.stats.born}</b>nasceram</span><span><b>{keeper.stats.folded}</b>recolhidos</span><span><b>{keeper.stats.pruned}</b>podadas</span>
+              </div>
+              {keeper.prunes.slice(0, 2).map((p) => <div key={p.id} className="lm-k-item prune"><span title={`${p.reason}${p.byTitle ? ` · no lugar dela: ${p.byTitle}` : ""}`}>✂ {p.title || "memória"} · {p.reason}</span><button onClick={() => void undoKeeperJoin(p.id).then(() => { setKeeper((v) => (v ? { ...v, prunes: v.prunes.filter((x) => x.id !== p.id) } : v)); void load(); })}>desfazer</button></div>)}
               {keeper.compactions.slice(0, 2).map((c) => <div key={c.id} className="lm-k-item"><span title={`${c.from.length} memórias do mesmo pensamento viraram uma`}>compactou {c.from.length}: {c.title || label(c.id)}</span><button onClick={() => goTo(c.id)}>ver</button><button onClick={() => void undoKeeperJoin(c.id).then(() => setKeeper((v) => (v ? { ...v, compactions: v.compactions.filter((x) => x.id !== c.id) } : v)))}>desfazer</button></div>)}
               {keeper.flags.slice(0, 2).map((f) => <div key={`${f.id}-${f.otherId}`} className={`lm-k-item flag ${f.otherId ? "" : "vague"}`}><span title={f.reason}>⚑ {f.title || label(f.id)} · {f.reason}</span><button onClick={() => goTo(f.id)}>ver</button><button onClick={() => void dismissKeeperFlag(f.id, f.otherId ?? undefined).then(() => setKeeper((v) => (v ? { ...v, flags: v.flags.filter((x) => !(x.id === f.id && x.otherId === f.otherId)) } : v)))}>ok</button></div>)}
               {keeper.joins.slice(0, 2).map((j) => <div key={j.archived} className="lm-k-item"><span title={`${j.archivedTitle} → ${j.title}`}>juntou: {j.archivedTitle || "cópia"}</span><button onClick={() => void undoKeeperJoin(j.archived).then(() => setKeeper((v) => (v ? { ...v, joins: v.joins.filter((x) => x.archived !== j.archived) } : v)))}>desfazer</button></div>)}

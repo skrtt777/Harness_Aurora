@@ -10,13 +10,21 @@
 //     she never compacts them again. Never a memory written by hand, never an imported guide, never two that
 //     disagree on a value;
 //   - links two memories about the same thing that nothing connects ("thematic" relation);
-//   - flags two memories about the same thing with different values ("263 mil" × "280 mil").
+//   - flags two memories about the same thing with different values ("263 mil" × "280 mil");
+//   - prunes what became obsolete (archived, reversible, only memories the Aurora extracted herself): one
+//     replaced by a newer one of the same place that says it changed ("agora", "passou a", "revisada"…), a
+//     vague one nobody used in 30 days, one about a moment that has passed ("hoje", "amanhã") unused in 14 days.
+// She also keeps the NODES of the memory (memoryNodes.js: the sections of the map): she plants the first ones,
+// puts each new memory in the closest node, splits a node grown too big (a new node is born) and folds one
+// left with almost nothing into its neighbour. A new memory calls her at once (she goes there to adopt it);
+// a memory archived or deleted makes her check the nodes.
 // After a full round she rests, then walks again. Each step is a memory event ("keeper"), so the map follows
 // her live. Off with the setting memory_keeper=off.
 import { getDb } from "./db.js";
 import { cosineSimilarity, decodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
 import { memoryAtlas } from "./memoryAtlas.js";
-import { emitMemoryEvent } from "./memoryEvents.js";
+import { emitMemoryEvent, memoryEvents } from "./memoryEvents.js";
+import { emptyBook, tendNodes as planNodes } from "./memoryNodes.js";
 import { createMemory, createRelation, getSetting, setSetting, setMemoryStatus } from "./store.js";
 
 // Measured on a real base (196 memories, 19 110 pairs): different guides of the same family reach 0.93 cosine
@@ -36,6 +44,14 @@ const MAX_FLAGS = 100;
 const MAX_FLAGS_PER_ROUND = 12;
 const VAGUE_WORDS = 5;
 const RECENT = 60;
+const MAX_PRUNES_PER_ROUND = 12;
+const VAGUE_STALE_DAYS = 30;
+const MOMENT_STALE_DAYS = 14;
+const DAY = 86_400_000;
+// A newer memory that says the fact changed: then the older one is obsolete (otherwise it is a question).
+const UPDATE_CUE = /\b(agora|atualizad|atualizou|revisad|revisou|mudou|mudar para|passou a|passa a ser|nova meta|novo valor|corrigid|em vez de|nao e mais|deixou de)/;
+// Words of a passing moment: true the day it was said, stale soon after.
+const MOMENT = /\b(hoje|amanha|ontem|esta semana|essa semana|neste momento|nesse momento|agora ha pouco|daqui a pouco)\b/;
 
 const fold = (text) => String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const words = (text) => new Set(fold(text).match(/[a-z0-9]+/g) || []);
@@ -74,8 +90,13 @@ export function compactText(texts) {
   return kept.map((k) => k.sentence).join(" ");
 }
 
-const emptyStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0 });
-const state = { running: false, phase: "parada", section: null, sectionLabel: null, area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: emptyStats(), sections: [], areas: [], recent: [], readIds: [], visiting: null };
+const emptyStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0, pruned: 0, born: 0, folded: 0, adopted: 0 });
+const state = { running: false, phase: "parada", section: null, sectionLabel: null, area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: emptyStats(), sections: [], areas: [], recent: [], readIds: [], visiting: null, nodes: [] };
+// Her own writes (an archive, a compacted memory) must not call her back as if someone else had changed things.
+let writing = 0;
+async function own(work) { writing += 1; try { return await work(); } finally { writing -= 1; } }
+// Someone archived or deleted a memory: the nodes may need folding.
+let nodesDirty = false;
 let controller = null;
 // The person can call her: "come and organize these memories". The queue is served before the next memory of
 // the round, and a call wakes her up if she is resting.
@@ -98,10 +119,13 @@ const readJsonSetting = async (key, fallback) => { try { return JSON.parse(await
 async function spared() { return new Set(await readJsonSetting("memory_keeper_spared", [])); }
 export async function keeperFlags() { return readJsonSetting("memory_keeper_flags", []); }
 export async function keeperCompactions() { return readJsonSetting("memory_keeper_compactions", []); }
+export async function keeperPrunes() { return readJsonSetting("memory_keeper_prunes", []); }
+export async function keeperNodes() { return readJsonSetting("memory_keeper_nodes", emptyBook()); }
 
 /** What the map shows: where she is, what she did this round, the open flags, what can be undone. */
 export async function keeperState() {
-  return { ...state, enabled: await keeperEnabled(), flags: await keeperFlags(), compactions: (await keeperCompactions()).slice(0, 20), last: await readJsonSetting("memory_keeper_last", null) };
+  const book = await keeperNodes();
+  return { ...state, nodes: book.nodes.map((n) => ({ id: n.id, label: n.label, count: n.members.length, born: n.born, parent: n.parent })), enabled: await keeperEnabled(), flags: await keeperFlags(), compactions: (await keeperCompactions()).slice(0, 20), prunes: (await keeperPrunes()).slice(0, 20), last: await readJsonSetting("memory_keeper_last", null) };
 }
 
 /** The sections of a round (the general memory, then each semantic group), each walked along the web. */
@@ -113,7 +137,8 @@ async function loadRound(db, env) {
   const place = new Map((atlas?.memories || []).map((p) => [p.id, p]));
   const labels = new Map((atlas?.clusters || []).map((c) => [c.id, c.label]));
   const memories = rows.map((r) => ({ ...r, vector: r.embedding && r.embedding_model === model ? decodeEmbedding(r.embedding) : null, words: words(`${r.title} ${r.content}`), numbers: valuesIn(r.content), position: place.get(r.id)?.position || null }));
-  const sectionOf = (m) => { if (m.scope === "global") return "geral"; const c = place.get(m.id)?.cluster; return c !== undefined && c >= 0 ? `sem:${c}` : "solta"; };
+  // With her nodes, every memory (the general memory too) is in one; before them, the general memory apart.
+  const sectionOf = (m) => { const c = place.get(m.id)?.cluster; if (atlas?.nodes && c !== undefined && c >= 0) return `sem:${c}`; if (m.scope === "global") return "geral"; return c !== undefined && c >= 0 ? `sem:${c}` : "solta"; };
   const groups = new Map();
   for (const m of memories) { const key = sectionOf(m); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(m); }
   const order = (key) => (key === "geral" ? -1 : key === "solta" ? 1e9 : Number(key.slice(4)));
@@ -157,10 +182,61 @@ async function addFlag(flags, flag) {
   return true;
 }
 
+/** Archives an obsolete memory (reversible: undo brings it back and she never prunes it again). */
+async function prune(memory, reason, ctx, by = null) {
+  if (state.stats.pruned >= MAX_PRUNES_PER_ROUND) return false;
+  await own(async () => {
+    await setMemoryStatus(memory.id, "archived");
+    if (by) await createRelation({ fromId: by.id, toId: memory.id, type: "correction" }).catch(() => {});
+  });
+  ctx.archived.add(memory.id);
+  const record = { id: memory.id, title: memory.title, reason, by: by?.id || null, byTitle: by?.title || null, at: new Date().toISOString() };
+  const list = await keeperPrunes();
+  list.unshift(record);
+  await setSetting("memory_keeper_prunes", JSON.stringify(list.slice(0, 100)));
+  state.stats.pruned += 1;
+  emit("prune", { id: memory.id, title: memory.title, reason, by: by?.id || null, byTitle: by?.title || null, section: state.section });
+  return true;
+}
+
+/** Why a memory became obsolete on its own (nothing newer needed), or null. Only what the Aurora extracted. */
+export function staleReason(memory, kind, now = Date.now()) {
+  if (memory.kind !== "extracted" || (memory.uses || 0) > 0) return null;
+  const age = (now - Date.parse(memory.created_at)) / DAY;
+  if (!(age >= 0)) return null;
+  if (kind === "vaga" && age >= VAGUE_STALE_DAYS) return `vaga e sem uso há ${Math.floor(age)} dias`;
+  if (MOMENT.test(fold(memory.content)) && age >= MOMENT_STALE_DAYS) return `falava de um momento que já passou (${Math.floor(age)} dias, sem uso)`;
+  return null;
+}
+
+/**
+ * Tends the nodes over the round's active memories (all of them: the general memory has thoughts too).
+ * Saves the book and tells the map what was planted, adopted, born (split or sprouted) or folded. Returns whether anything changed.
+ */
+async function tendNodesNow(round, ctx) {
+  const book = await keeperNodes();
+  const memories = round.memories.filter((m) => !ctx.archived.has(m.id));
+  const { book: next, events } = planNodes(memories, book);
+  const changed = JSON.stringify(next) !== JSON.stringify(book);
+  if (changed) await setSetting("memory_keeper_nodes", JSON.stringify(next));
+  state.nodes = next.nodes.map((n) => ({ id: n.id, label: n.label, count: n.members.length, born: n.born, parent: n.parent }));
+  for (const e of events) {
+    if (e.action === "plant") emit("plant", { nodes: e.nodes });
+    else if (e.action === "adopt") { state.stats.adopted += 1; emit("adopt", { id: e.id, title: e.title, node: e.node, section: `sem:${e.node}`, label: e.label, similarity: e.similarity }); }
+    else if (e.action === "split") { state.stats.born += 1; emit("node-born", { node: e.node, section: `sem:${e.node}`, label: e.label, members: e.members, parent: e.parent, parentSection: `sem:${e.parent}`, parentLabel: e.parentLabel, why: "dividiu" }); }
+    else if (e.action === "sprout") { state.stats.born += 1; emit("node-born", { node: e.node, section: `sem:${e.node}`, label: e.label, members: e.members, parent: null, parentSection: null, parentLabel: null, why: "assunto novo" }); }
+    else if (e.action === "fold") { state.stats.folded += 1; emit("node-gone", { node: e.node, section: `sem:${e.node}`, label: e.label, members: e.members, into: e.into, intoSection: e.into == null ? null : `sem:${e.into}`, intoLabel: e.intoLabel }); }
+  }
+  return changed;
+}
+
 /** One memory read: classified, compared with the others, and what the comparison asks for done. */
 export async function tendMemory(memory, round, ctx) {
   const { relations, archived, done, flags, keep = new Set(), env } = ctx;
   const kind = classifyMemory(memory);
+  // Obsolete on its own: pruned (only what the Aurora extracted, never what the person brought back).
+  const stale = keep.has(memory.id) ? null : staleReason(memory, kind);
+  if (stale && (await prune(memory, stale, ctx))) return kind;
   if (kind === "vaga") await addFlag(flags, { id: memory.id, otherId: null, title: memory.title, reason: "vaga: pouco conteúdo para ser útil" });
 
   // Compare with every other active memory once.
@@ -188,18 +264,22 @@ export async function tendMemory(memory, round, ctx) {
       if (merged === bestOwn) {
         // Exact copies: the best one stays, the copies go to the archive linked to it.
         for (const copy of all.slice(1)) {
-          await setMemoryStatus(copy.id, "archived");
-          await createRelation({ fromId: copy.id, toId: best.id, type: "derivation" }).catch(() => {});
+          await own(async () => {
+            await setMemoryStatus(copy.id, "archived");
+            await createRelation({ fromId: copy.id, toId: best.id, type: "derivation" }).catch(() => {});
+          });
           archived.add(copy.id);
           state.stats.joined += 1;
           emit("join", { kept: best.id, archived: copy.id, title: best.title, archivedTitle: copy.title });
         }
       } else {
         const tags = [...new Set(all.flatMap((m) => { try { return JSON.parse(m.tags || "[]"); } catch { return []; } }))];
-        const compacted = await createMemory({ scope: best.scope, projectId: best.project_id, conversationId: best.conversation_id, title: best.title, content: merged, tags, kind: "extracted", source: `zeladora: compactou ${all.length} memórias`, dedupe: false, env });
+        const compacted = await own(() => createMemory({ scope: best.scope, projectId: best.project_id, conversationId: best.conversation_id, title: best.title, content: merged, tags, kind: "extracted", source: `zeladora: compactou ${all.length} memórias`, dedupe: false, env }));
         for (const m of all) {
-          await setMemoryStatus(m.id, "archived");
-          await createRelation({ fromId: m.id, toId: compacted.id, type: "derivation" }).catch(() => {});
+          await own(async () => {
+            await setMemoryStatus(m.id, "archived");
+            await createRelation({ fromId: m.id, toId: compacted.id, type: "derivation" }).catch(() => {});
+          });
           archived.add(m.id);
         }
         const record = { id: compacted.id, from: all.map((m) => m.id), title: best.title, titles: all.map((m) => m.title), at: new Date().toISOString() };
@@ -221,8 +301,16 @@ export async function tendMemory(memory, round, ctx) {
     if (done.has(key)) continue;
     done.add(key);
     const close = (sim, wordsMin) => (similarity !== null ? similarity >= sim : false) || overlap >= wordsMin;
-    // Disagreeing memories: flagged, never compacted (the person decides which one is right).
+    // Disagreeing memories: when the newer one says the fact changed, the older is obsolete (both extracted,
+    // same place); otherwise flagged, never compacted (the person decides which one is right).
     if (disagree && close(CONFLICT_SIMILARITY, CONFLICT_WORDS)) {
+      const [older, newer] = String(memory.created_at) <= String(other.created_at) ? [memory, other] : [other, memory];
+      const mayPrune = (m) => m.kind === "extracted" && !keep.has(m.id);
+      if (mayPrune(older) && mayPrune(newer) && bucket(older) === bucket(newer) && older.created_at !== newer.created_at && UPDATE_CUE.test(fold(`${newer.title} ${newer.content}`))
+        && (await prune(older, `substituída por uma mais nova: ${[...older.numbers].slice(0, 2).join(", ")} → ${[...newer.numbers].slice(0, 2).join(", ")}`, ctx, newer))) {
+        if (older.id === memory.id) return kind;
+        continue;
+      }
       await addFlag(flags, { id: memory.id, otherId: other.id, title: memory.title, otherTitle: other.title, similarity: score, reason: `valores diferentes: ${[...memory.numbers].slice(0, 3).join(", ")} × ${[...other.numbers].slice(0, 3).join(", ")}` });
       continue;
     }
@@ -241,7 +329,10 @@ export async function tendMemory(memory, round, ctx) {
 /** One full round over every active memory, section by section. `paceMs` is how long she stays on each one. */
 export async function keeperRound({ paceMs = 1200, signal, env = process.env } = {}) {
   const db = await getDb();
-  const round = await loadRound(db, env);
+  let round = await loadRound(db, env);
+  // First the nodes (a new memory adopted, a big node split…), so the round walks the sections as they are now.
+  if (await tendNodesNow(round, { archived: new Set() })) round = await loadRound(db, env);
+  nodesDirty = false;
   state.round += 1; state.startedAt = new Date().toISOString(); state.restUntil = null; state.phase = "andando";
   state.stats = emptyStats();
   state.readIds = [];
@@ -274,6 +365,8 @@ export async function keeperRound({ paceMs = 1200, signal, env = process.env } =
     }
   }
   state.current = null;
+  // What she pruned or compacted may leave a node with almost nothing: it folds into its neighbour.
+  if (ctx.archived.size) await tendNodesNow(round, ctx);
   await setSetting("memory_keeper_last", JSON.stringify({ round: state.round, at: new Date().toISOString(), ...state.stats }));
   return state.stats;
 }
@@ -282,6 +375,7 @@ export async function keeperRound({ paceMs = 1200, signal, env = process.env } =
 export function startMemoryKeeper({ paceMs = 1200, restMs = 15 * 60_000, firstDelayMs = 20_000 } = {}) {
   if (controller) return stopMemoryKeeper;
   controller = new AbortController();
+  memoryEvents.on("event", onMemoryEvent);
   const { signal } = controller;
   state.running = true;
   void (async () => {
@@ -294,21 +388,45 @@ export function startMemoryKeeper({ paceMs = 1200, restMs = 15 * 60_000, firstDe
       state.phase = "descansando"; state.section = state.area = null; state.sectionLabel = state.areaLabel = null;
       state.restUntil = new Date(Date.now() + restMs).toISOString();
       emit("rest", { until: state.restUntil, stats: state.stats });
-      // Resting until the time is up — or until the person calls her.
-      await new Promise((resolve) => { const t = setTimeout(resolve, restMs); wake = () => { clearTimeout(t); resolve(); }; signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true }); });
-      wake = null;
-      while (visits.length && !signal.aborted && (await keeperEnabled())) {
-        try {
-          const db = await getDb();
-          const round = await loadRound(db, process.env);
-          const ctx = { db, env: process.env, relations: related(db), archived: new Set(), done: new Set(), flags: await keeperFlags(), keep: await spared() };
-          await serveVisits(round, ctx, { paceMs, signal });
-        } catch (error) { emit("error", { reason: String(error?.message || error).slice(0, 200) }); visits.length = 0; }
+      // Resting until the time is up; the person calling her, a new memory or one removed wakes her for that
+      // alone, and then she rests again.
+      const until = Date.now() + restMs;
+      while (!signal.aborted && Date.now() < until) {
+        if (!visits.length && !nodesDirty) await new Promise((resolve) => { const t = setTimeout(resolve, Math.max(0, until - Date.now())); wake = () => { clearTimeout(t); resolve(); }; signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true }); });
+        wake = null;
+        if (signal.aborted || !(await keeperEnabled())) break;
+        if (!visits.length && !nodesDirty) continue;
+        try { await tendBetweenRounds({ paceMs, signal }); } catch (error) { emit("error", { reason: String(error?.message || error).slice(0, 200) }); visits.length = 0; nodesDirty = false; }
+        if (!signal.aborted && Date.now() < until) { state.phase = "descansando"; state.section = state.area = null; state.sectionLabel = state.areaLabel = null; state.current = null; emit("rest", { until: state.restUntil, stats: state.stats }); }
       }
     }
     state.running = false; state.phase = "parada";
   })();
   return stopMemoryKeeper;
+}
+
+/** Between rounds: the visits asked for (and the new memories), then the nodes if something was removed. */
+async function tendBetweenRounds({ paceMs, signal }) {
+  const db = await getDb();
+  const round = await loadRound(db, process.env);
+  const ctx = { db, env: process.env, relations: related(db), archived: new Set(), done: new Set(), flags: await keeperFlags(), keep: await spared() };
+  if (visits.length) await serveVisits(round, ctx, { paceMs, signal });
+  if (nodesDirty) { nodesDirty = false; await tendNodesNow(await loadRound(db, process.env), ctx); }
+}
+
+/** A memory created or removed by someone else (a chat turn, the person): she goes there / checks the nodes. */
+function onMemoryEvent(event) {
+  if (writing > 0 || !controller) return;
+  if (event.type === "created" && event.id) {
+    const last = visits[visits.length - 1];
+    if (last?.arrival) { if (!last.ids.includes(event.id)) last.ids.push(event.id); }
+    else visits.push({ ids: [event.id], label: "memória nova", arrival: true });
+    emit("arrival", { id: event.id, title: event.title || null });
+    wake?.();
+  } else if (event.type === "archived" || event.type === "deleted") {
+    nodesDirty = true;
+    wake?.();
+  }
 }
 
 /**
@@ -324,29 +442,49 @@ export function visitMemories(ids, label = "a seu pedido") {
   return list.length;
 }
 
-async function serveVisits(round, ctx, { paceMs, signal }) {
-  const byId = new Map(round.memories.map((m) => [m.id, m]));
-  while (visits.length && !signal?.aborted) {
-    const visit = visits.shift();
-    const list = walkOrder(visit.ids.map((id) => byId.get(id)).filter(Boolean));
-    state.visiting = visit.label; state.phase = "andando";
-    state.section = state.area = "pedido"; state.sectionLabel = state.areaLabel = visit.label;
-    emit("walk", { section: "pedido", area: "pedido", label: visit.label, total: list.length, called: true });
-    for (const memory of list) {
-      if (signal?.aborted || ctx.archived.has(memory.id)) continue;
-      const still = ctx.db.prepare("SELECT status FROM memories WHERE id = ?").get(memory.id);
-      if (!still || still.status === "archived") continue;
-      state.current = memory.id;
-      emit("read", { id: memory.id, section: "pedido", area: "pedido", title: memory.title, kind: classifyMemory(memory), called: true }, false);
-      await tendMemory(memory, round, ctx);
-      state.stats.read += 1; if (!state.readIds.includes(memory.id)) state.readIds.push(memory.id);
-      if (paceMs) await sleep(paceMs, signal);
-    }
-    state.visiting = null;
+async function serveVisits(round, ctx, opts) {
+  while (visits.length && !opts.signal?.aborted) {
+    // A new memory goes first: she goes to it as soon as it appears.
+    const next = visits.findIndex((v) => v.arrival);
+    await serveVisit(visits.splice(next >= 0 ? next : 0, 1)[0], round, ctx, opts);
   }
 }
 
+async function serveVisit(visit, round, ctx, opts) {
+  const { paceMs, signal } = opts;
+  // A memory newer than the round (it just arrived): read the memory again so she knows it.
+  if (visit.ids.some((id) => !round.memories.some((m) => m.id === id))) round.memories = (await loadRound(ctx.db, ctx.env)).memories;
+  const byId = new Map(round.memories.map((m) => [m.id, m]));
+  const list = walkOrder(visit.ids.map((id) => byId.get(id)).filter(Boolean));
+  const go = () => {
+    state.visiting = visit.label; state.phase = "andando";
+    state.section = state.area = "pedido"; state.sectionLabel = state.areaLabel = visit.label;
+    emit("walk", { section: "pedido", area: "pedido", label: visit.label, total: list.length, called: true });
+  };
+  go();
+  for (const memory of list) {
+    if (signal?.aborted || ctx.archived.has(memory.id)) continue;
+    // A memory appeared while she is on a long errand: she goes to it, then comes back.
+    if (!visit.arrival && visits.some((v) => v.arrival)) {
+      const i = visits.findIndex((v) => v.arrival);
+      await serveVisit(visits.splice(i, 1)[0], round, ctx, opts);
+      go();
+    }
+    const still = ctx.db.prepare("SELECT status FROM memories WHERE id = ?").get(memory.id);
+    if (!still || still.status === "archived") continue;
+    state.current = memory.id;
+    emit("read", { id: memory.id, section: "pedido", area: "pedido", title: memory.title, kind: classifyMemory(memory), called: true }, false);
+    await tendMemory(memory, round, ctx);
+    state.stats.read += 1; if (!state.readIds.includes(memory.id)) state.readIds.push(memory.id);
+    if (paceMs) await sleep(paceMs, signal);
+  }
+  state.visiting = null;
+  // A new memory gets its node (adopted where it means the closest thing; a node grown too big splits).
+  if (visit.arrival || ctx.archived.size) await tendNodesNow(round, ctx);
+}
+
 export function stopMemoryKeeper() {
+  memoryEvents.off("event", onMemoryEvent);
   controller?.abort();
   controller = null;
   state.running = false; state.phase = "parada";
@@ -358,6 +496,14 @@ export function stopMemoryKeeper() {
  */
 export async function undoKeeper(id) {
   const keep = await spared();
+  // A pruned memory: back, and never pruned again.
+  const prunes = await keeperPrunes();
+  if (prunes.some((p) => p.id === id)) {
+    keep.add(id);
+    await setSetting("memory_keeper_spared", JSON.stringify([...keep].slice(-500)));
+    await setSetting("memory_keeper_prunes", JSON.stringify(prunes.filter((p) => p.id !== id)));
+    return own(() => setMemoryStatus(id, "active"));
+  }
   const compactions = await keeperCompactions();
   const compaction = compactions.find((c) => c.id === id);
   const back = compaction ? compaction.from : [id];

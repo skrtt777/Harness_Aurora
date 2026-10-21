@@ -20,6 +20,9 @@ import { dynamicGeometry, gradient, lineMaterial, pointMaterial, ribbonGeometry,
  *   - the Zeladora is a smaller wave that walks the canopy memory by memory; each step draws her way from the
  *     memory she read to the next along the branches (A → B through their common fork); a link she makes is
  *     an arc between two leaves; a section she has not tended yet is dim;
+ *   - she also shapes the tree: a new memory she adopts grows in with a green path from the root, an obsolete
+ *     one she prunes is cut and falls to the ground, a new node (a section split off or sprouted for a new
+ *     subject) lights up from its base, a node she folds closes in on itself and its memories go to the next;
  *   - the recent questions stay at the base as small bushes (one twig per memory used); a click replays one;
  *   - the person's cursor is a lens (branches and leaves near it brighten; the nearest memory shows its way
  *     from the root); a tap anywhere sends a wave from the root.
@@ -72,6 +75,7 @@ const C = {
   wave: col("#8fc2ff"), waveHot: col("#eaf4ff"),
   keeper: col("#3fd6c6"), keeperHot: col("#cbfff7"),
   recall: col("#ff9d5c"), created: col(ACTIVITY_COLOR), flag: col("#f2d14b"), select: col("#ff7aa8"), search: col("#9cc8ff"),
+  prune: col("#ff7a4d"), pruneDim: col("#7a3a26"), fold: col("#b9a2ff"),
 };
 type PathKind = "consulta" | "zeladora" | "criada" | "selecao" | "hover";
 const PALETTE: Record<PathKind, [number, THREE.Color][]> = {
@@ -91,6 +95,9 @@ const HL_COLOR: Record<Highlight["kind"], THREE.Color> = { recalled: C.recall, c
 const DUST: Record<Quality, number> = { alta: 1600, media: 800, baixa: 0 };
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const easeOut = (u: number) => 1 - Math.pow(1 - u, 3);
+const PRUNE_MS = 3400, ARRIVAL_MS = 2400, ADOPT_MS = 2800, BORN_MS = 4800, GONE_MS = 3200;
+/** Where a memory and a section were last drawn (kept after they leave the tree: a pruned leaf falls from there). */
+export type LastSeen = { leaves: Map<string, [number, number]>; sections: Map<string, { x: number; y: number; bx: number; by: number }> };
 
 /** Where everything shares: the cursor (a lens), the camera's world-per-pixel, the clock. */
 type World = { hand: { x: number; y: number; s: number }; wpp: number; t: number };
@@ -127,12 +134,19 @@ function Scene(props: SceneProps) {
   // ---------- where each node is drawn: eased from where it was when the tree changes; grown at first ----------
   type Display = { x: Float32Array; y: Float32Array; sx: Float32Array; sy: Float32Array; born: Float64Array; at: number; tree: MemoryTree };
   const disp = useRef<Display | null>(null);
+  const lastSeen = useRef<LastSeen>({ leaves: new Map(), sections: new Map() });
   const firstLoad = useRef(true);
   const display = useMemo(() => {
     const now = performance.now();
     const old = disp.current;
     const n = tree.count;
     const D: Display = { x: new Float32Array(n), y: new Float32Array(n), sx: new Float32Array(n), sy: new Float32Array(n), born: new Float64Array(n), at: now, tree };
+    const seen = lastSeen.current;
+    for (const t of old ? [old.tree, tree] : [tree]) {
+      const X = t === tree ? tree.x : old!.x, Y = t === tree ? tree.y : old!.y;
+      for (const [id, i] of t.leafOf) seen.leaves.set(id, [X[i], Y[i]]);
+      for (const s of t.sections) seen.sections.set(s.id, { x: s.labelX, y: s.labelY, bx: X[s.node], by: Y[s.node] });
+    }
     const has = new Uint8Array(n); const cnt = new Float32Array(n); const sumX = new Float32Array(n); const sumY = new Float32Array(n);
     if (old) for (const [id, i] of tree.leafOf) { const j = old.tree.leafOf.get(id); if (j !== undefined) { D.sx[i] = old.x[j]; D.sy[i] = old.y[j]; has[i] = 1; } }
     for (let i = n - 1; i >= 1; i -= 1) {
@@ -189,6 +203,19 @@ function Scene(props: SceneProps) {
     const now = performance.now();
     trails.current = [...trails.current.filter((p) => (p.until || 0) > now), { key: `z:${cur}:${now}`, nodes: a !== undefined ? pathBetween(tree, a, b) : pathTo(tree, b).slice(-4), kind: "zeladora" as const, at: now, strength: 0.8, until: now + 2400 }].slice(-2);
   }, [keeper?.current, tree]);
+
+  // ---------- a memory she adopts grows in: a green path from the root to it (by id: the tree changes) ----------
+  const growTrails = useRef<{ id: string; at: number; until: number }[]>([]);
+  const seenGrowth = useRef(new Set<string>());
+  useEffect(() => {
+    const now = performance.now();
+    for (const g of keeper?.growth || []) {
+      const key = `${g.kind}:${g.id || g.section}:${g.at}`;
+      if (g.kind !== "adopt" || !g.id || seenGrowth.current.has(key) || Date.now() - g.at > ADOPT_MS) continue;
+      seenGrowth.current.add(key);
+      growTrails.current = [...growTrails.current.filter((p) => p.until > now), { id: g.id, at: now, until: now + ADOPT_MS }].slice(-4);
+    }
+  }, [keeper?.growth]);
 
   // ---------- a recent question replayed (a click on its bush) ----------
   const [replay, setReplay] = useState<{ bush: RecallBush; at: number } | null>(null);
@@ -361,12 +388,73 @@ function Scene(props: SceneProps) {
       sw.dot(v * v * D.x[a] + 2 * v * u * cx + u * u * D.x[b], v * v * D.y[a] + 2 * v * u * cy + u * u * D.y[b], 4, fade, C.keeperHot);
       lightNode(a, fade, 2); lightNode(b, fade, 2);
     }
+
+    // ---- the Zeladora shaping the tree: a pruned leaf falls, a new node lights up, a folded one closes ----
+    const ring = (x: number, y: number, r: number, alpha: number, c: THREE.Color) => {
+      let px = x + r, py = y;
+      for (let s = 1; s <= 40; s += 1) { const a = (s / 40) * Math.PI * 2; const nx = x + Math.cos(a) * r, ny = y + Math.sin(a) * r; ww.line(px, py, nx, ny, alpha, c); px = nx; py = ny; }
+    };
+    const sectionIndex = (id?: string | null) => (id ? tree.sections.findIndex((s) => s.id === id) : -1);
+    const lightSection = (si: number, s: number, kind: number) => { if (si < 0) return; for (let i = 1; i < tree.count; i += 1) if (tree.section[i] === si) lightNode(i, s, kind); };
+    for (const g of keeper?.growth || []) {
+      const age = nowMs - g.at;
+      if (g.kind === "prune" && g.id && age < PRUNE_MS) {
+        const p = lastSeen.current.leaves.get(g.id); if (!p) continue;
+        const u = age / PRUNE_MS;
+        // The cut: a short snip where the leaf was, then the leaf falls to the ground, swaying, and fades.
+        if (age < 700) { const k = 1 - age / 700, d = R * 0.018; ww.line(p[0] - d, p[1] - d, p[0] + d, p[1] + d, k, C.prune); ww.line(p[0] - d, p[1] + d, p[0] + d, p[1] - d, k, C.prune); ring(p[0], p[1], R * (0.01 + 0.03 * easeOut(age / 700)), k * 0.8, C.prune); }
+        const at = (v: number) => [p[0] + Math.sin(v * 8 + hash01(g.id!) * 6.28) * R * 0.02 * v, p[1] * (1 - v * v)] as const;
+        const fade = 1 - smooth(0.62, 1, u);
+        for (let k = 0; k < 5; k += 1) {
+          const v = Math.max(0, u - k * 0.022);
+          const [x, y] = at(v);
+          c3.copy(C.prune).lerp(C.pruneDim, Math.min(1, u * 1.4));
+          sw.dot(x, y, (5.5 - k) * (1 - u * 0.4), fade * (1 - k * 0.2), c3);
+        }
+        if (!motion) continue;
+      }
+      if (g.kind === "arrival" && g.id && age < ARRIVAL_MS) {
+        const i = tree.leafOf.get(g.id); if (i === undefined) continue;
+        const u = age / ARRIVAL_MS;
+        ring(D.x[i], D.y[i], R * (0.008 + 0.045 * easeOut(u)), (1 - u) * 0.85, C.created);
+        lightNode(i, 1 - u, 4);
+      }
+      if (g.kind === "born" && g.section && age < BORN_MS) {
+        const si = sectionIndex(g.section); if (si < 0) continue;
+        const u = age / BORN_MS, env = 1 - smooth(0.5, 1, u);
+        const b = tree.sections[si].node;
+        // The whole new node lights up from its base; rings open where it starts.
+        lightSection(si, env * 0.95, 2);
+        ring(D.x[b], D.y[b], R * (0.015 + 0.13 * easeOut(Math.min(1, u * 1.5))), env * 0.75, C.keeperHot);
+        ring(D.x[b], D.y[b], R * (0.01 + 0.07 * easeOut(Math.min(1, u * 1.2))), env * 0.5, C.keeper);
+        // Split from another node: a thread from where it came.
+        const pi = sectionIndex(g.from);
+        if (pi >= 0) {
+          const a = tree.sections[pi].node;
+          const cx = (D.x[a] + D.x[b]) / 2, cy = Math.max(D.y[a], D.y[b]) + R * 0.08;
+          let px = D.x[a], py = D.y[a];
+          for (let s = 1; s <= 24; s += 1) { const t1 = s / 24, v = 1 - t1; const x = v * v * D.x[a] + 2 * v * t1 * cx + t1 * t1 * D.x[b], y = v * v * D.y[a] + 2 * v * t1 * cy + t1 * t1 * D.y[b]; ww.line(px, py, x, y, env * 0.8, C.keeperHot); px = x; py = y; }
+          lightSection(pi, env * 0.35, 2);
+        }
+      }
+      if (g.kind === "gone" && g.section && age < GONE_MS) {
+        const p = lastSeen.current.sections.get(g.section); if (!p) continue;
+        const u = age / GONE_MS;
+        // Closing in on itself, and its memories now light up where they went.
+        ring(p.bx, p.by, R * 0.12 * (1 - easeOut(u)) + R * 0.004, (1 - u) * 0.8, C.fold);
+        ring(p.bx, p.by, R * 0.07 * (1 - easeOut(u)) + R * 0.002, (1 - u) * 0.5, C.fold);
+        lightSection(sectionIndex(g.into), (1 - u) * 0.7, 2);
+      }
+    }
     ww.end();
 
     // ---- glowing paths: ribbons climbing the branches, a spark running along them ----
     const rw = new RibbonWriter(geo.ribbons).begin();
     trails.current = trails.current.filter((p) => (p.until || 0) > now);
-    for (const p of [...paths, ...trails.current]) {
+    growTrails.current = growTrails.current.filter((g) => g.until > now);
+    const grownPaths: PathSpec[] = [];
+    for (const g of growTrails.current) { const i = tree.leafOf.get(g.id); if (i !== undefined) grownPaths.push({ key: `g:${g.id}`, nodes: pathTo(tree, i), kind: "criada", at: g.at, strength: 0.85, until: g.until }); }
+    for (const p of [...paths, ...trails.current, ...grownPaths]) {
       if (p.nodes.length < 2) continue;
       const fade = p.until ? Math.min(1, (p.until - now) / 900) : 1;
       const reveal = reduced ? 1 : Math.max(0, Math.min(1, (now - p.at) / (p.kind === "zeladora" ? 600 : REVEAL_MS)));
@@ -580,7 +668,7 @@ function Scene(props: SceneProps) {
       <mesh geometry={geo.ribbons} material={mats.ribbons} frustumCulled={false} />
       <points geometry={geo.leaves} material={mats.points} frustumCulled={false} />
       <points geometry={geo.sparks} material={mats.points} frustumCulled={false} />
-      <Labels {...props} paths={paths} bushes={bushes} hoverBush={hoverBush} replay={replay} />
+      <Labels {...props} paths={paths} bushes={bushes} hoverBush={hoverBush} replay={replay} lastSeen={lastSeen.current} />
       <CameraRig command={camera} reduced={reduced} onUserMove={props.onUserMove} R={R} />
     </>
   );
@@ -594,8 +682,12 @@ const PATH_WORD: Record<PathKind, string> = { consulta: "consultada", zeladora: 
  * Section names along the canopy, the names of a few memories (hovered, selected, active), and the callout at
  * the end of the main path: depth, what happened, the memory, its section.
  */
-function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, sections, settings, paths, bushes, hoverBush, replay, keeper, recalls }: SceneProps & { paths: PathSpec[]; bushes: BushView[]; hoverBush: number | null; replay: { bush: RecallBush; at: number } | null }) {
+function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, sections, settings, paths, bushes, hoverBush, replay, keeper, recalls, lastSeen }: SceneProps & { paths: PathSpec[]; bushes: BushView[]; hoverBush: number | null; replay: { bush: RecallBush; at: number } | null; lastSeen: LastSeen }) {
   const tree = layout.tree; const R = tree.R;
+  // What she just did to the shape of the tree, in words for a few seconds (re-rendered while there is any).
+  const [, tick] = useState(0);
+  const shaping = (keeper?.growth || []).filter((g) => (g.kind === "prune" || g.kind === "born" || g.kind === "gone") && Date.now() - g.at < (g.kind === "born" ? BORN_MS : g.kind === "gone" ? GONE_MS : PRUNE_MS) + 600);
+  useEffect(() => { if (!shaping.length) return undefined; const t = window.setInterval(() => tick((x) => x + 1), 600); return () => window.clearInterval(t); }, [shaping.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
   const nodeOf = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
   const clusterOf = useMemo(() => new Map(graph.clusters.map((c) => [c.id, c])), [graph.clusters]);
   const total = Math.max(1, graph.nodes.length);
@@ -656,6 +748,21 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
       <Html position={[0, -R * 0.035, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
         <div className="lm-root">aurora · {graph.nodes.length} memórias</div>
       </Html>
+      {settings.labels && shaping.slice(0, 4).map((g) => {
+        const key = `${g.kind}:${g.id || g.section}:${g.at}`;
+        if (g.kind === "prune") {
+          const p = g.id ? lastSeen.leaves.get(g.id) : undefined; if (!p) return null;
+          return <Html key={key} position={[p[0], p[1], 0]} zIndexRange={[28, 18]} style={{ pointerEvents: "none" }}><div className={`lm-grow prune ${p[0] > R * 0.45 ? "left" : ""}`}><b>podada · zeladora</b><span>{g.label || "memória"}</span><small>{g.reason || "obsoleta"}</small></div></Html>;
+        }
+        if (g.kind === "born") {
+          const s = tree.sections.find((x) => x.id === g.section); if (!s) return null;
+          const from = g.from ? clusterOf.get(g.from)?.label : null;
+          return <Html key={key} position={[s.labelX, s.labelY + R * 0.1, 0]} center zIndexRange={[28, 18]} style={{ pointerEvents: "none" }}><div className="lm-grow born"><b>nódulo novo</b><span>{clusterOf.get(s.id)?.label || g.label}</span><small>{from ? `saiu de ${from}` : "assunto novo"} · {clusterOf.get(s.id)?.nodeIds.length || 0} memórias</small></div></Html>;
+        }
+        const p = g.section ? lastSeen.sections.get(g.section) : undefined; if (!p) return null;
+        const into = g.into ? clusterOf.get(g.into)?.label : null;
+        return <Html key={key} position={[p.x, p.y + R * 0.1, 0]} center zIndexRange={[28, 18]} style={{ pointerEvents: "none" }}><div className="lm-grow gone"><b>nódulo recolhido</b><span>{g.label}</span><small>{into ? `as memórias foram para ${into}` : "ficou vazio"}</small></div></Html>;
+      })}
       {bushes.map((b, k) => (hoverBush === k || replay?.bush.id === b.rc.id) && (
         <Html key={`b:${b.rc.id}`} position={[b.bx, -R * 0.035, 0]} center zIndexRange={[25, 15]} style={{ pointerEvents: "none" }}>
           <div className="lm-bush">“{b.rc.prompt.slice(0, 54)}{b.rc.prompt.length > 54 ? "…" : ""}”<small>{fmtTime(b.rc.at)} · usou {b.rc.used.length} {b.rc.used.length === 1 ? "memória" : "memórias"}{hoverBush === k ? " · clique para rever o caminho" : ""}</small></div>

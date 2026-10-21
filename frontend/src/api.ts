@@ -728,7 +728,12 @@ export type MemoryLiveEvent = {
   /** answered: what the saved answer used and created. */
   used?: string[]; created?: string[]; ok?: boolean;
   /** keeper: what the Zeladora did (app/memoryKeeper.js). */
-  action?: "round" | "walk" | "read" | "link" | "join" | "compact" | "flag" | "rest" | "called" | "error";
+  action?: "round" | "walk" | "read" | "link" | "join" | "compact" | "flag" | "rest" | "called" | "error" | "prune" | "arrival" | "adopt" | "plant" | "node-born" | "node-gone";
+  /** prune: the newer memory that replaced it. node-born / node-gone / adopt: the node and where it came from or went. */
+  by?: string | null; byTitle?: string | null; node?: number; parent?: number | null; parentSection?: string | null; parentLabel?: string | null;
+  into?: number | null; intoSection?: string | null; intoLabel?: string | null; members?: number; why?: string;
+  /** plant: the first nodes she planted. */
+  nodes?: { node: number; label: string; members: number }[];
   called?: boolean; back?: boolean;
   from?: string; to?: string; kept?: string; section?: string; sentences?: number; merged?: string[]; archived?: string; otherId?: string; reason?: string; similarity?: number;
   otherTitle?: string; archivedTitle?: string; label?: string; total?: number; index?: number; round?: number; until?: string; area?: string;
@@ -739,7 +744,8 @@ export type MemoryGraphSnapshot = {
   generatedAt: string;
   memories: GraphMemory[];
   relations: { from: string; to: string; type: string }[];
-  atlas: { model: string; clusters: { id: number; label: string; count: number; center: number[] }[]; points: { id: string; position: number[]; cluster: number; neighbors: { id: string; similarity: number }[] }[] } | null;
+  /** nodes: the clusters are the Zeladora's nodes (stable across reloads; she plants, splits and folds them). */
+  atlas: { model: string; nodes?: boolean; clusters: { id: number; label: string; count: number; center: number[] }[]; points: { id: string; position: number[]; cluster: number; neighbors: { id: string; similarity: number }[] }[] } | null;
   projects: { id: string; name: string }[];
   conversations: { id: string; title: string; projectId: string | null }[];
   recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];
@@ -748,7 +754,10 @@ export type MemoryGraphSnapshot = {
 };
 export type KeeperStateApi = {
   running: boolean; enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
-  restUntil: string | null; stats: { read: number; linked: number; joined: number; compacted?: number; flagged: number };
+  restUntil: string | null; stats: { read: number; linked: number; joined: number; compacted?: number; flagged: number; pruned?: number; born?: number; folded?: number; adopted?: number };
+  /** Her nodes (the sections of the map) and the obsolete memories she pruned (undo brings one back). */
+  nodes?: { id: number; label: string; count: number; born?: string; parent?: number | null }[];
+  prunes?: { id: string; title?: string; reason: string; by?: string | null; byTitle?: string | null; at: string }[];
   areas: { key: string; label: string; total: number; read: number }[];
   sections?: { key: string; label: string; total: number; read: number }[];
   compactions?: { id: string; from: string[]; title?: string; at: string }[];
