@@ -33,7 +33,7 @@ test("a tentacle keeps its length, trails in the current, and its tip reaches a 
   assert.equal(r.px[0], 0); assert.equal(r.py[0], 0);
 });
 
-test("the water: plankton drifts, the hand pushes it away, it never leaves the sea; memories spring back", () => {
+test("the water: plankton drifts, the hand pushes it away, it never leaves the sea", () => {
   const n = 400, px = new Float32Array(n), py = new Float32Array(n), vx = new Float32Array(n), vy = new Float32Array(n);
   for (let i = 0; i < n; i += 1) { px[i] = (i % 20) * 10 - 100; py[i] = Math.floor(i / 20) * 10 - 100; }
   const bounds = { minX: -100, maxX: 100, minY: -100, maxY: 100 };
@@ -42,13 +42,43 @@ test("the water: plankton drifts, the hand pushes it away, it never leaves the s
   for (let i = 0; i < n; i += 1) { assert.ok(px[i] >= -100 && px[i] <= 100 && py[i] >= -100 && py[i] <= 100); if (Math.hypot(px[i], py[i]) < 10) inside += 1; }
   assert.ok(inside <= 2, `the hand clears the water around it (${inside} left)`);
 
-  const ox = new Float32Array(1), oy = new Float32Array(1), bvx = new Float32Array(1), bvy = new Float32Array(1);
-  for (let k = 0; k < 30; k += 1) phys.stepBend(ox, oy, bvx, bvy, () => ({ x: 5, y: 0 }), 1 / 60, [{ x: 0, y: 0, r: 20, s: 1 }]);
-  assert.ok(ox[0] > 0.5, "bent away from the hand");
-  for (let k = 0; k < 240; k += 1) phys.stepBend(ox, oy, bvx, bvy, () => ({ x: 5, y: 0 }), 1 / 60, []);
-  assert.ok(Math.abs(ox[0]) < 0.05 && Math.abs(oy[0]) < 0.05, "and back in place");
-
   const ring = phys.rippleRing({ x: 0, y: 0, at: 1000 }, 2000);
   assert.ok(ring && ring.r > 80 && ring.s > 0);
   assert.equal(phys.rippleRing({ x: 0, y: 0, at: 1000 }, 3500), null);
+});
+
+test("a coral colony grows from its base to every memory: one polyp per memory, exactly where it is", async () => {
+  const { growCoral, reefDisplace } = await import("../.test-build/livemap/ocean/coral.js");
+  const memories = Array.from({ length: 80 }, (_, i) => { const a = i * 2.39996, r = 8 + Math.sqrt(i) * 7; return { id: `m${i}`, x: 100 + Math.cos(a) * r, y: -50 + Math.sin(a) * r }; });
+  const coral = growCoral({ x: 100, y: -50 }, memories, { seed: "s" });
+  assert.equal(coral.tips.size, 80);
+  for (const m of memories) { const t = coral.tips.get(m.id); assert.ok(Math.abs(coral.x[t] - m.x) < 1e-3 && Math.abs(coral.y[t] - m.y) < 1e-3, `${m.id} at its place`); }
+  // One tree: from every tip, the parents lead to the base (no cycles).
+  for (const t of coral.tips.values()) { let n = t, steps = 0; while (n > 0 && steps < coral.count) { n = coral.parent[n]; steps += 1; } assert.equal(n, 0); }
+  // It branches (not 80 straight spokes) and thickens toward the base.
+  const children = new Map(); for (let i = 1; i < coral.count; i += 1) children.set(coral.parent[i], (children.get(coral.parent[i]) || 0) + 1);
+  assert.ok((children.get(0) || 0) < 20, `few trunks from the base (${children.get(0)})`);
+  assert.ok(coral.width[0] > coral.width[coral.tips.get("m79")], "thicker at the base");
+  assert.ok(coral.count < 80 * 12, `a reasonable size (${coral.count} nodes)`);
+  // Deterministic.
+  const again = growCoral({ x: 100, y: -50 }, memories, { seed: "s" });
+  assert.equal(again.count, coral.count);
+  assert.deepEqual([...again.x.slice(0, 50)], [...coral.x.slice(0, 50)]);
+  // In the water: the base barely moves, a tip sways; the hand pushes a tip away from it.
+  const still = { t: 1.3, hand: { x: 0, y: 0, s: 0 }, jelly: { x: 0, y: 0, r: 0 }, ripple: null };
+  assert.ok(Math.hypot(...reefDisplace(100, -50, 0, 0.3, still)) < 1e-6);
+  assert.ok(Math.hypot(...reefDisplace(150, -50, 1, 0.3, still)) > 0.5);
+  const [hx] = reefDisplace(150, -50, 1, 0.3, { ...still, hand: { x: 140, y: -50, s: 1 } });
+  const [sx] = reefDisplace(150, -50, 1, 0.3, still);
+  assert.ok(hx > sx + 2, "pushed away from the hand");
+});
+
+test("a big section grows its coral fast enough to draw", async () => {
+  const { growCoral } = await import("../.test-build/livemap/ocean/coral.js");
+  const memories = Array.from({ length: 1200 }, (_, i) => { const a = i * 2.39996, r = 8 + Math.sqrt(i) * 6; return { id: `m${i}`, x: Math.cos(a) * r, y: Math.sin(a) * r }; });
+  const t0 = performance.now();
+  const coral = growCoral({ x: 0, y: 0 }, memories);
+  const ms = performance.now() - t0;
+  assert.equal(coral.tips.size, 1200);
+  assert.ok(ms < 1500, `took ${ms.toFixed(0)} ms`);
 });

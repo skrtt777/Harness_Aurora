@@ -189,3 +189,16 @@ vivo (`frontend/src/livemap/LiveMapScene.tsx` + `frontend/src/livemap/ocean/`).
   nunca sai do mar e abre caminho para a mão, as memórias dobradas voltam ao lugar.
 - **Auto foco**: só pausa quando a pessoa **move** a câmera (arrastar, zoom) — um toque na água não pausa.
 - Tudo continua vindo de dados e eventos reais; com "pausar" ou movimento reduzido, o mar fica parado.
+
+### Recifes de coral no lugar das células (21/10)
+
+- **Cada seção é uma colônia de coral** (`frontend/src/livemap/ocean/coral.ts`): cresce da base até **cada
+  memória** por colonização de espaço (o algoritmo que gera árvores e corais), e cada memória é um **pólipo**
+  na ponta do próprio galho. A forma é o dado: os galhos se dividem onde as memórias se separam e engrossam
+  onde muitas dependem deles. Determinístico; uma seção de 1200 memórias cresce em menos de 1,5 s.
+- **Vivo na água**: o coral balança na correnteza, curva-se sob a mão da pessoa e sob a água-viva, ondula
+  quando uma onda passa; os pólipos se recolhem quando a mão chega perto. A fórmula (`reefDisplace`) é a
+  mesma no shader e na posição dos pólipos, então eles ficam exatamente nas pontas.
+- **Branqueamento**: uma seção que a Zeladora ainda não cuidou na ronda fica **branqueada** (pálida); a cor
+  volta devagar conforme ela lê. Na primeira abertura, o recife **cresce**, colônia por colônia.
+- Os laços entre memórias ficam quase invisíveis em repouso (o coral é a estrutura) e aparecem quando vibram.

@@ -4,8 +4,7 @@
 //   - her tentacles are ropes (Verlet): they trail behind as she swims, sway in the water, and one can reach
 //     out to a memory, its tip pulled to it;
 //   - the plankton drifts in a slow current, pushed away by the person's hand (the cursor), by the jellyfish
-//     and by a ripple when the person taps the water;
-//   - memories bend away from the hand and spring back.
+//     and by a ripple when the person taps the water (the reef itself moves in coral.ts).
 export type V2 = { x: number; y: number };
 
 // ---------------------------------------------------------------- the jellyfish's swim
@@ -133,23 +132,4 @@ export function rippleRing(r: Ripple, now: number): Pusher | null {
   const age = (now - r.at) / 1000;
   if (age < 0 || age > 2) return null;
   return { x: r.x, y: r.y, r: 10 + age * 90, s: (1 - age / 2) * 0.9 };
-}
-
-/**
- * Memories bend away from the hand and spring back (an offset per memory, with velocity). `ox/oy` and
- * `vx/vy` are per memory; `base` gives each memory's resting position.
- */
-export function stepBend(ox: Float32Array, oy: Float32Array, vx: Float32Array, vy: Float32Array, base: (i: number) => V2, dt: number, pushers: Pusher[]) {
-  for (let i = 0; i < ox.length; i += 1) {
-    let fx = -ox[i] * 22 - vx[i] * 6.5, fy = -oy[i] * 22 - vy[i] * 6.5;
-    if (pushers.length) {
-      const b = base(i); const x = b.x + ox[i], y = b.y + oy[i];
-      for (const p of pushers) {
-        const dx = x - p.x, dy = y - p.y; const d2 = dx * dx + dy * dy;
-        if (d2 < p.r * p.r && d2 > 0.0001) { const d = Math.sqrt(d2); const k = (1 - d / p.r) * p.s * 260; fx += (dx / d) * k; fy += (dy / d) * k; }
-      }
-    }
-    vx[i] += fx * dt; vy[i] += fy * dt;
-    ox[i] += vx[i] * dt; oy[i] += vy[i] * dt;
-  }
 }

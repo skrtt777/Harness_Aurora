@@ -7,19 +7,22 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
 import { hash01, type Layout, type Vec3 } from "./layout";
 import { curvePoint, Writer } from "./ocean/draw";
-import { newRope, newSwim, rippleRing, stepBend, stepPlankton, stepRope, stepSwim, type Pusher, type Ripple, type Rope } from "./ocean/physics";
-import { bellMaterial, dynamicGeometry, lineMaterial, MEMBRANE_POINTS, membraneMaterial, pointMaterial, seaMaterial } from "./ocean/shaders";
+import { newRope, newSwim, rippleRing, stepPlankton, stepRope, stepSwim, type Pusher, type Ripple, type Rope } from "./ocean/physics";
+import { growCoral, REEF, reefDisplace, type Coral } from "./ocean/coral";
+import { bellMaterial, coralGeometry, coralMaterial, dynamicGeometry, lineMaterial, pointMaterial, seaMaterial } from "./ocean/shaders";
 
 /**
  * Memórias / Mapa Vivo — the living sea. The Aurora's memory as a bioluminescent ecosystem:
- *   - each section (one thought) is a living CELL: a membrane that breathes, dents under the person's hand and
- *     bulges when a ripple passes; it glows brighter as the Zeladora reads it;
- *   - each memory is an ORGANELLE drifting inside its cell; the links are SYNAPSES, and a touched memory sends
- *     impulses along them to its neighbours (two hops);
+ *   - each section (one thought) is a CORAL colony that grows from its base to every memory of it — the shape
+ *     is the data (branches split where memories part ways, thicken where many hang from them); it sways in
+ *     the current, bends away from the person's hand and the jellyfish, ripples when a wave passes; a section
+ *     the Zeladora has not tended yet is BLEACHED, and its colour comes back as she does;
+ *   - each memory is a POLYP at the tip of its own branch (it shrinks back when the hand comes near); the links
+ *     are filaments, and a touched memory sends impulses along them to its neighbours (two hops);
  *   - the Zeladora is a JELLYFISH (água-viva — living water): she swims by pulses of her bell to the memory she
  *     reads, her tentacles trailing; one reaches each memory she reads and its light flows back to her;
  *   - a question to the Aurora is an ELECTRIC IMPULSE that jumps from memory to memory across the cells;
- *   - the person's cursor is a current in the water (plankton parts, memories bend, membranes dent); a tap on
+ *   - the person's cursor is a current in the water (plankton parts, the coral bends, polyps shrink back); a tap on
  *     the water sends a ripple.
  * Nothing is invented: every light, impulse and movement of a memory comes from a real memory or a real event.
  */
@@ -76,7 +79,7 @@ const MAGENTA = color("#f05a8c");
 const GREY = color("#7b8794");
 
 /** What every part of the sea shares: the hand, the ripples, where the jellyfish is, the clock. */
-type World = { hand: { x: number; y: number; s: number }; ripples: Ripple[]; jelly: { x: number; y: number; r: number }; t: number; motion: boolean };
+type World = { hand: { x: number; y: number; s: number }; ripples: Ripple[]; jelly: { x: number; y: number; r: number }; t: number; motion: boolean; ring: { x: number; y: number; r: number; s: number } | null };
 const pushersOf = (w: World, now: number, withJelly = true): Pusher[] => {
   const out: Pusher[] = [];
   if (w.hand.s > 0.02) out.push({ x: w.hand.x, y: w.hand.y, r: 26, s: w.hand.s });
@@ -91,7 +94,7 @@ function Scene(props: SceneProps) {
   const index = useMemo(() => new Map(nodes.map((n, i) => [n.id, i])), [nodes]);
   const clusterOf = useMemo(() => new Map(graph.clusters.map((c) => [c.id, c])), [graph.clusters]);
   const motion = !settings.paused && !settings.reducedMotion;
-  const world = useRef<World>({ hand: { x: 0, y: 0, s: 0 }, ripples: [], jelly: { x: 0, y: 0, r: 0 }, t: 0, motion });
+  const world = useRef<World>({ hand: { x: 0, y: 0, s: 0 }, ripples: [], jelly: { x: 0, y: 0, r: 0 }, t: 0, motion, ring: null });
   world.current.motion = motion;
 
   // ---------- where each memory is: eased to its place, drifting inside its cell, bent by the hand ----------
@@ -112,15 +115,30 @@ function Scene(props: SceneProps) {
     for (const id of [...current.current.keys()]) if (!index.has(id)) { current.current.delete(id); born.current.delete(id); }
     firstLoad.current = false;
   }, [nodes, layout, index, settings.reducedMotion]);
-  const bend = useMemo(() => ({ ox: new Float32Array(nodes.length), oy: new Float32Array(nodes.length), vx: new Float32Array(nodes.length), vy: new Float32Array(nodes.length) }), [nodes.length]);
+  // One coral colony per section, grown from its base to each of its memories (ocean/coral.ts).
+  const corals = useMemo(() => {
+    const out = new Map<string, Coral>();
+    for (const c of graph.clusters) {
+      const box = layout.clusters.get(c.id); if (!box) continue;
+      const memories = c.nodeIds.map((id) => { const p = layout.nodes.get(id); return p ? { id, x: p[0], y: p[1] } : null; }).filter(Boolean) as { id: string; x: number; y: number }[];
+      if (memories.length) out.set(c.id, growCoral({ x: box.center[0], y: box.center[1] }, memories, { seed: c.id }));
+    }
+    return out;
+  }, [graph.clusters, layout]);
+  const polyp = useMemo(() => {
+    const m = new Map<string, { depth: number; phase: number }>();
+    for (const coral of corals.values()) for (const [id, t] of coral.tips) m.set(id, { depth: coral.depth[t], phase: coral.phase[t] });
+    return m;
+  }, [corals]);
+  // A memory is a polyp at the tip of its branch: it moves exactly as the coral's shader moves that tip.
   const pos = (id: string): Vec3 => {
-    const v = current.current.get(id); const i = index.get(id);
+    const v = current.current.get(id);
     if (!v) return layout.nodes.get(id) || [0, 0, 0];
-    const t = world.current.t;
-    // Organelles drift a little inside their cell, each at its own pace.
-    const dx = motion ? Math.sin(t * 0.31 + hash01(id) * 6.28) * 1.5 : 0;
-    const dy = motion ? Math.cos(t * 0.27 + hash01(id, 5) * 6.28) * 1.5 : 0;
-    return [v.x + dx + (i !== undefined ? bend.ox[i] : 0), v.y + dy + (i !== undefined ? bend.oy[i] : 0), v.z];
+    if (!motion) return [v.x, v.y, v.z];
+    const tip = polyp.get(id) || { depth: 1, phase: hash01(id) };
+    const w = world.current;
+    const [dx, dy] = reefDisplace(v.x, v.y, tip.depth, tip.phase, { t: w.t, hand: w.hand, jelly: w.jelly, ripple: w.ring });
+    return [v.x + dx, v.y + dy, v.z];
   };
   const has = (id: string) => index.has(id);
   const hubOf = (id: string): Vec3 => layout.clusters.get(nodes[index.get(id) ?? -1]?.clusterId)?.center || layout.core;
@@ -177,6 +195,9 @@ function Scene(props: SceneProps) {
     w.t = t;
     w.hand.s *= Math.exp(-dt * 1.4); // the hand's current fades when it stops moving
     w.ripples = w.ripples.filter((r) => now - r.at < 2200);
+    const last = w.ripples.length ? w.ripples[w.ripples.length - 1] : null;
+    const ring = last ? rippleRing(last, now) : null;
+    w.ring = last && ring ? { x: last.x, y: last.y, r: ring.r, s: ring.s } : null;
     const ease = settings.reducedMotion ? 1 : 1 - Math.pow(0.0025, dt);
 
     // ---- the person's own memory keeps sending impulses; impulses hop to the neighbours ----
@@ -193,9 +214,6 @@ function Scene(props: SceneProps) {
         if (tch.hop < 2) for (const other of (neighbours.get(id) || []).slice(0, 8)) touch(other, tch.s * 0.55, tch.hop + 1, tch.at + SIGNAL_MS);
       }
     }
-
-    // ---- memories bend away from the hand, the jellyfish and the ripples, then spring back ----
-    if (motion) stepBend(bend.ox, bend.oy, bend.vx, bend.vy, (i) => { const v = current.current.get(nodes[i]?.id); return v ? { x: v.x, y: v.y } : { x: 0, y: 0 }; }, dt, pushersOf(w, now));
 
     // ---- organelles ----
     const dim = selectedId || hoveredId ? 0.4 : 1;
@@ -218,8 +236,11 @@ function Scene(props: SceneProps) {
       const away = (focusClusterId && n.clusterId !== focusClusterId && !isFocus && !active) || unread;
       // A living light: each organelle breathes at its own pace.
       const breath = motion ? 1 + Math.sin(t * (0.9 + hash01(n.id, 7) * 0.8) + hash01(n.id) * 6.28) * 0.12 : 1;
-      const base = (1.7 + n.relevance * 2.6 + (n.id === selectedId ? 4 : n.id === hoveredId ? 2.5 : 0) + active * 3 + shake * 2.2) * breath;
-      ns.setX(i, base * grow);
+      // A polyp shrinks back into its branch when the hand comes near (and opens again).
+      const near = w.hand.s > 0.02 ? Math.max(0, 1 - Math.hypot(x - w.hand.x, y - w.hand.y) / REEF.handR) * Math.min(1, w.hand.s * 2) : 0;
+      const shy = 1 - near * 0.6;
+      const base = (2.6 + n.relevance * 2.6 + (n.id === selectedId ? 4 : n.id === hoveredId ? 2.5 : 0) + active * 3 + shake * 2.2) * breath;
+      ns.setX(i, base * grow * shy);
       na.setX(i, Math.min(1, (0.6 + n.relevance * 0.35 + active + shake * 0.6) * (isFocus || active ? 1 : dim) * (away ? 0.32 : 1)));
       c3.set(CATEGORY_COLOR[n.category]).lerp(WHITE, away ? 0.2 : 0.4);
       if (away) c3.lerp(GREY, 0.6);
@@ -237,7 +258,7 @@ function Scene(props: SceneProps) {
       const shake = motion ? Math.max(amp(e.from, now), amp(e.to, now)) : 0;
       if (e.cross && !lit && shake < 0.08) continue;
       const a = pos(e.from); const b = pos(e.to);
-      const alpha = Math.min(0.95, (lit ? 0.7 : (e.kind === "relacao" ? 0.14 : 0.022 + (e.weight - 0.5) * 0.09) * dim) + shake * 0.8);
+      const alpha = Math.min(0.95, (lit ? 0.7 : (e.kind === "relacao" ? 0.07 : 0.008) * dim) + shake * 0.8);
       const fromNode = nodes[index.get(e.from) ?? -1];
       c3.set(fromNode ? CATEGORY_COLOR[fromNode.category] : "#8a93a3").lerp(TEAL, e.kind === "relacao" ? 0.45 : 0.2);
       if (shake > 0) c3.lerp(GLOW, Math.min(1, shake * 1.2));
@@ -315,7 +336,7 @@ function Scene(props: SceneProps) {
     <>
       <Sea world={world} onMove={onWaterMove} onClick={onWaterClick} onLeave={() => { world.current.hand.s = 0; }} />
       <Plankton world={world} layout={layout} quality={settings.quality} />
-      <Membranes graph={graph} layout={layout} pos={pos} amp={amp} world={world} sections={props.sections} keeper={props.keeper} focusClusterId={focusClusterId} readSet={props.readSet} onCluster={onCluster} />
+      <Reefs graph={graph} layout={layout} corals={corals} amp={amp} world={world} sections={props.sections} keeper={props.keeper} focusClusterId={focusClusterId} readSet={props.readSet} onCluster={onCluster} />
       <lineSegments geometry={bridgeGeo} material={materials.bridges} frustumCulled={false} />
       <lineSegments geometry={edgeGeo} material={materials.edges} frustumCulled={false} />
       <points
@@ -388,72 +409,63 @@ function Plankton({ world, layout, quality }: { world: React.MutableRefObject<Wo
   return <points geometry={geo} material={material} frustumCulled={false} />;
 }
 
-// ================================================================== the cells
+// ================================================================== the reef
 /**
- * One membrane per section: a metaball field around its memories (an envelope of the outermost ones plus the
- * most proven inside), breathing; it dims while the Zeladora has not reached it in her round, glows as she
- * reads it, flashes when its memories are touched, dents under the hand and the jellyfish, bulges with ripples.
- * A double click inside focuses the section.
+ * One coral colony per section (ocean/coral.ts + the coral shader). It grows out from its base the first time
+ * it appears; it sways, bends and ripples in the water; it is bleached while the Zeladora has not tended it in
+ * her round, and its colour comes back gradually as she reads it; it flashes when its memories are touched.
+ * A double click on it focuses the section.
  */
-type Cell = { cluster: GraphCluster; box: { center: Vec3; radius: number }; members: string[]; size: number; material: THREE.ShaderMaterial; seed: number };
-function Membranes({ graph, layout, pos, amp, world, sections, keeper, focusClusterId, readSet, onCluster }: {
-  graph: MemoryGraph; layout: Layout; pos: (id: string) => Vec3; amp: (id: string, now: number) => number; world: React.MutableRefObject<World>;
+type Colony = { cluster: GraphCluster; center: Vec3; radius: number; geometry: THREE.BufferGeometry; material: THREE.ShaderMaterial; bleach: number; born: number };
+function Reefs({ graph, layout, corals, amp, world, sections, keeper, focusClusterId, readSet, onCluster }: {
+  graph: MemoryGraph; layout: Layout; corals: Map<string, Coral>; amp: (id: string, now: number) => number; world: React.MutableRefObject<World>;
   sections: Map<string, SectionState>; keeper: KeeperView | null; focusClusterId: string | null; readSet: Set<string> | null; onCluster: (id: string, double: boolean) => void;
 }) {
-  const cells = useMemo(() => {
-    const relevance = new Map(graph.nodes.map((n) => [n.id, n.relevance]));
-    const out: Cell[] = [];
-    for (const c of graph.clusters) {
-      const box = layout.clusters.get(c.id);
-      if (!box || !c.nodeIds.length) continue;
-      // The envelope: the farthest memory in each of 28 directions, then the most relevant others.
-      const byDir = new Map<number, { id: string; d: number }>();
-      for (const id of c.nodeIds) {
-        const p = layout.nodes.get(id); if (!p) continue;
-        const dx = p[0] - box.center[0], dy = p[1] - box.center[1];
-        const k = Math.floor(((Math.atan2(dy, dx) + Math.PI) / (Math.PI * 2)) * 28) % 28;
-        const d = Math.hypot(dx, dy);
-        if (!byDir.has(k) || byDir.get(k)!.d < d) byDir.set(k, { id, d });
-      }
-      const chosen = new Set([...byDir.values()].map((x) => x.id));
-      for (const id of [...c.nodeIds].sort((a, b) => (relevance.get(b) || 0) - (relevance.get(a) || 0))) { if (chosen.size >= MEMBRANE_POINTS) break; chosen.add(id); }
-      out.push({ cluster: c, box, members: [...chosen], size: box.radius * 2 + 90, material: membraneMaterial(), seed: hash01(c.id) });
-    }
+  const seen = useRef(new Set<string>());
+  const firstLoad = useRef(true);
+  const colonies = useMemo(() => {
+    const now = performance.now();
+    const out: Colony[] = [];
+    graph.clusters.forEach((c, i) => {
+      const coral = corals.get(c.id); const box = layout.clusters.get(c.id);
+      if (!coral || !box) return;
+      const isNew = !seen.current.has(c.id);
+      seen.current.add(c.id);
+      out.push({ cluster: c, center: box.center, radius: box.radius, geometry: coralGeometry(coral), material: coralMaterial(), bleach: 0,
+        // The first time: the reef grows, colony after colony; later ones grow when they appear.
+        born: isNew ? now + (firstLoad.current ? i * 220 : 0) : -Infinity });
+    });
+    firstLoad.current = false;
     return out;
-  }, [graph, layout]);
-  useEffect(() => () => { cells.forEach((c) => c.material.dispose()); }, [cells]);
-  useFrame(() => {
+  }, [graph.clusters, corals, layout]);
+  useEffect(() => () => { colonies.forEach((c) => { c.geometry.dispose(); c.material.dispose(); }); }, [colonies]);
+  useFrame((_, rawDelta) => {
     const w = world.current; const now = performance.now();
-    const ripple = w.ripples.length ? w.ripples[w.ripples.length - 1] : null;
-    const ring = ripple ? rippleRing(ripple, now) : null;
-    const walking = Boolean(keeper?.enabled && keeper.phase === "andando" && readSet);
-    for (const cell of cells) {
-      const u = cell.material.uniforms;
-      const pts = u.uPts.value as THREE.Vector4[];
-      const r = Math.max(9, Math.min(26, cell.box.radius * 0.32));
-      let pulse = 0;
-      cell.members.forEach((id, i) => { const p = pos(id); pts[i].set(p[0], p[1], r * (0.85 + hash01(id) * 0.3), 0); pulse = Math.max(pulse, amp(id, now)); });
-      u.uCount.value = cell.members.length;
-      (u.uColor.value as THREE.Color).set(CATEGORY_COLOR[cell.cluster.category]);
+    const walking = Boolean(keeper?.enabled && keeper.running && keeper.phase === "andando" && readSet);
+    for (const col of colonies) {
+      const u = col.material.uniforms;
       u.uTime.value = w.motion ? w.t : 0;
-      u.uSeed.value = cell.seed;
-      const sec = sections.get(cell.cluster.id);
-      u.uQueued.value = walking && sec?.state === "na fila" ? 1 : 0;
-      u.uFill.value = sec ? (sec.total ? sec.read / sec.total : 0) * (sec.state === "lendo" ? 1.4 : 0.8) : 0.5;
-      u.uAlpha.value = focusClusterId && focusClusterId !== cell.cluster.id ? 0.4 : sec?.state === "lendo" ? 1.25 : 1;
-      u.uPulse.value = Math.min(1, pulse);
-      (u.uHand.value as THREE.Vector3).set(w.hand.x, w.hand.y, w.hand.s);
-      (u.uJelly.value as THREE.Vector3).set(w.jelly.x, w.jelly.y, w.jelly.r);
-      (u.uRipple.value as THREE.Vector4).set(ripple?.x || 0, ripple?.y || 0, ring?.r || 0, ring?.s || 0);
+      (u.uHand.value as THREE.Vector3).set(w.hand.x, w.hand.y, w.motion ? w.hand.s : 0);
+      (u.uJelly.value as THREE.Vector3).set(w.jelly.x, w.jelly.y, w.motion ? w.jelly.r : 0);
+      (u.uRipple.value as THREE.Vector4).set(w.ring?.x || 0, w.ring?.y || 0, w.ring?.r || 0, w.motion ? w.ring?.s || 0 : 0);
+      u.uGrow.value = w.motion ? Math.max(0, Math.min(1.2, (now - col.born) / 2600)) : 1.2;
+      (u.uColor.value as THREE.Color).set(CATEGORY_COLOR[col.cluster.category]);
+      // Bleached while she has not tended it; the colour comes back slowly as she reads it.
+      const sec = sections.get(col.cluster.id);
+      const target = walking && sec ? (sec.state === "na fila" ? 1 : sec.state === "lendo" ? 1 - (sec.total ? sec.read / sec.total : 0) : 0) : 0;
+      col.bleach += (target - col.bleach) * Math.min(1, rawDelta * 1.5);
+      u.uBleach.value = col.bleach;
+      let pulse = 0;
+      for (const id of col.cluster.nodeIds) { const a = amp(id, now); if (a > pulse) pulse = a; }
+      u.uPulse.value = Math.min(1, pulse) * 0.6;
+      u.uAlpha.value = focusClusterId && focusClusterId !== col.cluster.id ? 0.35 : sec?.state === "lendo" ? 1.2 : 1;
     }
   });
   return (
     <>
-      {cells.map((cell) => (
-        <mesh key={cell.cluster.id} position={[cell.box.center[0], cell.box.center[1], -1.5]} material={cell.material} renderOrder={-5}
-          onDoubleClick={(e) => { const dx = e.point.x - cell.box.center[0], dy = e.point.y - cell.box.center[1]; if (Math.hypot(dx, dy) < cell.box.radius * 1.1) { e.stopPropagation(); onCluster(cell.cluster.id, true); } }}>
-          <planeGeometry args={[cell.size, cell.size]} />
-        </mesh>
+      {colonies.map((col) => (
+        <mesh key={col.cluster.id} geometry={col.geometry} material={col.material} frustumCulled={false} renderOrder={-5}
+          onDoubleClick={(e) => { if (Math.hypot(e.point.x - col.center[0], e.point.y - col.center[1]) < col.radius * 1.2) { e.stopPropagation(); onCluster(col.cluster.id, true); } }} />
       ))}
     </>
   );
@@ -465,7 +477,7 @@ function Membranes({ graph, layout, pos, amp, world, sections, keeper, focusClus
  * memory she reads; a fringe of fine tentacles waves at her margin; four oral arms trail behind her; her long
  * tentacles (Verlet ropes) trail in the water — and one reaches each memory she has just read: the memory
  * ripples and its light flows back up the tentacle to her. Linking, compacting and flagging make her bell
- * flash; her speech bubble says what she is doing. Her body pushes the water: plankton parts, membranes dent.
+ * flash; her speech bubble says what she is doing. Her body pushes the water: plankton parts, the coral bends.
  */
 const TENTACLES = 22;
 const ARMS = 4;

@@ -1,7 +1,12 @@
-// The living sea's shaders: the deep water with moving caustics, the cells' membranes (metaballs that breathe,
-// dent under the hand and bulge with a ripple), the jellyfish's bell seen from above (a moon jelly: scalloped
+// The living sea's shaders: the deep water with moving caustics, the coral colonies (ribbons that sway, bend
+// under the hand and ripple), the jellyfish's bell seen from above (a moon jelly: scalloped
 // margin, radial canals, four horseshoe gonads), the memories as glowing organelles, the strands.
 import * as THREE from "three";
+import { REEF } from "./coral";
+
+// The reef's constants as GLSL floats (the same numbers as coral.ts/reefDisplace).
+const f = (n: number) => (Number.isInteger(n) ? `${n}.0` : `${n}`);
+const REEF_GLSL = { sway: f(REEF.sway), handR: f(REEF.handR), handPush: f(REEF.handPush), rippleWidth: f(REEF.rippleWidth), ripplePush: f(REEF.ripplePush) };
 
 const NOISE = /* glsl */ `
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -35,50 +40,6 @@ export function seaMaterial() {
       }`,
     uniforms: { uTime: { value: 0 }, uHand: { value: new THREE.Vector3() } },
     depthWrite: false,
-  });
-}
-
-// ---------------------------------------------------------------- a cell's membrane
-export const MEMBRANE_POINTS = 48;
-export function membraneMaterial() {
-  return new THREE.ShaderMaterial({
-    vertexShader: WORLD_VERTEX,
-    fragmentShader: /* glsl */ `
-      varying vec2 vW;
-      uniform vec4 uPts[${MEMBRANE_POINTS}]; uniform int uCount;
-      uniform vec3 uColor; uniform float uTime, uAlpha, uPulse, uFill, uSeed, uQueued;
-      uniform vec3 uHand; uniform vec3 uJelly; uniform vec4 uRipple;
-      ${NOISE}
-      void main() {
-        float f = 0.0;
-        for (int i = 0; i < ${MEMBRANE_POINTS}; i++) {
-          if (i >= uCount) break;
-          vec2 d = vW - uPts[i].xy; float r = uPts[i].z;
-          f += exp(-dot(d, d) / (r * r));
-        }
-        // It breathes, and its edge is never a perfect curve.
-        f *= 1.0 + 0.07 * sin(uTime * 0.8 + uSeed * 6.28) + 0.22 * (noise(vW * 0.035 + vec2(uTime * 0.12, uSeed * 9.0)) - 0.5);
-        // The hand dents it, the jellyfish pushes through it, a ripple makes it bulge as it passes.
-        vec2 h = vW - uHand.xy; f -= uHand.z * 0.55 * exp(-dot(h, h) / 260.0);
-        vec2 j = vW - uJelly.xy; f -= 0.35 * exp(-dot(j, j) / max(1.0, uJelly.z * uJelly.z));
-        float rr = abs(length(vW - uRipple.xy) - uRipple.z); f += uRipple.w * 0.35 * exp(-rr * rr / 60.0);
-        float edge = f - 0.42;
-        float rim = exp(-abs(edge) * 30.0);
-        float halo = exp(-abs(edge) * 7.0) * 0.30;
-        float inside = smoothstep(0.0, 0.35, edge);
-        float cyto = fbm(vW * 0.045 + vec2(uTime * 0.025, -uTime * 0.018) + uSeed * 4.0);
-        vec3 color = mix(uColor, vec3(0.55, 0.62, 0.70), uQueued * 0.75);
-        vec3 col = color * (rim * 1.25 + halo) + color * inside * (0.22 + cyto * 0.45 + uFill * 0.25) + vec3(0.7, 1.0, 0.95) * uPulse * (rim * 0.8 + inside * 0.18);
-        float alpha = (rim * 0.85 + halo * 0.55 + inside * (0.05 + cyto * 0.07 + uFill * 0.04) + uPulse * (rim * 0.5 + inside * 0.1)) * uAlpha * (1.0 - uQueued * 0.55);
-        if (alpha < 0.003) discard;
-        gl_FragColor = vec4(col, alpha);
-      }`,
-    uniforms: {
-      uPts: { value: Array.from({ length: MEMBRANE_POINTS }, () => new THREE.Vector4()) }, uCount: { value: 0 },
-      uColor: { value: new THREE.Color() }, uTime: { value: 0 }, uAlpha: { value: 1 }, uPulse: { value: 0 }, uFill: { value: 0 }, uSeed: { value: 0 }, uQueued: { value: 0 },
-      uHand: { value: new THREE.Vector3() }, uJelly: { value: new THREE.Vector3() }, uRipple: { value: new THREE.Vector4() },
-    },
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
 }
 
@@ -150,4 +111,87 @@ export function dynamicGeometry(count: number, withSize: boolean) {
   g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
   if (withSize) g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(count), 1));
   return g;
+}
+
+// ---------------------------------------------------------------- a coral colony (one section)
+/**
+ * The branches of a coral as ribbons (WebGL lines are one pixel wide): each segment a quad as wide as the
+ * memories it carries. The vertex shader moves the reef in the water with the same formula as
+ * coral.ts/reefDisplace (sway, hand, jellyfish, ripple), so the polyps (drawn as points) stay on the tips.
+ * uBleach turns the colony pale (a section the Zeladora has not tended yet); its colour comes back as she does.
+ */
+export function coralGeometry(coral: { x: Float32Array; y: Float32Array; parent: Int32Array; depth: Float32Array; width: Float32Array; phase: Float32Array; count: number; tips: Map<string, number> }) {
+  const segs = coral.count - 1;
+  const pos = new Float32Array(segs * 4 * 3), dir = new Float32Array(segs * 4 * 2), side = new Float32Array(segs * 4), width = new Float32Array(segs * 4), depth = new Float32Array(segs * 4), phase = new Float32Array(segs * 4), tip = new Float32Array(segs * 4);
+  const index: number[] = [];
+  const isTip = new Uint8Array(coral.count);
+  for (const t of coral.tips.values()) isTip[t] = 1;
+  let v = 0;
+  for (let i = 1; i < coral.count; i += 1) {
+    const p = coral.parent[i]; if (p < 0) continue;
+    let dx = coral.x[i] - coral.x[p], dy = coral.y[i] - coral.y[p]; const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    const ends = [p, p, i, i]; const sides = [-1, 1, -1, 1];
+    for (let k = 0; k < 4; k += 1) {
+      const n = ends[k];
+      pos.set([coral.x[n], coral.y[n], -1], (v + k) * 3); dir.set([dx, dy], (v + k) * 2);
+      side[v + k] = sides[k]; width[v + k] = coral.width[n] * (isTip[n] ? 0.6 : 1); depth[v + k] = coral.depth[n]; phase[v + k] = coral.phase[n]; tip[v + k] = isTip[n];
+    }
+    index.push(v, v + 1, v + 2, v + 2, v + 1, v + 3);
+    v += 4;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aDir", new THREE.BufferAttribute(dir, 2));
+  g.setAttribute("aSide", new THREE.BufferAttribute(side, 1));
+  g.setAttribute("aWidth", new THREE.BufferAttribute(width, 1));
+  g.setAttribute("aDepth", new THREE.BufferAttribute(depth, 1));
+  g.setAttribute("aPhase", new THREE.BufferAttribute(phase, 1));
+  g.setAttribute("aTip", new THREE.BufferAttribute(tip, 1));
+  g.setIndex(index);
+  return g;
+}
+export function coralMaterial() {
+  return new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      attribute vec2 aDir; attribute float aSide; attribute float aWidth; attribute float aDepth; attribute float aPhase; attribute float aTip;
+      uniform float uTime; uniform vec3 uHand; uniform vec3 uJelly; uniform vec4 uRipple; uniform float uGrow;
+      varying float vSide; varying float vDepth; varying float vTip;
+      vec2 push(vec2 p, vec2 at, float s, float r, float d2) {
+        vec2 h = p - at; float d = length(h);
+        if (d > 0.01 && d < r) { float k = s * pow(1.0 - d / r, 2.0) * ${REEF_GLSL.handPush} * d2; return h / d * k; }
+        return vec2(0.0);
+      }
+      void main() {
+        vec2 p = position.xy;
+        float d2 = aDepth * aDepth;
+        vec2 disp = vec2(sin(uTime * 0.8 + aPhase * 6.2831), cos(uTime * 0.7 + aPhase * 6.2831)) * d2 * ${REEF_GLSL.sway};
+        disp += push(p, uHand.xy, uHand.z, ${REEF_GLSL.handR}, d2);
+        if (uJelly.z > 0.0) disp += push(p, uJelly.xy, 0.8, uJelly.z * 2.2, d2);
+        if (uRipple.w > 0.0) { vec2 rv = p - uRipple.xy; float rd = max(length(rv), 0.0001); float ring = abs(rd - uRipple.z);
+          disp += rv / rd * uRipple.w * exp(-ring * ring / ${REEF_GLSL.rippleWidth}) * ${REEF_GLSL.ripplePush} * aDepth; }
+        // A new branch grows out from the base (uGrow 0 → 1 when the colony appears).
+        float shown = clamp((uGrow - aDepth * 0.85) * 6.0, 0.0, 1.0);
+        vec2 n = vec2(-aDir.y, aDir.x);
+        p += disp + n * aSide * aWidth * 0.5 * shown;
+        vSide = aSide; vDepth = aDepth; vTip = aTip * shown;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, position.z, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      varying float vSide; varying float vDepth; varying float vTip;
+      uniform vec3 uColor; uniform float uBleach, uAlpha, uPulse, uTime;
+      void main() {
+        float edge = 1.0 - abs(vSide);
+        float soft = smoothstep(0.0, 0.7, edge);
+        float core = smoothstep(0.6, 1.0, edge);
+        vec3 living = mix(uColor * 0.28, uColor * 1.05 + 0.12, smoothstep(0.0, 1.0, vDepth));
+        vec3 bleached = vec3(0.80, 0.84, 0.88) * (0.30 + 0.35 * vDepth);
+        vec3 col = mix(living, bleached, uBleach) + vec3(0.6, 1.0, 0.95) * uPulse * (0.3 + vDepth);
+        float alpha = soft * (0.42 + 0.45 * vDepth + core * 0.3 + vTip * 0.25) * uAlpha;
+        if (alpha < 0.004) discard;
+        gl_FragColor = vec4(col, alpha);
+      }`,
+    uniforms: { uTime: { value: 0 }, uHand: { value: new THREE.Vector3() }, uJelly: { value: new THREE.Vector3() }, uRipple: { value: new THREE.Vector4() }, uGrow: { value: 1 },
+      uColor: { value: new THREE.Color() }, uBleach: { value: 0 }, uAlpha: { value: 1 }, uPulse: { value: 0 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
 }
