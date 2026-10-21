@@ -158,3 +158,34 @@ funcionamento do cérebro** — uma pergunta no chat nunca espera por ela; ela c
   salto). Laços entre seções aparecem enquanto vibram. Em repouso, a teia respira (balanço leve de todos os fios).
 - Nada é inventado: todo toque vem de um evento real ou de você. Com "pausar" ou movimento reduzido a teia
   fica parada.
+
+## O mar vivo — o Mapa Vivo refeito do zero (21/10)
+
+A aranha e a teia deram lugar a um **ecossistema bioluminescente submerso**: a memória da Aurora como um mar
+vivo (`frontend/src/livemap/LiveMapScene.tsx` + `frontend/src/livemap/ocean/`).
+
+- **Células** — cada seção (um pensamento) é uma célula viva: uma membrana (metaballs em shader, a partir das
+  memórias da borda e das mais comprovadas) que **respira**, tem a borda irregular, **amassa sob a mão** da
+  pessoa e sob a água-viva, e **incha quando uma onda passa**. Fica cinza enquanto a Zeladora não chegou nela
+  na ronda, brilha mais enquanto ela lê e se enche de luz conforme é lida. Duplo clique foca a seção.
+- **Organelas** — cada memória flutua dentro da sua célula e respira no próprio ritmo; não lida na ronda,
+  fica apagada.
+- **Sinapses** — os laços: filamentos que balançam; uma memória tocada (lida, ligada, consultada, criada,
+  apontada) faz os dela vibrarem e manda impulsos de luz às vizinhas (dois saltos). Entre células, filamentos
+  longos agregados.
+- **A Zeladora é uma água-viva** ("água viva": um ambiente vivo) vista de cima, como uma água-viva-da-lua: sino
+  translúcido de borda recortada, canais radiais, quatro gônadas em ferradura. Nada por **pulsos** do sino
+  (contrai, empurra, desliza; bate mais rápido e forte quando o destino é longe), vira na direção em que vai;
+  franja de tentáculos finos, quatro braços orais rendados arrastando atrás, e 22 tentáculos longos (cordas
+  Verlet) que arrastam na água — **um alcança cada memória que ela lê**, a memória ondula e a luz dela volta
+  pelo tentáculo. O sino pisca ao ligar/compactar/marcar; o balão diz o que ela faz. O corpo dela empurra a água.
+- **Uma pergunta é um impulso elétrico** que salta de memória em memória (as consultadas, na ordem da busca),
+  crepitando de célula em célula; as candidatas avaliadas brilham fracas.
+- **A água responde à pessoa**: o cursor é uma correnteza — o plâncton (milhares de partículas numa corrente
+  lenta de redemoinhos) abre caminho, as memórias se dobram e voltam, as membranas amassam; um **toque na
+  água** solta uma onda que empurra tudo por onde passa. O fundo tem cáusticas de luz em movimento.
+- Física pura e testada em `ocean/physics.ts` (`frontend/test/ocean.test.mjs`): o nado chega e para (também
+  numa viagem longa, em menos de 4 s), o tentáculo mantém o tamanho, arrasta e alcança a memória, o plâncton
+  nunca sai do mar e abre caminho para a mão, as memórias dobradas voltam ao lugar.
+- **Auto foco**: só pausa quando a pessoa **move** a câmera (arrastar, zoom) — um toque na água não pausa.
+- Tudo continua vindo de dados e eventos reais; com "pausar" ou movimento reduzido, o mar fica parado.

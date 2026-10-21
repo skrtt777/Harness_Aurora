@@ -15,6 +15,6 @@
     "src/officeSim.ts",
     "src/livemap/adapter.ts",
     "src/livemap/layout.ts",
-    "src/livemap/legs.ts"
+    "src/livemap/ocean/physics.ts"
   ]
 }

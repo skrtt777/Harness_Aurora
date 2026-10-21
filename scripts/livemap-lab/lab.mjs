@@ -109,6 +109,17 @@ console.log("zeladora:", await page.locator(".lm-keeper").innerText().catch(() =
 // A quick sequence: her steps, tentacles and what she says, a third of a second apart.
 for (let k = 1; k <= 4; k += 1) { await page.waitForTimeout(330); await page.screenshot({ path: join(out, `11_anim_${k}.png`) }); }
 console.log("balão:", await page.locator(".lm-bubble").first().innerText().catch(() => "?"));
+// The hand in the water: the cursor sweeps across the map (a current), then taps the water (a ripple).
+{
+  const box = await page.locator(".livemap canvas").boundingBox();
+  if (box) {
+    for (let k = 0; k <= 24; k += 1) await page.mouse.move(box.x + box.width * (0.25 + k * 0.02), box.y + box.height * (0.45 + Math.sin(k / 4) * 0.08), { steps: 2 });
+    await page.screenshot({ path: join(out, "12_mao_na_agua.png") });
+    await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    await page.waitForTimeout(450);
+    await page.screenshot({ path: join(out, "13_onda.png") });
+  }
+}
 // The person calls her to another section (the ⌖ button of the 3rd section).
 await page.locator(".lm-call-mini").nth(2).click();
 await page.waitForTimeout(3500);

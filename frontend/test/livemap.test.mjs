@@ -205,26 +205,3 @@ test("layout: deterministic, the general memory at the core, clusters apart, a n
   }
 });
 
-test("the Zeladora's legs: feet stand on memories and follow her as she walks — never left far behind", async () => {
-  const { stepLegs, LEG_DEFAULTS } = await import("../.test-build/livemap/legs.js");
-  // A web of memories: one every 6 units.
-  const web = [];
-  for (let x = -40; x <= 340; x += 6) for (let y = -70; y <= 70; y += 6) web.push({ id: `${x}:${y}`, p: [x, y, 0] });
-  const nearest = (x, y, r, taken) => { let best = null, bd = r * r; for (const n of web) { if (taken.has(n.id)) continue; const d = (n.p[0] - x) ** 2 + (n.p[1] - y) ** 2; if (d < bd) { bd = d; best = n; } } return best; };
-  const legs = [];
-  let worst = 0;
-  for (let ms = 0; ms <= 4000; ms += 16) {
-    const x = Math.min(250, (ms / 3000) * 250); // walks 250 units in 3 s, then stands
-    const feet = stepLegs(legs, [x, 0, 0], 0, 100_000 + ms, nearest, undefined, [ms < 3000 ? 250 / 3 : 0, 0, 0]);
-    if (ms > 400) worst = Math.max(worst, ...feet.map((f) => Math.hypot(f[0] - x, f[1])));
-  }
-  assert.ok(worst < LEG_DEFAULTS.reach * 3, `a foot was left ${worst.toFixed(1)} units behind`);
-  // Standing still: every foot on a memory, two feet never on the same one, all around her.
-  const on = legs.map((l) => l.on);
-  assert.ok(on.every(Boolean), "every foot stands on a memory");
-  assert.equal(new Set(on).size, on.length, "one foot per memory");
-  for (const leg of legs) assert.ok(Math.hypot(leg.foot[0] - 250, leg.foot[1]) < LEG_DEFAULTS.reach * 1.6);
-  // A sudden jump (she appears elsewhere): the feet come back at once.
-  const feet = stepLegs(legs, [-30, 0, 0], 0, 200_000, nearest);
-  assert.ok(Math.max(...feet.map((f) => Math.hypot(f[0] + 30, f[1]))) < LEG_DEFAULTS.reach * 3);
-});
