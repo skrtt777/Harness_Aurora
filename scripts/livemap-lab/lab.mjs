@@ -94,8 +94,13 @@ await page.screenshot({ path: join(out, "01_visao_geral.png") });
 const fps = await page.evaluate(() => new Promise((resolve) => { let n = 0; const t0 = performance.now(); const tick = () => { n += 1; if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else resolve(Math.round(n / ((performance.now() - t0) / 1000))); }; requestAnimationFrame(tick); }));
 console.log(`quadros por segundo (headless): ${fps}`);
 
-// A cluster in focus (from the strip of indicators), then a memory selected from the "consultadas" path.
-await page.locator(".lm-bars li > button:first-child").nth(1).click();
+// The whole tree without the chat beside it.
+await page.locator(".lm-dock header button").last().click().catch(() => {});
+await page.waitForTimeout(800);
+await page.screenshot({ path: join(out, "01b_arvore_inteira.png") });
+await page.locator(".lm-dock-open").click().catch(() => {});
+// A section in focus (from the chart on top).
+await page.locator(".lm-chart-labels button").nth(1).click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: join(out, "02_agrupamento_em_foco.png") });
 
@@ -108,7 +113,6 @@ for (let k = 1; k <= 3; k += 1) {
 console.log("zeladora:", await page.locator(".lm-keeper").innerText().catch(() => "?"));
 // A quick sequence: her steps, tentacles and what she says, a third of a second apart.
 for (let k = 1; k <= 4; k += 1) { await page.waitForTimeout(330); await page.screenshot({ path: join(out, `11_anim_${k}.png`) }); }
-console.log("balão:", await page.locator(".lm-bubble").first().innerText().catch(() => "?"));
 // The hand in the water: the cursor sweeps across the map (a current), then taps the water (a ripple).
 {
   const box = await page.locator(".livemap canvas").boundingBox();
@@ -120,11 +124,12 @@ console.log("balão:", await page.locator(".lm-bubble").first().innerText().catc
     await page.screenshot({ path: join(out, "13_onda.png") });
   }
 }
-// The person calls her to another section (the ⌖ button of the 3rd section).
+// The person calls her to another section (the ⌖ button of the 3rd section, in the indicators).
+if (!(await page.locator(".lm-call-mini").count())) await page.locator(".lm-panel-toggle").click();
 await page.locator(".lm-call-mini").nth(2).click();
 await page.waitForTimeout(3500);
 await page.screenshot({ path: join(out, "10_chamado.png") });
-console.log("depois do chamado:", await page.locator(".lm-bubble").first().innerText().catch(() => "?"));
+console.log("depois do chamado:", await page.locator(".lm-keeper .lm-k-head").first().innerText().catch(() => "?"));
 
 // The brain working (not the Zeladora): a turn's events as the chat emits them, with memories of three
 // different sections — the map draws the path from one to the next.
@@ -134,6 +139,7 @@ console.log("depois do chamado:", await page.locator(".lm-bubble").first().inner
   emitMemoryEvent("turn-start", { conversationId: conv, message: "o que combinamos sobre comissão e férias?" });
   emitMemoryEvent("scanned", { conversationId: conv, candidates: [...picks, ids[5], ids[9], ids[13]].map((id, i) => ({ id, score: 3 - i * 0.3, similarity: 0.8 - i * 0.05 })) });
   await page.waitForTimeout(600);
+  await page.screenshot({ path: join(out, "09a_onda_de_busca.png") });
   emitMemoryEvent("recalled", { conversationId: conv, ids: picks });
   await page.waitForTimeout(2600);
   await page.screenshot({ path: join(out, "09_caminho_a_b.png") });

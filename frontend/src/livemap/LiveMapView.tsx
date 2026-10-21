@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, visitKeeper, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
 import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, sectionProgress, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
-import { layoutGraph } from "./layout";
-import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality } from "./LiveMapScene";
+import { layoutTree } from "./tree";
+import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality, RecallBush } from "./LiveMapScene";
 import type { Vec3 } from "./layout";
 import ChatDock from "./ChatDock";
 import "./livemap.css";
@@ -10,9 +10,10 @@ import "./livemap.css";
 const LiveMapScene = lazy(() => import("./LiveMapScene"));
 
 /**
- * Memórias / Mapa Vivo: the Aurora's memory as a navigable universe. Every point is a stored memory, every
- * line a real relation or a measured similarity, every pulse a real event (a memory recalled into a turn,
- * created, found by a search). No demo data: with nothing stored, the map says so.
+ * Memórias / Mapa Vivo: the Aurora's memory as a living search tree on an instrument panel. Every leaf is a
+ * stored memory, every branch a real grouping, every wave and glowing path a real event (a search, a memory
+ * used in an answer, the Zeladora at work); every number on the panel is counted from the memories and the live
+ * events. No demo data: with nothing stored, the map says so.
  */
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
 const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu", keeper: "zeladora" };
@@ -58,7 +59,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [merges, setMerges] = useState<Merge[]>([]);
   const lastPos = useRef(new Map<string, Vec3>());
   const [callNote, setCallNote] = useState("");
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem("aurora-livemap-panels") === "open"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem("aurora-livemap-panels", panelOpen ? "open" : "closed"); } catch { /* private mode */ } }, [panelOpen]);
   const [turn, setTurn] = useState<Turn | null>(null);
   const [keeper, setKeeper] = useState<KeeperView | null>(null);
   const keeperArea = useRef<string | null>(null);
@@ -86,7 +88,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   // ---------- Live events: incremental changes, pulses for what really happened ----------
   const snapRef = useRef(snap); snapRef.current = snap;
   const graphRef = useRef<ReturnType<typeof buildMemoryGraph> | null>(null);
-  const layoutRef = useRef<ReturnType<typeof layoutGraph> | null>(null);
+  const layoutRef = useRef<ReturnType<typeof layoutTree> | null>(null);
   useEffect(() => subscribeMemoryEvents((event) => {
     if (event.type === "hello") return;
     setEvents((old) => [event, ...old].slice(0, 80));
@@ -118,12 +120,12 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
       if (event.action === "read" && event.id && autoOk() && !(turnRef.current && !turnRef.current.ended)) {
         const p = layoutRef.current?.nodes.get(event.id);
         const last = keeperView.current;
-        const far = !last.target || (p && Math.hypot(p[0] - last.target[0], p[1] - last.target[1]) > 55);
+        const far = !last.target || (p && Math.hypot(p[0] - last.target[0], p[1] - last.target[1]) > (layoutRef.current?.tree.R || 400) * 0.18);
         if (p && (keeperArea.current !== event.area || (far && Date.now() - last.at > 2500))) {
-          const target: Vec3 = [p[0] + (dockOpenRef.current ? 28 : 0), p[1], p[2]];
+          const target: Vec3 = [p[0] + (dockOpenRef.current ? (layoutRef.current?.tree.R || 400) * 0.12 : 0), p[1], p[2]];
           keeperArea.current = event.area || null;
           keeperView.current = { target, at: Date.now() };
-          setCamera({ target, distance: 115, key: Date.now() });
+          setCamera({ target, distance: (layoutRef.current?.tree.R || 400) * 1.1, key: Date.now() });
         }
       }
     }
@@ -143,7 +145,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
       if (autoOk()) {
         const first = graphRef.current?.nodes.find((n) => event.ids!.includes(n.id));
         const box = first && layoutRef.current?.clusters.get(first.clusterId);
-        if (box && first) { setFocusClusterId(first.clusterId); setCamera({ target: box.center, distance: 120 + box.radius * 3, key: Date.now() }); }
+        if (box && first) { setFocusClusterId(first.clusterId); setCamera({ target: box.center, distance: Math.min((layoutRef.current?.tree.R || 400) * 1.45, 120 + box.radius * 3), key: Date.now() }); }
       }
     }
     if (event.type === "created" && event.id) setHighlights((old) => new Map(old).set(event.id!, { kind: "created", at: now }));
@@ -165,7 +167,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
   const graph = useMemo(() => (snap ? buildMemoryGraph(snap, { mode, filters }) : null), [snap, mode, filters]);
-  const layout = useMemo(() => (graph ? layoutGraph(graph, snap) : null), [graph, snap]);
+  const layout = useMemo(() => (graph ? layoutTree(graph, snap) : null), [graph, snap]);
+  const R = layout?.tree.R || 400;
   graphRef.current = graph; layoutRef.current = layout;
   if (layout) for (const [id, p] of layout.nodes) lastPos.current.set(id, p);
   const nodeById = useMemo(() => new Map((graph?.nodes || []).map((n) => [n.id, n])), [graph]);
@@ -197,8 +200,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     if (followed.current === key) return;
     followed.current = key;
     const spread = Math.max(40, ...agent.tentacles.map((t) => { const p = layout?.nodes.get(t.id); return p ? Math.hypot(p[0] - agent.target![0], p[1] - agent.target![1]) : 0; }));
-    setCamera({ target: agent.target, distance: Math.min(520, 60 + spread * 2.2), key: Date.now() });
-  }, [agent, activityMode, turn?.phase, layout]);
+    setCamera({ target: agent.target, distance: Math.min(R * 1.45, 60 + spread * 2.2), key: Date.now() });
+  }, [agent, activityMode, turn?.phase, layout, R]);
 
   // Search: results light up, the camera goes to the best one.
   const results = useMemo(() => (graph && query.trim() ? searchIds(graph, query) : []), [graph, query]);
@@ -212,16 +215,20 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const goTo = useCallback((id: string) => {
     const p = layout?.nodes.get(id); if (!p) return;
     setSelectedId(id); setFocusClusterId(nodeById.get(id)?.clusterId || null);
-    setCamera({ target: p, distance: 70, key: Date.now() });
-  }, [layout, nodeById]);
+    setCamera({ target: p, distance: R * 0.32, key: Date.now() });
+  }, [layout, nodeById, R]);
   const fit = useCallback(() => {
     if (!layout) return;
-    const far = Math.max(60, ...[...layout.clusters.values()].map((c) => Math.hypot(c.center[0], c.center[1]) + c.radius));
-    setFocusClusterId(null); setCamera({ target: [0, 0, 0], distance: far * 2.1, key: Date.now() });
+    // With the chat open beside the map, the tree moves left and a little back so none of it hides behind it.
+    const R = layout.tree.R, dock = dockOpenRef.current;
+    setFocusClusterId(null); setCamera({ target: [dock ? R * 0.3 : 0, R * 0.56, 0], distance: R * (dock ? 1.72 : 1.56), key: Date.now() });
   }, [layout]);
+  // The first time the map has a tree: the whole of it in view.
+  const fitted = useRef(false);
+  useEffect(() => { if (layout && !fitted.current) { fitted.current = true; fit(); } }, [layout, fit]);
   const focusCluster = useCallback((id: string, double: boolean) => {
     const box = layout?.clusters.get(id); if (!box) return;
-    if (double) { setFocusClusterId(id); setCamera({ target: box.center, distance: 50 + box.radius * 2.1, key: Date.now() }); return; }
+    if (double) { setFocusClusterId(id); setCamera({ target: box.center, distance: Math.min(layout!.tree.R * 1.45, 60 + box.radius * 2.6), key: Date.now() }); return; }
     setExpanded((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     setFocusClusterId(id);
   }, [layout]);
@@ -258,6 +265,11 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const focusIndex = focused && graph ? graph.clusters.indexOf(focused) + 1 : 0;
   const recallNodes = (lastRecall?.ids || snap?.recalls?.[0]?.used || []).map((id) => nodeById.get(id)).filter(Boolean);
   const recentRate = events.filter((e) => Date.now() - Date.parse(e.at) < 10 * 60_000).length;
+  const bushes = useMemo<RecallBush[]>(() => {
+    const stored = (snap?.recalls || []).map((r) => ({ id: r.id, at: r.at, prompt: r.prompt, used: r.used }));
+    const live = lastRecall && !stored.some((r) => Math.abs(Date.parse(r.at) - Date.parse(lastRecall.at)) < 5000) ? [{ id: `live:${lastRecall.at}`, at: lastRecall.at, prompt: turn?.message || "pergunta agora", used: lastRecall.ids }] : [];
+    return [...live, ...stored].filter((r) => r.used.length);
+  }, [snap?.recalls, lastRecall, turn?.message]);
 
   if (error && !snap) return <section className="livemap"><div className="lm-state"><h2>Mapa Vivo indisponível</h2><p>{error}</p><button className="lm-btn" onClick={() => void load()}>Tentar de novo</button></div></section>;
   if (!snap || !graph || !layout) return <section className="livemap"><div className="lm-state"><p>Carregando as memórias…</p></div></section>;
@@ -265,32 +277,27 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   return (
     <section className="livemap" aria-label="Mapa Vivo de Memórias">
       <header className="lm-top">
-        <div className="lm-metrics" aria-label="Indicadores">
-          <span>memórias <b>{graph.stats.memories}</b></span>
-          <span>conexões <b className="teal">{graph.stats.edges}</b></span>
-          <span>agrupamentos <b>{graph.stats.clusters}</b></span>
-          <span>consultadas <b className="pink">{lastRecall?.ids.length ?? 0}</b></span>
-          {keeper?.enabled && <>
-            <span>lidas <b className="teal">{keeper.readIds.length}/{graph.stats.memories}</b></span>
-            <span>ligações <b>{keeper.stats.linked}</b></span>
-            <span>compactadas <b>{keeper.stats.compacted + keeper.stats.joined}</b></span>
-            <span>marcas <b className="yellow">{keeper.flags.length}</b></span>
-          </>}
-          <span className={`lm-live ${live ? "on" : ""}`} title={live ? "Recebendo os eventos da memória ao vivo" : "Sem conexão com os eventos ao vivo"}>{live ? "ao vivo" : "sem conexão"}</span>
+        <div className="lm-head">
+          <b>| MEMÓRIA VIVA / AURORA</b>
+          <nav className="lm-tabs" aria-label="Modo de visão">
+            {MODES.map(([id, label]) => <button key={id} aria-pressed={mode === id} className={mode === id ? "on" : ""} onClick={() => { setMode(id); setFocusClusterId(null); setExpanded(new Set()); }}>{label}</button>)}
+          </nav>
+          <div className="lm-metrics" aria-label="Indicadores">
+            <span>memórias <b>{graph.stats.memories}</b></span>
+            <span>conexões <b className="teal">{graph.stats.edges}</b></span>
+            <span>agrupamentos <b>{graph.stats.clusters}</b></span>
+            <span>consultadas <b className="pink">{lastRecall?.ids.length ?? 0}</b></span>
+            {keeper?.enabled && <>
+              <span>lidas <b className="teal">{keeper.readIds.length}/{graph.stats.memories}</b></span>
+              <span>ligações <b>{keeper.stats.linked}</b></span>
+              <span>compactadas <b>{keeper.stats.compacted + keeper.stats.joined}</b></span>
+              <span>marcas <b className="yellow">{keeper.flags.length}</b></span>
+            </>}
+            <span className={`lm-live ${live ? "on" : ""}`} title={live ? "Recebendo os eventos da memória ao vivo" : "Sem conexão com os eventos ao vivo"}>{live ? "ao vivo" : "sem conexão"}</span>
+          </div>
         </div>
-        <nav className="lm-tabs" aria-label="Modo de visão">
-          {MODES.map(([id, label]) => <button key={id} aria-pressed={mode === id} className={mode === id ? "on" : ""} onClick={() => { setMode(id); setFocusClusterId(null); setExpanded(new Set()); }}>{label}</button>)}
-        </nav>
+        <SectionChart graph={graph} sections={sections} focusClusterId={focusClusterId} onPick={(id) => focusCluster(id, true)} />
       </header>
-
-      <ol className={`lm-steps ${turn ? "on" : ""}`} aria-label="O turno da Aurora agora">
-        {STEPS.map(([id, label], i) => {
-          const at = turn ? STEPS.findIndex(([x]) => x === turn.phase) : -1;
-          const state = !turn ? "" : i < at || (turn.ended && i <= at) ? "done" : i === at ? "now" : "";
-          const detail = !turn ? "" : id === "pergunta" ? turn.message : id === "busca" ? (turn.scanned.length ? `${turn.scanned.length} avaliadas · melhor ${turn.scanned[0].score.toFixed(2).replace(".", ",")}` : "") : id === "consulta" ? (turn.recalled.length ? `${turn.recalled.length} no contexto` : "") : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : "";
-          return <li key={id} className={state}><b>{String(i + 1).padStart(2, "0")} {label}</b><span>{detail || (turn ? "…" : "aguardando uma pergunta")}</span></li>;
-        })}
-      </ol>
 
       <div className="lm-tools" role="toolbar" aria-label="Busca, filtros e controles">
         <input ref={searchRef} className="lm-search" type="search" placeholder="buscar memória, tag ou id  ( / )" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && results[0]) goTo(results[0]); }} aria-label="Buscar memória" />
@@ -351,12 +358,18 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
             <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
-              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} onUserMove={onUserMove}
+              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
           </Suspense>
         ) : (
           <FallbackList graph={graph} onSelect={goTo} />
         )}
+        {gl && graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
+          <li className="busca">busca · memórias avaliadas</li>
+          <li className="consulta">caminho · memórias usadas</li>
+          <li className="zeladora">zeladora · lendo</li>
+          <li className="criada">memória criada</li>
+        </ul>}
         <ChatDock open={dockOpen} onToggle={() => setDockOpen((v) => !v)} onGoTo={goTo} onConversation={setDockConversation} projectId={filters.projectId || null} />
         {hoveredId && nodeById.get(hoveredId) && hoveredId !== selectedId && (
           <div className="lm-hover" role="status">
@@ -394,6 +407,22 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             </div>
           </aside>
         )}
+      </div>
+
+      <div className="lm-strip" aria-label="Linha do tempo">
+        <Barcode events={events} />
+        <div className="lm-strip-row">
+          <Activity events={events} />
+        <ol className={`lm-steps ${turn ? "on" : ""}`} aria-label="O turno da Aurora agora">
+          {STEPS.map(([id, label], i) => {
+            const at = turn ? STEPS.findIndex(([x]) => x === turn.phase) : -1;
+            const state = !turn ? "" : i < at || (turn.ended && i <= at) ? "done" : i === at ? "now" : "";
+            const detail = !turn ? "" : id === "pergunta" ? turn.message : id === "busca" ? (turn.scanned.length ? `${turn.scanned.length} avaliadas · melhor ${turn.scanned[0].score.toFixed(2).replace(".", ",")}` : "") : id === "consulta" ? (turn.recalled.length ? `${turn.recalled.length} no contexto` : "") : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : "";
+            return <li key={id} className={state}><b>{String(i + 1).padStart(2, "0")} {label}</b><span>{detail || (turn ? "…" : "aguardando uma pergunta")}</span></li>;
+          })}
+        </ol>
+          <Growth memories={snap.memories} />
+        </div>
       </div>
 
       <footer className={`lm-panels ${panelOpen ? "" : "closed"}`} aria-label="Indicadores da memória">
@@ -494,6 +523,81 @@ function FallbackList({ graph, onSelect }: { graph: ReturnType<typeof buildMemor
           <ul>{c.nodeIds.map((id) => { const n = graph.nodes.find((x) => x.id === id)!; return <li key={id}><button onClick={() => onSelect(id)}>{n.memory.title}</button></li>; })}</ul>
         </details>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The instrument's top chart: the biggest sections side by side, with how many memories each holds (white),
+ * how much they are used (orange) and, while the Zeladora walks, how much of each she has read (teal).
+ */
+function SectionChart({ graph, sections, focusClusterId, onPick }: { graph: ReturnType<typeof buildMemoryGraph>; sections: Map<string, { read: number; total: number; state: string }>; focusClusterId: string | null; onPick: (id: string) => void }) {
+  const top = [...graph.clusters].sort((a, b) => b.nodeIds.length - a.nodeIds.length).slice(0, 7);
+  if (top.length < 2) return null;
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const most = Math.max(1, ...top.map((c) => c.nodeIds.length));
+  const use = top.map((c) => c.nodeIds.reduce((s, id) => s + (byId.get(id)?.relevance || 0), 0) / Math.max(1, c.nodeIds.length));
+  const mostUse = Math.max(0.001, ...use);
+  const x = (i: number) => 20 + (i / (top.length - 1)) * 960;
+  const line = (v: number[]) => v.map((y, i) => `${x(i)},${54 - y * 44}`).join(" ");
+  const counts = top.map((c) => c.nodeIds.length / most);
+  const reads = top.map((c) => { const s = sections.get(c.id); return s && s.total ? s.read / s.total : 0; });
+  return (
+    <div className="lm-chart" role="img" aria-label={top.map((c, i) => `${c.label}: ${c.nodeIds.length} memórias, uso ${Math.round(use[i] * 100)}%`).join("; ")}>
+      <div className="lm-chart-labels">
+        {top.map((c, i) => <button key={c.id} className={c.id === focusClusterId ? "on" : ""} style={{ left: `${x(i) / 10}%`, transform: `translateX(${i === 0 ? "-2%" : i === top.length - 1 ? "-98%" : "-50%"})` }} onClick={() => onPick(c.id)} title={`${c.label} · ${c.nodeIds.length} memórias`}>{c.label} <b>({c.nodeIds.length})</b></button>)}
+      </div>
+      <svg viewBox="0 0 1000 60" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" x2="1000" y1="54" y2="54" className="axis" />
+        <polyline points={line(counts)} className="s-count" />
+        <polyline points={line(use.map((u) => u / mostUse))} className="s-use" />
+        {sections.size > 0 && <polyline points={line(reads)} className="s-read" />}
+        {counts.map((v, i) => <line key={i} x1={x(i)} x2={x(i)} y1={54 - v * 44 - 3} y2={54 - v * 44 + 3} className="tick" />)}
+      </svg>
+    </div>
+  );
+}
+
+const TICK: Record<string, number> = { recalled: 1, answered: 0.9, "turn-start": 0.8, created: 0.75, scanned: 0.6, keeper: 0.35, updated: 0.5 };
+/** The live events as a barcode, oldest left, newest right: one tick per real event (taller for a question's). */
+function Barcode({ events }: { events: MemoryLiveEvent[] }) {
+  const list = [...events].slice(0, 140).reverse();
+  return (
+    <div className="lm-barcode" role="img" aria-label={`${events.length} eventos da memória desde que o app abriu`}>
+      <span>eventos ao vivo · {events.length}</span>
+      <div>{list.map((e, i) => <i key={`${e.seq}-${i}`} className={e.type === "keeper" ? `k-${e.action}` : e.type} style={{ height: `${Math.round((TICK[e.type] ?? 0.4) * 100)}%` }} title={`${fmtTime(e.at)} · ${EVENT_LABEL[e.type] || e.type}${e.type === "keeper" && e.action ? ` · ${KEEPER_LABEL[e.action] || e.action}` : ""}`} />)}</div>
+    </div>
+  );
+}
+
+/** Events per minute over the last 30 minutes. */
+function Activity({ events }: { events: MemoryLiveEvent[] }) {
+  const now = Date.now();
+  const bins = new Array(30).fill(0);
+  for (const e of events) { const m = Math.floor((now - Date.parse(e.at)) / 60_000); if (m >= 0 && m < 30) bins[29 - m] += 1; }
+  const max = Math.max(1, ...bins);
+  return (
+    <div className="lm-mini">
+      <span>atividade · {bins[29]}/min agora</span>
+      <svg viewBox="0 0 300 40" preserveAspectRatio="none" aria-hidden="true"><polyline points={bins.map((b, i) => `${i * (300 / 29)},${37 - (b / max) * 33}`).join(" ")} className="s-act" /></svg>
+    </div>
+  );
+}
+
+/** How the memory grew: memories stored over time (all of them, oldest to now). */
+function Growth({ memories }: { memories: MemoryGraphSnapshot["memories"] }) {
+  const times = memories.map((m) => Date.parse(m.createdAt)).filter(Number.isFinite).sort((a, b) => a - b);
+  if (times.length < 2) return <div className="lm-mini"><span>crescimento · {times.length} memórias</span></div>;
+  const t0 = times[0], t1 = Math.max(times[times.length - 1], t0 + 1);
+  const pts: string[] = [];
+  const step = Math.max(1, Math.floor(times.length / 120));
+  for (let i = 0; i < times.length; i += step) pts.push(`${((times[i] - t0) / (t1 - t0)) * 300},${37 - ((i + 1) / times.length) * 33}`);
+  pts.push(`300,4`);
+  const days = Math.max(1, Math.round((t1 - t0) / 86_400_000));
+  return (
+    <div className="lm-mini right">
+      <span>crescimento · {times.length} memórias em {days} {days === 1 ? "dia" : "dias"}</span>
+      <svg viewBox="0 0 300 40" preserveAspectRatio="none" aria-hidden="true"><polyline points={pts.join(" ")} className="s-grow" /></svg>
     </div>
   );
 }

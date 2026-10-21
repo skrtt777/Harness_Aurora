@@ -1,7 +1,7 @@
 # Memórias / Mapa Vivo
 
-A memória da Aurora como um universo navegável. Cada ponto é uma memória guardada, cada linha é uma relação
-real ou uma similaridade medida, e cada pulso é um evento real. Não há dado de demonstração: sem memórias, o
+A memória da Aurora como uma árvore viva, desenhada como um instrumento. Cada folha é uma memória guardada,
+cada galho é um agrupamento real, e cada onda ou caminho luminoso é um evento real. Não há dado de demonstração: sem memórias, o
 mapa diz isso.
 
 ## Arquitetura
@@ -12,8 +12,8 @@ mapa diz isso.
 | Retrato | `app/memoryGraph.js` → `GET /api/memories/graph` | Mostra o que existe de fato: as memórias (sem o texto inteiro; nas sensíveis, sem trecho), as relações explícitas (`memory_relations`), o atlas semântico (`app/memoryAtlas.js`: k-means, PCA e vizinhos por similaridade de embedding), os projetos, as conversas, as últimas 30 respostas que usaram memória (`messages.memory_access`) e os eventos recentes. |
 | Ao vivo | `GET /api/memories/live` | SSE com cada evento. O frontend lê por `fetch` em streaming, para mandar o token da sessão no cabeçalho (sem token na URL), e reconecta sozinho. |
 | Adaptador | `frontend/src/livemap/adapter.ts` | O **MemoryGraphAdapter**, TypeScript puro e testado. Transforma o retrato em nós, arestas, agrupamentos, arcos agregados e indicadores, conforme o modo (visão geral, por pasta/projeto, por conversa) e os filtros. Também aplica cada evento ao vivo de forma incremental (`applyEvent`) e mantém o atlas estável na sessão (`steadyAtlas`). |
-| Layout | `frontend/src/livemap/layout.ts` | Calcula posições determinísticas. Os agrupamentos ficam numa espiral de ângulo áureo em volta do núcleo, com a memória geral junto dele e uma relaxação contra sobreposição. Dentro de cada agrupamento, metade da posição vem do atlas semântico e metade de um disco uniforme calculado pelo id. |
-| Desenho | `frontend/src/livemap/LiveMapScene.tsx` | Three.js com React Three Fiber, que já fazia parte do projeto. Cada camada é um único buffer na GPU: a nebulosa estática de cada agrupamento, a poeira de cada memória, as arestas internas (curvas finas), os arcos entre agrupamentos, os raios do núcleo, as ramificações do agrupamento em foco e os pulsos. Também desenha o núcleo Aurora, os rótulos com prevenção de colisão (um por fatia angular, crescendo para fora) e a câmera com foco suave. |
+| Layout | `frontend/src/livemap/tree.ts` | A árvore: raiz, seções em leque, divisões onde o sentido muda mais, folhas numa copa larga (as mais novas no alto). Posições determinísticas; caminhos raiz → memória e memória A → B pelos galhos. |
+| Desenho | `frontend/src/livemap/LiveMapScene.tsx`, `gfx.ts` | Three.js com React Three Fiber. Cada camada é um buffer escrito a cada quadro: galhos (linhas finas), folhas e estrelas (pontos em pixels), ondas (zigue-zagues), caminhos luminosos (fitas com degradê), arbustos das últimas perguntas, rótulos e a caixa de destaque. |
 | Página | `frontend/src/livemap/LiveMapView.tsx`, `livemap.css` | Abas de modo, busca, filtros, controles, painel lateral da memória, faixa de indicadores, estados de carregando/vazio/erro e alternativa sem WebGL. |
 | Menu | `Sidebar.tsx`, `AppShell.tsx` | **Memória → Mapa Vivo**, em tela cheia, com "voltar para a memória". |
 
@@ -159,46 +159,35 @@ funcionamento do cérebro** — uma pergunta no chat nunca espera por ela; ela c
 - Nada é inventado: todo toque vem de um evento real ou de você. Com "pausar" ou movimento reduzido a teia
   fica parada.
 
-## O mar vivo — o Mapa Vivo refeito do zero (21/10)
+## A árvore viva — o Mapa Vivo como instrumento (21/10)
 
-A aranha e a teia deram lugar a um **ecossistema bioluminescente submerso**: a memória da Aurora como um mar
-vivo (`frontend/src/livemap/LiveMapScene.tsx` + `frontend/src/livemap/ocean/`).
+O mar vivo (células, coral, água-viva) deu lugar a uma **árvore de busca desenhada como um instrumento**,
+na linguagem de um painel científico: fundo quase preto, linhas de um pixel, letras monoespaçadas pequenas,
+um gráfico no topo e um código de barras de eventos embaixo.
 
-- **Células** — cada seção (um pensamento) é uma célula viva: uma membrana (metaballs em shader, a partir das
-  memórias da borda e das mais comprovadas) que **respira**, tem a borda irregular, **amassa sob a mão** da
-  pessoa e sob a água-viva, e **incha quando uma onda passa**. Fica cinza enquanto a Zeladora não chegou nela
-  na ronda, brilha mais enquanto ela lê e se enche de luz conforme é lida. Duplo clique foca a seção.
-- **Organelas** — cada memória flutua dentro da sua célula e respira no próprio ritmo; não lida na ronda,
-  fica apagada.
-- **Sinapses** — os laços: filamentos que balançam; uma memória tocada (lida, ligada, consultada, criada,
-  apontada) faz os dela vibrarem e manda impulsos de luz às vizinhas (dois saltos). Entre células, filamentos
-  longos agregados.
-- **A Zeladora é uma água-viva** ("água viva": um ambiente vivo) vista de cima, como uma água-viva-da-lua: sino
-  translúcido de borda recortada, canais radiais, quatro gônadas em ferradura. Nada por **pulsos** do sino
-  (contrai, empurra, desliza; bate mais rápido e forte quando o destino é longe), vira na direção em que vai;
-  franja de tentáculos finos, quatro braços orais rendados arrastando atrás, e 22 tentáculos longos (cordas
-  Verlet) que arrastam na água — **um alcança cada memória que ela lê**, a memória ondula e a luz dela volta
-  pelo tentáculo. O sino pisca ao ligar/compactar/marcar; o balão diz o que ela faz. O corpo dela empurra a água.
-- **Uma pergunta é um impulso elétrico** que salta de memória em memória (as consultadas, na ordem da busca),
-  crepitando de célula em célula; as candidatas avaliadas brilham fracas.
-- **A água responde à pessoa**: o cursor é uma correnteza — o plâncton (milhares de partículas numa corrente
-  lenta de redemoinhos) abre caminho, as memórias se dobram e voltam, as membranas amassam; um **toque na
-  água** solta uma onda que empurra tudo por onde passa. O fundo tem cáusticas de luz em movimento.
-- Física pura e testada em `ocean/physics.ts` (`frontend/test/ocean.test.mjs`): o nado chega e para (também
-  numa viagem longa, em menos de 4 s), o tentáculo mantém o tamanho, arrasta e alcança a memória, o plâncton
-  nunca sai do mar e abre caminho para a mão, as memórias dobradas voltam ao lugar.
-- **Auto foco**: só pausa quando a pessoa **move** a câmera (arrastar, zoom) — um toque na água não pausa.
-- Tudo continua vindo de dados e eventos reais; com "pausar" ou movimento reduzido, o mar fica parado.
-
-### Recifes de coral no lugar das células (21/10)
-
-- **Cada seção é uma colônia de coral** (`frontend/src/livemap/ocean/coral.ts`): cresce da base até **cada
-  memória** por colonização de espaço (o algoritmo que gera árvores e corais), e cada memória é um **pólipo**
-  na ponta do próprio galho. A forma é o dado: os galhos se dividem onde as memórias se separam e engrossam
-  onde muitas dependem deles. Determinístico; uma seção de 1200 memórias cresce em menos de 1,5 s.
-- **Vivo na água**: o coral balança na correnteza, curva-se sob a mão da pessoa e sob a água-viva, ondula
-  quando uma onda passa; os pólipos se recolhem quando a mão chega perto. A fórmula (`reefDisplace`) é a
-  mesma no shader e na posição dos pólipos, então eles ficam exatamente nas pontas.
-- **Branqueamento**: uma seção que a Zeladora ainda não cuidou na ronda fica **branqueada** (pálida); a cor
-  volta devagar conforme ela lê. Na primeira abertura, o recife **cresce**, colônia por colônia.
-- Os laços entre memórias ficam quase invisíveis em repouso (o coral é a estrutura) e aparecem quando vibram.
+- **A forma é o dado** (`frontend/src/livemap/tree.ts`, testado em `frontend/test/tree.test.mjs`): a **raiz**
+  embaixo é a Aurora; cada **seção** sai dela em leque, com largura proporcional às memórias que tem; cada
+  memória é uma **folha** (um ponto de luz) numa copa larga, e as mais novas ficam mais no alto. Dentro da
+  seção as memórias ficam lado a lado no eixo semântico principal (atlas de embeddings), e a seção se divide
+  **onde o sentido muda mais**: memórias quase iguais se juntam num galho alto e diferentes se separam perto da
+  base. Determinístico; 3000 memórias em ~35 ms.
+- **Uma pergunta** é uma **onda de busca** que sai da raiz e varre a copa (as memórias avaliadas acendem
+  quando ela passa). As memórias realmente usadas são alcançadas por um **caminho luminoso** que sobe pelos
+  galhos, com degradê do branco ao verde e ao laranja, e uma centelha que continua correndo. Na melhor delas
+  aparece uma **caixa de destaque**: profundidade, memória, seção e similaridade. As criadas na resposta têm
+  caminho verde.
+- **A Zeladora** é uma onda menor, verde-água, que anda pela copa de memória em memória. Cada passo desenha o
+  **caminho de A até B** pelos galhos (desce até o galho comum e sobe). Uma ligação que ela faz é um arco
+  entre as duas folhas. Uma seção que ela ainda não visitou na ronda fica apagada. Quando começa uma ronda,
+  uma onda verde-água varre a árvore inteira.
+- **As últimas perguntas** ficam na base como **arbustos**, com um galho por memória usada. Passar o mouse
+  mostra a pergunta; um clique **refaz o caminho** dela na árvore. Sem nada acontecendo, o caminho da
+  **última pergunta** fica desenhado.
+- **A pessoa**: o cursor é uma lente (galhos e folhas perto dele acendem) e a memória mais próxima mostra o
+  caminho dela desde a raiz. Um clique numa memória a seleciona; um toque no vazio solta uma onda; um duplo
+  clique numa seção a foca.
+- **Painel**: o gráfico do topo mostra as maiores seções (memórias, uso e, durante a ronda, quanto foi lido).
+  Embaixo ficam o código de barras dos eventos ao vivo (um traço por evento), a atividade por minuto, os
+  quatro passos da pergunta e o crescimento da memória ao longo do tempo. Os indicadores detalhados ficam
+  recolhidos e abrem com um clique.
+- Tudo vem de memórias e eventos reais. Com "pausar" ou movimento reduzido, nada se move sozinho.

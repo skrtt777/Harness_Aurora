@@ -1,30 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
-import { hash01, type Layout, type Vec3 } from "./layout";
-import { curvePoint, Writer } from "./ocean/draw";
-import { newRope, newSwim, rippleRing, stepPlankton, stepRope, stepSwim, type Pusher, type Ripple, type Rope } from "./ocean/physics";
-import { growCoral, REEF, reefDisplace, type Coral } from "./ocean/coral";
-import { bellMaterial, coralGeometry, coralMaterial, dynamicGeometry, lineMaterial, pointMaterial, seaMaterial } from "./ocean/shaders";
+import { ACTIVITY_COLOR, CATEGORY_COLOR, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
+import { hash01, type Vec3 } from "./layout";
+import { pathBetween, pathTo, type MemoryTree, type TreeLayout } from "./tree";
+import { dynamicGeometry, gradient, lineMaterial, pointMaterial, ribbonGeometry, ribbonMaterial, RibbonWriter, Writer } from "./gfx";
 
 /**
- * Memórias / Mapa Vivo — the living sea. The Aurora's memory as a bioluminescent ecosystem:
- *   - each section (one thought) is a CORAL colony that grows from its base to every memory of it — the shape
- *     is the data (branches split where memories part ways, thicken where many hang from them); it sways in
- *     the current, bends away from the person's hand and the jellyfish, ripples when a wave passes; a section
- *     the Zeladora has not tended yet is BLEACHED, and its colour comes back as she does;
- *   - each memory is a POLYP at the tip of its own branch (it shrinks back when the hand comes near); the links
- *     are filaments, and a touched memory sends impulses along them to its neighbours (two hops);
- *   - the Zeladora is a JELLYFISH (água-viva — living water): she swims by pulses of her bell to the memory she
- *     reads, her tentacles trailing; one reaches each memory she reads and its light flows back to her;
- *   - a question to the Aurora is an ELECTRIC IMPULSE that jumps from memory to memory across the cells;
- *   - the person's cursor is a current in the water (plankton parts, the coral bends, polyps shrink back); a tap on
- *     the water sends a ripple.
- * Nothing is invented: every light, impulse and movement of a memory comes from a real memory or a real event.
+ * Memórias / Mapa Vivo — the memory as a living search tree (tree.ts), drawn like an instrument:
+ *   - the ROOT at the bottom is the Aurora; one branch per section fans out from it; forks join memories that
+ *     mean nearly the same thing near the canopy and different ones near the base; each memory is a LEAF (a
+ *     point of light), the newest ones highest;
+ *   - a question to the Aurora is a SEARCH WAVE that sweeps the canopy from the root (the memories it weighed
+ *     light up as it passes), then the memories it really used are reached by a GLOWING PATH that climbs the
+ *     branches from the root to each of them, with a callout at the best one;
+ *   - the Zeladora is a smaller wave that walks the canopy memory by memory; each step draws her way from the
+ *     memory she read to the next along the branches (A → B through their common fork); a link she makes is
+ *     an arc between two leaves; a section she has not tended yet is dim;
+ *   - the recent questions stay at the base as small bushes (one twig per memory used); a click replays one;
+ *   - the person's cursor is a lens (branches and leaves near it brighten; the nearest memory shows its way
+ *     from the root); a tap anywhere sends a wave from the root.
+ * Nothing is invented: every leaf is a stored memory, every path and wave a real event.
  */
 export type Quality = "alta" | "media" | "baixa";
 /** autoFocus: the camera goes by itself to what is happening (the Zeladora, a question's memories). */
@@ -35,10 +34,12 @@ export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "create
 export type AgentState = { key: string; target: Vec3 | null; tentacles: AgentTentacle[]; ended: boolean } | null;
 export type CameraCommand = { target: Vec3; distance: number; key: number } | null;
 export type Merge = { from: Vec3[]; to: Vec3; at: number };
+/** A recent answer and the memories it used (a bush at the base of the tree). */
+export type RecallBush = { id: string; at: string; prompt: string; used: string[] };
 
 type SceneProps = {
   graph: MemoryGraph;
-  layout: Layout;
+  layout: TreeLayout;
   settings: MapSettings;
   selectedId: string | null;
   hoveredId: string | null;
@@ -54,6 +55,7 @@ type SceneProps = {
   readSet: Set<string> | null;
   /** Memories she is pulling into one (compaction / join), with where they were. */
   merges: Merge[];
+  recalls: RecallBush[];
   /** The person moved the map: automatic camera moves stop for a while. */
   onUserMove: () => void;
   onHover: (id: string | null) => void;
@@ -62,706 +64,619 @@ type SceneProps = {
   onContextLost: () => void;
 };
 
-const color = (hex: string) => new THREE.Color(hex);
+const col = (hex: string) => new THREE.Color(hex);
 const ACTIVE_MS = 9000;
-const WEB_DECAY_MS = 900;
-const SIGNAL_MS = 650;
-const TOUCH_STRENGTH: Partial<Record<string, number>> = { read: 1, linked: 1, recalled: 1, created: 0.9, joined: 1, flagged: 0.8, search: 0.45 };
-const KEEPER_SUFFIX: Partial<Record<Highlight["kind"], string>> = { created: " · nova", read: " · lida", linked: " · ligada", flagged: " · conflito", joined: " · juntou" };
-const PLANKTON: Record<Quality, number> = { alta: 2600, media: 1200, baixa: 300 };
-const CURVE_STEPS = 8;
-const WHITE = color("#eef2f6");
-const GLOW = color("#9ff8ee");
-const TEAL = color("#3fd6c6");
-const YELLOW = color("#f2d14b");
-const ACTIVITY = color(ACTIVITY_COLOR);
-const MAGENTA = color("#f05a8c");
-const GREY = color("#7b8794");
-
-/** What every part of the sea shares: the hand, the ripples, where the jellyfish is, the clock. */
-type World = { hand: { x: number; y: number; s: number }; ripples: Ripple[]; jelly: { x: number; y: number; r: number }; t: number; motion: boolean; ring: { x: number; y: number; r: number; s: number } | null };
-const pushersOf = (w: World, now: number, withJelly = true): Pusher[] => {
-  const out: Pusher[] = [];
-  if (w.hand.s > 0.02) out.push({ x: w.hand.x, y: w.hand.y, r: 26, s: w.hand.s });
-  if (withJelly && w.jelly.r > 0) out.push({ x: w.jelly.x, y: w.jelly.y, r: w.jelly.r * 1.6, s: 0.45 });
-  for (const r of w.ripples) { const ring = rippleRing(r, now); if (ring) out.push(ring); }
-  return out;
+const REVEAL_MS = 1150;
+const C = {
+  branch: col("#8796ab"), leaf: col("#e8eef6"), dust: col("#a9bad0"), white: col("#ffffff"),
+  wave: col("#8fc2ff"), waveHot: col("#eaf4ff"),
+  keeper: col("#3fd6c6"), keeperHot: col("#cbfff7"),
+  recall: col("#ff9d5c"), created: col(ACTIVITY_COLOR), flag: col("#f2d14b"), select: col("#ff7aa8"), search: col("#9cc8ff"),
 };
+type PathKind = "consulta" | "zeladora" | "criada" | "selecao" | "hover";
+const PALETTE: Record<PathKind, [number, THREE.Color][]> = {
+  consulta: [[0, col("#f4e4ff")], [0.45, col("#ffffff")], [0.8, col("#93f5d4")], [1, col("#ff9a55")]],
+  zeladora: [[0, col("#d4fff8")], [1, col("#3fd6c6")]],
+  criada: [[0, col("#eaffef")], [1, col(ACTIVITY_COLOR)]],
+  selecao: [[0, col("#ffffff")], [1, col("#ff7aa8")]],
+  hover: [[0, col("#aab7c8")], [1, col("#ffffff")]],
+};
+type PathSpec = { key: string; nodes: number[]; kind: PathKind; at: number; strength: number; until?: number };
+type WaveKind = "busca" | "ronda" | "toque";
+type Wave = { at: number; a0: number; a1: number; dur: number; s: number; seed: number; kind: WaveKind };
+const WAVE_COLOR: Record<WaveKind | "zeladora", [THREE.Color, THREE.Color]> = { busca: [C.wave, C.waveHot], ronda: [C.keeper, C.keeperHot], toque: [col("#b8c6d8"), C.white], zeladora: [C.keeper, C.keeperHot] };
+// What lit a node most recently (its colour while it glows).
+const GLOW_COLOR = [C.white, C.wave, C.keeper, C.recall, C.created];
+const HL_COLOR: Record<Highlight["kind"], THREE.Color> = { recalled: C.recall, created: C.created, search: C.search, read: C.keeper, linked: C.keeper, flagged: C.flag, joined: C.white };
+const DUST: Record<Quality, number> = { alta: 1600, media: 800, baixa: 0 };
+const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const easeOut = (u: number) => 1 - Math.pow(1 - u, 3);
+
+/** Where everything shares: the cursor (a lens), the camera's world-per-pixel, the clock. */
+type World = { hand: { x: number; y: number; s: number }; wpp: number; t: number };
 
 function Scene(props: SceneProps) {
-  const { graph, layout, settings, selectedId, hoveredId, focusClusterId, highlights, camera, onHover, onSelect, onCluster } = props;
-  const nodes = graph.nodes;
-  const index = useMemo(() => new Map(nodes.map((n, i) => [n.id, i])), [nodes]);
-  const clusterOf = useMemo(() => new Map(graph.clusters.map((c) => [c.id, c])), [graph.clusters]);
+  const { graph, layout, settings, selectedId, hoveredId, focusClusterId, highlights, camera, agent, keeper, onHover, onSelect, onCluster } = props;
+  const tree = layout.tree;
+  const R = tree.R;
   const motion = !settings.paused && !settings.reducedMotion;
-  const world = useRef<World>({ hand: { x: 0, y: 0, s: 0 }, ripples: [], jelly: { x: 0, y: 0, r: 0 }, t: 0, motion, ring: null });
-  world.current.motion = motion;
+  const reduced = settings.reducedMotion;
+  const polarX = (r: number, a: number) => R * r * Math.sin(a);
+  const polarY = (r: number, a: number) => R * r * Math.cos(a);
+  const nodeOf = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+  const leaves = useMemo(() => [...tree.leafOf.entries()], [tree]);
+  const world = useRef<World>({ hand: { x: 0, y: 0, s: 0 }, wpp: 1, t: 0 });
+  const size = useThree((s) => s.size);
+  const cam = useThree((s) => s.camera) as THREE.PerspectiveCamera;
 
-  // ---------- where each memory is: eased to its place, drifting inside its cell, bent by the hand ----------
-  const current = useRef(new Map<string, THREE.Vector3>());
-  const born = useRef(new Map<string, number>());
-  const firstLoad = useRef(true);
-  useEffect(() => {
-    const now = performance.now();
-    const ordered = [...nodes].sort((a, b) => a.createdAt - b.createdAt);
-    ordered.forEach((n, i) => {
-      if (current.current.has(n.id)) return;
-      const target = layout.nodes.get(n.id)!;
-      const cluster = layout.clusters.get(n.clusterId);
-      const from = cluster ? cluster.center : target;
-      current.current.set(n.id, new THREE.Vector3(...(settings.reducedMotion ? target : from)));
-      born.current.set(n.id, firstLoad.current ? now + Math.min(2600, (i / Math.max(1, ordered.length)) * 2600) : now);
-    });
-    for (const id of [...current.current.keys()]) if (!index.has(id)) { current.current.delete(id); born.current.delete(id); }
-    firstLoad.current = false;
-  }, [nodes, layout, index, settings.reducedMotion]);
-  // One coral colony per section, grown from its base to each of its memories (ocean/coral.ts).
-  const corals = useMemo(() => {
-    const out = new Map<string, Coral>();
-    for (const c of graph.clusters) {
-      const box = layout.clusters.get(c.id); if (!box) continue;
-      const memories = c.nodeIds.map((id) => { const p = layout.nodes.get(id); return p ? { id, x: p[0], y: p[1] } : null; }).filter(Boolean) as { id: string; x: number; y: number }[];
-      if (memories.length) out.set(c.id, growCoral({ x: box.center[0], y: box.center[1] }, memories, { seed: c.id }));
+  // ---------- the colours of each branch and leaf (its section's, faintly) ----------
+  const paint = useMemo(() => {
+    const secColor = tree.sections.map((s) => col(CATEGORY_COLOR[graph.clusters.find((c) => c.id === s.id)?.category || "geral"]));
+    const branch = new Float32Array(tree.count * 3);
+    const leaf = new Float32Array(tree.count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < tree.count; i += 1) {
+      const sc = tree.section[i] >= 0 ? secColor[tree.section[i]] : C.white;
+      c.copy(C.branch).lerp(sc, 0.22); branch.set([c.r, c.g, c.b], i * 3);
+      c.copy(C.leaf).lerp(sc, 0.38); leaf.set([c.r, c.g, c.b], i * 3);
     }
+    const heaviest = Math.max(1, ...tree.sections.map((s) => tree.carried[s.node]));
+    return { branch, leaf, heaviest, secColor };
+  }, [tree, graph.clusters]);
+
+  // ---------- where each node is drawn: eased from where it was when the tree changes; grown at first ----------
+  type Display = { x: Float32Array; y: Float32Array; sx: Float32Array; sy: Float32Array; born: Float64Array; at: number; tree: MemoryTree };
+  const disp = useRef<Display | null>(null);
+  const firstLoad = useRef(true);
+  const display = useMemo(() => {
+    const now = performance.now();
+    const old = disp.current;
+    const n = tree.count;
+    const D: Display = { x: new Float32Array(n), y: new Float32Array(n), sx: new Float32Array(n), sy: new Float32Array(n), born: new Float64Array(n), at: now, tree };
+    const has = new Uint8Array(n); const cnt = new Float32Array(n); const sumX = new Float32Array(n); const sumY = new Float32Array(n);
+    if (old) for (const [id, i] of tree.leafOf) { const j = old.tree.leafOf.get(id); if (j !== undefined) { D.sx[i] = old.x[j]; D.sy[i] = old.y[j]; has[i] = 1; } }
+    for (let i = n - 1; i >= 1; i -= 1) {
+      if (!has[i] && cnt[i] > 0) { D.sx[i] = sumX[i] / cnt[i]; D.sy[i] = sumY[i] / cnt[i]; has[i] = 1; }
+      if (has[i]) { const p = tree.parent[i]; sumX[p] += D.sx[i]; sumY[p] += D.sy[i]; cnt[p] += 1; }
+    }
+    for (let i = 0; i < n; i += 1) {
+      if (!has[i]) { D.sx[i] = tree.x[i]; D.sy[i] = tree.y[i]; }
+      D.x[i] = D.sx[i]; D.y[i] = D.sy[i];
+      // The first time the tree grows from the root out to the canopy; later, only what is new grows in.
+      D.born[i] = firstLoad.current ? now + 150 + tree.r[i] * 2300 : has[i] || i === 0 ? -1e9 : now;
+    }
+    firstLoad.current = false;
+    disp.current = D;
+    return D;
+  }, [tree]);
+
+  // ---------- glow: what lights a node now (waves, paths, the Zeladora), fading by itself ----------
+  const glow = useMemo(() => ({ w: new Float32Array(tree.count), k: new Uint8Array(tree.count) }), [tree]);
+  const lightNode = (i: number, s: number, kind: number) => { if (s > glow.w[i]) { glow.w[i] = s; glow.k[i] = kind; } };
+
+  // ---------- the turn: what the search weighed, what was used, what was created ----------
+  const turnKinds = useMemo(() => new Map((agent?.tentacles || []).map((t) => [t.id, t.kind])), [agent]);
+  const seenAt = useRef(new Map<string, number>());
+  const waves = useRef<Wave[]>([]);
+  const lastScan = useRef("");
+  useEffect(() => {
+    if (!agent) return;
+    const now = performance.now();
+    for (const t of agent.tentacles) { const k = `${agent.key}:${t.id}:${t.kind}`; if (!seenAt.current.has(k)) seenAt.current.set(k, now + (t.kind === "scanned" ? 0 : Math.min(6, t.order - 6) * 140)); }
+    // The search: one wave from the root over the whole canopy when the candidates arrive.
+    if (agent.tentacles.some((t) => t.kind === "scanned") && lastScan.current !== agent.key) {
+      lastScan.current = agent.key;
+      if (motion) waves.current.push({ at: now, a0: -tree.span - 0.05, a1: tree.span + 0.05, dur: 2100, s: 1, seed: hash01(agent.key), kind: "busca" });
+    }
+  }, [agent, motion, tree.span]);
+  const lastRound = useRef<number | null>(null);
+  useEffect(() => {
+    if (!keeper?.running || !keeper.enabled) return;
+    if (lastRound.current !== null && keeper.round !== lastRound.current && motion) waves.current.push({ at: performance.now(), a0: -tree.span - 0.05, a1: tree.span + 0.05, dur: 2800, s: 0.75, seed: keeper.round * 0.37, kind: "ronda" });
+    lastRound.current = keeper.round;
+  }, [keeper?.round, keeper?.running, keeper?.enabled, motion, tree.span]);
+
+  // ---------- the Zeladora's way: from the memory she read to the next, along the branches ----------
+  const trails = useRef<PathSpec[]>([]);
+  const lastRead = useRef<string | null>(null);
+  useEffect(() => {
+    const cur = keeper?.current || null;
+    if (!cur || cur === lastRead.current) return;
+    const a = lastRead.current ? tree.leafOf.get(lastRead.current) : undefined;
+    const b = tree.leafOf.get(cur);
+    lastRead.current = cur;
+    if (b === undefined) return;
+    const now = performance.now();
+    trails.current = [...trails.current.filter((p) => (p.until || 0) > now), { key: `z:${cur}:${now}`, nodes: a !== undefined ? pathBetween(tree, a, b) : pathTo(tree, b).slice(-4), kind: "zeladora" as const, at: now, strength: 0.8, until: now + 2400 }].slice(-2);
+  }, [keeper?.current, tree]);
+
+  // ---------- a recent question replayed (a click on its bush) ----------
+  const [replay, setReplay] = useState<{ bush: RecallBush; at: number } | null>(null);
+  useEffect(() => { if (!replay) return undefined; const t = window.setTimeout(() => setReplay(null), 14000); return () => window.clearTimeout(t); }, [replay]);
+
+  // ---------- the glowing paths, root → memory ----------
+  const paths = useMemo(() => {
+    const out: PathSpec[] = [];
+    const leafPath = (id: string) => { const i = tree.leafOf.get(id); return i === undefined ? null : pathTo(tree, i); };
+    if (replay) replay.bush.used.slice(0, 10).forEach((id, k) => { const p = leafPath(id); if (p) out.push({ key: `r:${id}`, nodes: p, kind: "consulta", at: replay.at + k * 140, strength: k === 0 ? 1 : 0.5 }); });
+    else if (agent) {
+      const used = agent.tentacles.filter((t) => t.kind === "recalled" || t.kind === "used").slice(0, 12);
+      used.forEach((t, k) => { const p = leafPath(t.id); if (p) out.push({ key: `t:${agent.key}:${t.id}`, nodes: p, kind: "consulta", at: seenAt.current.get(`${agent.key}:${t.id}:${t.kind}`) ?? performance.now(), strength: (k === 0 ? 1 : 0.5) * (agent.ended ? 0.7 : 1) }); });
+      agent.tentacles.filter((t) => t.kind === "created").slice(0, 6).forEach((t) => { const p = leafPath(t.id); if (p) out.push({ key: `c:${t.id}`, nodes: p, kind: "criada", at: seenAt.current.get(`${agent.key}:${t.id}:created`) ?? performance.now(), strength: 0.8 }); });
+    } else if (props.recalls[0]) {
+      // Nothing happening: the way of the last real question stays drawn (its memories, from the root).
+      const last = props.recalls[0];
+      last.used.slice(0, 8).forEach((id, k) => { const p = leafPath(id); if (p) out.push({ key: `l:${last.id}:${id}`, nodes: p, kind: "consulta", at: performance.now() + 900 + k * 160, strength: k === 0 ? 0.75 : 0.32 }); });
+    }
+    if (selectedId) { const p = leafPath(selectedId); if (p) out.push({ key: `s:${selectedId}`, nodes: p, kind: "selecao", at: performance.now(), strength: 0.9 }); }
+    if (hoveredId && hoveredId !== selectedId) { const p = leafPath(hoveredId); if (p) out.push({ key: `h:${hoveredId}`, nodes: p, kind: "hover", at: performance.now() - REVEAL_MS * 0.6, strength: 0.6 }); }
     return out;
-  }, [graph.clusters, layout]);
-  const polyp = useMemo(() => {
-    const m = new Map<string, { depth: number; phase: number }>();
-    for (const coral of corals.values()) for (const [id, t] of coral.tips) m.set(id, { depth: coral.depth[t], phase: coral.phase[t] });
-    return m;
-  }, [corals]);
-  // A memory is a polyp at the tip of its branch: it moves exactly as the coral's shader moves that tip.
-  const pos = (id: string): Vec3 => {
-    const v = current.current.get(id);
-    if (!v) return layout.nodes.get(id) || [0, 0, 0];
-    if (!motion) return [v.x, v.y, v.z];
-    const tip = polyp.get(id) || { depth: 1, phase: hash01(id) };
-    const w = world.current;
-    const [dx, dy] = reefDisplace(v.x, v.y, tip.depth, tip.phase, { t: w.t, hand: w.hand, jelly: w.jelly, ripple: w.ring });
-    return [v.x + dx, v.y + dy, v.z];
-  };
-  const has = (id: string) => index.has(id);
-  const hubOf = (id: string): Vec3 => layout.clusters.get(nodes[index.get(id) ?? -1]?.clusterId)?.center || layout.core;
+  }, [tree, agent, replay, selectedId, hoveredId, props.recalls]);
+  // Keep each path's start time across re-renders (the reveal plays once).
+  const pathAt = useRef(new Map<string, number>());
+  for (const p of paths) { const at = pathAt.current.get(p.key); if (at === undefined) pathAt.current.set(p.key, p.at); else p.at = at; }
+
+  // ---------- the bushes: the last questions at the base ----------
+  const bushes = useMemo(() => {
+    const slots = [-0.36, 0.36, -0.66, 0.66];
+    return props.recalls.slice(0, 4).map((rc, k) => {
+      const bx = R * slots[k] * 1.08, h = R * (0.075 + 0.05 * Math.min(1, rc.used.length / 10));
+      const used = rc.used.slice(0, 24); const m = Math.max(1, used.length);
+      const forks = Math.min(3, m);
+      const leavesXY = used.map((id, j) => { const a = m > 1 ? -0.95 + (1.9 * j) / (m - 1) : 0; const r = h * (0.82 + 0.18 * hash01(id + rc.id)); return { id, x: bx + Math.sin(a) * r * 1.15, y: Math.cos(a) * r, fork: Math.min(forks - 1, Math.floor((j / m) * forks)) }; });
+      const forkXY = Array.from({ length: forks }, (_, f) => { const mine = leavesXY.filter((l) => l.fork === f); const a = mine.length ? mine.reduce((s, l) => s + Math.atan2(l.x - bx, l.y), 0) / mine.length : 0; return { x: bx + Math.sin(a) * h * 0.42, y: Math.cos(a) * h * 0.42 }; });
+      return { rc, bx, h, leaves: leavesXY, forks: forkXY };
+    });
+  }, [props.recalls, R]);
+  const [hoverBush, setHoverBush] = useState<number | null>(null);
+
+  // ---------- the field of faint stars behind the tree ----------
+  const dust = useMemo(() => {
+    const n = DUST[settings.quality];
+    const xs = new Float32Array(n), ys = new Float32Array(n), ph = new Float32Array(n), sz = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      xs[i] = (hash01(`d${i}`, 1) - 0.5) * 2.5 * R; ys[i] = (hash01(`d${i}`, 2) * 1.2 - 0.06) * R;
+      ph[i] = hash01(`d${i}`, 3); sz[i] = 0.9 + hash01(`d${i}`, 4) * 1.1;
+    }
+    return { n, xs, ys, ph, sz };
+  }, [settings.quality, R]);
+
+  // ---------- buffers ----------
+  const geo = useMemo(() => ({
+    branches: dynamicGeometry(tree.count * 2, false),
+    edges: dynamicGeometry(Math.max(1, graph.edges.length) * 2, false),
+    leaves: dynamicGeometry(tree.leafOf.size + 1, true),
+    dust: dynamicGeometry(dust.n + 1, true),
+    waves: dynamicGeometry(14000, false),
+    sparks: dynamicGeometry(1600 + tree.count, true),
+    bushes: dynamicGeometry(4 * 60 * 2, false),
+    ribbons: ribbonGeometry(3000),
+  }), [tree, graph.edges.length, dust.n]);
+  useEffect(() => () => { Object.values(geo).forEach((g) => g.dispose()); }, [geo]);
+  const mats = useMemo(() => ({ points: pointMaterial(), lines: lineMaterial(), ribbons: ribbonMaterial() }), []);
+  useEffect(() => () => { Object.values(mats).forEach((m) => m.dispose()); }, [mats]);
+  const c3 = useMemo(() => new THREE.Color(), []);
+  const c4 = useMemo(() => new THREE.Color(), []);
+  const pa = useMemo(() => ({ x: 0, y: 0 }), []);
+  const pb = useMemo(() => ({ x: 0, y: 0 }), []);
   const focusIds = useMemo(() => {
     const ids = new Set<string>();
     const anchor = selectedId || hoveredId;
     if (anchor) { ids.add(anchor); for (const e of graph.edges) { if (e.from === anchor) ids.add(e.to); if (e.to === anchor) ids.add(e.from); } }
     return ids;
   }, [selectedId, hoveredId, graph.edges]);
-
-  // ---------- the living web: touches, impulses along the synapses (two hops) ----------
-  const touches = useRef(new Map<string, { at: number; s: number; hop: number; spread: boolean }>());
-  const touch = useCallback((id: string, strength: number, hop = 0, at = performance.now()) => {
-    const cur = touches.current.get(id);
-    const curAmp = cur ? cur.s * Math.exp(-(at - cur.at) / WEB_DECAY_MS) : 0;
-    if (strength > curAmp) touches.current.set(id, { at, s: strength, hop, spread: false });
-  }, []);
-  const amp = (id: string, now: number) => { const t = touches.current.get(id); if (!t) return 0; const age = now - t.at; return age < 0 ? 0 : t.s * Math.exp(-age / WEB_DECAY_MS); };
-  const neighbours = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const e of graph.edges) { (m.get(e.from) || m.set(e.from, []).get(e.from)!).push(e.to); (m.get(e.to) || m.set(e.to, []).get(e.to)!).push(e.from); }
-    return m;
-  }, [graph.edges]);
-  const lastTouch = useRef(0);
-  useEffect(() => {
-    let newest = lastTouch.current;
-    for (const [id, h] of highlights) {
-      if (h.at <= lastTouch.current) continue;
-      touch(id, TOUCH_STRENGTH[h.kind] ?? 0.6, 0, h.at);
-      newest = Math.max(newest, h.at);
-    }
-    lastTouch.current = newest;
-  }, [highlights, touch]);
-
-  // ---------- buffers ----------
-  const nodeGeo = useMemo(() => dynamicGeometry(Math.max(1, nodes.length), true), [nodes.length]);
-  const edgeGeo = useMemo(() => dynamicGeometry(Math.max(1, graph.edges.length) * CURVE_STEPS * 2, false), [graph.edges.length]);
-  const sparkGeo = useMemo(() => dynamicGeometry(900, true), []);
-  const bridgeGeo = useMemo(() => dynamicGeometry(Math.max(1, Math.min(80, graph.bridges.length)) * 24 * 2, false), [graph.bridges.length]);
-  const materials = useMemo(() => ({ nodes: pointMaterial(2.2), edges: lineMaterial(), bridges: lineMaterial(), sparks: pointMaterial(3) }), []);
-  useEffect(() => () => { Object.values(materials).forEach((m) => m.dispose()); }, [materials]);
-  useEffect(() => () => { [nodeGeo, edgeGeo, sparkGeo, bridgeGeo].forEach((g) => g.dispose()); }, [nodeGeo, edgeGeo, sparkGeo, bridgeGeo]);
-  const tmp = useMemo(() => new THREE.Vector3(), []);
-  const segA = useMemo(() => new THREE.Vector3(), []);
-  const segB = useMemo(() => new THREE.Vector3(), []);
-  const c3 = useMemo(() => new THREE.Color(), []);
-  const lastPluck = useRef(0);
+  // Each section's light: dim while waiting for the Zeladora, others dim when one is in focus.
+  const secLight = useMemo(() => tree.sections.map((s) => {
+    const st = props.sections.get(s.id);
+    const waiting = props.readSet && st?.state === "na fila" ? 0.42 : 1;
+    return (focusClusterId && focusClusterId !== s.id ? 0.32 : 1) * waiting;
+  }), [tree, props.sections, props.readSet, focusClusterId]);
+  const kz = useRef({ a: 0, r: 0.8, on: 0 });
 
   useFrame(({ clock }, rawDelta) => {
     const dt = Math.min(rawDelta, 0.05);
     const now = performance.now();
     const t = clock.getElapsedTime();
-    const w = world.current;
-    w.t = t;
-    w.hand.s *= Math.exp(-dt * 1.4); // the hand's current fades when it stops moving
-    w.ripples = w.ripples.filter((r) => now - r.at < 2200);
-    const last = w.ripples.length ? w.ripples[w.ripples.length - 1] : null;
-    const ring = last ? rippleRing(last, now) : null;
-    w.ring = last && ring ? { x: last.x, y: last.y, r: ring.r, s: ring.s } : null;
-    const ease = settings.reducedMotion ? 1 : 1 - Math.pow(0.0025, dt);
+    const w = world.current; w.t = t;
+    w.wpp = (2 * Math.max(1, cam.position.z) * Math.tan((cam.fov * Math.PI) / 360)) / Math.max(1, size.height);
+    (mats.points.uniforms.uRef as { value: number }).value = R * 1.56;
+    w.hand.s *= Math.exp(-dt * 1.2);
+    const D = display;
+    const k = reduced ? 1 : easeOut(Math.min(1, (now - D.at) / 900));
+    for (let i = 0; i < tree.count; i += 1) { D.x[i] = D.sx[i] + (tree.x[i] - D.sx[i]) * k; D.y[i] = D.sy[i] + (tree.y[i] - D.sy[i]) * k; }
+    const grown = (i: number) => (reduced ? 1 : Math.max(0, Math.min(1, (now - D.born[i]) / 650)));
+    for (let i = 0; i < tree.count; i += 1) glow.w[i] *= Math.exp(-dt * 1.6);
 
-    // ---- the person's own memory keeps sending impulses; impulses hop to the neighbours ----
-    if (now - lastPluck.current > 1500) {
-      lastPluck.current = now;
-      if (selectedId) touch(selectedId, 0.85);
-      if (hoveredId && hoveredId !== selectedId) touch(hoveredId, 0.6);
+    // ---- the cursor's lens ----
+    const lensR = R * 0.1;
+    const lens = (x: number, y: number) => { if (w.hand.s < 0.02) return 0; const d = Math.hypot(x - w.hand.x, y - w.hand.y); return d < lensR ? w.hand.s * (1 - d / lensR) ** 2 : 0; };
+
+    // ---- waves: a search, a round of the Zeladora, a tap ----
+    waves.current = waves.current.filter((wv) => now - wv.at < wv.dur);
+    const ww = new Writer(geo.waves).begin();
+    const sw = new Writer(geo.sparks).begin();
+    const drawWave = (a0: number, a1: number, r: number, s: number, seed: number, kind: WaveKind | "zeladora", glowKind: number) => {
+      const [cBase, cHot] = WAVE_COLOR[kind];
+      const band = 0.022 + 0.045 * r;
+      const steps = Math.max(8, Math.min(240, Math.round((a1 - a0) / 0.013)));
+      const da = (a1 - a0) / steps;
+      for (let layer = 0; layer < 2; layer += 1) {
+        let p1x = 0, p1y = 0, p2x = 0, p2y = 0;
+        for (let j = 0; j <= steps; j += 1) {
+          const h = hash01(`${seed}:${layer}:${j}`);
+          const a = a0 + j * da + (hash01(`${seed}:${layer}:${j}`, 5) - 0.5) * da * 0.9;
+          const off = (h - 0.5) * 2 * band + (motion ? Math.sin(t * 5 + j * 1.7 + layer) * band * 0.25 : 0);
+          const x = polarX(r + off, a), y = polarY(r + off, a);
+          const edge = smooth(a0, a0 + 0.12, a) * (1 - smooth(a1 - 0.12, a1, a));
+          const alpha = s * edge * (0.22 + 0.78 * Math.min(1, r)) * 0.75;
+          c3.copy(cBase).lerp(cHot, h * 0.6);
+          if (j >= 1) ww.line(p1x, p1y, x, y, alpha, c3);
+          if (j >= 2) ww.line(p2x, p2y, x, y, alpha * 0.7, c3);
+          if (h > 0.74) { const sp = band * (1 + hash01(`${seed}:${j}`, 7) * 1.6); ww.line(x, y, polarX(r + off + sp, a + (h - 0.87) * 0.04), polarY(r + off + sp, a + (h - 0.87) * 0.04), alpha * 0.8, c3, 0); }
+          if (h > 0.9) sw.dot(x, y, 2.6, alpha * 1.2, cHot);
+          p2x = p1x; p2y = p1y; p1x = x; p1y = y;
+        }
+      }
+      // The nodes the wave passes light up (the memories it weighs).
+      for (let i = 1; i < tree.count; i += 1) {
+        const ang = tree.angle[i]; if (ang < a0 || ang > a1) continue;
+        const dr = Math.abs(tree.r[i] - r); if (dr > band * 1.4) continue;
+        lightNode(i, s * (1 - dr / (band * 1.4)), glowKind);
+      }
+    };
+    for (const wv of waves.current) {
+      const u = (now - wv.at) / wv.dur;
+      const r = 0.03 + (tree.reach + 0.06) * easeOut(u);
+      const env = smooth(0, 0.08, u) * (1 - smooth(0.7, 1, u));
+      drawWave(wv.a0, wv.a1, r, wv.s * env, wv.seed, wv.kind, wv.kind === "ronda" ? 2 : 1);
     }
-    for (const [id, tch] of touches.current) {
-      const age = now - tch.at;
-      if (age > WEB_DECAY_MS * 4) { touches.current.delete(id); continue; }
-      if (!tch.spread && age >= SIGNAL_MS) {
-        tch.spread = true;
-        if (tch.hop < 2) for (const other of (neighbours.get(id) || []).slice(0, 8)) touch(other, tch.s * 0.55, tch.hop + 1, tch.at + SIGNAL_MS);
+    // The Zeladora walking: a small wave where she reads, gliding from memory to memory.
+    const kLeaf = keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.current ? tree.leafOf.get(keeper.current) : undefined;
+    const z = kz.current;
+    if (kLeaf !== undefined) {
+      const ease = reduced ? 1 : 1 - Math.exp(-dt * 4);
+      if (z.on < 0.01) { z.a = tree.angle[kLeaf]; z.r = tree.r[kLeaf]; }
+      z.a += (tree.angle[kLeaf] - z.a) * ease; z.r += (tree.r[kLeaf] - z.r) * ease;
+      z.on = Math.min(1, z.on + dt * 2);
+    } else z.on = Math.max(0, z.on - dt * 1.5);
+    if (z.on > 0.01) drawWave(z.a - 0.13, z.a + 0.13, z.r, 0.75 * z.on, Math.floor(t * 3) * 0.13, "zeladora", 2);
+
+    // ---- the Zeladora's links: an arc between two leaves ----
+    const nowMs = Date.now();
+    for (const l of (keeper?.links || []).slice(-6)) {
+      const age = nowMs - l.at; if (age > 8000) continue;
+      const a = tree.leafOf.get(l.from), b = tree.leafOf.get(l.to); if (a === undefined || b === undefined) continue;
+      const fade = (1 - age / 8000) * 0.9;
+      const mx = (D.x[a] + D.x[b]) / 2, my = (D.y[a] + D.y[b]) / 2; const ml = Math.hypot(mx, my) || 1;
+      const lift = Math.hypot(D.x[b] - D.x[a], D.y[b] - D.y[a]) * 0.35 + R * 0.02;
+      const cx = mx + (mx / ml) * lift, cy = my + (my / ml) * lift;
+      let px = D.x[a], py = D.y[a];
+      for (let s = 1; s <= 20; s += 1) {
+        const u = s / 20, v = 1 - u;
+        const x = v * v * D.x[a] + 2 * v * u * cx + u * u * D.x[b], y = v * v * D.y[a] + 2 * v * u * cy + u * u * D.y[b];
+        ww.line(px, py, x, y, fade, C.keeperHot);
+        px = x; py = y;
+      }
+      const u = ((age % 1400) / 1400), v = 1 - u;
+      sw.dot(v * v * D.x[a] + 2 * v * u * cx + u * u * D.x[b], v * v * D.y[a] + 2 * v * u * cy + u * u * D.y[b], 4, fade, C.keeperHot);
+      lightNode(a, fade, 2); lightNode(b, fade, 2);
+    }
+    ww.end();
+
+    // ---- glowing paths: ribbons climbing the branches, a spark running along them ----
+    const rw = new RibbonWriter(geo.ribbons).begin();
+    trails.current = trails.current.filter((p) => (p.until || 0) > now);
+    for (const p of [...paths, ...trails.current]) {
+      if (p.nodes.length < 2) continue;
+      const fade = p.until ? Math.min(1, (p.until - now) / 900) : 1;
+      const reveal = reduced ? 1 : Math.max(0, Math.min(1, (now - p.at) / (p.kind === "zeladora" ? 600 : REVEAL_MS)));
+      if (reveal <= 0) continue;
+      let total = 0; const L = [0];
+      for (let s = 1; s < p.nodes.length; s += 1) { total += Math.hypot(D.x[p.nodes[s]] - D.x[p.nodes[s - 1]], D.y[p.nodes[s]] - D.y[p.nodes[s - 1]]); L.push(total); }
+      if (total <= 0) continue;
+      const head = easeOut(reveal) * total;
+      const stops = PALETTE[p.kind];
+      const core = (p.kind === "hover" ? 1.1 : p.kind === "zeladora" ? 1.3 : p.strength >= 1 ? 2.1 : 1.5) * w.wpp;
+      const halo = (p.kind === "hover" || p.kind === "zeladora" ? 0 : p.strength >= 1 ? 11 : 6) * w.wpp;
+      let hx = D.x[p.nodes[0]], hy = D.y[p.nodes[0]], ht = 0;
+      for (let s = 1; s < p.nodes.length; s += 1) {
+        if (L[s - 1] >= head) break;
+        const i0 = p.nodes[s - 1], i1 = p.nodes[s];
+        const part = Math.min(1, (head - L[s - 1]) / Math.max(0.0001, L[s] - L[s - 1]));
+        pa.x = D.x[i0]; pa.y = D.y[i0];
+        pb.x = D.x[i0] + (D.x[i1] - D.x[i0]) * part; pb.y = D.y[i0] + (D.y[i1] - D.y[i0]) * part;
+        const t0 = L[s - 1] / total, t1 = (L[s - 1] + (L[s] - L[s - 1]) * part) / total;
+        gradient(stops, t0, c3); gradient(stops, t1, c4);
+        const a0 = p.strength * fade * (0.55 + 0.45 * t0), a1 = p.strength * fade * (0.55 + 0.45 * t1);
+        rw.seg(pa, pb, core, a0, a1, c3, c4);
+        if (halo > 0) rw.seg(pa, pb, halo, a0 * 0.16, a1 * 0.16, c3, c4);
+        if (p.kind !== "hover") { lightNode(i0, 0.55 * p.strength * fade, p.kind === "zeladora" ? 2 : p.kind === "criada" ? 4 : 3); if (part >= 1) lightNode(i1, 0.55 * p.strength * fade, p.kind === "zeladora" ? 2 : p.kind === "criada" ? 4 : 3); }
+        hx = pb.x; hy = pb.y; ht = t1;
+      }
+      if (p.kind !== "hover") {
+        gradient(stops, ht, c3);
+        sw.dot(hx, hy, p.strength >= 1 ? 9 : 6, fade * (reveal < 1 ? 1 : 0.85), c3);
+        // Once there, a spark keeps running up the path: the memory being reached.
+        if (reveal >= 1 && motion && (p.kind === "consulta" || p.kind === "zeladora") && p.strength >= 0.85) {
+          const u = ((now - p.at) % 2600) / 2600; const at = u * total;
+          let s = 1; while (s < L.length - 1 && L[s] < at) s += 1;
+          const f = (at - L[s - 1]) / Math.max(0.0001, L[s] - L[s - 1]);
+          gradient(stops, u, c3);
+          sw.dot(D.x[p.nodes[s - 1]] + (D.x[p.nodes[s]] - D.x[p.nodes[s - 1]]) * f, D.y[p.nodes[s - 1]] + (D.y[p.nodes[s]] - D.y[p.nodes[s - 1]]) * f, 5, fade * 0.9, c3);
+        }
+      }
+    }
+    rw.end();
+
+    // ---- merges (compaction): the memories fly into the one that keeps them ----
+    for (const m of props.merges) {
+      const age = nowMs - m.at; if (age > 1600) continue;
+      const u = easeOut(Math.min(1, age / 1300));
+      for (const f of m.from) for (let tail = 0; tail < 4; tail += 1) {
+        const v = Math.max(0, u - tail * 0.05);
+        sw.dot(f[0] + (m.to[0] - f[0]) * v, f[1] + (m.to[1] - f[1]) * v, 5 - tail, (1 - age / 1600) * (1 - tail * 0.22), C.white);
       }
     }
 
-    // ---- organelles ----
-    const dim = selectedId || hoveredId ? 0.4 : 1;
-    const np = nodeGeo.getAttribute("position") as THREE.BufferAttribute;
-    const ns = nodeGeo.getAttribute("size") as THREE.BufferAttribute;
-    const na = nodeGeo.getAttribute("alpha") as THREE.BufferAttribute;
-    const nt = nodeGeo.getAttribute("tint") as THREE.BufferAttribute;
-    nodes.forEach((n, i) => {
-      const v = current.current.get(n.id); const target = layout.nodes.get(n.id);
-      if (!v || !target) return;
-      const grow = Math.max(0, Math.min(1, (now - (born.current.get(n.id) || 0)) / 900));
-      if (grow > 0) v.lerp(tmp.set(target[0], target[1], target[2]), ease);
-      const [x, y, z] = pos(n.id);
-      np.setXYZ(i, x, y, z);
-      const hl = highlights.get(n.id);
-      const active = hl && now - hl.at < ACTIVE_MS ? 1 - (now - hl.at) / ACTIVE_MS : 0;
-      const shake = amp(n.id, now);
-      const isFocus = focusIds.has(n.id);
-      const unread = Boolean(props.readSet && !props.readSet.has(n.id)) && !active && !isFocus;
-      const away = (focusClusterId && n.clusterId !== focusClusterId && !isFocus && !active) || unread;
-      // A living light: each organelle breathes at its own pace.
-      const breath = motion ? 1 + Math.sin(t * (0.9 + hash01(n.id, 7) * 0.8) + hash01(n.id) * 6.28) * 0.12 : 1;
-      // A polyp shrinks back into its branch when the hand comes near (and opens again).
-      const near = w.hand.s > 0.02 ? Math.max(0, 1 - Math.hypot(x - w.hand.x, y - w.hand.y) / REEF.handR) * Math.min(1, w.hand.s * 2) : 0;
-      const shy = 1 - near * 0.6;
-      const base = (2.6 + n.relevance * 2.6 + (n.id === selectedId ? 4 : n.id === hoveredId ? 2.5 : 0) + active * 3 + shake * 2.2) * breath;
-      ns.setX(i, base * grow * shy);
-      na.setX(i, Math.min(1, (0.6 + n.relevance * 0.35 + active + shake * 0.6) * (isFocus || active ? 1 : dim) * (away ? 0.32 : 1)));
-      c3.set(CATEGORY_COLOR[n.category]).lerp(WHITE, away ? 0.2 : 0.4);
-      if (away) c3.lerp(GREY, 0.6);
-      c3.lerp(hl?.kind === "read" || hl?.kind === "linked" ? TEAL : hl?.kind === "flagged" ? YELLOW : ACTIVITY, active * 0.85).lerp(GLOW, Math.min(1, shake));
-      if (n.id === selectedId) c3.lerp(MAGENTA, 0.5);
-      nt.setXYZ(i, c3.r, c3.g, c3.b);
-    });
-    np.needsUpdate = ns.needsUpdate = na.needsUpdate = nt.needsUpdate = true;
-    nodeGeo.setDrawRange(0, nodes.length);
-
-    // ---- synapses: faint filaments that sway; a touched one vibrates and glows ----
-    const ew = new Writer(edgeGeo).begin();
-    for (const e of graph.edges) {
-      const lit = focusIds.has(e.from) && focusIds.has(e.to) && (e.from === selectedId || e.to === selectedId || e.from === hoveredId || e.to === hoveredId);
-      const shake = motion ? Math.max(amp(e.from, now), amp(e.to, now)) : 0;
-      if (e.cross && !lit && shake < 0.08) continue;
-      const a = pos(e.from); const b = pos(e.to);
-      const alpha = Math.min(0.95, (lit ? 0.7 : (e.kind === "relacao" ? 0.07 : 0.008) * dim) + shake * 0.8);
-      const fromNode = nodes[index.get(e.from) ?? -1];
-      c3.set(fromNode ? CATEGORY_COLOR[fromNode.category] : "#8a93a3").lerp(TEAL, e.kind === "relacao" ? 0.45 : 0.2);
-      if (shake > 0) c3.lerp(GLOW, Math.min(1, shake * 1.2));
-      const curve = 0.18 * (hash01(e.id) - 0.5) + (motion ? Math.sin(t * 0.7 + hash01(e.id, 3) * 6.28) * 0.03 : 0);
-      const dx = b[0] - a[0], dy = b[1] - a[1]; const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len, ny = dx / len;
-      const wave = (u: number, out: THREE.Vector3) => { if (shake > 0.01) { const o = shake * Math.min(5, len * 0.08) * Math.sin(Math.PI * u) * Math.sin(t * 24 - u * 9 + hash01(e.id) * 6); out.x += nx * o; out.y += ny * o; } return out; };
-      let prev = wave(0, curvePoint(a, b, 0, curve, segA));
-      let next = segB;
-      for (let s = 1; s <= CURVE_STEPS; s += 1) {
-        wave(s / CURVE_STEPS, curvePoint(a, b, s / CURVE_STEPS, curve, next));
-        ew.line(prev, next, alpha, c3);
-        [prev, next] = [next, prev];
-      }
+    // ---- forks: small dim stars where branches split ----
+    for (let i = 1; i < tree.count; i += 1) {
+      if (tree.memoryAt[i] || grown(i) < 1) continue;
+      const si = tree.section[i];
+      const gl = glow.w[i];
+      sw.dot(D.x[i], D.y[i], 1.6 + gl * 2, (0.28 + gl * 0.7 + lens(D.x[i], D.y[i]) * 0.5) * (si >= 0 ? secLight[si] : 1), gl > 0.05 ? GLOW_COLOR[glow.k[i]] : C.branch);
     }
-    ew.end();
 
-    // ---- filaments between cells (aggregated links), slowly swaying ----
-    const bw = new Writer(bridgeGeo).begin();
-    for (const br of graph.bridges.slice(0, 80)) {
-      const A = layout.clusters.get(br.a); const B = layout.clusters.get(br.b); if (!A || !B) continue;
-      const strength = Math.min(0.22, 0.03 + Math.sqrt(br.count) * 0.02) * dim;
-      c3.set(CATEGORY_COLOR[clusterOf.get(br.a)?.category || "geral"]).lerp(WHITE, 0.45);
-      const curve = 0.2 * (hash01(br.a + br.b) > 0.5 ? 1 : -1) + (motion ? Math.sin(t * 0.25 + hash01(br.b) * 6) * 0.04 : 0);
-      for (let s = 0; s < 24; s += 1) {
-        const u0 = s / 24, u1 = (s + 1) / 24;
-        const fade = Math.sin((Math.PI * (u0 + u1)) / 2);
-        curvePoint(A.center, B.center, u0, curve, segA); curvePoint(A.center, B.center, u1, curve, segB);
-        bw.line(segA, segB, strength * fade, c3);
-      }
+    // ---- the root: the Aurora ----
+    sw.dot(0, 0, 9 + (motion ? Math.sin(t * 1.6) * 0.8 : 0), 0.95, C.white);
+    sw.dot(0, 0, 22, 0.16, C.wave);
+
+    // ---- branches: hairlines, brighter where many memories pass ----
+    const bw = new Writer(geo.branches).begin();
+    for (let i = 1; i < tree.count; i += 1) {
+      const g = grown(i); if (g <= 0) continue;
+      const p = tree.parent[i];
+      const si = tree.section[i];
+      const light = si >= 0 ? secLight[si] : 1;
+      const x1 = D.x[p] + (D.x[i] - D.x[p]) * g, y1 = D.y[p] + (D.y[i] - D.y[p]) * g;
+      const weight = Math.sqrt(tree.carried[i] / paint.heaviest);
+      const gl = Math.max(glow.w[i], glow.w[p] * 0.5);
+      const ln = lens((D.x[p] + x1) / 2, (D.y[p] + y1) / 2);
+      const alpha = (0.1 + 0.3 * weight) * light + gl * 0.75 + ln * 0.35;
+      c3.setRGB(paint.branch[i * 3], paint.branch[i * 3 + 1], paint.branch[i * 3 + 2]);
+      if (gl > 0.02) c3.lerp(GLOW_COLOR[glow.k[i]], Math.min(1, gl * 1.2)).lerp(C.white, gl * 0.3);
+      bw.line(D.x[p], D.y[p], x1, y1, alpha * (tree.memoryAt[p] ? 1 : 1), c3, alpha * (tree.memoryAt[i] ? 0.8 : 1));
     }
     bw.end();
 
-    // ---- sparks: impulses running along the synapses; event pulses from the middle of the cell ----
-    const sw = new Writer(sparkGeo).begin();
-    if (motion) for (const [id, tch] of touches.current) {
-      const age = now - tch.at; if (age < 0 || age > SIGNAL_MS || tch.s < 0.15) continue;
-      const a = pos(id); const u = age / SIGNAL_MS;
-      for (const other of (neighbours.get(id) || []).slice(0, 8)) {
-        if (sw.full) break;
-        const b = pos(other);
-        const curve = 0.18 * (hash01(id < other ? `${id}|${other}` : `${other}|${id}`) - 0.5);
-        sw.dot(curvePoint(a, b, u, curve, tmp), 1.4 + tch.s * 2, Math.min(1, tch.s * 1.3) * (1 - u * 0.4), GLOW);
-        sw.dot(curvePoint(a, b, Math.max(0, u - 0.06), curve, tmp), 1 + tch.s, Math.min(1, tch.s) * 0.45, GLOW);
-      }
+    // ---- links between memories: a faint mesh in the canopy ----
+    const ew = new Writer(geo.edges).begin();
+    for (const e of graph.edges) {
+      const a = tree.leafOf.get(e.from), b = tree.leafOf.get(e.to); if (a === undefined || b === undefined) continue;
+      // Only the links of the memory in focus (the tree itself is the structure).
+      if (!(focusIds.has(e.from) && focusIds.has(e.to))) continue;
+      const g = Math.min(grown(a), grown(b)); if (g <= 0) continue;
+      const alpha = 0.45 * g;
+      const lit = true;
+      c3.setRGB(paint.leaf[a * 3], paint.leaf[a * 3 + 1], paint.leaf[a * 3 + 2]);
+      if (lit) c3.lerp(C.white, 0.5);
+      ew.line(D.x[a], D.y[a], D.x[b], D.y[b], alpha, c3);
     }
-    for (const [id, hl] of highlights) {
-      if (sw.full) break;
-      const age = now - hl.at; if (age > 2600 || (hl.kind !== "recalled" && hl.kind !== "created")) continue;
-      if (!has(id)) continue;
-      const travel = settings.reducedMotion ? 1 : Math.min(1, age / 1800);
-      sw.dot(curvePoint(hubOf(id), pos(id), travel, 0.08, tmp), 3.2, 1 - age / 2600, hl.kind === "created" ? ACTIVITY : GLOW);
+    ew.end();
+
+    // ---- leaves: the memories ----
+    const lw = new Writer(geo.leaves).begin();
+    for (const [id, i] of leaves) {
+      const n = nodeOf.get(id); if (!n) continue;
+      const g = grown(i); if (g <= 0) continue;
+      const hl = highlights.get(id);
+      const active = hl && now - hl.at < ACTIVE_MS ? 1 - (now - hl.at) / ACTIVE_MS : 0;
+      const tk = turnKinds.get(id);
+      const turnLit = tk ? (tk === "scanned" ? 0.35 : 0.9) * (agent?.ended ? 0.6 : 1) : 0;
+      const si = tree.section[i];
+      const unread = props.readSet && !props.readSet.has(id) ? 0.45 : 1;
+      const light = (si >= 0 ? secLight[si] : 1) * unread;
+      const ln = lens(D.x[i], D.y[i]);
+      const gl = glow.w[i];
+      const twinkle = motion ? 0.82 + 0.18 * Math.sin(t * (0.8 + hash01(id, 7) * 1.6) + hash01(id) * 6.28) : 1;
+      const isSel = id === selectedId, isHover = id === hoveredId;
+      const sz = ((2.6 + n.relevance * 2.6) * twinkle + gl * 3 + ln * 2.5 + active * 2.5 + turnLit * 2.5 + (isSel ? 4 : isHover ? 2.5 : 0)) * g;
+      const alpha = Math.min(1, (0.68 + n.relevance * 0.3) * twinkle * light + gl + ln * 0.5 + active + turnLit + (isSel || isHover ? 1 : 0));
+      c3.setRGB(paint.leaf[i * 3], paint.leaf[i * 3 + 1], paint.leaf[i * 3 + 2]);
+      if (gl > 0.02) c3.lerp(GLOW_COLOR[glow.k[i]], Math.min(1, gl));
+      if (tk) c3.lerp(tk === "scanned" ? C.search : tk === "created" ? C.created : C.recall, turnLit);
+      if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active * 1.2));
+      if (isSel) c3.lerp(C.select, 0.6);
+      lw.dot(D.x[i], D.y[i], sz, alpha, c3);
     }
+    lw.end();
+
+    // ---- the faint stars; a passing wave brightens them ----
+    const dw = new Writer(geo.dust).begin();
+    const rings = waves.current.map((wv) => { const u = (now - wv.at) / wv.dur; return { r: (0.03 + (tree.reach + 0.06) * easeOut(u)) * R, s: wv.s * (1 - smooth(0.7, 1, u)) }; });
+    for (let i = 0; i < dust.n; i += 1) {
+      const x = dust.xs[i], y = dust.ys[i];
+      let boost = 0;
+      if (rings.length) { const d = Math.hypot(x, y); for (const rg of rings) { const dd = Math.abs(d - rg.r) / (R * 0.05); if (dd < 1) boost = Math.max(boost, rg.s * (1 - dd)); } }
+      const tw = motion ? 0.5 + 0.5 * Math.sin(t * (0.5 + dust.ph[i] * 1.5) + dust.ph[i] * 40) : 0.7;
+      dw.dot(x, y, dust.sz[i] + boost * 1.5, (0.05 + 0.16 * tw) + boost * 0.6 + lens(x, y) * 0.3, boost > 0.05 ? C.waveHot : C.dust);
+    }
+    dw.end();
+
+    // ---- the bushes at the base ----
+    const uw = new Writer(geo.bushes).begin();
+    bushes.forEach((b, k) => {
+      const on = hoverBush === k || replay?.bush.id === b.rc.id;
+      const a = on ? 0.55 : 0.2;
+      b.forks.forEach((f) => uw.line(b.bx, 0, f.x, f.y, a, C.branch));
+      b.leaves.forEach((l, j) => {
+        const f = b.forks[l.fork];
+        uw.line(f.x, f.y, l.x, l.y, a * 0.85, C.branch);
+        if (j > 0) uw.line(b.leaves[j - 1].x, b.leaves[j - 1].y, l.x, l.y, a * 0.3, C.branch);
+        const n = nodeOf.get(l.id);
+        c3.set(n ? CATEGORY_COLOR[n.category] : "#7b8794").lerp(C.white, 0.5);
+        sw.dot(l.x, l.y, on ? 3.2 : 2.2, on ? 0.95 : 0.5, c3);
+      });
+      sw.dot(b.bx, 0, on ? 4.5 : 3.2, on ? 0.9 : 0.55, C.white);
+    });
+    uw.end();
     sw.end();
   });
 
-  // Picking a memory: the raycaster's threshold covers its point.
-  const pick = (e: ThreeEvent<PointerEvent | MouseEvent>) => (e.index !== undefined ? nodes[e.index]?.id ?? null : null);
-  // The water: the cursor is a current; a tap sends a ripple.
+  // ---------- the person: a lens, hover the nearest memory, tap for a wave, click a bush to replay it ----------
   const plane0 = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), []);
   const hit = useMemo(() => new THREE.Vector3(), []);
-  const onWaterMove = (e: ThreeEvent<PointerEvent>) => {
+  const lastHover = useRef<string | null>(null);
+  const nearestLeaf = (x: number, y: number): string | null => {
+    const D = display; const max = 11 * world.current.wpp;
+    let best: string | null = null, bd = max * max;
+    for (const [id, i] of leaves) { const d = (D.x[i] - x) ** 2 + (D.y[i] - y) ** 2; if (d < bd) { bd = d; best = id; } }
+    return best;
+  };
+  const bushAt = (x: number, y: number) => bushes.findIndex((b) => Math.abs(x - b.bx) < b.h * 1.3 && y > -R * 0.02 && y < b.h * 1.15);
+  const sectionAt = (x: number, y: number) => {
+    const a = Math.atan2(x, y); const r = Math.hypot(x, y) / R;
+    if (r < 0.12 || r > tree.reach + 0.1) return null;
+    return tree.sections.find((s) => a >= s.from - 0.02 && a <= s.to + 0.02) || null;
+  };
+  const onMove = (e: ThreeEvent<PointerEvent>) => {
     if (!e.ray.intersectPlane(plane0, hit)) return;
     const h = world.current.hand;
-    const moved = Math.hypot(hit.x - h.x, hit.y - h.y);
-    h.x = hit.x; h.y = hit.y; h.s = Math.min(1, h.s + moved * 0.06);
+    const moved = Math.hypot(hit.x - h.x, hit.y - h.y) / Math.max(0.001, world.current.wpp);
+    h.x = hit.x; h.y = hit.y; h.s = Math.min(1, h.s + moved * 0.02);
+    const id = nearestLeaf(hit.x, hit.y);
+    if (id !== lastHover.current) { lastHover.current = id; onHover(id); }
+    const b = bushAt(hit.x, hit.y);
+    if ((b < 0 ? null : b) !== hoverBush) setHoverBush(b < 0 ? null : b);
   };
-  const onWaterClick = (e: ThreeEvent<MouseEvent>) => {
-    if (e.delta > 4) return; // a drag of the map, not a tap
-    if (e.ray.intersectPlane(plane0, hit) && motion) world.current.ripples.push({ x: hit.x, y: hit.y, at: performance.now() });
+  const onTap = (e: ThreeEvent<MouseEvent>) => {
+    if (e.delta > 4 || !e.ray.intersectPlane(plane0, hit)) return;
+    const id = nearestLeaf(hit.x, hit.y);
+    if (id) { onSelect(id); return; }
+    const b = bushAt(hit.x, hit.y);
+    if (b >= 0) { setReplay({ bush: bushes[b].rc, at: performance.now() }); return; }
+    if (motion) {
+      const a = Math.atan2(hit.x, hit.y);
+      waves.current.push({ at: performance.now(), a0: Math.max(-tree.span - 0.05, a - 0.8), a1: Math.min(tree.span + 0.05, a + 0.8), dur: 1700, s: 0.6, seed: Math.random(), kind: "toque" });
+    }
     onSelect(null);
+  };
+  const onDouble = (e: ThreeEvent<MouseEvent>) => {
+    if (!e.ray.intersectPlane(plane0, hit)) return;
+    const s = sectionAt(hit.x, hit.y);
+    if (s) onCluster(s.id, true);
   };
 
   return (
     <>
-      <Sea world={world} onMove={onWaterMove} onClick={onWaterClick} onLeave={() => { world.current.hand.s = 0; }} />
-      <Plankton world={world} layout={layout} quality={settings.quality} />
-      <Reefs graph={graph} layout={layout} corals={corals} amp={amp} world={world} sections={props.sections} keeper={props.keeper} focusClusterId={focusClusterId} readSet={props.readSet} onCluster={onCluster} />
-      <lineSegments geometry={bridgeGeo} material={materials.bridges} frustumCulled={false} />
-      <lineSegments geometry={edgeGeo} material={materials.edges} frustumCulled={false} />
-      <points
-        geometry={nodeGeo} material={materials.nodes} frustumCulled={false}
-        onPointerMove={(e) => { e.stopPropagation(); onHover(pick(e)); onWaterMove(e); }}
-        onPointerOut={() => onHover(null)}
-        onClick={(e) => { e.stopPropagation(); onSelect(pick(e)); }}
-      />
-      <points geometry={sparkGeo} material={materials.sparks} frustumCulled={false} />
-      <Fusions merges={props.merges} reduced={settings.reducedMotion} />
-      <Lightning agent={props.agent} hubOf={hubOf} pos={pos} has={has} reduced={settings.reducedMotion} />
-      <Medusa keeper={props.keeper} core={layout.core} pos={pos} has={has} world={world} reduced={settings.reducedMotion} touch={touch} />
-      {settings.labels && <Labels {...props} index={index} clusterOf={clusterOf} pos={pos} />}
-      <CameraRig command={camera} reduced={settings.reducedMotion} onUserMove={props.onUserMove} />
+      <mesh position={[0, R * 0.5, -0.5]} onPointerMove={onMove} onPointerLeave={() => { world.current.hand.s = 0; lastHover.current = null; onHover(null); setHoverBush(null); }} onClick={onTap} onDoubleClick={onDouble}>
+        <planeGeometry args={[R * 8, R * 6]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+      </mesh>
+      <points geometry={geo.dust} material={mats.points} frustumCulled={false} />
+      <lineSegments geometry={geo.edges} material={mats.lines} frustumCulled={false} />
+      <lineSegments geometry={geo.branches} material={mats.lines} frustumCulled={false} />
+      <lineSegments geometry={geo.bushes} material={mats.lines} frustumCulled={false} />
+      <lineSegments geometry={geo.waves} material={mats.lines} frustumCulled={false} />
+      <mesh geometry={geo.ribbons} material={mats.ribbons} frustumCulled={false} />
+      <points geometry={geo.leaves} material={mats.points} frustumCulled={false} />
+      <points geometry={geo.sparks} material={mats.points} frustumCulled={false} />
+      <Labels {...props} paths={paths} bushes={bushes} hoverBush={hoverBush} replay={replay} />
+      <CameraRig command={camera} reduced={reduced} onUserMove={props.onUserMove} R={R} />
     </>
   );
 }
 
-// ================================================================== the water
-function Sea({ world, onMove, onClick, onLeave }: { world: React.MutableRefObject<World>; onMove: (e: ThreeEvent<PointerEvent>) => void; onClick: (e: ThreeEvent<MouseEvent>) => void; onLeave: () => void }) {
-  const material = useMemo(() => seaMaterial(), []);
-  useEffect(() => () => material.dispose(), [material]);
-  useFrame(() => {
-    material.uniforms.uTime.value = world.current.motion ? world.current.t : 0;
-    const h = world.current.hand; (material.uniforms.uHand.value as THREE.Vector3).set(h.x, h.y, h.s);
-  });
-  return (
-    <mesh position={[0, 0, -60]} material={material} onPointerMove={onMove} onClick={onClick} onPointerLeave={onLeave} renderOrder={-10}>
-      <planeGeometry args={[9000, 9000]} />
-    </mesh>
-  );
-}
-
-/** Plankton: thousands of specks in a slow current, parting around the hand, the jellyfish and the ripples. */
-function Plankton({ world, layout, quality }: { world: React.MutableRefObject<World>; layout: Layout; quality: Quality }) {
-  const count = PLANKTON[quality];
-  const bounds = useMemo(() => {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const c of layout.clusters.values()) { minX = Math.min(minX, c.center[0] - c.radius); maxX = Math.max(maxX, c.center[0] + c.radius); minY = Math.min(minY, c.center[1] - c.radius); maxY = Math.max(maxY, c.center[1] + c.radius); }
-    if (!Number.isFinite(minX)) { minX = -200; maxX = 200; minY = -200; maxY = 200; }
-    const m = 160;
-    return { minX: minX - m, maxX: maxX + m, minY: minY - m, maxY: maxY + m };
-  }, [layout]);
-  const state = useMemo(() => {
-    const px = new Float32Array(count), py = new Float32Array(count), vx = new Float32Array(count), vy = new Float32Array(count), pz = new Float32Array(count), tw = new Float32Array(count);
-    for (let i = 0; i < count; i += 1) {
-      px[i] = bounds.minX + hash01(`p${i}`) * (bounds.maxX - bounds.minX);
-      py[i] = bounds.minY + hash01(`p${i}`, 3) * (bounds.maxY - bounds.minY);
-      pz[i] = -40 + hash01(`p${i}`, 5) * 50; tw[i] = hash01(`p${i}`, 9) * 6.28;
-    }
-    return { px, py, vx, vy, pz, tw };
-  }, [count, bounds]);
-  const geo = useMemo(() => dynamicGeometry(count, true), [count]);
-  const material = useMemo(() => pointMaterial(1), []);
-  useEffect(() => () => { geo.dispose(); material.dispose(); }, [geo, material]);
-  const tint = useMemo(() => new THREE.Color(), []);
-  useFrame((_, rawDelta) => {
-    const w = world.current;
-    if (w.motion) stepPlankton(state.px, state.py, state.vx, state.vy, Math.min(rawDelta, 0.05), w.t, bounds, pushersOf(w, performance.now()));
-    const out = new Writer(geo).begin();
-    for (let i = 0; i < count; i += 1) {
-      const depth = (state.pz[i] + 40) / 50; // the far ones are fainter
-      const twinkle = 0.55 + 0.45 * Math.sin(w.t * 1.3 + state.tw[i]);
-      const speed = Math.min(1, Math.hypot(state.vx[i], state.vy[i]) / 18);
-      tint.setRGB(0.45 + speed * 0.4, 0.85, 0.9);
-      out.dot({ x: state.px[i], y: state.py[i], z: state.pz[i] }, 0.35 + depth * 0.5 + speed * 0.4, (0.08 + depth * 0.16) * twinkle + speed * 0.25, tint);
-    }
-    out.end();
-  });
-  return <points geometry={geo} material={material} frustumCulled={false} />;
-}
-
-// ================================================================== the reef
+// ================================================================== words on the instrument
+type BushView = { rc: RecallBush; bx: number; h: number };
+const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+const PATH_WORD: Record<PathKind, string> = { consulta: "consultada", zeladora: "zeladora", criada: "criada agora", selecao: "selecionada", hover: "" };
 /**
- * One coral colony per section (ocean/coral.ts + the coral shader). It grows out from its base the first time
- * it appears; it sways, bends and ripples in the water; it is bleached while the Zeladora has not tended it in
- * her round, and its colour comes back gradually as she reads it; it flashes when its memories are touched.
- * A double click on it focuses the section.
+ * Section names along the canopy, the names of a few memories (hovered, selected, active), and the callout at
+ * the end of the main path: depth, what happened, the memory, its section.
  */
-type Colony = { cluster: GraphCluster; center: Vec3; radius: number; geometry: THREE.BufferGeometry; material: THREE.ShaderMaterial; bleach: number; born: number };
-function Reefs({ graph, layout, corals, amp, world, sections, keeper, focusClusterId, readSet, onCluster }: {
-  graph: MemoryGraph; layout: Layout; corals: Map<string, Coral>; amp: (id: string, now: number) => number; world: React.MutableRefObject<World>;
-  sections: Map<string, SectionState>; keeper: KeeperView | null; focusClusterId: string | null; readSet: Set<string> | null; onCluster: (id: string, double: boolean) => void;
-}) {
-  const seen = useRef(new Set<string>());
-  const firstLoad = useRef(true);
-  const colonies = useMemo(() => {
-    const now = performance.now();
-    const out: Colony[] = [];
-    graph.clusters.forEach((c, i) => {
-      const coral = corals.get(c.id); const box = layout.clusters.get(c.id);
-      if (!coral || !box) return;
-      const isNew = !seen.current.has(c.id);
-      seen.current.add(c.id);
-      out.push({ cluster: c, center: box.center, radius: box.radius, geometry: coralGeometry(coral), material: coralMaterial(), bleach: 0,
-        // The first time: the reef grows, colony after colony; later ones grow when they appear.
-        born: isNew ? now + (firstLoad.current ? i * 220 : 0) : -Infinity });
-    });
-    firstLoad.current = false;
-    return out;
-  }, [graph.clusters, corals, layout]);
-  useEffect(() => () => { colonies.forEach((c) => { c.geometry.dispose(); c.material.dispose(); }); }, [colonies]);
-  useFrame((_, rawDelta) => {
-    const w = world.current; const now = performance.now();
-    const walking = Boolean(keeper?.enabled && keeper.running && keeper.phase === "andando" && readSet);
-    for (const col of colonies) {
-      const u = col.material.uniforms;
-      u.uTime.value = w.motion ? w.t : 0;
-      (u.uHand.value as THREE.Vector3).set(w.hand.x, w.hand.y, w.motion ? w.hand.s : 0);
-      (u.uJelly.value as THREE.Vector3).set(w.jelly.x, w.jelly.y, w.motion ? w.jelly.r : 0);
-      (u.uRipple.value as THREE.Vector4).set(w.ring?.x || 0, w.ring?.y || 0, w.ring?.r || 0, w.motion ? w.ring?.s || 0 : 0);
-      u.uGrow.value = w.motion ? Math.max(0, Math.min(1.2, (now - col.born) / 2600)) : 1.2;
-      (u.uColor.value as THREE.Color).set(CATEGORY_COLOR[col.cluster.category]);
-      // Bleached while she has not tended it; the colour comes back slowly as she reads it.
-      const sec = sections.get(col.cluster.id);
-      const target = walking && sec ? (sec.state === "na fila" ? 1 : sec.state === "lendo" ? 1 - (sec.total ? sec.read / sec.total : 0) : 0) : 0;
-      col.bleach += (target - col.bleach) * Math.min(1, rawDelta * 1.5);
-      u.uBleach.value = col.bleach;
-      let pulse = 0;
-      for (const id of col.cluster.nodeIds) { const a = amp(id, now); if (a > pulse) pulse = a; }
-      u.uPulse.value = Math.min(1, pulse) * 0.6;
-      u.uAlpha.value = focusClusterId && focusClusterId !== col.cluster.id ? 0.35 : sec?.state === "lendo" ? 1.2 : 1;
-    }
-  });
+function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, sections, settings, paths, bushes, hoverBush, replay, keeper, recalls }: SceneProps & { paths: PathSpec[]; bushes: BushView[]; hoverBush: number | null; replay: { bush: RecallBush; at: number } | null }) {
+  const tree = layout.tree; const R = tree.R;
+  const nodeOf = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+  const clusterOf = useMemo(() => new Map(graph.clusters.map((c) => [c.id, c])), [graph.clusters]);
+  const total = Math.max(1, graph.nodes.length);
+  const now = performance.now();
+  const at = (id: string): Vec3 => layout.nodes.get(id) || [0, 0, 0];
+  // The main path's memory: a replayed question, the turn's best memory, else the selected one.
+  const main = paths.find((p) => p.kind === "consulta" && p.strength >= 0.7) || paths.find((p) => p.kind === "criada") || paths.find((p) => p.kind === "selecao");
+  const mainId = main ? tree.memoryAt[main.nodes[main.nodes.length - 1]] : null;
+  const names = new Set<string>();
+  if (hoveredId && hoveredId !== mainId) names.add(hoveredId);
+  if (selectedId && selectedId !== mainId) names.add(selectedId);
+  // Only what is rare enough to read: a memory just created, flagged or joined (the Zeladora's reading and a
+  // question's memories already show as her wave and the glowing paths).
+  for (const [id, h] of [...highlights].sort((a, b) => b[1].at - a[1].at)) { if (names.size >= 5) break; if (now - h.at < 5000 && id !== mainId && (h.kind === "created" || h.kind === "joined" || (h.kind === "flagged" && h.note))) names.add(id); }
+  if (keeper?.current && keeper.current !== mainId) names.add(keeper.current);
+  if (!settings.labels) names.clear();
+  const sectionFor = (id: string) => clusterOf.get(nodeOf.get(id)?.clusterId || "");
+  const mainNode = mainId ? nodeOf.get(mainId) : null;
+  const score = mainId ? highlights.get(mainId)?.score : undefined;
+  const mainColor = main?.kind === "criada" ? ACTIVITY_COLOR : main?.kind === "selecao" ? "#ff7aa8" : "#ff9a55";
+  // The names of the biggest sections (the others on focus or while she reads them), at alternating heights.
+  const biggest = new Set([...graph.clusters].sort((a, b) => b.nodeIds.length - a.nodeIds.length).slice(0, 7).map((c) => c.id));
   return (
     <>
-      {colonies.map((col) => (
-        <mesh key={col.cluster.id} geometry={col.geometry} material={col.material} frustumCulled={false} renderOrder={-5}
-          onDoubleClick={(e) => { if (Math.hypot(e.point.x - col.center[0], e.point.y - col.center[1]) < col.radius * 1.2) { e.stopPropagation(); onCluster(col.cluster.id, true); } }} />
+      {settings.labels && tree.sections.map((s, k) => {
+        const c = clusterOf.get(s.id); if (!c) return null;
+        const st = sections.get(s.id);
+        const big = biggest.has(s.id) && c.nodeIds.length >= Math.max(2, total * 0.02);
+        if (!big && s.id !== focusClusterId && st?.state !== "lendo") return null;
+        return (
+          <Html key={s.id} position={[s.labelX, s.labelY + (k % 2) * R * 0.05, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+            <div className={`lm-sec ${s.id === focusClusterId ? "on" : ""} ${st?.state === "lendo" ? "reading" : st?.state === "na fila" ? "queued" : ""}`} style={{ ["--c" as string]: CATEGORY_COLOR[c.category] }}>
+              <b>{c.label}</b><span>{st ? `${st.read}/${st.total}` : c.nodeIds.length}</span>
+            </div>
+          </Html>
+        );
+      })}
+      {[...names].filter((id) => nodeOf.has(id)).map((id) => {
+        const [x, y] = at(id); const h = highlights.get(id);
+        const left = x < 0;
+        return (
+          <Html key={`n:${id}`} position={[x, y, 0]} zIndexRange={[20, 10]} style={{ pointerEvents: "none" }}>
+            <div className={`lm-leaf ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""} ${id === keeper?.current ? "keeper" : ""}`}>
+              {nodeOf.get(id)!.label}{h?.note && now - h.at < ACTIVE_MS ? <em> · {h.note}</em> : null}
+            </div>
+          </Html>
+        );
+      })}
+      {main && mainNode && (
+        <Html key={`main:${mainId}`} position={[at(mainId!)[0], at(mainId!)[1], 0]} zIndexRange={[30, 20]} style={{ pointerEvents: "none" }}>
+          <div className={`lm-callout ${at(mainId!)[0] > R * 0.45 ? "left" : ""}`} style={{ ["--c" as string]: mainColor }}>
+            <b>profundidade {main.nodes.length - 1} · {replay ? `pergunta das ${fmtTime(replay.bush.at)}` : main.key.startsWith("l:") && recalls[0] ? `última pergunta · ${fmtTime(recalls[0].at)}` : PATH_WORD[main.kind]}</b>
+            <span>{mainNode.memory.title}</span>
+            <small>{sectionFor(mainId!)?.label || "—"}{score != null ? ` · similaridade ${score.toFixed(2).replace(".", ",")}` : ""}{mainNode.memory.uses ? ` · usada ${mainNode.memory.uses}×` : ""}</small>
+          </div>
+        </Html>
+      )}
+      <Html position={[0, -R * 0.035, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+        <div className="lm-root">aurora · {graph.nodes.length} memórias</div>
+      </Html>
+      {bushes.map((b, k) => (hoverBush === k || replay?.bush.id === b.rc.id) && (
+        <Html key={`b:${b.rc.id}`} position={[b.bx, -R * 0.035, 0]} center zIndexRange={[25, 15]} style={{ pointerEvents: "none" }}>
+          <div className="lm-bush">“{b.rc.prompt.slice(0, 54)}{b.rc.prompt.length > 54 ? "…" : ""}”<small>{fmtTime(b.rc.at)} · usou {b.rc.used.length} {b.rc.used.length === 1 ? "memória" : "memórias"}{hoverBush === k ? " · clique para rever o caminho" : ""}</small></div>
+        </Html>
       ))}
     </>
   );
 }
 
-// ================================================================== the Zeladora: a jellyfish
-/**
- * A Zeladora (app/memoryKeeper.js) as a moon jellyfish seen from above. She swims by pulses of her bell to the
- * memory she reads; a fringe of fine tentacles waves at her margin; four oral arms trail behind her; her long
- * tentacles (Verlet ropes) trail in the water — and one reaches each memory she has just read: the memory
- * ripples and its light flows back up the tentacle to her. Linking, compacting and flagging make her bell
- * flash; her speech bubble says what she is doing. Her body pushes the water: plankton parts, the coral bends.
- */
-const TENTACLES = 22;
-const ARMS = 4;
-const BELL = 10;
-const FRINGE = 72;
-function Medusa({ keeper, core, pos, has, world, reduced, touch }: { keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; world: React.MutableRefObject<World>; reduced: boolean; touch: (id: string, strength: number) => void }) {
-  const swim = useRef(newSwim(core[0] + 30, core[1] - 30));
-  const ropes = useRef<Rope[]>([]);
-  const arms = useRef<Rope[]>([]);
-  const bell = useRef<THREE.Mesh>(null);
-  const group = useRef<THREE.Group>(null);
-  const bellMat = useMemo(() => bellMaterial(), []);
-  const lines = useMemo(() => dynamicGeometry((TENTACLES * 16 + ARMS * 18 * 2 + FRINGE) * 2, false), []);
-  const dots = useMemo(() => dynamicGeometry(TENTACLES * 3 + 40, true), []);
-  const lineMat = useMemo(() => lineMaterial(), []);
-  const dotMat = useMemo(() => pointMaterial(2), []);
-  useEffect(() => () => { bellMat.dispose(); lines.dispose(); dots.dispose(); lineMat.dispose(); dotMat.dispose(); }, [bellMat, lines, dots, lineMat, dotMat]);
-  const reached = useRef(new Set<string>());
-  const c3 = useMemo(() => new THREE.Color(), []);
-  const pink = useMemo(() => new THREE.Color("#f58fb0"), []);
-  const pale = useMemo(() => new THREE.Color("#bff4ff"), []);
-  const white = useMemo(() => new THREE.Color("#ffffff"), []);
-
-  useFrame(({ clock }, rawDelta) => {
-    const dt = Math.min(rawDelta, 0.05);
-    const t = reduced ? 0 : clock.getElapsedTime();
-    const visible = Boolean(keeper?.enabled && keeper.running);
-    if (group.current) group.current.visible = visible;
-    if (!visible || !keeper) { lines.setDrawRange(0, 0); dots.setDrawRange(0, 0); world.current.jelly.r = 0; return; }
-    const now = Date.now();
-    const s = swim.current;
-    // Where she swims: beside the memory she reads; resting, near the middle of the sea.
-    const reading = keeper.current && has(keeper.current) ? pos(keeper.current) : null;
-    const target = reading ? { x: reading[0] + 12, y: reading[1] - 12 } : { x: core[0] + 30, y: core[1] - 30 };
-    if (reduced) { s.x = target.x; s.y = target.y; s.contraction = 0; } else stepSwim(s, target, dt);
-    const acting = keeper.saying ? Math.max(0, 1 - (now - keeper.saying.at) / 900) : 0;
-    const R = BELL * (1 - s.contraction * 0.14);
-    world.current.jelly = { x: s.x, y: s.y, r: R };
-    if (group.current) group.current.position.set(s.x, s.y, 2);
-    if (bell.current) { bell.current.scale.set(R * 2 * (1 + s.contraction * 0.05), R * 2 * (1 - s.contraction * 0.05), 1); bell.current.rotation.z = s.heading; }
-    bellMat.uniforms.uTime.value = t; bellMat.uniforms.uContract.value = s.contraction; bellMat.uniforms.uFlash.value = acting * (keeper.saying?.action === "read" ? 0.4 : 1);
-    const back = { x: -Math.cos(s.heading), y: -Math.sin(s.heading) };
-    const speed = Math.hypot(s.vx, s.vy);
-    const flow = { x: back.x * (1.5 + speed * 0.2), y: back.y * (1.5 + speed * 0.2) };
-    const pushers = world.current.hand.s > 0.02 ? [{ x: world.current.hand.x, y: world.current.hand.y, r: 22, s: world.current.hand.s }] : [];
-
-    const lw = new Writer(lines).begin();
-    const dw = new Writer(dots).begin();
-    // ---- the fringe at her margin (longer behind her as she swims) ----
-    for (let i = 0; i < FRINGE; i += 1) {
-      const a = (i / FRINGE) * Math.PI * 2 + s.heading;
-      const behind = 0.5 + 0.5 * -Math.cos(a - s.heading);
-      const len = 2 + behind * (3 + speed * 0.15) + Math.sin(t * 3 + i) * 0.6;
-      const bx = s.x + Math.cos(a) * R * 0.97, by = s.y + Math.sin(a) * R * 0.97;
-      lw.line({ x: bx, y: by, z: 2 }, { x: bx + Math.cos(a) * len * 0.5 + back.x * len * 0.5, y: by + Math.sin(a) * len * 0.5 + back.y * len * 0.5, z: 2 }, 0.45, pale, 0.05);
-    }
-    // ---- four oral arms trailing behind, frilly ----
-    if (arms.current.length !== ARMS) arms.current = Array.from({ length: ARMS }, () => newRope(18, s.x, s.y, 1.9));
-    arms.current.forEach((rope, k) => {
-      const a = s.heading + Math.PI / 4 + (k * Math.PI) / 2;
-      const ax = s.x + Math.cos(a) * R * 0.22, ay = s.y + Math.sin(a) * R * 0.22;
-      if (!reduced) stepRope(rope, ax, ay, dt, { flow, sway: k * 1.7, t, pushers });
-      for (let i = 1; i < rope.px.length; i += 1) {
-        const f = 1 - i / rope.px.length;
-        const frill = Math.sin(i * 1.3 + t * 3 + k) * 1.2 * f;
-        const dx = rope.px[i] - rope.px[i - 1], dy = rope.py[i] - rope.py[i - 1]; const d = Math.hypot(dx, dy) || 1;
-        const nx = -dy / d, ny = dx / d;
-        c3.copy(pink).lerp(white, 0.3 * f);
-        lw.line({ x: rope.px[i - 1], y: rope.py[i - 1], z: 1.5 }, { x: rope.px[i], y: rope.py[i], z: 1.5 }, 0.55 * f + 0.1, c3);
-        lw.line({ x: rope.px[i - 1] + nx * frill, y: rope.py[i - 1] + ny * frill, z: 1.5 }, { x: rope.px[i] - nx * frill, y: rope.py[i] - ny * frill, z: 1.5 }, 0.3 * f, c3);
-      }
-    });
-    // ---- long tentacles: trailing; one reaches each memory she just read ----
-    if (ropes.current.length !== TENTACLES) ropes.current = Array.from({ length: TENTACLES }, () => newRope(16, s.x, s.y, 2.4));
-    const readNow = (keeper.trail || []).filter((id) => has(id) && now - (keeper.trailAt[id] || 0) < 7000).slice(0, TENTACLES);
-    ropes.current.forEach((rope, k) => {
-      const a = (k / TENTACLES) * Math.PI * 2 + s.heading;
-      const ax = s.x + Math.cos(a) * R * 0.92, ay = s.y + Math.sin(a) * R * 0.92;
-      const id = readNow[k];
-      const p = id ? pos(id) : null;
-      const age = id ? now - (keeper.trailAt[id] || 0) : 0;
-      if (id && age > 350 && !reached.current.has(`${id}:${keeper.trailAt[id]}`)) { reached.current.add(`${id}:${keeper.trailAt[id]}`); touch(id, 1); }
-      if (!reduced) stepRope(rope, ax, ay, dt, { flow, sway: k * 0.9, t, reach: p ? { x: p[0], y: p[1] } : null, maxStretch: 4, pushers });
-      const kind = id ? keeper.kinds[id] : undefined;
-      c3.set(kind === "vaga" ? "#f05a8c" : kind === "valor" ? "#f2d14b" : "#9ff8ee");
-      for (let i = 1; i < rope.px.length; i += 1) {
-        const f = i / rope.px.length;
-        lw.line({ x: rope.px[i - 1], y: rope.py[i - 1], z: 1 }, { x: rope.px[i], y: rope.py[i], z: 1 }, id ? 0.75 - f * 0.25 : 0.32 * (1 - f) + 0.05, c3);
-      }
-      if (id && p) {
-        dw.dot(p, 2.2, 0.9, c3);
-        // The memory's light comes back up the tentacle.
-        if (age > 350 && age < 1400) { const u = 1 - (age - 350) / 1050; const j = Math.floor(u * (rope.px.length - 1)); dw.dot({ x: rope.px[j], y: rope.py[j], z: 1.2 }, 3.4, 1, white); }
-      }
-    });
-    if (reached.current.size > 400) reached.current = new Set([...reached.current].slice(-200));
-    lw.end(); dw.end();
-  });
-
-  const saying = keeper?.saying?.text || (keeper?.phase === "descansando" ? "descansando" : "");
-  return (
-    <>
-      <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
-      <points geometry={dots} material={dotMat} frustumCulled={false} />
-      <group ref={group} visible={false}>
-        <mesh ref={bell} material={bellMat} renderOrder={5}><planeGeometry args={[1, 1]} /></mesh>
-        {saying && (
-          <Html position={[BELL + 6, BELL + 6, 0]} zIndexRange={[30, 25]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-bubble ${keeper?.saying?.action || ""}`}><b>zeladora</b>{keeper?.called ? <i> · a seu pedido</i> : null}<span>{saying}</span></div>
-          </Html>
-        )}
-      </group>
-    </>
-  );
-}
-
-// ================================================================== a question: an electric impulse
-/**
- * How the Aurora reaches her memories in a chat turn (the brain working, not the Zeladora): an electric impulse
- * that jumps from memory A to memory B — the memories recalled into the turn, in the order the search ranked
- * them — crackling, hop by hop, across the cells; one memory alone is reached from the middle of its cell. The
- * candidates the search weighed glow faintly. All from the turn's real events; it fades when the turn ends.
- */
-const BOLT = color("#e8f6ff");
-const BOLT_GLOW = color("#7fd6ff");
-function Lightning({ agent, hubOf, pos, has, reduced }: { agent: AgentState; hubOf: (id: string) => Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
-  const born = useRef(0);
-  const endedAt = useRef<number | null>(null);
-  const lines = useMemo(() => dynamicGeometry(12 * 14 * 2 * 2, false), []);
-  const dots = useMemo(() => dynamicGeometry(60, true), []);
-  const lineMat = useMemo(() => lineMaterial(), []);
-  const dotMat = useMemo(() => pointMaterial(2), []);
-  useEffect(() => () => { lines.dispose(); dots.dispose(); lineMat.dispose(); dotMat.dispose(); }, [lines, dots, lineMat, dotMat]);
-  useEffect(() => { born.current = performance.now(); endedAt.current = null; }, [agent?.key]);
-  useEffect(() => { if (agent?.ended && endedAt.current === null) endedAt.current = performance.now(); }, [agent?.ended]);
-  const faint = useMemo(() => new THREE.Color("#9fb3c8"), []);
-  useFrame(() => {
-    const now = performance.now();
-    const fade = endedAt.current !== null ? Math.max(0, 1 - (now - endedAt.current) / 3000) : 1;
-    const lw = new Writer(lines).begin(); const dw = new Writer(dots).begin();
-    if (agent && fade > 0) {
-      for (const x of agent.tentacles) if (x.kind === "scanned" && has(x.id)) dw.dot(pos(x.id), 1.6, (0.25 + x.strength * 0.4) * fade, faint);
-      const used = agent.tentacles.filter((x) => (x.kind === "recalled" || x.kind === "used" || x.kind === "created") && has(x.id)).sort((a, b) => a.order - b.order).slice(0, 12);
-      const stops = used.map((x) => pos(x.id));
-      const points: Vec3[] = stops.length === 1 ? [hubOf(used[0].id), stops[0]] : stops;
-      const HOP = reduced ? 1 : 520;
-      // The crackle: the bolt's kinks change every ~70 ms.
-      const flicker = Math.floor(now / 70);
-      for (let i = 0; i + 1 < points.length; i += 1) {
-        const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - i * HOP) / HOP));
-        if (grow <= 0) break;
-        const a = points[i], b = points[i + 1];
-        const dx = b[0] - a[0], dy = b[1] - a[1]; const len = Math.hypot(dx, dy) || 1; const nx = -dy / len, ny = dx / len;
-        let prev = { x: a[0], y: a[1], z: 3 };
-        const SEG = 14;
-        for (let s = 1; s <= SEG; s += 1) {
-          const u = s / SEG; if (u > grow + 1 / SEG) break;
-          const uu = Math.min(u, grow);
-          const jag = s === SEG || uu >= grow ? 0 : (hash01(`${i}:${s}:${flicker}`) - 0.5) * Math.min(14, len * 0.12);
-          const next = { x: a[0] + dx * uu + nx * jag, y: a[1] + dy * uu + ny * jag, z: 3 };
-          lw.line(prev, next, 0.95 * fade, BOLT);
-          lw.line({ x: prev.x + nx * 0.6, y: prev.y + ny * 0.6, z: 3 }, { x: next.x + nx * 0.6, y: next.y + ny * 0.6, z: 3 }, 0.35 * fade, BOLT_GLOW);
-          prev = next;
-        }
-        dw.dot(a, 4, fade, BOLT);
-        if (grow >= 1) dw.dot(b, 4.5, fade, BOLT); else dw.dot(prev, 5, 1, BOLT);
-      }
-    }
-    lw.end(); dw.end();
-  });
-  return (
-    <>
-      <lineSegments geometry={lines} material={lineMat} frustumCulled={false} renderOrder={6} />
-      <points geometry={dots} material={dotMat} frustumCulled={false} renderOrder={6} />
-    </>
-  );
-}
-
-// ================================================================== compaction: memories fusing
-function Fusions({ merges, reduced }: { merges: Merge[]; reduced: boolean }) {
-  const lines = useMemo(() => dynamicGeometry(200, false), []);
-  const dots = useMemo(() => dynamicGeometry(120, true), []);
-  const lineMat = useMemo(() => lineMaterial(), []);
-  const dotMat = useMemo(() => pointMaterial(2), []);
-  useEffect(() => () => { lines.dispose(); dots.dispose(); lineMat.dispose(); dotMat.dispose(); }, [lines, dots, lineMat, dotMat]);
-  const violet = useMemo(() => new THREE.Color("#b49cff"), []);
-  const white = useMemo(() => new THREE.Color("#ffffff"), []);
-  const v1 = useMemo(() => new THREE.Vector3(), []);
-  const v2 = useMemo(() => new THREE.Vector3(), []);
-  useFrame(() => {
-    const now = Date.now();
-    const lw = new Writer(lines).begin(); const dw = new Writer(dots).begin();
-    for (const m of merges) {
-      const age = now - m.at; if (age > 2400) continue;
-      const u = reduced ? 1 : Math.min(1, age / 1300); const e = u * u * (3 - 2 * u);
-      m.from.forEach((f, j) => {
-        if (u >= 1) return;
-        const curve = 0.32 * (j % 2 ? 1 : -1);
-        const head = curvePoint(f, m.to, e, curve, v1); const tail = curvePoint(f, m.to, Math.max(0, e - 0.2), curve, v2);
-        lw.line(tail, head, 0.9, violet, 0.1); dw.dot(head, 3.4, 1, violet);
-      });
-      if (u >= 1) {
-        const r = (age - 1300) / 1100;
-        dw.dot(m.to, 5 + r * 26, Math.max(0, 1 - r) * 0.85, white);
-        for (let s = 0; s < 12; s += 1) { const a = (s / 12) * Math.PI * 2; dw.dot([m.to[0] + Math.cos(a) * r * 18, m.to[1] + Math.sin(a) * r * 18, m.to[2]], 1.8, Math.max(0, 1 - r), violet); }
-      }
-    }
-    lw.end(); dw.end();
-  });
-  return (
-    <>
-      <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
-      <points geometry={dots} material={dotMat} frustumCulled={false} />
-    </>
-  );
-}
-
-type LabelProps = SceneProps & { index: Map<string, number>; clusterOf: Map<string, GraphCluster>; pos: (id: string) => Vec3 };
-/** Few labels: every cluster's name; a memory's only when hovered, selected, active, found, or in the focused cluster. */
-function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, index, pos, sections }: LabelProps) {
-  const camera = useThree((s) => s.camera);
-  const near = camera.position.length() < 260;
-  const show = new Set<string>();
-  for (const id of [hoveredId, selectedId]) if (id) show.add(id);
-  const now = performance.now();
-  // The Zeladora's reading: only her newest few, briefly (the reference labels the words under her tentacles);
-  // a link is shown by its thread, not by labels on both ends.
-  const reads = [...highlights].filter(([, h]) => (h.kind === "read" || (h.kind === "flagged" && h.note)) && now - h.at < 4000).sort((a, b) => b[1].at - a[1].at).slice(0, 8);
-  for (const [id] of reads) show.add(id);
-  for (const [id, h] of highlights) if (h.kind !== "read" && h.kind !== "linked" && !(h.kind === "flagged" && h.note) && (now - h.at < ACTIVE_MS || h.kind === "search")) show.add(id);
-  // The cluster in focus names a few of its memories at the tips of its branches: one per angular slice around
-  // the hub (the most proven in each), none near the centre — so the labels spread out instead of piling up.
-  if (focusClusterId) {
-    const box = layout.clusters.get(focusClusterId);
-    const members = graph.clusters.find((c) => c.id === focusClusterId)?.nodeIds || [];
-    const slices = near ? 14 : 9;
-    const best = new Map<number, string>();
-    for (const id of members) {
-      const p = layout.nodes.get(id); if (!p || !box) continue;
-      const dx = p[0] - box.center[0], dy = p[1] - box.center[1];
-      if (Math.hypot(dx, dy) < box.radius * 0.45) continue;
-      const slice = Math.floor(((Math.atan2(dy, dx) + Math.PI) / (Math.PI * 2)) * slices) % slices;
-      const current = best.get(slice);
-      if (!current || (graph.nodes[index.get(id)!]?.relevance || 0) > (graph.nodes[index.get(current)!]?.relevance || 0)) best.set(slice, id);
-    }
-    for (const id of best.values()) show.add(id);
-  }
-  const ids = [...show].filter((id) => index.has(id)).slice(0, 30);
-  return (
-    <>
-      {graph.clusters.map((c) => {
-        const box = layout.clusters.get(c.id); if (!box) return null;
-        return (
-          <Html key={c.id} position={[box.center[0] + box.radius * 0.55, box.center[1] + box.radius * 0.95, box.center[2]]} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-cluster-label ${c.id === focusClusterId ? "on" : ""} ${sections.get(c.id)?.state === "lendo" ? "reading" : sections.get(c.id)?.state === "na fila" ? "queued" : ""}`} style={{ color: c.id === focusClusterId || sections.get(c.id)?.state === "lendo" ? CATEGORY_COLOR[c.category] : undefined }}>
-              <b>{c.label}</b><span>{sections.get(c.id) ? `${sections.get(c.id)!.read}/${sections.get(c.id)!.total} memórias · ${sections.get(c.id)!.state === "feito" ? "feito" : sections.get(c.id)!.state}` : `${c.nodeIds.length} ${c.nodeIds.length === 1 ? "memória" : "memórias"} · ${c.sublabel}`}</span>
-            </div>
-          </Html>
-        );
-      })}
-      {ids.map((id) => {
-        const n: GraphNode = graph.nodes[index.get(id)!];
-        const h = highlights.get(id);
-        const [x, y, z] = pos(id);
-        // Left of its cluster's centre the label grows to the left, right of it to the right (outward).
-        const box = layout.clusters.get(n.clusterId);
-        const left = box ? x < box.center[0] : false;
-        const text = focusClusterId === n.clusterId && id !== selectedId && id !== hoveredId ? (n.label.length > 22 ? `${n.label.slice(0, 21)}…` : n.label) : n.label;
-        return (
-          <Html key={`n:${id}`} position={[x + (left ? -1.6 : 1.6), y + 1.2, z]} zIndexRange={[20, 10]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""} ${h?.note === "▶ vaga" ? "vague" : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h && now - h.at < ACTIVE_MS ? (h.note ? ` · ${h.note}` : KEEPER_SUFFIX[h.kind] || "") : ""}</div>
-          </Html>
-        );
-      })}
-    </>
-  );
-}
-
-/** Moves the camera smoothly to a target (a cluster, a memory, the whole map) when the view asks. */
-function CameraRig({ command, reduced, onUserMove }: { command: CameraCommand; reduced: boolean; onUserMove: () => void }) {
+/** Moves the camera smoothly to a target (a section, a memory, the whole tree) when the view asks. */
+function CameraRig({ command, reduced, onUserMove, R }: { command: CameraCommand; reduced: boolean; onUserMove: () => void; R: number }) {
   const { camera, controls } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: OrbitControlsImpl | null };
   const goal = useRef<{ target: THREE.Vector3; position: THREE.Vector3 } | null>(null);
-  // The person moves the map (drags or zooms — not a mere tap on the water): the camera stops going anywhere
-  // on its own (no tug of war).
+  const placed = useRef(false);
+  // The first frame: the whole tree in view.
+  useEffect(() => {
+    if (!controls || placed.current) return;
+    placed.current = true;
+    controls.target.set(0, R * 0.56, 0); camera.position.set(0, R * 0.56, R * 1.56); controls.update();
+  }, [controls, camera, R]);
+  // The person moves the map (drags or zooms — not a mere tap): the camera stops going anywhere on its own.
   useEffect(() => {
     if (!controls) return undefined;
     let holding = false;
@@ -776,8 +691,8 @@ function CameraRig({ command, reduced, onUserMove }: { command: CameraCommand; r
   }, [controls, onUserMove]);
   useEffect(() => {
     if (!command) return;
-    const target = new THREE.Vector3(...command.target);
-    goal.current = { target, position: new THREE.Vector3(target.x, target.y - command.distance * 0.08, target.z + command.distance) };
+    const target = new THREE.Vector3(command.target[0], command.target[1], 0);
+    goal.current = { target, position: new THREE.Vector3(target.x, target.y, command.distance) };
   }, [command]);
   useFrame((_, delta) => {
     if (!goal.current || !controls) return;
@@ -792,24 +707,24 @@ function CameraRig({ command, reduced, onUserMove }: { command: CameraCommand; r
 
 export default function LiveMapScene(props: SceneProps) {
   const high = props.settings.quality === "alta";
+  const R = props.layout.tree.R;
   return (
     <Canvas
       className="lm-canvas"
       dpr={high ? [1, 2] : 1}
-      gl={{ antialias: high, powerPreference: "high-performance", alpha: false }}
-      camera={{ position: [0, -30, 420], fov: 45, near: 0.5, far: 4000 }}
-      raycaster={{ params: { Points: { threshold: 1.6 }, Mesh: {}, Line: { threshold: 0.5 }, LOD: {}, Sprite: {} } }}
+      gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
+      camera={{ position: [0, R * 0.56, R * 1.56], fov: 45, near: 1, far: 12000 }}
       onCreated={({ gl }) => {
-        gl.setClearColor("#03111a");
+        gl.setClearColor("#010307");
         gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); props.onContextLost(); }, { once: true });
       }}
     >
       <Scene {...props} />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} enableRotate={false} screenSpacePanning minDistance={25} maxDistance={1400} zoomSpeed={0.9} panSpeed={0.9}
+      <OrbitControls makeDefault enableDamping dampingFactor={0.08} enableRotate={false} screenSpacePanning minDistance={30} maxDistance={R * 4} zoomSpeed={0.9} panSpeed={0.9}
         mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }} touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }} />
       {high && (
         <EffectComposer multisampling={0}>
-          <Bloom mipmapBlur intensity={0.55} luminanceThreshold={0.18} luminanceSmoothing={0.4} radius={0.6} />
+          <Bloom mipmapBlur intensity={0.85} luminanceThreshold={0.16} luminanceSmoothing={0.35} radius={0.55} />
         </EffectComposer>
       )}
     </Canvas>

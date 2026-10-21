@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyEvent, buildMemoryGraph, categoryOf, relevanceOf, searchIds, edgesOf } from "../.test-build/livemap/adapter.js";
-import { layoutGraph, clusterRadius } from "../.test-build/livemap/layout.js";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const mem = (id, extra = {}) => ({ id, title: `Memória ${id}`, scope: "global", projectId: null, conversationId: null, kind: "extracted", source: null, tags: [], snippet: `texto ${id}`, sensitive: false, createdAt: "2026-10-19T10:00:00Z", updatedAt: "2026-10-19T10:00:00Z", uses: 0, helped: 0, failed: 0, status: "active", ...extra });
@@ -183,27 +182,5 @@ test("sections: waiting, being read, done — from the memories she really read;
   assert.deepEqual([k.compactions[0].from, k.stats.compacted, k.trail[0]], [["a", "b"], 1, "n"]);
   assert.equal(sectionProgress(graph, { ...k, enabled: false }).size, 0, "off: no sections greyed");
   assert.equal(sectionProgress(graph, { ...k, running: false }).size, 0, "on but not running on this server: nothing waits for her");
-});
-
-test("layout: deterministic, the general memory at the core, clusters apart, a new memory does not move the others", () => {
-  const s = snapshot();
-  const g = buildMemoryGraph(s, { mode: "pasta", now: NOW });
-  const a = layoutGraph(g, s); const b = layoutGraph(g, s);
-  assert.deepEqual([...a.nodes], [...b.nodes]);
-  assert.deepEqual(a.clusters.get("geral").center, [0, 0, 0]);
-  const centers = [...a.clusters.values()];
-  for (let i = 0; i < centers.length; i += 1) for (let j = i + 1; j < centers.length; j += 1) {
-    const d = Math.hypot(centers[i].center[0] - centers[j].center[0], centers[i].center[1] - centers[j].center[1]);
-    assert.ok(d >= centers[i].radius + centers[j].radius, "clusters do not overlap");
-  }
-  const s2 = { ...s, memories: [...s.memories, mem("g2", { title: "Outra geral" })] };
-  const after = layoutGraph(buildMemoryGraph(s2, { mode: "pasta", now: NOW }), s2);
-  const moved = (id) => { const p = a.nodes.get(id); const q = after.nodes.get(id); return Math.hypot(p[0] - q[0], p[1] - q[1]); };
-  assert.ok(moved("p1") < 0.001, "a memory of another cluster stays put");
-  assert.ok(moved("g1") < clusterRadius(2) - clusterRadius(1) + 0.5, "in its own cluster it shifts at most by the cluster's growth");
-  for (const [id, p] of a.nodes) {
-    const c = a.clusters.get(g.nodes.find((n) => n.id === id).clusterId);
-    assert.ok(Math.hypot(p[0] - c.center[0], p[1] - c.center[1]) <= c.radius + 1, `${id} inside its cluster`);
-  }
 });
 
