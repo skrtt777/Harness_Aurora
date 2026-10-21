@@ -199,7 +199,54 @@ export function applyEvent(snap: MemoryGraphSnapshot, event: MemoryLiveEvent): {
     return { snapshot: { ...snap, memories: [...snap.memories, memory] }, needsRefresh: true };
   }
   if (event.type === "updated" || event.type === "restored") return { snapshot: snap, needsRefresh: true };
+  // The Zeladora linked two memories: the relation is real from now on.
+  if (event.type === "keeper" && event.action === "link" && event.from && event.to && !snap.relations.some((r) => r.from === event.from && r.to === event.to)) {
+    return { snapshot: { ...snap, relations: [...snap.relations, { from: event.from, to: event.to, type: "thematic" }] }, needsRefresh: false };
+  }
   return { snapshot: snap, needsRefresh: false };
+}
+
+/**
+ * A Zeladora as the map follows her (app/memoryKeeper.js): where she is, the memories she just read (her legs
+ * reach them), the links she made a moment ago (threads), the open flags (marks), the joins she can undo, and
+ * each area's progress in this round. Built from the snapshot's `keeper` and then only from "keeper" events.
+ */
+export type KeeperView = {
+  enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
+  trail: string[]; links: { from: string; to: string; at: number }[];
+  flags: { id: string; otherId: string; reason: string; title?: string; otherTitle?: string }[];
+  joins: { kept: string; archived: string; title?: string; archivedTitle?: string; at: string }[];
+  areas: { key: string; label: string; total: number; read: number }[];
+  stats: { read: number; linked: number; joined: number; flagged: number };
+  restUntil: string | null;
+};
+const TRAIL = 28;
+export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView | null {
+  if (!k) return null;
+  return {
+    enabled: k.enabled, phase: k.phase, round: k.round, current: k.current, area: k.area, areaLabel: k.areaLabel,
+    trail: k.current ? [k.current] : [], links: [], flags: k.flags || [],
+    joins: (k.recent || []).filter((a) => a.action === "join").map((a) => ({ kept: a.kept!, archived: a.archived!, title: a.title, archivedTitle: a.archivedTitle, at: a.at })),
+    areas: k.areas || [], stats: k.stats, restUntil: k.restUntil,
+  };
+}
+export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, now = Date.now()): KeeperView | null {
+  if (event.type !== "keeper" || !event.action) return view;
+  const v: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], links: [], flags: [], joins: [], areas: [], stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, restUntil: null };
+  switch (event.action) {
+    case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.areas || []).map((a) => ({ ...a, read: 0 })), stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, restUntil: null };
+    case "walk": return { ...v, phase: "andando", area: event.area || null, areaLabel: event.label || null, trail: [] };
+    case "read": {
+      if (!event.id) return v;
+      const areas = v.areas.map((a) => (a.key === event.area ? { ...a, read: Math.min(a.total, a.read + 1) } : a));
+      return { ...v, phase: "andando", current: event.id, trail: [event.id, ...v.trail.filter((x) => x !== event.id)].slice(0, TRAIL), areas, stats: { ...v.stats, read: v.stats.read + 1 } };
+    }
+    case "link": return event.from && event.to ? { ...v, links: [...v.links.filter((l) => now - l.at < 8000), { from: event.from, to: event.to, at: now }], stats: { ...v.stats, linked: v.stats.linked + 1 } } : v;
+    case "join": return event.kept && event.archived ? { ...v, trail: v.trail.filter((x) => x !== event.archived), joins: [{ kept: event.kept, archived: event.archived, title: event.title, archivedTitle: event.archivedTitle, at: event.at }, ...v.joins].slice(0, 30), stats: { ...v.stats, joined: v.stats.joined + 1 } } : v;
+    case "flag": return event.id && event.otherId && !v.flags.some((f) => f.id === event.id && f.otherId === event.otherId) ? { ...v, flags: [{ id: event.id, otherId: event.otherId, reason: event.reason || "", title: event.title }, ...v.flags], stats: { ...v.stats, flagged: v.stats.flagged + 1 } } : v;
+    case "rest": return { ...v, phase: "descansando", current: null, area: null, areaLabel: null, trail: [], restUntil: event.until || null };
+    default: return v;
+  }
 }
 
 /**

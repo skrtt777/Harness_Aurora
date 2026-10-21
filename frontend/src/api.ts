@@ -719,7 +719,7 @@ export type GraphMemory = {
   createdAt: string; updatedAt: string; uses: number; helped: number; failed: number; status: string;
 };
 export type MemoryLiveEvent = {
-  type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled" | "scanned" | "turn-start" | "turn-end" | "answered";
+  type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled" | "scanned" | "turn-start" | "turn-end" | "answered" | "keeper";
   at: string; seq?: number; id?: string; ids?: string[]; title?: string; scope?: string; projectId?: string | null; conversationId?: string | null; kind?: string;
   /** scanned: the candidates the memory search really scored, best first. */
   candidates?: { id: string; score: number; similarity: number | null }[];
@@ -727,6 +727,11 @@ export type MemoryLiveEvent = {
   message?: string;
   /** answered: what the saved answer used and created. */
   used?: string[]; created?: string[]; ok?: boolean;
+  /** keeper: what the Zeladora did (app/memoryKeeper.js). */
+  action?: "round" | "walk" | "read" | "link" | "join" | "flag" | "rest" | "error";
+  from?: string; to?: string; kept?: string; archived?: string; otherId?: string; reason?: string; similarity?: number;
+  otherTitle?: string; archivedTitle?: string; label?: string; total?: number; index?: number; round?: number; until?: string; area?: string;
+  areas?: { key: string; label: string; total: number }[];
 };
 export type MemoryGraphSnapshot = {
   generatedAt: string;
@@ -737,8 +742,20 @@ export type MemoryGraphSnapshot = {
   conversations: { id: string; title: string; projectId: string | null }[];
   recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];
   events: MemoryLiveEvent[];
+  keeper?: KeeperStateApi;
+};
+export type KeeperStateApi = {
+  running: boolean; enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
+  restUntil: string | null; stats: { read: number; linked: number; joined: number; flagged: number };
+  areas: { key: string; label: string; total: number; read: number }[];
+  recent: (MemoryLiveEvent & { action: string; at: string })[];
+  flags: { id: string; otherId: string; reason: string; title?: string; otherTitle?: string; similarity?: number; at?: string }[];
+  last: { round: number; at: string; read: number; linked: number; joined: number; flagged: number } | null;
 };
 export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");
+export const setKeeperEnabled = (enabled: boolean) => request<KeeperStateApi>("/memories/keeper", { method: "PUT", body: JSON.stringify({ enabled }) });
+export const undoKeeperJoin = (id: string) => request<{ memory: unknown }>("/memories/keeper/undo", { method: "POST", body: JSON.stringify({ id }) });
+export const dismissKeeperFlag = (id: string, otherId?: string) => request<{ flags: KeeperStateApi["flags"] }>("/memories/keeper/dismiss", { method: "POST", body: JSON.stringify({ id, otherId }) });
 
 /**
  * The live memory events (Server-Sent Events read with fetch, so the session token goes as a header).

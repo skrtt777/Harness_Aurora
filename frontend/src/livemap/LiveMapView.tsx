@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getMemoryGraph, subscribeMemoryEvents, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
-import { applyEvent, buildMemoryGraph, reduceTurn, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
+import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
+import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
 import { layoutGraph } from "./layout";
 import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Quality } from "./LiveMapScene";
 import type { Vec3 } from "./layout";
@@ -15,7 +15,9 @@ const LiveMapScene = lazy(() => import("./LiveMapScene"));
  * created, found by a search). No demo data: with nothing stored, the map says so.
  */
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
-const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu" };
+const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu", keeper: "zeladora" };
+// The Zeladora's actions in the log, the reference's crawl log (read · link · flag · walk).
+const KEEPER_LABEL: Record<string, string> = { read: "lê", link: "liga", join: "junta", flag: "marca", walk: "anda", rest: "descansa", round: "ronda", error: "erro" };
 // The steps of a turn, as the reference's sections: each lights up when its real event arrives.
 const STEPS: [Phase, string][] = [["pergunta", "pergunta"], ["busca", "busca na memória"], ["consulta", "memórias no contexto"], ["resposta", "resposta"]];
 type Phase = TurnPhase;
@@ -51,6 +53,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [activityMode, setActivityMode] = useState(true);
   const [panelOpen, setPanelOpen] = useState(true);
   const [turn, setTurn] = useState<Turn | null>(null);
+  const [keeper, setKeeper] = useState<KeeperView | null>(null);
+  const keeperArea = useRef<string | null>(null);
   const [dockOpen, setDockOpen] = useState(true);
   const [dockConversation, setDockConversation] = useState<string | null>(null);
   const turnTimer = useRef<number | null>(null);
@@ -62,7 +66,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
   const frozen = useRef(newFrozenAtlas());
   const steady = useCallback((s: MemoryGraphSnapshot) => ({ ...s, atlas: steadyAtlas(s.atlas, frozen.current) }), []);
-  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
+  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setKeeper((k) => { const base = keeperFromSnapshot(s.keeper); return !k || !base ? k || base : { ...base, current: k.current ?? base.current, trail: k.trail.length ? k.trail : base.trail, links: k.links, flags: k.flags.length > base.flags.length ? k.flags : base.flags }; }); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
   useEffect(() => { void load(); }, [load]);
   const reorganize = useCallback(() => { frozen.current = newFrozenAtlas(); void load(); }, [load]);
   const quietRefresh = useCallback(() => {
@@ -80,6 +84,20 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     const now = performance.now();
     // ---- the turn as it happens (pergunta → busca → consulta → resposta), only from real events ----
     setTurn((t) => reduceTurn(t, event));
+    // ---- the Zeladora: where she is, what she reads, links, joins and flags ----
+    if (event.type === "keeper") {
+      setKeeper((k) => reduceKeeper(k, event));
+      const mark = (ids: (string | undefined)[], kind: Highlight["kind"]) => setHighlights((old) => { const next = new Map(old); for (const id of ids) if (id) next.set(id, { kind, at: now }); return next; });
+      if (event.action === "read") mark([event.id], "read");
+      if (event.action === "link") mark([event.from, event.to], "linked");
+      if (event.action === "flag") mark([event.id, event.otherId], "flagged");
+      if (event.action === "join") mark([event.kept], "joined");
+      // Activity mode: the camera goes with her when she enters another area (not on every memory).
+      if (event.action === "read" && event.id && activityModeRef.current && !(turnRef.current && !turnRef.current.ended) && keeperArea.current !== event.area) {
+        const p = layoutRef.current?.nodes.get(event.id);
+        if (p) { keeperArea.current = event.area || null; setCamera({ target: p, distance: 150, key: Date.now() }); }
+      }
+    }
     if (event.type === "turn-start" && turnTimer.current) window.clearTimeout(turnTimer.current);
     if (event.type === "answered") for (const id of event.created || []) setHighlights((old) => new Map(old).set(id, { kind: "created", at: now }));
     if (event.type === "turn-end") {
@@ -110,11 +128,17 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const activityModeRef = useRef(activityMode); activityModeRef.current = activityMode;
   const turnRef = useRef(turn); turnRef.current = turn;
 
+  const label = useCallback((id?: string) => (id ? nodeByIdRef.current.get(id)?.label || id.slice(0, 8) : ""), []);
+  const keeperLine = (e: MemoryLiveEvent) =>
+    e.action === "read" ? label(e.id) : e.action === "link" ? `${label(e.from)} ↔ ${label(e.to)}` : e.action === "join" ? `${e.archivedTitle || "cópia"} → ${e.title || label(e.kept)}`
+      : e.action === "flag" ? `${e.title || label(e.id)} · ${e.reason || ""}` : e.action === "walk" ? `${e.label} · ${e.total} memórias` : e.action === "rest" ? "ronda completa" : e.action === "round" ? `ronda ${e.round} · ${e.total} memórias` : e.reason || "";
+
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
   const graph = useMemo(() => (snap ? buildMemoryGraph(snap, { mode, filters }) : null), [snap, mode, filters]);
   const layout = useMemo(() => (graph ? layoutGraph(graph, snap) : null), [graph, snap]);
   graphRef.current = graph; layoutRef.current = layout;
   const nodeById = useMemo(() => new Map((graph?.nodes || []).map((n) => [n.id, n])), [graph]);
+  const nodeByIdRef = useRef(nodeById); nodeByIdRef.current = nodeById;
   const projectName = useMemo(() => new Map((snap?.projects || []).map((p) => [p.id, p.name])), [snap]);
   const convTitle = useMemo(() => new Map((snap?.conversations || []).map((c) => [c.id, c.title])), [snap]);
 
@@ -277,7 +301,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent}
+            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent} keeper={keeper}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
           </Suspense>
         ) : (
@@ -328,7 +352,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             <ol className="lm-log">
               {events.length === 0 && <li className="lm-muted">Nenhum evento desde que o app abriu.</li>}
               {events.slice(0, 14).map((e, i) => (
-                <li key={`${e.seq}-${i}`} className={e.type}><time>{fmtTime(e.at)}</time><b>{EVENT_LABEL[e.type] || e.type}</b><span>{e.type === "recalled" ? `${e.ids?.length || 0} memórias · ${convTitle.get(e.conversationId || "") || "conversa"}` : e.type === "scanned" ? `${e.candidates?.length || 0} candidatas · melhor ${(e.candidates?.[0]?.score ?? 0).toFixed(2).replace(".", ",")}` : e.type === "turn-start" ? `“${(e.message || "").slice(0, 40)}”` : e.type === "answered" ? `usou ${e.used?.length || 0} · criou ${e.created?.length || 0}` : e.type === "turn-end" ? convTitle.get(e.conversationId || "") || "conversa" : e.title || nodeById.get(e.id || "")?.label || (e.id || "").slice(0, 8)}</span></li>
+                <li key={`${e.seq}-${i}`} className={e.type}><time>{fmtTime(e.at)}</time><b className={e.type === "keeper" ? `lm-act-${e.action}` : ""}>{e.type === "keeper" ? KEEPER_LABEL[e.action || ""] || e.action : EVENT_LABEL[e.type] || e.type}</b><span>{e.type === "keeper" ? keeperLine(e) : e.type === "recalled" ? `${e.ids?.length || 0} memórias · ${convTitle.get(e.conversationId || "") || "conversa"}` : e.type === "scanned" ? `${e.candidates?.length || 0} candidatas · melhor ${(e.candidates?.[0]?.score ?? 0).toFixed(2).replace(".", ",")}` : e.type === "turn-start" ? `“${(e.message || "").slice(0, 40)}”` : e.type === "answered" ? `usou ${e.used?.length || 0} · criou ${e.created?.length || 0}` : e.type === "turn-end" ? convTitle.get(e.conversationId || "") || "conversa" : e.title || nodeById.get(e.id || "")?.label || (e.id || "").slice(0, 8)}</span></li>
               ))}
             </ol>
           </div>
@@ -363,14 +387,17 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             )}
             {!lastRecall && snap.recalls[0] && <small className="lm-muted">última resposta: “{snap.recalls[0].prompt.slice(0, 60)}”</small>}
           </div>
-          <div className="lm-panel">
-            <h4>atlas <span>{snap.atlas?.model || "sem embeddings"}</span></h4>
-            <ul className="lm-kv">
-              <li><span>com posição semântica</span><b>{graph.stats.embedded}/{graph.stats.memories}</b></li>
-              <li><span>projetos</span><b>{snap.projects.length}</b></li>
-              <li><span>conversas com memória</span><b>{new Set(snap.memories.map((m) => m.conversationId).filter(Boolean)).size}</b></li>
-              <li><span>atualizado</span><b>{fmtTime(snap.generatedAt)}</b></li>
-            </ul>
+          <div className="lm-panel lm-keeper">
+            <h4>zeladora <span>{!keeper ? "—" : !keeper.enabled ? "desligada" : keeper.phase === "descansando" ? `descansa até ${keeper.restUntil ? fmtTime(keeper.restUntil) : "…"}` : keeper.phase}</span></h4>
+            {!keeper ? <p className="lm-muted">A zeladora roda no app instalado e anda pelas memórias sozinha.</p> : <>
+              <div className="lm-k-head"><b>{keeper.areaLabel || (keeper.phase === "descansando" ? "ronda completa" : "—")}</b><button className="lm-btn" onClick={() => void setKeeperEnabled(!keeper.enabled).then((k) => setKeeper((v) => (v ? { ...v, enabled: k.enabled } : v)))}>{keeper.enabled ? "desligar" : "ligar"}</button></div>
+              <div className="lm-k-stats">
+                <span><b>{keeper.stats.read}</b>lidas</span><span><b>{keeper.stats.linked}</b>ligadas</span><span><b>{keeper.stats.joined}</b>juntadas</span><span><b>{keeper.flags.length}</b>conflitos</span>
+              </div>
+              {keeper.areas.slice(0, 4).map((a) => <div key={a.key} className={`lm-k-area ${a.key === keeper.area ? "now" : ""}`} style={{ ["--p" as string]: `${a.total ? (a.read / a.total) * 100 : 0}%` }}><span>{a.label}</span><span>{a.read}/{a.total}</span><i /></div>)}
+              {keeper.flags.slice(0, 2).map((f) => <div key={`${f.id}-${f.otherId}`} className="lm-k-item flag"><span title={f.reason}>⚑ {f.title || label(f.id)} · {f.reason}</span><button onClick={() => goTo(f.id)}>ver</button><button onClick={() => void dismissKeeperFlag(f.id, f.otherId).then(() => setKeeper((v) => (v ? { ...v, flags: v.flags.filter((x) => !(x.id === f.id && x.otherId === f.otherId)) } : v)))}>ok</button></div>)}
+              {keeper.joins.slice(0, 2).map((j) => <div key={j.archived} className="lm-k-item"><span title={`${j.archivedTitle} → ${j.title}`}>juntou: {j.archivedTitle || "cópia"}</span><button onClick={() => void undoKeeperJoin(j.archived).then(() => setKeeper((v) => (v ? { ...v, joins: v.joins.filter((x) => x.archived !== j.archived) } : v)))}>desfazer</button></div>)}
+            </>}
           </div>
         </>}
       </footer>

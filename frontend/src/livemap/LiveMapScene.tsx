@@ -4,7 +4,7 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type MemoryGraph } from "./adapter";
+import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type KeeperView, type MemoryGraph } from "./adapter";
 import { hash01, type Layout, type Vec3 } from "./layout";
 
 /**
@@ -15,7 +15,7 @@ import { hash01, type Layout, type Vec3 } from "./layout";
  */
 export type Quality = "alta" | "media" | "baixa";
 export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean };
-export type Highlight = { kind: "recalled" | "created" | "search"; at: number; score?: number };
+export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
 export type AgentState = { key: string; target: Vec3 | null; tentacles: AgentTentacle[]; ended: boolean } | null;
@@ -32,6 +32,7 @@ type SceneProps = {
   highlights: Map<string, Highlight>;
   camera: CameraCommand;
   agent: AgentState;
+  keeper: KeeperView | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
   onCluster: (id: string, double: boolean) => void;
@@ -43,11 +44,13 @@ const DUST_PER_NODE: Record<Quality, number> = { alta: 6, media: 3, baixa: 1 };
 const NEBULA_PER_CLUSTER: Record<Quality, number> = { alta: 150, media: 70, baixa: 16 };
 const CURVE_STEPS = 8;
 const ACTIVE_MS = 9000;
+const KEEPER_SUFFIX: Partial<Record<Highlight["kind"], string>> = { created: " · nova", read: " · lida", linked: " · ligada", flagged: " · conflito", joined: " · juntou" };
 const color = (hex: string) => new THREE.Color(hex);
 const ACTIVITY = color(ACTIVITY_COLOR);
 const TEAL = color("#3fd6c6");
 const MAGENTA = color("#f05a8c");
 const WHITE = color("#eef2f6");
+const YELLOW = color("#f2d14b");
 
 // Soft round points, sized in world units with perspective; alpha per point.
 const pointVertex = /* glsl */ `
@@ -201,6 +204,7 @@ function Scene(props: SceneProps) {
   const tmpColor = useMemo(() => new THREE.Color(), []);
   const grey = useMemo(() => new THREE.Color("#c9d1d9"), []);
   const nebulaGrey = useMemo(() => new THREE.Color("#8a93a3"), []);
+  const has = (id: string) => index.has(id);
   const pos = (id: string): Vec3 => { const v = current.current.get(id); return v ? [v.x, v.y, v.z] : layout.nodes.get(id) || [0, 0, 0]; };
 
   useFrame(({ clock }, delta) => {
@@ -230,7 +234,7 @@ function Scene(props: SceneProps) {
       const away = focusClusterId && n.clusterId !== focusClusterId && !isFocus && !active ? 1 : 0;
       na.setX(i, Math.min(1, (0.55 + n.relevance * 0.35 + active) * (isFocus || active ? 1 : dim) * (away ? 0.45 : 1)));
       // Points are lights: near white, tinted by their category.
-      tmpColor.set(CATEGORY_COLOR[n.category]).lerp(WHITE, away ? 0.75 : 0.32).lerp(ACTIVITY, active * 0.85);
+      tmpColor.set(CATEGORY_COLOR[n.category]).lerp(WHITE, away ? 0.75 : 0.32).lerp(hl?.kind === "read" || hl?.kind === "linked" ? TEAL : hl?.kind === "flagged" ? YELLOW : ACTIVITY, active * 0.85);
       if (n.id === selectedId) tmpColor.lerp(MAGENTA, 0.5);
       nt.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
     });
@@ -318,7 +322,7 @@ function Scene(props: SceneProps) {
     let q = 0;
     for (const [id, hl] of highlights) {
       if (q >= PULSES) break;
-      const age = now - hl.at; if (age > 2600 || hl.kind === "search") continue;
+      const age = now - hl.at; if (age > 2600 || (hl.kind !== "recalled" && hl.kind !== "created")) continue;
       const n = index.get(id); if (n === undefined) continue;
       const box = layout.clusters.get(nodes[n].clusterId); if (!box) continue;
       const travel = settings.reducedMotion ? 1 : Math.min(1, age / 1800);
@@ -351,77 +355,154 @@ function Scene(props: SceneProps) {
       {graph.clusters.map((c) => <ClusterHub key={c.id} cluster={c} center={layout.clusters.get(c.id)?.center || [0, 0, 0]} focused={c.id === focusClusterId} motion={motion} onCluster={onCluster} />)}
       {settings.labels && <Labels {...props} index={index} clusterOf={clusterOf} pos={pos} />}
       <CameraRig command={camera} reduced={settings.reducedMotion} />
-      <Agent agent={props.agent} core={layout.core} pos={pos} reduced={settings.reducedMotion} />
+      <Creature agent={props.agent} keeper={props.keeper} core={layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
     </>
   );
 }
 
 
 /**
- * The Aurora in a turn (the reference's crawler): she leaves the core for where the memories she is weighing
- * are, reaches each one with a tentacle — faint for a candidate the search scored (stronger the higher the
- * score), lit for one recalled into the turn, green for one created — and comes back when the turn ends.
- * Everything she reaches is an id from a real event; nothing is drawn without one.
+ * A Zeladora (the reference's crawler): the being that looks after the memory (app/memoryKeeper.js). She walks
+ * to the memory she is reading; her legs reach the last ones she read in that area; a thread runs between two
+ * memories she has just linked; a yellow mark stays on each pair she flagged for the person. During a chat turn
+ * she goes where the turn's memories are and reaches them with dotted tentacles — faint for a candidate the
+ * search scored, lit for one recalled into the turn, green for one created. Every target is an id from a real
+ * event; with the Zeladora off and no turn, she is not drawn.
  */
 const TENTACLE_COLOR: Record<AgentTentacle["kind"], string> = { scanned: "#9fb3c8", recalled: "#7ff3e6", used: "#7ff3e6", created: ACTIVITY_COLOR };
-function Agent({ agent, core, pos, reduced }: { agent: AgentState; core: Vec3; pos: (id: string) => Vec3; reduced: boolean }) {
+const LEGS = 28;
+const LEG_STEPS = 6;
+const BODY_X = 8.5, BODY_Y = 10.6;
+const FLAG_COLOR = color("#f2d14b");
+function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentState; keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
   const group = useRef<THREE.Group>(null);
-  const ring = useRef<THREE.Mesh>(null);
+  const place = useRef(new THREE.Vector3(core[0] + 18, core[1] - 22, core[2] + 4));
   const born = useRef(0);
   const endedAt = useRef<number | null>(null);
-  const place = useRef(new THREE.Vector3(...core));
-  const MAX = 64 * 14 * 2;
-  const geo = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); return g; }, [MAX]);
-  const material = useMemo(() => lineMaterial(), []);
-  useEffect(() => () => { geo.dispose(); material.dispose(); }, [geo, material]);
+  const MAX_LINE = LEGS * LEG_STEPS * 2 + 64 * 14 * 2 + 12 * 24 * 2;
+  const MAX_DOT = LEGS + 200;
+  const lines = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_LINE * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX_LINE), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX_LINE * 3), 3)); return g; }, [MAX_LINE]);
+  const dots = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_DOT * 3), 3)); g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(MAX_DOT), 1)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX_DOT), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX_DOT * 3), 3)); return g; }, [MAX_DOT]);
+  // The body's grid (the reference's mesh): chords across the ellipse.
+  const grid = useMemo(() => {
+    const p: number[] = [];
+    for (let k = -3; k <= 3; k += 1) {
+      const y = (BODY_Y * k) / 4, hx = BODY_X * Math.sqrt(1 - (y / BODY_Y) ** 2);
+      p.push(-hx, y, 0.05, hx, y, 0.05);
+      const x = (BODY_X * k) / 4, hy = BODY_Y * Math.sqrt(1 - (x / BODY_X) ** 2);
+      p.push(x, -hy, 0.05, x, hy, 0.05);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); return g;
+  }, []);
+  const lineMat = useMemo(() => lineMaterial(), []);
+  const dotMat = useMemo(() => pointMaterial(2.2), []);
+  useEffect(() => () => { lines.dispose(); dots.dispose(); grid.dispose(); lineMat.dispose(); dotMat.dispose(); }, [lines, dots, grid, lineMat, dotMat]);
   useEffect(() => { born.current = performance.now(); endedAt.current = null; }, [agent?.key]);
   useEffect(() => { if (agent?.ended && endedAt.current === null) endedAt.current = performance.now(); }, [agent?.ended]);
   const v = useMemo(() => new THREE.Vector3(), []);
+  const w = useMemo(() => new THREE.Vector3(), []);
   const c3 = useMemo(() => new THREE.Color(), []);
+
   useFrame(({ clock }, delta) => {
-    const g = group.current; if (!g) return;
     const now = performance.now();
-    const leaving = endedAt.current !== null ? Math.min(1, (now - endedAt.current) / 1600) : 0;
-    const visible = Boolean(agent) && leaving < 1;
-    g.visible = visible;
-    if (!agent || !visible) { geo.setDrawRange(0, 0); return; }
-    // Where she goes: the memories of this turn (their centre); back to the core when the turn is over.
-    const target = agent.target && leaving === 0 ? agent.target : core;
-    place.current.lerp(v.set(target[0], target[1], target[2] + 4), reduced ? 1 : 1 - Math.pow(0.03, delta));
-    g.position.copy(place.current);
-    if (ring.current) { const s = 1 + Math.sin(clock.getElapsedTime() * 3) * 0.06; ring.current.scale.set(s, s * 0.8, s); }
-    // Tentacles: each grows from her to its memory (staggered), and pulls back as the turn ends.
-    const p = geo.getAttribute("position") as THREE.BufferAttribute;
-    const a = geo.getAttribute("alpha") as THREE.BufferAttribute;
-    const t = geo.getAttribute("tint") as THREE.BufferAttribute;
-    let k = 0;
+    const t = reduced ? 0 : clock.getElapsedTime();
+    const g = group.current;
+    const turnLive = Boolean(agent) && (endedAt.current === null || now - endedAt.current < 1600);
+    const leaving = turnLive && endedAt.current !== null ? Math.min(1, (now - endedAt.current) / 1600) : 0;
+    const visible = Boolean(keeper?.enabled) || turnLive;
+    if (g) g.visible = visible;
+    if (!visible) { lines.setDrawRange(0, 0); dots.setDrawRange(0, 0); return; }
+    // Where she goes: the turn's memories while a turn runs, else the memory the Zeladora is reading.
+    const reading = keeper?.current && has(keeper.current) ? keeper.current : null;
+    const target: Vec3 | null = turnLive && agent?.target && leaving === 0 ? agent.target : reading ? pos(reading) : null;
+    const resting = !target;
+    const goal = target ? v.set(target[0] + 9, target[1] - 11, target[2] + 6) : v.set(core[0] + 26, core[1] - 30, core[2] + 4);
+    place.current.lerp(goal, reduced ? 1 : 1 - Math.pow(0.12, delta));
+    if (g) { g.position.copy(place.current); const s = 1 + Math.sin(t * 2.2) * 0.035; g.scale.set(s, s, 1); }
     const from: Vec3 = [place.current.x, place.current.y, place.current.z];
-    for (const tent of agent.tentacles.slice(0, 64)) {
-      const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - tent.order * 45) / 650)) * (1 - leaving);
-      if (grow <= 0) continue;
-      const to = pos(tent.id);
-      const alpha = tent.kind === "scanned" ? 0.12 + tent.strength * 0.35 : 0.85;
-      c3.set(TENTACLE_COLOR[tent.kind]);
-      const bend = 0.12 * (hash01(tent.id) - 0.5);
-      // Dotted, like the reference: every other of 14 segments, up to how far it has grown.
-      for (let sgm = 0; sgm < 14; sgm += 2) {
-        const t0 = sgm / 14, t1 = (sgm + 1) / 14;
-        if (t0 > grow) break;
-        const p0 = curvePoint(from, to, t0, bend, v); p.setXYZ(k, p0.x, p0.y, p0.z); a.setX(k, alpha); t.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
-        const p1 = curvePoint(from, to, Math.min(t1, grow), bend, v); p.setXYZ(k, p1.x, p1.y, p1.z); a.setX(k, alpha); t.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
+
+    const lp = lines.getAttribute("position") as THREE.BufferAttribute;
+    const la = lines.getAttribute("alpha") as THREE.BufferAttribute;
+    const lt = lines.getAttribute("tint") as THREE.BufferAttribute;
+    const dp = dots.getAttribute("position") as THREE.BufferAttribute;
+    const ds = dots.getAttribute("size") as THREE.BufferAttribute;
+    const da = dots.getAttribute("alpha") as THREE.BufferAttribute;
+    const dt = dots.getAttribute("tint") as THREE.BufferAttribute;
+    let k = 0, d = 0;
+    const seg = (a: THREE.Vector3, alpha: number) => { if (k >= MAX_LINE) return; lp.setXYZ(k, a.x, a.y, a.z); la.setX(k, alpha); lt.setXYZ(k, c3.r, c3.g, c3.b); k += 1; };
+    const dot = (p: Vec3, size: number, alpha: number) => { if (d >= MAX_DOT) return; dp.setXYZ(d, p[0], p[1], p[2]); ds.setX(d, size); da.setX(d, alpha); dt.setXYZ(d, c3.r, c3.g, c3.b); d += 1; };
+
+    // ---- legs: to the memories she just read (newest first), else reaching out around her ----
+    const trail = resting ? [] : (keeper?.trail || []).filter(has);
+    for (let i = 0; i < LEGS; i += 1) {
+      const ang = (i / LEGS) * Math.PI * 2 + Math.sin(t * 0.7 + i) * 0.05;
+      const base: Vec3 = [from[0] + Math.cos(ang) * BODY_X, from[1] + Math.sin(ang) * BODY_Y, from[2]];
+      // Each memory read goes to the leg facing it (so the legs do not cross the body).
+      let end: Vec3 | null = null; let alpha = 0.32;
+      const id = trail.find((x, j) => j < LEGS && Math.round((((Math.atan2(pos(x)[1] - from[1], pos(x)[0] - from[0]) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * LEGS) % LEGS === i);
+      if (id) {
+        const p = pos(id);
+        if (Math.hypot(p[0] - base[0], p[1] - base[1]) < 150) { end = p; alpha = 0.75 - trail.indexOf(id) * 0.018; }
+      }
+      if (!end) {
+        const len = (resting ? 12 : 19) + Math.sin(t * 1.8 + i * 1.3) * 4;
+        end = [base[0] + Math.cos(ang) * len, base[1] + Math.sin(ang) * len * 1.1, base[2]];
+      }
+      c3.set(id ? "#7ff3e6" : "#3fd6c6");
+      const bend = 0.16 * Math.sin(t * 1.3 + i * 0.9);
+      for (let s = 0; s < LEG_STEPS; s += 1) { seg(curvePoint(base, end, s / LEG_STEPS, bend, w), alpha); seg(curvePoint(base, end, (s + 1) / LEG_STEPS, bend, w), alpha); }
+      dot(end, id ? 2.2 : 1.3, id ? 0.95 : 0.6);
+    }
+
+    // ---- a chat turn: dotted tentacles to the memories it weighs, uses and creates ----
+    if (agent && turnLive) {
+      for (const tent of agent.tentacles.slice(0, 64)) {
+        if (!has(tent.id)) continue;
+        const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - tent.order * 45) / 650)) * (1 - leaving);
+        if (grow <= 0) continue;
+        const to = pos(tent.id);
+        const alpha = tent.kind === "scanned" ? 0.12 + tent.strength * 0.35 : 0.85;
+        c3.set(TENTACLE_COLOR[tent.kind]);
+        const bend = 0.12 * (hash01(tent.id) - 0.5);
+        for (let s = 0; s < 14; s += 2) {
+          const t0 = s / 14; if (t0 > grow) break;
+          seg(curvePoint(from, to, t0, bend, w), alpha); seg(curvePoint(from, to, Math.min((s + 1) / 14, grow), bend, w), alpha);
+        }
       }
     }
-    p.needsUpdate = a.needsUpdate = t.needsUpdate = true;
-    geo.setDrawRange(0, k);
-    g.scale.setScalar(1 - leaving * 0.6);
+
+    // ---- links she just made: a long thread between the two memories, fading in 8 s ----
+    for (const link of (keeper?.links || []).slice(-12)) {
+      const age = Date.now() - link.at; if (age > 8000 || !has(link.from) || !has(link.to)) continue;
+      const a = pos(link.from), b = pos(link.to);
+      const grow = reduced ? 1 : Math.min(1, age / 900);
+      const alpha = 0.9 * (1 - age / 8000);
+      c3.set("#7ff3e6");
+      for (let s = 0; s < 24; s += 1) { if (s / 24 > grow) break; seg(curvePoint(a, b, s / 24, 0.22, w), alpha); seg(curvePoint(a, b, Math.min((s + 1) / 24, grow), 0.22, w), alpha); }
+    }
+
+    // ---- flags: a yellow mark on each memory of a pair she flagged (stays until the person decides) ----
+    c3.copy(FLAG_COLOR);
+    for (const f of (keeper?.flags || []).slice(0, 90)) for (const id of [f.id, f.otherId]) if (has(id)) { const p = pos(id); dot([p[0] + 1.4, p[1] + 1.4, p[2] + 0.5], 2.4 + Math.sin(t * 3 + hash01(id) * 6) * 0.4, 0.95); }
+
+    lp.needsUpdate = la.needsUpdate = lt.needsUpdate = true; lines.setDrawRange(0, k);
+    dp.needsUpdate = ds.needsUpdate = da.needsUpdate = dt.needsUpdate = true; dots.setDrawRange(0, d);
   });
+
+  const what = agent && !agent.ended ? "respondendo" : keeper?.phase === "descansando" ? "descansando" : keeper?.areaLabel ? keeper.areaLabel : keeper?.phase || "";
   return (
     <>
-      <lineSegments geometry={geo} material={material} frustumCulled={false} />
+      <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
+      <points geometry={dots} material={dotMat} frustumCulled={false} />
       <group ref={group} visible={false}>
-        <mesh ref={ring}><ringGeometry args={[3.2, 3.7, 48]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.85} side={THREE.DoubleSide} /></mesh>
-        <mesh><circleGeometry args={[3.2, 40]} /><meshBasicMaterial color="#0b3b38" transparent opacity={0.6} /></mesh>
-        <mesh><boxGeometry args={[1.4, 1.4, 0.3]} /><meshBasicMaterial color="#f05a8c" /></mesh>
+        <mesh scale={[1, BODY_Y / BODY_X, 1]}><circleGeometry args={[BODY_X, 48]} /><meshBasicMaterial color="#06201f" transparent opacity={0.78} depthWrite={false} /></mesh>
+        <lineSegments geometry={grid}><lineBasicMaterial color="#3fd6c6" transparent opacity={0.4} depthWrite={false} /></lineSegments>
+        <mesh scale={[1, BODY_Y / BODY_X, 1]}><ringGeometry args={[BODY_X - 0.7, BODY_X, 72]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} /></mesh>
+        <mesh rotation={[0, 0, Math.PI / 4]} position={[0, 0, 0.2]}><planeGeometry args={[3, 3]} /><meshBasicMaterial color="#f05a8c" depthWrite={false} /></mesh>
+        <mesh position={[0, -BODY_Y - 0.9, 0]}><ringGeometry args={[1, 1.6, 28]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.8} depthWrite={false} /></mesh>
+        <Html position={[BODY_X + 2.5, -BODY_Y - 1.5, 0]} zIndexRange={[25, 20]} style={{ pointerEvents: "none" }}>
+          <div className="lm-creature-label">zeladora · {what}</div>
+        </Html>
       </group>
     </>
   );
@@ -513,7 +594,7 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
         const text = focusClusterId === n.clusterId && id !== selectedId && id !== hoveredId ? (n.label.length > 22 ? `${n.label.slice(0, 21)}…` : n.label) : n.label;
         return (
           <Html key={`n:${id}`} position={[x + (left ? -1.6 : 1.6), y + 1.2, z]} zIndexRange={[20, 10]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h?.kind === "created" && now - h.at < ACTIVE_MS ? " · nova" : ""}</div>
+            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h && now - h.at < ACTIVE_MS ? KEEPER_SUFFIX[h.kind] || "" : ""}</div>
           </Html>
         );
       })}

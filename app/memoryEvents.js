@@ -10,11 +10,12 @@ const RING = 200;
 const recent = [];
 let seq = 0;
 
-/** One real event: { type, at, seq, ...payload }. Never throws. */
-export function emitMemoryEvent(type, payload = {}) {
+/** One real event: { type, at, seq, ...payload }. Never throws. `keep: false` streams it without filling the
+ *  ring (the Zeladora reads a memory every second or so; the ring keeps what changed). */
+export function emitMemoryEvent(type, payload = {}, { keep = true } = {}) {
   try {
     const event = { type, at: new Date().toISOString(), seq: (seq += 1), ...payload };
-    recent.push(event);
+    if (keep) recent.push(event);
     if (recent.length > RING) recent.splice(0, recent.length - RING);
     memoryEvents.emit("event", event);
     return event;

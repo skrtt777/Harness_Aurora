@@ -144,6 +144,27 @@ test("a turn followed step by step from real events; another conversation's even
   assert.equal(reduceTurn(t, { type: "recalled", at: "g", conversationId: "conv", ids: ["late"] }).recalled.includes("late"), false, "an ended turn takes nothing more");
 });
 
+test("the Zeladora on the map: her place, her trail, links, joins and flags come only from her events", async () => {
+  const { reduceKeeper, keeperFromSnapshot, applyEvent } = await import("../.test-build/livemap/adapter.js");
+  let k = keeperFromSnapshot({ running: true, enabled: true, phase: "parada", round: 0, current: null, area: null, areaLabel: null, restUntil: null, stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, areas: [], recent: [], flags: [], last: null });
+  k = reduceKeeper(k, { type: "keeper", at: "a", action: "round", round: 1, total: 3, areas: [{ key: "projeto:p", label: "Vendas", total: 3 }] });
+  k = reduceKeeper(k, { type: "keeper", at: "b", action: "walk", area: "projeto:p", label: "Vendas", total: 3 });
+  k = reduceKeeper(k, { type: "keeper", at: "c", action: "read", id: "m1", area: "projeto:p" });
+  k = reduceKeeper(k, { type: "keeper", at: "d", action: "read", id: "m2", area: "projeto:p" });
+  assert.deepEqual([k.current, k.trail, k.areas[0].read, k.areaLabel], ["m2", ["m2", "m1"], 2, "Vendas"]);
+  k = reduceKeeper(k, { type: "keeper", at: "e", action: "link", from: "m2", to: "m1", similarity: 0.85 });
+  k = reduceKeeper(k, { type: "keeper", at: "f", action: "join", kept: "m1", archived: "m3", title: "A", archivedTitle: "A cópia" });
+  k = reduceKeeper(k, { type: "keeper", at: "g", action: "flag", id: "m1", otherId: "m2", reason: "valores diferentes" });
+  k = reduceKeeper(k, { type: "keeper", at: "g", action: "flag", id: "m1", otherId: "m2", reason: "valores diferentes" });
+  assert.deepEqual([k.links.length, k.joins[0].archived, k.flags.length, k.stats.linked, k.stats.joined, k.stats.flagged], [1, "m3", 1, 1, 1, 1]);
+  k = reduceKeeper(k, { type: "keeper", at: "h", action: "rest", until: "2026-10-20T12:00:00Z" });
+  assert.deepEqual([k.phase, k.current, k.trail.length], ["descansando", null, 0]);
+  assert.equal(reduceKeeper(k, { type: "recalled", at: "i", ids: ["x"] }), k, "other events do not move her");
+  // A link she made becomes a real relation on the map.
+  const snap = { memories: [], relations: [], atlas: null, projects: [], conversations: [], recalls: [], events: [], generatedAt: "" };
+  assert.deepEqual(applyEvent(snap, { type: "keeper", at: "j", action: "link", from: "m2", to: "m1" }).snapshot.relations, [{ from: "m2", to: "m1", type: "thematic" }]);
+});
+
 test("layout: deterministic, the general memory at the core, clusters apart, a new memory does not move the others", () => {
   const s = snapshot();
   const g = buildMemoryGraph(s, { mode: "pasta", now: NOW });

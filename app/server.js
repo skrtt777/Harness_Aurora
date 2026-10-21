@@ -64,6 +64,7 @@ import { engineStatus, refreshApiEngines } from "./engine.js";
 import { listEgress, secretTerms } from "./blind.js";
 import { memoryGraphSnapshot } from "./memoryGraph.js";
 import { memoryEvents } from "./memoryEvents.js";
+import { dismissFlag, keeperState, startMemoryKeeper, stopMemoryKeeper, undoJoin } from "./memoryKeeper.js";
 // Tests and scripts import these from here.
 export { buildPrompt, handleChatTurn, agentHistory, asksForInformation, fileMentions, knowledgeQuery } from "./chatTurn.js";
 
@@ -121,7 +122,7 @@ async function serveStatic(response, pathname) {
   }
 }
 
-export function createServer({ allowDev = !process.versions.electron, centralSync = true, agentScheduler = Boolean(process.versions.electron), warmLocal = Boolean(process.versions.electron) } = {}) {
+export function createServer({ allowDev = !process.versions.electron, centralSync = true, agentScheduler = Boolean(process.versions.electron), warmLocal = Boolean(process.versions.electron), memoryKeeper = agentScheduler } = {}) {
   const apiToken = randomBytes(32).toString("hex");
   const server = http.createServer(async (request, response) => {
     try {
@@ -957,7 +958,23 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       // ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
-      if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, await memoryGraphSnapshot());
+      if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, { ...(await memoryGraphSnapshot()), keeper: await keeperState() });
+      // A Zeladora (app/memoryKeeper.js): where she is, what she did; on/off; undo a join; dismiss a flag.
+      if (method === "GET" && pathname === "/api/memories/keeper") return sendJson(response, 200, await keeperState());
+      if (method === "PUT" && pathname === "/api/memories/keeper") {
+        const body = await readJson(request);
+        if (body.enabled !== undefined) await setSetting("memory_keeper", body.enabled ? "on" : "off");
+        return sendJson(response, 200, await keeperState());
+      }
+      if (method === "POST" && pathname === "/api/memories/keeper/undo") {
+        const body = await readJson(request);
+        const memory = await undoJoin(String(body.id || ""));
+        return memory ? sendJson(response, 200, { memory }) : sendJson(response, 404, { error: "Memória não encontrada." });
+      }
+      if (method === "POST" && pathname === "/api/memories/keeper/dismiss") {
+        const body = await readJson(request);
+        return sendJson(response, 200, { flags: await dismissFlag(String(body.id || ""), body.otherId ? String(body.otherId) : undefined) });
+      }
       if (method === "GET" && pathname === "/api/memories/live") {
         // Server-Sent Events: each real memory event (created, updated, archived, deleted, recalled) as it happens.
         response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
@@ -1075,6 +1092,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
     server.on("close", () => { stopTelegram(); stopWhatsapp(); offPhone(); });
     // The Aurora's step-by-step guides (app/guides.js) as memories: written once, rewritten when changed.
     server.on("listening", () => { void import("./guides.js").then(({ seedGuides }) => seedGuides()).catch(() => {}); });
+  }
+  // A Zeladora das memórias walks them in the background (desktop app, or a server that asks for her).
+  if (memoryKeeper) {
+    server.on("listening", () => { startMemoryKeeper(typeof memoryKeeper === "object" ? memoryKeeper : {}); });
+    server.on("close", () => stopMemoryKeeper());
   }
   if (centralSync) {
     let stop;

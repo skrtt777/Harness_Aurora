@@ -60,7 +60,15 @@ for (let i = 0; i < total; i += 1) {
   if (i % 200 === 199) console.log(`  ${i + 1} (${Math.round((Date.now() - started) / 1000)} s)`);
 }
 
-const server = createServer({ centralSync: false, agentScheduler: false, warmLocal: false });
+// For the Zeladora: copies (extracted, so she may join them) and two memories that disagree on a value.
+for (let c = 0; c < 3; c += 1) {
+  await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Fechamento de vendas do mês", content: "O fechamento de vendas do mês é feito no último dia útil, com o relatório por vendedor enviado ao comercial." });
+}
+await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Meta de vendas do Sul", content: "A meta de vendas da região Sul em outubro é de 263 mil reais." });
+await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Meta de vendas do Sul atualizada", content: "A meta de vendas da região Sul em outubro é de 280 mil reais." });
+
+const keeperPace = Number(arg("keeper-pace", 350));
+const server = createServer({ centralSync: false, agentScheduler: false, warmLocal: false, memoryKeeper: { paceMs: keeperPace, firstDelayMs: 1000, restMs: 600_000 } });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 console.log(`servidor de teste: ${url}`);
@@ -86,6 +94,14 @@ console.log(`quadros por segundo (headless): ${fps}`);
 await page.locator(".lm-bars button").nth(1).click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: join(out, "02_agrupamento_em_foco.png") });
+
+// The Zeladora walking: a few moments of her round.
+await page.locator(".lm-side .lm-x").click().catch(() => {});
+for (let k = 1; k <= 3; k += 1) {
+  await page.waitForTimeout(5000);
+  await page.screenshot({ path: join(out, `08_zeladora_${k}.png`) });
+}
+console.log("zeladora:", await page.locator(".lm-keeper").innerText().catch(() => "?"));
 
 // Live: new memories and a real recall event while the page watches.
 const fresh = [];

@@ -87,3 +87,30 @@ Inspirado no vídeo de referência (o "crawler" que percorre o mapa enquanto um 
   `turn-end`. Memórias extraídas logo após o fim do turno ainda contam para ele.
 - Teste: `test/memoryGraph.test.js` (ordem real dos eventos num turno) e `frontend/test/livemap.test.mjs`
   (`reduceTurn`); laboratório `scripts/livemap-lab/lab.mjs` faz um turno real pelo chat do mapa (`--no-chat` pula).
+
+## A Zeladora das memórias (20/10)
+
+O "ser" do vídeo de referência: uma criatura (corpo oval com grade, núcleo rosa, 28 pernas) que anda sozinha
+pela memória e cuida dela — `app/memoryKeeper.js` no servidor, `Creature` em `LiveMapScene.tsx` no mapa.
+
+- **Ronda**: área por área (cada pasta, cada conversa, a memória geral), uma memória por vez (~1,2 s cada);
+  depois descansa 15 min e recomeça. Roda só no app instalado (`createServer({ memoryKeeper })`).
+- **O que ela faz, de verdade e reversível**:
+  - **lê** cada memória e compara com as outras;
+  - **liga** duas memórias muito parecidas (similaridade ≥ 0,88 ou ≥ 60% das palavras) que nada conecta —
+    relação "temática", no máximo 1 por memória lida;
+  - **junta** cópias: só memórias extraídas pela Aurora (nunca escritas à mão, nunca guias importados), no mesmo
+    lugar, com o **texto** quase idêntico (≥ 80% das palavras e, com embedding, ≥ 0,9). A cópia é arquivada com
+    relação "derivação" para a que ficou; **desfazer** a restaura e ela nunca mais é juntada;
+  - **marca** conflitos: memórias parecidas com valores diferentes (com unidade, separador ou data: "263 mil"
+    × "280 mil") — nada é alterado, a pessoa decide (ver / ok). Contadores como "nota 11" não contam.
+- Medido na base real (196 memórias, 19 110 pares): guias diferentes da mesma família chegam a 0,93 de
+  similaridade, por isso juntar exige o texto quase igual, não só o embedding.
+- **No mapa**: ela anda até a memória que está lendo; as pernas alcançam as últimas lidas; um fio liga as
+  memórias que ela acabou de ligar; marcas amarelas ficam nos conflitos. Painel **ZELADORA**: área atual,
+  lidas/ligadas/juntadas/conflitos, progresso por área, conflitos (ver/ok) e junções (desfazer), botão
+  ligar/desligar. O log de atividade mostra lê · liga · junta · marca · anda (o "crawl log" do vídeo).
+  Durante uma pergunta no chat, a mesma criatura vai até as memórias da pergunta.
+- API: `GET/PUT /api/memories/keeper` (estado; `{enabled}`), `POST /api/memories/keeper/undo {id}`,
+  `POST /api/memories/keeper/dismiss {id, otherId}`; eventos `keeper` em `/api/memories/live`.
+- Testes: `test/memoryKeeper.test.js`, `frontend/test/livemap.test.mjs`; laboratório com `--keeper-pace`.

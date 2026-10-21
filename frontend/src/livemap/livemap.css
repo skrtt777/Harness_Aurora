@@ -155,3 +155,25 @@
 @media (max-width: 900px) { .lm-dock { width: auto; left: 12px; top: auto; height: 55%; } }
 /* The panels stay above the map's labels (drei puts each label in its own layer). */
 .lm-dock, .lm-dock-open, .lm-side, .lm-hover { z-index: 60; }
+
+/* A Zeladora */
+.lm-creature-label { font: 10px var(--lm-mono); color: #7ff3e6; white-space: nowrap; letter-spacing: .04em; text-shadow: 0 0 6px #000; }
+.lm-node-label.read { border-color: rgba(127,243,230,.7); color: #7ff3e6; background: rgba(6,32,31,.85); }
+.lm-node-label.linked { border-color: #7ff3e6; color: #fff; background: rgba(63,214,198,.35); }
+.lm-node-label.flagged { border-color: #f2d14b; color: #f2d14b; background: rgba(40,34,6,.9); }
+.lm-node-label.joined { border-color: #9fb3c8; color: #c9d1d9; }
+.lm-keeper { display: flex; flex-direction: column; gap: 3px; min-height: 0; }
+.lm-keeper .lm-k-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 10.5px; color: var(--lm-dim); }
+.lm-keeper .lm-k-head b { color: #7ff3e6; font-weight: 500; }
+.lm-keeper .lm-k-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 10px; color: var(--lm-faint); }
+.lm-keeper .lm-k-stats span b { display: block; font-size: 15px; color: var(--lm-text); font-weight: 500; }
+.lm-keeper .lm-k-area { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; font-size: 10.5px; }
+.lm-keeper .lm-k-area i { grid-column: 1 / -1; height: 2px; background: #1b212c; position: relative; }
+.lm-keeper .lm-k-area i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--p); background: var(--lm-teal); }
+.lm-keeper .lm-k-area.now span:first-child { color: #fff; }
+.lm-keeper .lm-k-area.now i::after { background: var(--lm-pink); }
+.lm-keeper .lm-k-item { display: flex; gap: 6px; align-items: baseline; font-size: 10.5px; }
+.lm-keeper .lm-k-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-keeper .lm-k-item button { background: none; border: 1px solid #2a3442; color: var(--lm-dim); font: 10px var(--lm-mono); padding: 0 5px; cursor: pointer; }
+.lm-keeper .lm-k-item.flag span { color: #f2d14b; }
+.lm-act-read { color: #7ff3e6; } .lm-act-link { color: #3fd6c6; } .lm-act-join { color: #c9d1d9; } .lm-act-flag { color: #f2d14b; } .lm-act-walk { color: var(--lm-pink); } .lm-act-rest { color: var(--lm-faint); }
