@@ -70,6 +70,12 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.53 (21/10): o Mapa Vivo, a Zeladora e o WhatsApp funcionando** (`docs/MAPA_VIVO.md`).
+  - **Mapa Vivo** (Memória → Mapa Vivo): a memória como um mar vivo — células (seções) com membrana que respira, organelas (memórias), sinapses com impulsos; o cursor é correnteza e um toque faz onda; uma pergunta é um impulso elétrico de memória em memória; chat ao lado do mapa com as etapas do turno (pergunta, busca, contexto, resposta).
+  - **A Zeladora** (`app/memoryKeeper.js`): uma água-viva que percorre a memória seção por seção, classifica, liga as parecidas, compacta pensamentos repetidos (todas as frases distintas guardadas; reversível), marca conflitos de valor e memórias vagas; pode ser chamada para uma seção. Medida na base real: 10 ligações, nenhuma compactação indevida.
+  - **WhatsApp corrigido**: o "close" atrasado de um socket antigo derrubava a conexão nova e abria uma segunda sessão — reconexão sem fim; agora cada conexão tem geração, a reconexão é única e com espera crescente, e o teste de envio mostra o motivo real de uma falha.
+  - Revisão: teste de fumaça da interface inteira (`scripts/smoke/ui-smoke.mjs`), tipos verificados nos testes do frontend, gancho de pre-push instalado.
+
 - **0.1.52 (20/10): Visão 2.0, fase 1 e o modo top secret** (`docs/VISAO_HARNESS_2.0.md`).
   - **Qualquer modelo por chave de API** (`app/apiEngines.js`): Anthropic (SDK oficial) e qualquer API compatível com OpenAI (OpenAI, OpenRouter, Gemini, endpoint próprio, Ollama), sempre às cegas pelo espelho; Configurações → Modelos.
   - **Gateway de canais** (`app/gateway.js`): uma conversa do celular para todos os canais, e a resposta volta pelo canal usado por último. **WhatsApp** (`app/whatsapp.js`, WhatsApp Web por QR, "Mensagem para você" ou número próprio por código).

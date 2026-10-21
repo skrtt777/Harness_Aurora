@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.53': {
+    title: 'O Mapa Vivo, a Zeladora e o WhatsApp funcionando',
+    items: [
+      ['Mapa Vivo', 'Em Memória → Mapa Vivo, sua memória vira um mar vivo: cada pensamento é uma célula, cada memória uma luz dentro dela. Passe o mouse para mexer a água e clique nela para fazer uma onda.'],
+      ['A Zeladora', 'Uma água-viva que cuida das suas memórias sozinha: lê, liga as parecidas, junta as repetidas numa só (sem perder nada) e marca valores que não batem. Tudo pode ser desfeito, e o botão ⌖ a chama para uma seção.'],
+      ['Converse vendo o mapa', 'O chat fica ao lado do mapa: veja a Aurora buscar e consultar as memórias enquanto responde.'],
+      ['WhatsApp', 'Corrigido: o WhatsApp caía e reconectava sem parar, e por isso não enviava nem respondia. Se ele ainda aparecer desligado, clique em Reconectar em Configurações → Celular.'],
+    ],
+  },
   '0.1.52': {
     title: 'WhatsApp, qualquer modelo e o modo top secret',
     items: [
