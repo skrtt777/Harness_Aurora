@@ -177,3 +177,13 @@
 .lm-keeper .lm-k-item button { background: none; border: 1px solid #2a3442; color: var(--lm-dim); font: 10px var(--lm-mono); padding: 0 5px; cursor: pointer; }
 .lm-keeper .lm-k-item.flag span { color: #f2d14b; }
 .lm-act-read { color: #7ff3e6; } .lm-act-link { color: #3fd6c6; } .lm-act-join { color: #c9d1d9; } .lm-act-flag { color: #f2d14b; } .lm-act-walk { color: var(--lm-pink); } .lm-act-rest { color: var(--lm-faint); }
+/* Sections (the reference's SECTIONS): waiting ones grey, the one being read bright */
+.lm-sections li.queued span, .lm-sections li.queued b { color: var(--lm-faint); }
+.lm-sections li.queued i { filter: grayscale(1) brightness(.6); }
+.lm-sections li.reading span { color: #fff; }
+.lm-sections li.reading span::after { content: " ●"; color: var(--lm-pink); animation: lm-blink 1s steps(2) infinite; }
+.lm-cluster-label.queued { opacity: .55; }
+.lm-cluster-label.reading b::after { content: " · lendo"; font-weight: 400; font-size: .8em; }
+.lm-node-label.vague { border-color: var(--lm-pink); background: rgba(240,90,140,.85); color: #fff; }
+.lm-keeper .lm-k-item.flag.vague span { color: var(--lm-pink); }
+.lm-metrics b.yellow { color: #f2d14b; }

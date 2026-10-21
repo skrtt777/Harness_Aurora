@@ -4,7 +4,7 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type KeeperView, type MemoryGraph } from "./adapter";
+import { ACTIVITY_COLOR, CATEGORY_COLOR, type GraphCluster, type GraphNode, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
 import { hash01, type Layout, type Vec3 } from "./layout";
 
 /**
@@ -15,7 +15,7 @@ import { hash01, type Layout, type Vec3 } from "./layout";
  */
 export type Quality = "alta" | "media" | "baixa";
 export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean };
-export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number };
+export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number; note?: string };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
 export type AgentState = { key: string; target: Vec3 | null; tentacles: AgentTentacle[]; ended: boolean } | null;
@@ -33,6 +33,8 @@ type SceneProps = {
   camera: CameraCommand;
   agent: AgentState;
   keeper: KeeperView | null;
+  /** Each section's state in the Zeladora's round: a section still waiting is grey, as in the reference. */
+  sections: Map<string, SectionState>;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
   onCluster: (id: string, double: boolean) => void;
@@ -231,7 +233,8 @@ function Scene(props: SceneProps) {
       const base = 1.5 + n.relevance * 2.6 + (n.id === selectedId ? 4 : n.id === hoveredId ? 2.5 : 0) + active * 3;
       ns.setX(i, base * grow);
       // A cluster in focus keeps its colour; the others go grey and quiet (the reference's sections).
-      const away = focusClusterId && n.clusterId !== focusClusterId && !isFocus && !active ? 1 : 0;
+      const queued = props.sections.get(n.clusterId)?.state === "na fila" && !active && !isFocus;
+      const away = (focusClusterId && n.clusterId !== focusClusterId && !isFocus && !active) || queued ? 1 : 0;
       na.setX(i, Math.min(1, (0.55 + n.relevance * 0.35 + active) * (isFocus || active ? 1 : dim) * (away ? 0.45 : 1)));
       // Points are lights: near white, tinted by their category.
       tmpColor.set(CATEGORY_COLOR[n.category]).lerp(WHITE, away ? 0.75 : 0.32).lerp(hl?.kind === "read" || hl?.kind === "linked" ? TEAL : hl?.kind === "flagged" ? YELLOW : ACTIVITY, active * 0.85);
@@ -355,32 +358,31 @@ function Scene(props: SceneProps) {
       {graph.clusters.map((c) => <ClusterHub key={c.id} cluster={c} center={layout.clusters.get(c.id)?.center || [0, 0, 0]} focused={c.id === focusClusterId} motion={motion} onCluster={onCluster} />)}
       {settings.labels && <Labels {...props} index={index} clusterOf={clusterOf} pos={pos} />}
       <CameraRig command={camera} reduced={settings.reducedMotion} />
-      <Creature agent={props.agent} keeper={props.keeper} core={layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
+      <Creature keeper={props.keeper} core={layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
+      <AccessPath agent={props.agent} core={layout.core} pos={pos} has={has} reduced={settings.reducedMotion} />
     </>
   );
 }
 
 
 /**
- * A Zeladora (the reference's crawler): the being that looks after the memory (app/memoryKeeper.js). She walks
- * to the memory she is reading; her legs reach the last ones she read in that area; a thread runs between two
- * memories she has just linked; a yellow mark stays on each pair she flagged for the person. During a chat turn
- * she goes where the turn's memories are and reaches them with dotted tentacles — faint for a candidate the
- * search scored, lit for one recalled into the turn, green for one created. Every target is an id from a real
- * event; with the Zeladora off and no turn, she is not drawn.
+ * A Zeladora (app/memoryKeeper.js): a spider on the web of memories. She is not part of how the Aurora thinks —
+ * she looks after the memory. She walks the web to the memory she is reading; 16 short legs carry her, 22
+ * dotted tentacles reach the last memories she read (several at once, as she organizes them); a thread runs
+ * between two memories she has just linked; a yellow mark stays on what she flagged for the person. Every
+ * target is an id from a real event; with the Zeladora off she is not drawn.
  */
-const TENTACLE_COLOR: Record<AgentTentacle["kind"], string> = { scanned: "#9fb3c8", recalled: "#7ff3e6", used: "#7ff3e6", created: ACTIVITY_COLOR };
-const LEGS = 28;
-const LEG_STEPS = 6;
+const LEGS = 16;
+const TENTACLES = 22;
+const LEG_STEPS = 4;
 const BODY_X = 8.5, BODY_Y = 10.6;
 const FLAG_COLOR = color("#f2d14b");
-function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentState; keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
+const VAGUE_COLOR = color("#f05a8c");
+function Creature({ keeper, core, pos, has, reduced }: { keeper: KeeperView | null; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
   const group = useRef<THREE.Group>(null);
-  const place = useRef(new THREE.Vector3(core[0] + 18, core[1] - 22, core[2] + 4));
-  const born = useRef(0);
-  const endedAt = useRef<number | null>(null);
-  const MAX_LINE = LEGS * LEG_STEPS * 2 + 64 * 14 * 2 + 12 * 24 * 2;
-  const MAX_DOT = LEGS + 200;
+  const place = useRef(new THREE.Vector3(core[0] + 26, core[1] - 30, core[2] + 4));
+  const MAX_LINE = LEGS * LEG_STEPS * 2 + TENTACLES * 16 * 2 + 12 * 24 * 2;
+  const MAX_DOT = TENTACLES + LEGS + 200;
   const lines = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_LINE * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX_LINE), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX_LINE * 3), 3)); return g; }, [MAX_LINE]);
   const dots = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_DOT * 3), 3)); g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(MAX_DOT), 1)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX_DOT), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX_DOT * 3), 3)); return g; }, [MAX_DOT]);
   // The body's grid (the reference's mesh): chords across the ellipse.
@@ -397,27 +399,24 @@ function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentStat
   const lineMat = useMemo(() => lineMaterial(), []);
   const dotMat = useMemo(() => pointMaterial(2.2), []);
   useEffect(() => () => { lines.dispose(); dots.dispose(); grid.dispose(); lineMat.dispose(); dotMat.dispose(); }, [lines, dots, grid, lineMat, dotMat]);
-  useEffect(() => { born.current = performance.now(); endedAt.current = null; }, [agent?.key]);
-  useEffect(() => { if (agent?.ended && endedAt.current === null) endedAt.current = performance.now(); }, [agent?.ended]);
   const v = useMemo(() => new THREE.Vector3(), []);
   const w = useMemo(() => new THREE.Vector3(), []);
   const c3 = useMemo(() => new THREE.Color(), []);
 
   useFrame(({ clock }, delta) => {
-    const now = performance.now();
     const t = reduced ? 0 : clock.getElapsedTime();
     const g = group.current;
-    const turnLive = Boolean(agent) && (endedAt.current === null || now - endedAt.current < 1600);
-    const leaving = turnLive && endedAt.current !== null ? Math.min(1, (now - endedAt.current) / 1600) : 0;
-    const visible = Boolean(keeper?.enabled) || turnLive;
+    const visible = Boolean(keeper?.enabled);
     if (g) g.visible = visible;
     if (!visible) { lines.setDrawRange(0, 0); dots.setDrawRange(0, 0); return; }
-    // Where she goes: the turn's memories while a turn runs, else the memory the Zeladora is reading.
+    // She walks the web to the memory she is reading; resting, she waits beside the core.
     const reading = keeper?.current && has(keeper.current) ? keeper.current : null;
-    const target: Vec3 | null = turnLive && agent?.target && leaving === 0 ? agent.target : reading ? pos(reading) : null;
+    const target: Vec3 | null = reading ? pos(reading) : null;
     const resting = !target;
     const goal = target ? v.set(target[0] + 9, target[1] - 11, target[2] + 6) : v.set(core[0] + 26, core[1] - 30, core[2] + 4);
-    place.current.lerp(goal, reduced ? 1 : 1 - Math.pow(0.12, delta));
+    const step = 1 - Math.pow(0.12, delta);
+    place.current.lerp(goal, reduced ? 1 : step);
+    const moving = place.current.distanceTo(goal) > 2;
     if (g) { g.position.copy(place.current); const s = 1 + Math.sin(t * 2.2) * 0.035; g.scale.set(s, s, 1); }
     const from: Vec3 = [place.current.x, place.current.y, place.current.z];
 
@@ -432,46 +431,35 @@ function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentStat
     const seg = (a: THREE.Vector3, alpha: number) => { if (k >= MAX_LINE) return; lp.setXYZ(k, a.x, a.y, a.z); la.setX(k, alpha); lt.setXYZ(k, c3.r, c3.g, c3.b); k += 1; };
     const dot = (p: Vec3, size: number, alpha: number) => { if (d >= MAX_DOT) return; dp.setXYZ(d, p[0], p[1], p[2]); ds.setX(d, size); da.setX(d, alpha); dt.setXYZ(d, c3.r, c3.g, c3.b); d += 1; };
 
-    // ---- legs: to the memories she just read (newest first), else reaching out around her ----
-    const trail = resting ? [] : (keeper?.trail || []).filter(has);
+    // ---- 16 legs: short, around the body; they step faster while she walks ----
+    c3.set("#3fd6c6");
     for (let i = 0; i < LEGS; i += 1) {
-      const ang = (i / LEGS) * Math.PI * 2 + Math.sin(t * 0.7 + i) * 0.05;
+      const ang = (i / LEGS) * Math.PI * 2 + 0.1;
       const base: Vec3 = [from[0] + Math.cos(ang) * BODY_X, from[1] + Math.sin(ang) * BODY_Y, from[2]];
-      // Each memory read goes to the leg facing it (so the legs do not cross the body).
-      let end: Vec3 | null = null; let alpha = 0.32;
-      const id = trail.find((x, j) => j < LEGS && Math.round((((Math.atan2(pos(x)[1] - from[1], pos(x)[0] - from[0]) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * LEGS) % LEGS === i);
-      if (id) {
-        const p = pos(id);
-        if (Math.hypot(p[0] - base[0], p[1] - base[1]) < 150) { end = p; alpha = 0.75 - trail.indexOf(id) * 0.018; }
-      }
-      if (!end) {
-        const len = (resting ? 12 : 19) + Math.sin(t * 1.8 + i * 1.3) * 4;
-        end = [base[0] + Math.cos(ang) * len, base[1] + Math.sin(ang) * len * 1.1, base[2]];
-      }
-      c3.set(id ? "#7ff3e6" : "#3fd6c6");
-      const bend = 0.16 * Math.sin(t * 1.3 + i * 0.9);
-      for (let s = 0; s < LEG_STEPS; s += 1) { seg(curvePoint(base, end, s / LEG_STEPS, bend, w), alpha); seg(curvePoint(base, end, (s + 1) / LEG_STEPS, bend, w), alpha); }
-      dot(end, id ? 2.2 : 1.3, id ? 0.95 : 0.6);
+      const gait = Math.sin(t * (moving ? 9 : 1.6) + i * (i % 2 ? Math.PI : 0) + i * 0.4);
+      const len = (resting ? 4 : 6) + gait * (moving ? 2.2 : 0.8);
+      const end: Vec3 = [base[0] + Math.cos(ang + gait * 0.15) * len, base[1] + Math.sin(ang + gait * 0.15) * len * 1.1, base[2]];
+      for (let s = 0; s < LEG_STEPS; s += 1) { seg(curvePoint(base, end, s / LEG_STEPS, 0.2, w), 0.75); seg(curvePoint(base, end, (s + 1) / LEG_STEPS, 0.2, w), 0.75); }
+      dot(end, 0.9, 0.7);
     }
 
-    // ---- a chat turn: dotted tentacles to the memories it weighs, uses and creates ----
-    if (agent && turnLive) {
-      for (const tent of agent.tentacles.slice(0, 64)) {
-        if (!has(tent.id)) continue;
-        const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - tent.order * 45) / 650)) * (1 - leaving);
-        if (grow <= 0) continue;
-        const to = pos(tent.id);
-        const alpha = tent.kind === "scanned" ? 0.12 + tent.strength * 0.35 : 0.85;
-        c3.set(TENTACLE_COLOR[tent.kind]);
-        const bend = 0.12 * (hash01(tent.id) - 0.5);
-        for (let s = 0; s < 14; s += 2) {
-          const t0 = s / 14; if (t0 > grow) break;
-          seg(curvePoint(from, to, t0, bend, w), alpha); seg(curvePoint(from, to, Math.min((s + 1) / 14, grow), bend, w), alpha);
-        }
-      }
-    }
+    // ---- 22 tentacles: dotted, to the memories she just read (newest brightest) ----
+    const trail = resting ? [] : (keeper?.trail || []).filter(has).slice(0, TENTACLES);
+    trail.forEach((id, i) => {
+      const p = pos(id);
+      if (Math.hypot(p[0] - from[0], p[1] - from[1]) > 160) return;
+      const flagged = keeper?.flags.some((f) => f.id === id || f.otherId === id);
+      const vague = keeper?.kinds[id] === "vaga";
+      c3.set(vague ? "#f05a8c" : flagged ? "#f2d14b" : "#eef2f6");
+      const alpha = 0.85 - i * 0.03;
+      const ang = Math.atan2(p[1] - from[1], p[0] - from[0]);
+      const base: Vec3 = [from[0] + Math.cos(ang) * BODY_X * 0.9, from[1] + Math.sin(ang) * BODY_Y * 0.9, from[2]];
+      const bend = 0.12 * Math.sin(t * 1.1 + hash01(id) * 6);
+      for (let s = 0; s < 16; s += 2) { seg(curvePoint(base, p, s / 16, bend, w), alpha); seg(curvePoint(base, p, (s + 1) / 16, bend, w), alpha); }
+      dot(p, i === 0 ? 2.6 : 1.6, 0.95);
+    });
 
-    // ---- links she just made: a long thread between the two memories, fading in 8 s ----
+    // ---- links she just made: a thread between the two memories, fading in 8 s ----
     for (const link of (keeper?.links || []).slice(-12)) {
       const age = Date.now() - link.at; if (age > 8000 || !has(link.from) || !has(link.to)) continue;
       const a = pos(link.from), b = pos(link.to);
@@ -481,15 +469,17 @@ function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentStat
       for (let s = 0; s < 24; s += 1) { if (s / 24 > grow) break; seg(curvePoint(a, b, s / 24, 0.22, w), alpha); seg(curvePoint(a, b, Math.min((s + 1) / 24, grow), 0.22, w), alpha); }
     }
 
-    // ---- flags: a yellow mark on each memory of a pair she flagged (stays until the person decides) ----
-    c3.copy(FLAG_COLOR);
-    for (const f of (keeper?.flags || []).slice(0, 90)) for (const id of [f.id, f.otherId]) if (has(id)) { const p = pos(id); dot([p[0] + 1.4, p[1] + 1.4, p[2] + 0.5], 2.4 + Math.sin(t * 3 + hash01(id) * 6) * 0.4, 0.95); }
+    // ---- flags: a mark on each memory she flagged (yellow: values disagree; pink: vague) ----
+    for (const f of (keeper?.flags || []).slice(0, 90)) {
+      c3.copy(f.otherId ? FLAG_COLOR : VAGUE_COLOR);
+      for (const id of [f.id, f.otherId]) if (id && has(id)) { const p = pos(id); dot([p[0] + 1.4, p[1] + 1.4, p[2] + 0.5], 2.4 + Math.sin(t * 3 + hash01(id) * 6) * 0.4, 0.95); }
+    }
 
     lp.needsUpdate = la.needsUpdate = lt.needsUpdate = true; lines.setDrawRange(0, k);
     dp.needsUpdate = ds.needsUpdate = da.needsUpdate = dt.needsUpdate = true; dots.setDrawRange(0, d);
   });
 
-  const what = agent && !agent.ended ? "respondendo" : keeper?.phase === "descansando" ? "descansando" : keeper?.areaLabel ? keeper.areaLabel : keeper?.phase || "";
+  const what = keeper?.phase === "descansando" ? "descansando" : keeper?.areaLabel ? `lendo · ${keeper.areaLabel}` : keeper?.phase || "";
   return (
     <>
       <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
@@ -499,11 +489,77 @@ function Creature({ agent, keeper, core, pos, has, reduced }: { agent: AgentStat
         <lineSegments geometry={grid}><lineBasicMaterial color="#3fd6c6" transparent opacity={0.4} depthWrite={false} /></lineSegments>
         <mesh scale={[1, BODY_Y / BODY_X, 1]}><ringGeometry args={[BODY_X - 0.7, BODY_X, 72]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} /></mesh>
         <mesh rotation={[0, 0, Math.PI / 4]} position={[0, 0, 0.2]}><planeGeometry args={[3, 3]} /><meshBasicMaterial color="#f05a8c" depthWrite={false} /></mesh>
-        <mesh position={[0, -BODY_Y - 0.9, 0]}><ringGeometry args={[1, 1.6, 28]} /><meshBasicMaterial color="#3fd6c6" transparent opacity={0.8} depthWrite={false} /></mesh>
         <Html position={[BODY_X + 2.5, -BODY_Y - 1.5, 0]} zIndexRange={[25, 20]} style={{ pointerEvents: "none" }}>
           <div className="lm-creature-label">zeladora · {what}</div>
         </Html>
       </group>
+    </>
+  );
+}
+
+/**
+ * How the Aurora reaches her memories in a chat turn (this is the brain working, not the Zeladora): a path
+ * from memory A to memory B — the memories recalled into the turn, in the order the search ranked them — drawn
+ * hop by hop with a bright head; with one memory, from the core to it. The candidates the search weighed show
+ * as faint points. All from the turn's real events; it fades out when the turn ends.
+ */
+const PATH_COLOR = color("#f6d9a6");
+function AccessPath({ agent, core, pos, has, reduced }: { agent: AgentState; core: Vec3; pos: (id: string) => Vec3; has: (id: string) => boolean; reduced: boolean }) {
+  const born = useRef(0);
+  const endedAt = useRef<number | null>(null);
+  const MAX = 12 * 28 * 2;
+  const lines = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(MAX), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); return g; }, [MAX]);
+  const dots = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(40 * 3), 3)); g.setAttribute("size", new THREE.BufferAttribute(new Float32Array(40), 1)); g.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(40), 1)); g.setAttribute("tint", new THREE.BufferAttribute(new Float32Array(40 * 3), 3)); return g; }, []);
+  const lineMat = useMemo(() => lineMaterial(), []);
+  const dotMat = useMemo(() => pointMaterial(2), []);
+  useEffect(() => () => { lines.dispose(); dots.dispose(); lineMat.dispose(); dotMat.dispose(); }, [lines, dots, lineMat, dotMat]);
+  useEffect(() => { born.current = performance.now(); endedAt.current = null; }, [agent?.key]);
+  useEffect(() => { if (agent?.ended && endedAt.current === null) endedAt.current = performance.now(); }, [agent?.ended]);
+  const w = useMemo(() => new THREE.Vector3(), []);
+  const c3 = useMemo(() => new THREE.Color(), []);
+  useFrame(() => {
+    const now = performance.now();
+    const fade = endedAt.current !== null ? Math.max(0, 1 - (now - endedAt.current) / 3000) : 1;
+    if (!agent || fade <= 0) { lines.setDrawRange(0, 0); dots.setDrawRange(0, 0); return; }
+    const lp = lines.getAttribute("position") as THREE.BufferAttribute;
+    const la = lines.getAttribute("alpha") as THREE.BufferAttribute;
+    const lt = lines.getAttribute("tint") as THREE.BufferAttribute;
+    const dp = dots.getAttribute("position") as THREE.BufferAttribute;
+    const ds = dots.getAttribute("size") as THREE.BufferAttribute;
+    const da = dots.getAttribute("alpha") as THREE.BufferAttribute;
+    const dt = dots.getAttribute("tint") as THREE.BufferAttribute;
+    let k = 0, d = 0;
+    const dot = (p: Vec3, size: number, alpha: number) => { if (d >= 40) return; dp.setXYZ(d, p[0], p[1], p[2]); ds.setX(d, size); da.setX(d, alpha); dt.setXYZ(d, c3.r, c3.g, c3.b); d += 1; };
+    // The candidates the search weighed: faint points.
+    c3.set("#9fb3c8");
+    for (const tent of agent.tentacles) if (tent.kind === "scanned" && has(tent.id)) dot(pos(tent.id), 1.4, (0.25 + tent.strength * 0.4) * fade);
+    // The path: the memories used, in order; one memory alone is reached from the core.
+    const stops = agent.tentacles.filter((x) => (x.kind === "recalled" || x.kind === "used" || x.kind === "created") && has(x.id)).sort((a, b) => a.order - b.order).map((x) => pos(x.id)).slice(0, 12);
+    const points: Vec3[] = stops.length === 1 ? [core, stops[0]] : stops;
+    const HOP = reduced ? 1 : 700;
+    let head: THREE.Vector3 | null = null;
+    c3.copy(PATH_COLOR);
+    for (let i = 0; i + 1 < points.length; i += 1) {
+      const grow = reduced ? 1 : Math.max(0, Math.min(1, (now - born.current - i * HOP) / HOP));
+      if (grow <= 0) break;
+      const a = points[i], b = points[i + 1];
+      for (let s = 0; s < 28; s += 1) {
+        if (s / 28 > grow || k + 2 > MAX) break;
+        const p0 = curvePoint(a, b, s / 28, 0.28, w); lp.setXYZ(k, p0.x, p0.y, p0.z); la.setX(k, 0.85 * fade); lt.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
+        const p1 = curvePoint(a, b, Math.min((s + 1) / 28, grow), 0.28, w); lp.setXYZ(k, p1.x, p1.y, p1.z); la.setX(k, 0.85 * fade); lt.setXYZ(k, c3.r, c3.g, c3.b); k += 1;
+        head = p1.clone();
+      }
+      dot(a, 2.6, fade);
+      if (grow >= 1) dot(b, 2.6, fade);
+    }
+    if (head && fade === 1) { c3.set("#ffffff"); dot([head.x, head.y, head.z], 3.4, 1); }
+    lp.needsUpdate = la.needsUpdate = lt.needsUpdate = true; lines.setDrawRange(0, k);
+    dp.needsUpdate = ds.needsUpdate = da.needsUpdate = dt.needsUpdate = true; dots.setDrawRange(0, d);
+  });
+  return (
+    <>
+      <lineSegments geometry={lines} material={lineMat} frustumCulled={false} />
+      <points geometry={dots} material={dotMat} frustumCulled={false} />
     </>
   );
 }
@@ -547,13 +603,17 @@ function ClusterHub({ cluster, center, focused, motion, onCluster }: { cluster: 
 
 type LabelProps = SceneProps & { index: Map<string, number>; clusterOf: Map<string, GraphCluster>; pos: (id: string) => Vec3 };
 /** Few labels: every cluster's name; a memory's only when hovered, selected, active, found, or in the focused cluster. */
-function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, index, pos }: LabelProps) {
+function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highlights, index, pos, sections }: LabelProps) {
   const camera = useThree((s) => s.camera);
   const near = camera.position.length() < 260;
   const show = new Set<string>();
   for (const id of [hoveredId, selectedId]) if (id) show.add(id);
   const now = performance.now();
-  for (const [id, h] of highlights) if (now - h.at < ACTIVE_MS || h.kind === "search") show.add(id);
+  // The Zeladora's reading: only her newest few, briefly (the reference labels the words under her tentacles);
+  // a link is shown by its thread, not by labels on both ends.
+  const reads = [...highlights].filter(([, h]) => (h.kind === "read" || (h.kind === "flagged" && h.note)) && now - h.at < 4000).sort((a, b) => b[1].at - a[1].at).slice(0, 8);
+  for (const [id] of reads) show.add(id);
+  for (const [id, h] of highlights) if (h.kind !== "read" && h.kind !== "linked" && !(h.kind === "flagged" && h.note) && (now - h.at < ACTIVE_MS || h.kind === "search")) show.add(id);
   // The cluster in focus names a few of its memories at the tips of its branches: one per angular slice around
   // the hub (the most proven in each), none near the centre — so the labels spread out instead of piling up.
   if (focusClusterId) {
@@ -578,8 +638,8 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
         const box = layout.clusters.get(c.id); if (!box) return null;
         return (
           <Html key={c.id} position={[box.center[0] + box.radius * 0.55, box.center[1] + box.radius * 0.95, box.center[2]]} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-cluster-label ${c.id === focusClusterId ? "on" : ""}`} style={{ color: c.id === focusClusterId ? CATEGORY_COLOR[c.category] : undefined }}>
-              <b>{c.label}</b><span>{c.nodeIds.length} {c.nodeIds.length === 1 ? "memória" : "memórias"} · {c.sublabel}</span>
+            <div className={`lm-cluster-label ${c.id === focusClusterId ? "on" : ""} ${sections.get(c.id)?.state === "lendo" ? "reading" : sections.get(c.id)?.state === "na fila" ? "queued" : ""}`} style={{ color: c.id === focusClusterId || sections.get(c.id)?.state === "lendo" ? CATEGORY_COLOR[c.category] : undefined }}>
+              <b>{c.label}</b><span>{sections.get(c.id) ? `${sections.get(c.id)!.read}/${sections.get(c.id)!.total} memórias · ${sections.get(c.id)!.state === "feito" ? "feito" : sections.get(c.id)!.state}` : `${c.nodeIds.length} ${c.nodeIds.length === 1 ? "memória" : "memórias"} · ${c.sublabel}`}</span>
             </div>
           </Html>
         );
@@ -594,7 +654,7 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
         const text = focusClusterId === n.clusterId && id !== selectedId && id !== hoveredId ? (n.label.length > 22 ? `${n.label.slice(0, 21)}…` : n.label) : n.label;
         return (
           <Html key={`n:${id}`} position={[x + (left ? -1.6 : 1.6), y + 1.2, z]} zIndexRange={[20, 10]} style={{ pointerEvents: "none" }}>
-            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h && now - h.at < ACTIVE_MS ? KEEPER_SUFFIX[h.kind] || "" : ""}</div>
+            <div className={`lm-node-label ${left ? "left" : ""} ${id === selectedId ? "sel" : ""} ${h && now - h.at < ACTIVE_MS ? h.kind : ""} ${h?.note === "▶ vaga" ? "vague" : ""}`}>{text}{h?.kind === "recalled" && now - h.at < ACTIVE_MS ? ` · consultada${h.score != null ? ` · ${h.score.toFixed(2).replace(".", ",")}` : ""}` : h && now - h.at < ACTIVE_MS ? (h.note ? ` · ${h.note}` : KEEPER_SUFFIX[h.kind] || "") : ""}</div>
           </Html>
         );
       })}

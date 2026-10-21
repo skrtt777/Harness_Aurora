@@ -19,7 +19,9 @@ test("a Zeladora reads every memory, links the related, joins copies and flags d
   const mk = (title, content, extra = {}) => store.createMemory({ scope: "project", projectId: project.id, title, content, kind: "extracted", dedupe: false, env, ...extra });
   const a = await mk("Relatório semanal de vendas", "O relatório semanal de vendas sai toda sexta com o resumo por região para a diretoria comercial.");
   const copy = await mk("Relatório semanal de vendas (cópia)", "O relatório semanal de vendas sai toda sexta com o resumo por região para a diretoria comercial.");
-  const related = await mk("Formato do relatório de vendas", "O relatório semanal de vendas sai toda sexta com o resumo por região e segue em Word.");
+  // In another folder: the same subject can be linked there, never compacted with this one.
+  const elsewhere = await store.createProject({ name: "Diretoria" });
+  const related = await store.createMemory({ scope: "project", projectId: elsewhere.id, title: "Formato do relatório de vendas", content: "O relatório semanal de vendas sai toda sexta com o resumo por região e segue em Word.", kind: "extracted", dedupe: false, env });
   const metaA = await mk("Meta do Sul", "A meta de vendas do Sul em outubro é 263 mil reais.");
   const metaB = await mk("Meta do Sul revisada", "A meta de vendas do Sul em outubro é 280 mil reais.");
   const manual1 = await store.createMemory({ scope: "global", title: "Prefere respostas curtas", content: "A pessoa prefere respostas curtas e diretas sem emojis.", kind: "manual", env });
@@ -91,6 +93,46 @@ test("off means off: with memory_keeper=off she does not touch anything", async 
   assert.equal(db.prepare("SELECT status FROM memories WHERE id = ?").get(two.id).status, "active");
   assert.equal(db.prepare("SELECT status FROM memories WHERE id = ?").get(one.id).status, "active");
   await store.setSetting("memory_keeper", "on");
+});
+
+test("compacting a thought keeps every distinct sentence; undo brings the originals back for good", async () => {
+  const { keeperRound: round, undoKeeper, keeperCompactions } = await import("../app/memoryKeeper.js");
+  const project = await store.createProject({ name: "Clientes" });
+  const mk = (title, content) => store.createMemory({ scope: "project", projectId: project.id, title, content, kind: "extracted", dedupe: false, env });
+  const one = await mk("Cliente Atlas: pagamento", "O cliente Atlas paga sempre por boleto e pede a nota fiscal antes do pagamento.");
+  const two = await mk("Cliente Atlas: pagamento e contato", "O cliente Atlas paga sempre por boleto e pede a nota fiscal antes do pagamento. Contato com a Joana do financeiro.");
+  const other = await mk("Fornecedor Beta", "O fornecedor Beta entrega na terça e cobra frete à parte.");
+  const stats = await round({ paceMs: 0 });
+  assert.equal(stats.compacted, 1, JSON.stringify(stats));
+  const [record] = await keeperCompactions();
+  assert.deepEqual(new Set(record.from), new Set([one.id, two.id]));
+  const db = await getDb();
+  const row = (id) => db.prepare("SELECT status, content, kind FROM memories WHERE id = ?").get(id);
+  const compacted = row(record.id);
+  assert.equal(compacted.status, "active");
+  assert.match(compacted.content, /boleto e pede a nota fiscal antes do pagamento\./);
+  assert.match(compacted.content, /Contato com a Joana do financeiro\./);
+  assert.equal(compacted.content.match(/boleto/g).length, 1, "a sentence both said is said once");
+  assert.equal(row(one.id).status, "archived");
+  assert.equal(row(two.id).status, "archived");
+  assert.equal(row(other.id).status, "active");
+  assert.equal(db.prepare("SELECT count(*) n FROM memory_relations WHERE to_id = ? AND type = 'derivation'").get(record.id).n, 2);
+
+  await undoKeeper(record.id);
+  assert.deepEqual([row(one.id).status, row(two.id).status, row(record.id).status], ["active", "active", "archived"]);
+  const again = await round({ paceMs: 0 });
+  assert.equal(again.compacted, 0, "brought back by the person: never compacted again");
+  assert.deepEqual([row(one.id).status, row(two.id).status], ["active", "active"]);
+});
+
+test("each memory read is classified; a vague one is a question for the person", async () => {
+  const { classifyMemory } = await import("../app/memoryKeeper.js");
+  assert.equal(classifyMemory({ title: "Meta", content: "A meta do Sul é 263 mil reais em outubro." }), "valor");
+  assert.equal(classifyMemory({ title: "Estilo", content: "A pessoa prefere respostas curtas e diretas sem emojis." }), "preferência");
+  assert.equal(classifyMemory({ title: "Entrega", content: "Ficou combinado que o relatório vai toda sexta para o comercial." }), "combinado");
+  assert.equal(classifyMemory({ title: "Publicar", content: "Os testes devem passar antes de publicar uma versão nova." }), "regra");
+  assert.equal(classifyMemory({ title: "Projeto", content: "O projeto usa Electron e um servidor local em Node." }), "fato");
+  assert.equal(classifyMemory({ title: "Coisa", content: "ver isso" }), "vaga");
 });
 
 test("only real values count for a disagreement: amounts, percentages, dates — not a note's counter", async () => {

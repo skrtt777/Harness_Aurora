@@ -1,32 +1,44 @@
-// A Zeladora das memórias: the being that walks the Aurora's memory and looks after it, one memory at a time
-// (the Mapa Vivo draws her where she is). For each memory she reads she compares it with the others and does
-// real work, all of it reversible:
-//   - liga (link): two memories about the same thing that nothing connects get a "thematic" relation;
-//   - junta (join): a near-identical copy in the same place is archived, with a "derivation" relation to the
-//     one kept (more used, else older) — never a memory the person wrote by hand, never two that disagree;
-//   - marca (flag): two memories about the same thing with different numbers ("meta 263 mil" × "meta 280 mil")
-//     are flagged for the person to decide; nothing is changed.
-// After a full round she rests, then walks again (new and changed memories come in the next round).
-// Each step is a memory event ("keeper"), so the map follows her live. Off with the setting memory_keeper=off.
+// A Zeladora das memórias: a spider that walks the web of the Aurora's memory and looks after it. She is not
+// part of how the Aurora thinks (a chat turn never waits for her): she is the caretaker. Her round goes section
+// by section — each section one "thought", the semantic groups the Mapa Vivo shows — and inside a section she
+// walks the web, always to the nearest memory she has not read yet. For each memory she reads she:
+//   - classifies it (valor, regra, preferência, combinado, fato) and marks a vague one ("vaga": too little to
+//     be useful — a question for the person, nothing changed);
+//   - compacts a thought: memories the Aurora extracted that say the same thing in the same place become one
+//     memory holding every distinct sentence of them (nothing lost); the originals are archived with a
+//     "derivation" relation to it. An exact copy is simply archived (join). Undo brings the originals back and
+//     she never compacts them again. Never a memory written by hand, never an imported guide, never two that
+//     disagree on a value;
+//   - links two memories about the same thing that nothing connects ("thematic" relation);
+//   - flags two memories about the same thing with different values ("263 mil" × "280 mil").
+// After a full round she rests, then walks again. Each step is a memory event ("keeper"), so the map follows
+// her live. Off with the setting memory_keeper=off.
 import { getDb } from "./db.js";
 import { cosineSimilarity, decodeEmbedding, resolveEmbeddingModel } from "./embeddings.js";
+import { memoryAtlas } from "./memoryAtlas.js";
 import { emitMemoryEvent } from "./memoryEvents.js";
-import { createRelation, getSetting, setSetting, setMemoryStatus } from "./store.js";
+import { createMemory, createRelation, getSetting, setSetting, setMemoryStatus } from "./store.js";
 
 // Measured on a real base (196 memories, 19 110 pairs): different guides of the same family reach 0.93 cosine
-// ("Jogos — Dados…" × "Jogos — Testes…"), so a join needs the TEXT nearly identical too; 0.88 links ~31 pairs.
-const JOIN_SIMILARITY = 0.9;
-const JOIN_WORDS = 0.8;
+// ("Jogos — Dados…" × "Jogos — Testes…"), so compacting needs the TEXT to share most words too, not only the
+// embedding; 0.88 links ~31 pairs there.
+const SAME_THOUGHT_SIMILARITY = 0.9;
+const SAME_THOUGHT_WORDS = 0.5;      // with an embedding
+const SAME_THOUGHT_WORDS_ALONE = 0.7; // without one (0.6 only links)
+const COPY_WORDS = 0.8;
 const LINK_SIMILARITY = 0.88;
 const LINK_WORDS = 0.6;
 const CONFLICT_SIMILARITY = 0.88;
 const CONFLICT_WORDS = 0.6;
 const MAX_LINKS_PER_MEMORY = 1;
+const MAX_GROUP = 6;
 const MAX_FLAGS = 100;
 const MAX_FLAGS_PER_ROUND = 12;
+const VAGUE_WORDS = 5;
 const RECENT = 60;
 
-const words = (text) => new Set(String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().match(/[a-z0-9]+/g) || []);
+const fold = (text) => String(text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const words = (text) => new Set(fold(text).match(/[a-z0-9]+/g) || []);
 const jaccard = (a, b) => { if (!a.size || !b.size) return 0; let shared = 0; for (const w of a) if (b.has(w)) shared += 1; return shared / (a.size + b.size - shared); };
 // Values as written ("263 mil", "R$ 1.200,50", "15%", "04/10"): the facts two similar memories may disagree on.
 // A bare counter ("nota 11", "registro 110", "pedido 4512") is a name, not a value: it does not count.
@@ -35,10 +47,35 @@ export const valuesIn = (text) => new Set((String(text || "").match(/(?:r\$\s*)?
   .filter((n) => /[%a-z$]/.test(n) || /\d[.,/]\d/.test(n)));
 const sameSet = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
 const bucket = (m) => `${m.scope}|${m.project_id || ""}|${m.conversation_id || ""}`;
-const areaOf = (m) => (m.project_id ? `projeto:${m.project_id}` : m.conversation_id ? `conversa:${m.conversation_id}` : "geral");
+const sentencesOf = (text) => String(text || "").split(/(?<=[.!?;])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 const sleep = (ms, signal) => new Promise((resolve) => { const t = setTimeout(resolve, ms); signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true }); });
 
-const state = { running: false, phase: "parada", area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, areas: [], recent: [] };
+/** What kind of memory this is, read from its own words (the label she writes next to it on the map). */
+export function classifyMemory({ title = "", content = "" }) {
+  const text = fold(`${title} ${content}`);
+  if ((fold(content).match(/[a-z0-9]+/g) || []).length < VAGUE_WORDS) return "vaga";
+  if (valuesIn(content).size) return "valor";
+  if (/\b(prefere|gosta|nao gosta|quer que|odeia|curte)\b/.test(text)) return "preferência";
+  if (/\b(combinad|acordad|ficou definido|decidid|ficou certo)/.test(text)) return "combinado";
+  if (/\b(deve|devem|precisa|nao pode|obrigatori|regra|sempre que|antes de|nunca)\b/.test(text)) return "regra";
+  return "fato";
+}
+
+/**
+ * Every distinct sentence of a group, in order (the most used memory's first): a sentence another one already
+ * says (≥ 80% of the same words) is said once. Nothing else is dropped or rewritten.
+ */
+export function compactText(texts) {
+  const kept = [];
+  for (const text of texts) for (const sentence of sentencesOf(text)) {
+    const w = words(sentence);
+    if (!kept.some((k) => jaccard(k.w, w) >= 0.8)) kept.push({ sentence, w });
+  }
+  return kept.map((k) => k.sentence).join(" ");
+}
+
+const emptyStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0 });
+const state = { running: false, phase: "parada", section: null, sectionLabel: null, area: null, areaLabel: null, current: null, round: 0, startedAt: null, restUntil: null, stats: emptyStats(), sections: [], areas: [], recent: [] };
 let controller = null;
 
 function remember(action) {
@@ -52,27 +89,51 @@ function emit(action, payload = {}, keep = true) {
 }
 
 export async function keeperEnabled() { return (await getSetting("memory_keeper", "on")) !== "off"; }
-// Memories the person brought back after a join: she never joins them again.
-async function spared() { try { return new Set(JSON.parse(await getSetting("memory_keeper_spared", "[]"))); } catch { return new Set(); } }
-export async function keeperFlags() { try { return JSON.parse(await getSetting("memory_keeper_flags", "[]")); } catch { return []; } }
+const readJsonSetting = async (key, fallback) => { try { return JSON.parse(await getSetting(key, JSON.stringify(fallback))); } catch { return fallback; } };
+// Memories the person brought back after a join or a compaction: she never compacts them again.
+async function spared() { return new Set(await readJsonSetting("memory_keeper_spared", [])); }
+export async function keeperFlags() { return readJsonSetting("memory_keeper_flags", []); }
+export async function keeperCompactions() { return readJsonSetting("memory_keeper_compactions", []); }
 
-/** What the map and Configurações show: where she is, what she did this round, the open flags. */
+/** What the map shows: where she is, what she did this round, the open flags, what can be undone. */
 export async function keeperState() {
-  return { ...state, enabled: await keeperEnabled(), flags: await keeperFlags(), last: JSON.parse(await getSetting("memory_keeper_last", "null") || "null") };
+  return { ...state, enabled: await keeperEnabled(), flags: await keeperFlags(), compactions: (await keeperCompactions()).slice(0, 20), last: await readJsonSetting("memory_keeper_last", null) };
 }
 
-async function loadRound(db) {
-  const rows = db.prepare(`SELECT id, scope, project_id, conversation_id, title, content, kind, embedding, embedding_model, uses, created_at, status
+/** The sections of a round (the general memory, then each semantic group), each walked along the web. */
+async function loadRound(db, env) {
+  const rows = db.prepare(`SELECT id, scope, project_id, conversation_id, title, content, tags, kind, embedding, embedding_model, uses, created_at, status
     FROM memories WHERE status != 'archived' ORDER BY created_at ASC`).all();
-  const projects = new Map(db.prepare("SELECT id, name FROM projects").all().map((p) => [p.id, p.name]));
-  const conversations = new Map(db.prepare("SELECT id, title FROM conversations").all().map((c) => [c.id, c.title]));
-  const model = resolveEmbeddingModel();
-  const memories = rows.map((r) => ({ ...r, vector: r.embedding && r.embedding_model === model ? decodeEmbedding(r.embedding) : null, words: words(`${r.title} ${r.content}`), numbers: valuesIn(r.content), area: areaOf(r) }));
+  const model = resolveEmbeddingModel(env);
+  const atlas = await memoryAtlas({ env }).catch(() => null);
+  const place = new Map((atlas?.memories || []).map((p) => [p.id, p]));
+  const labels = new Map((atlas?.clusters || []).map((c) => [c.id, c.label]));
+  const memories = rows.map((r) => ({ ...r, vector: r.embedding && r.embedding_model === model ? decodeEmbedding(r.embedding) : null, words: words(`${r.title} ${r.content}`), numbers: valuesIn(r.content), position: place.get(r.id)?.position || null }));
+  const sectionOf = (m) => { if (m.scope === "global") return "geral"; const c = place.get(m.id)?.cluster; return c !== undefined && c >= 0 ? `sem:${c}` : "solta"; };
   const groups = new Map();
-  for (const m of memories) { if (!groups.has(m.area)) groups.set(m.area, []); groups.get(m.area).push(m); }
-  const label = (key) => (key === "geral" ? "memória geral" : key.startsWith("projeto:") ? projects.get(key.slice(8)) || "projeto" : conversations.get(key.slice(9)) || "conversa");
-  const areas = [...groups.entries()].sort((a, b) => b[1].length - a[1].length).map(([key, list]) => ({ key, label: label(key), total: list.length, read: 0, list }));
-  return { memories, areas };
+  for (const m of memories) { const key = sectionOf(m); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(m); }
+  const order = (key) => (key === "geral" ? -1 : key === "solta" ? 1e9 : Number(key.slice(4)));
+  const label = (key) => (key === "geral" ? "memória geral" : key === "solta" ? "sem posição" : labels.get(Number(key.slice(4))) || "pensamento");
+  const sections = [...groups.entries()].sort((a, b) => order(a[0]) - order(b[0])).map(([key, list]) => ({ key, label: label(key), total: list.length, read: 0, list: walkOrder(list) }));
+  return { memories, sections };
+}
+
+/** A spider on its web: start near the middle of the section, then always the nearest memory not read yet. */
+function walkOrder(list) {
+  const placed = list.filter((m) => m.position);
+  if (placed.length < 2) return list;
+  const center = [0, 1, 2].map((a) => placed.reduce((s, m) => s + m.position[a], 0) / placed.length);
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const left = new Set(placed);
+  let at = placed.reduce((best, m) => (dist(m.position, center) < dist(best.position, center) ? m : best));
+  const path = [];
+  while (at) {
+    path.push(at); left.delete(at);
+    let next = null;
+    for (const m of left) if (!next || dist(m.position, at.position) < dist(next.position, at.position)) next = m;
+    at = next;
+  }
+  return [...path, ...list.filter((m) => !m.position)];
 }
 
 function related(db) {
@@ -81,43 +142,84 @@ function related(db) {
   return pairs;
 }
 
-/** One memory read: compared with every other active one, and what that comparison asks for done. */
-export async function tendMemory(memory, round, { db, relations, archived, done, flags, keep = new Set() }) {
-  let links = 0;
+async function addFlag(flags, flag) {
+  if (state.stats.flagged >= MAX_FLAGS_PER_ROUND) return false;
+  if (flags.some((f) => (f.id === flag.id && (f.otherId || null) === (flag.otherId || null)) || (flag.otherId && f.id === flag.otherId && f.otherId === flag.id))) return false;
+  flags.unshift({ ...flag, at: new Date().toISOString() });
+  flags.length = Math.min(flags.length, MAX_FLAGS);
+  await setSetting("memory_keeper_flags", JSON.stringify(flags));
+  state.stats.flagged += 1;
+  emit("flag", flag);
+  return true;
+}
+
+/** One memory read: classified, compared with the others, and what the comparison asks for done. */
+export async function tendMemory(memory, round, ctx) {
+  const { relations, archived, done, flags, keep = new Set(), env } = ctx;
+  const kind = classifyMemory(memory);
+  if (kind === "vaga") await addFlag(flags, { id: memory.id, otherId: null, title: memory.title, reason: "vaga: pouco conteúdo para ser útil" });
+
+  // Compare with every other active memory once.
+  const pairs = [];
   for (const other of round.memories) {
-    if (other.id === memory.id || archived.has(other.id) || archived.has(memory.id)) continue;
+    if (other.id === memory.id || archived.has(other.id)) continue;
+    const similarity = memory.vector && other.vector ? cosineSimilarity(memory.vector, other.vector) : null;
+    const overlap = jaccard(memory.words, other.words);
+    const disagree = memory.numbers.size > 0 && other.numbers.size > 0 && !sameSet(memory.numbers, other.numbers);
+    pairs.push({ other, similarity, overlap, disagree, score: Math.round((similarity ?? overlap) * 1000) / 1000 });
+  }
+
+  // ---- compact the thought: the same thing said by memories the Aurora extracted, in the same place ----
+  const mayCompact = (m) => m.kind === "extracted" && !keep.has(m.id);
+  if (mayCompact(memory)) {
+    const group = pairs.filter((p) => !p.disagree && mayCompact(p.other) && bucket(p.other) === bucket(memory)
+      && (p.overlap >= COPY_WORDS || (p.similarity === null ? p.overlap >= SAME_THOUGHT_WORDS_ALONE : p.similarity >= SAME_THOUGHT_SIMILARITY && p.overlap >= SAME_THOUGHT_WORDS)))
+      .sort((a, b) => b.score - a.score).slice(0, MAX_GROUP - 1).map((p) => p.other);
+    if (group.length) {
+      // The one kept: the most used, then the oldest, then the plainest title (a copy's title tends to grow).
+      const all = [memory, ...group].sort((a, b) => (b.uses || 0) - (a.uses || 0) || String(a.created_at).localeCompare(String(b.created_at)) || a.title.length - b.title.length);
+      const [best] = all;
+      const merged = compactText(all.map((m) => m.content));
+      const bestOwn = compactText([best.content]);
+      if (merged === bestOwn) {
+        // Exact copies: the best one stays, the copies go to the archive linked to it.
+        for (const copy of all.slice(1)) {
+          await setMemoryStatus(copy.id, "archived");
+          await createRelation({ fromId: copy.id, toId: best.id, type: "derivation" }).catch(() => {});
+          archived.add(copy.id);
+          state.stats.joined += 1;
+          emit("join", { kept: best.id, archived: copy.id, title: best.title, archivedTitle: copy.title });
+        }
+      } else {
+        const tags = [...new Set(all.flatMap((m) => { try { return JSON.parse(m.tags || "[]"); } catch { return []; } }))];
+        const compacted = await createMemory({ scope: best.scope, projectId: best.project_id, conversationId: best.conversation_id, title: best.title, content: merged, tags, kind: "extracted", source: `zeladora: compactou ${all.length} memórias`, dedupe: false, env });
+        for (const m of all) {
+          await setMemoryStatus(m.id, "archived");
+          await createRelation({ fromId: m.id, toId: compacted.id, type: "derivation" }).catch(() => {});
+          archived.add(m.id);
+        }
+        const record = { id: compacted.id, from: all.map((m) => m.id), title: best.title, titles: all.map((m) => m.title), at: new Date().toISOString() };
+        const list = await keeperCompactions();
+        list.unshift(record);
+        await setSetting("memory_keeper_compactions", JSON.stringify(list.slice(0, 50)));
+        keep.add(compacted.id);
+        state.stats.compacted += 1;
+        emit("compact", { id: compacted.id, merged: record.from, title: best.title, sentences: sentencesOf(merged).length });
+      }
+      if (archived.has(memory.id)) return kind;
+    }
+  }
+
+  let links = 0;
+  for (const { other, similarity, overlap, disagree, score } of pairs) {
+    if (archived.has(other.id)) continue;
     const key = memory.id < other.id ? `${memory.id}|${other.id}` : `${other.id}|${memory.id}`;
     if (done.has(key)) continue;
     done.add(key);
-    const similarity = memory.vector && other.vector ? cosineSimilarity(memory.vector, other.vector) : null;
-    const overlap = jaccard(memory.words, other.words);
     const close = (sim, wordsMin) => (similarity !== null ? similarity >= sim : false) || overlap >= wordsMin;
-    const score = Math.round((similarity ?? overlap) * 1000) / 1000;
-    const disagree = memory.numbers.size > 0 && other.numbers.size > 0 && !sameSet(memory.numbers, other.numbers);
-    // Disagreeing memories: flagged, never joined (the person decides which one is right).
+    // Disagreeing memories: flagged, never compacted (the person decides which one is right).
     if (disagree && close(CONFLICT_SIMILARITY, CONFLICT_WORDS)) {
-      if (state.stats.flagged < MAX_FLAGS_PER_ROUND && !flags.some((f) => (f.id === memory.id && f.otherId === other.id) || (f.id === other.id && f.otherId === memory.id))) {
-        const reason = `valores diferentes: ${[...memory.numbers].slice(0, 3).join(", ")} × ${[...other.numbers].slice(0, 3).join(", ")}`;
-        flags.unshift({ id: memory.id, otherId: other.id, title: memory.title, otherTitle: other.title, reason, similarity: score, at: new Date().toISOString() });
-        flags.length = Math.min(flags.length, MAX_FLAGS);
-        await setSetting("memory_keeper_flags", JSON.stringify(flags));
-        state.stats.flagged += 1;
-        emit("flag", { id: memory.id, otherId: other.id, reason, similarity: score, title: memory.title });
-      }
-      continue;
-    }
-    // Copies in the same place: the less used (else newer) is archived, linked to the one kept. Only memories the
-    // Aurora extracted herself (never one written by hand, never an imported guide), and only when the text
-    // itself is nearly the same — a close embedding alone is a relative, not a copy.
-    const copy = overlap >= JOIN_WORDS && (similarity === null || similarity >= JOIN_SIMILARITY);
-    if (!disagree && copy && bucket(memory) === bucket(other) && memory.kind === "extracted" && other.kind === "extracted" && !keep.has(memory.id) && !keep.has(other.id)) {
-      const [kept, gone] = (memory.uses || 0) !== (other.uses || 0) ? ((memory.uses || 0) > (other.uses || 0) ? [memory, other] : [other, memory]) : memory.created_at <= other.created_at ? [memory, other] : [other, memory];
-      await setMemoryStatus(gone.id, "archived");
-      await createRelation({ fromId: gone.id, toId: kept.id, type: "derivation" }).catch(() => {});
-      archived.add(gone.id);
-      state.stats.joined += 1;
-      emit("join", { kept: kept.id, archived: gone.id, similarity: score, title: kept.title, archivedTitle: gone.title });
-      if (gone.id === memory.id) return;
+      await addFlag(flags, { id: memory.id, otherId: other.id, title: memory.title, otherTitle: other.title, similarity: score, reason: `valores diferentes: ${[...memory.numbers].slice(0, 3).join(", ")} × ${[...other.numbers].slice(0, 3).join(", ")}` });
       continue;
     }
     // About the same thing, but nothing connects them yet.
@@ -129,30 +231,35 @@ export async function tendMemory(memory, round, { db, relations, archived, done,
       emit("link", { from: memory.id, to: other.id, similarity: score, title: memory.title, otherTitle: other.title });
     }
   }
+  return kind;
 }
 
-/** One full round over every active memory, area by area. `paceMs` is how long she stays on each memory. */
-export async function keeperRound({ paceMs = 1200, signal } = {}) {
+/** One full round over every active memory, section by section. `paceMs` is how long she stays on each one. */
+export async function keeperRound({ paceMs = 1200, signal, env = process.env } = {}) {
   const db = await getDb();
-  const round = await loadRound(db);
+  const round = await loadRound(db, env);
   state.round += 1; state.startedAt = new Date().toISOString(); state.restUntil = null; state.phase = "andando";
-  state.stats = { read: 0, linked: 0, joined: 0, flagged: 0 };
-  state.areas = round.areas.map(({ key, label, total }) => ({ key, label, total, read: 0 }));
-  emit("round", { round: state.round, total: round.memories.length, areas: state.areas });
-  const ctx = { db, relations: related(db), archived: new Set(), done: new Set(), flags: await keeperFlags(), keep: await spared() };
-  for (const [index, area] of round.areas.entries()) {
+  state.stats = emptyStats();
+  state.sections = round.sections.map(({ key, label, total }) => ({ key, label, total, read: 0 }));
+  state.areas = state.sections;
+  emit("round", { round: state.round, total: round.memories.length, sections: state.sections, areas: state.sections });
+  const ctx = { db, env, relations: related(db), archived: new Set(), done: new Set(), flags: await keeperFlags(), keep: await spared() };
+  for (const [index, section] of round.sections.entries()) {
     if (signal?.aborted) break;
-    state.area = area.key; state.areaLabel = area.label;
-    emit("walk", { area: area.key, label: area.label, total: area.total, index });
-    for (const memory of area.list) {
-      if (signal?.aborted || !(await keeperEnabled())) { signal?.aborted || (state.phase = "parada"); return state.stats; }
-      if (ctx.archived.has(memory.id)) { state.areas[index].read += 1; continue; }
+    state.section = state.area = section.key; state.sectionLabel = state.areaLabel = section.label;
+    emit("walk", { section: section.key, area: section.key, label: section.label, total: section.total, index });
+    for (const memory of section.list) {
+      if (signal?.aborted) return state.stats;
+      if (!(await keeperEnabled())) { state.phase = "parada"; return state.stats; }
+      const progress = state.sections[index];
+      if (ctx.archived.has(memory.id)) { progress.read += 1; continue; }
       const still = db.prepare("SELECT status FROM memories WHERE id = ?").get(memory.id);
-      if (!still || still.status === "archived") { ctx.archived.add(memory.id); state.areas[index].read += 1; continue; }
+      if (!still || still.status === "archived") { ctx.archived.add(memory.id); progress.read += 1; continue; }
       state.current = memory.id;
-      emit("read", { id: memory.id, area: area.key, title: memory.title }, false);
+      const kind = classifyMemory(memory);
+      emit("read", { id: memory.id, section: section.key, area: section.key, title: memory.title, kind }, false);
       await tendMemory(memory, round, ctx);
-      state.stats.read += 1; state.areas[index].read += 1;
+      state.stats.read += 1; progress.read += 1;
       if (paceMs) await sleep(paceMs, signal);
     }
   }
@@ -171,10 +278,10 @@ export function startMemoryKeeper({ paceMs = 1200, restMs = 15 * 60_000, firstDe
     await sleep(firstDelayMs, signal);
     while (!signal.aborted) {
       if (await keeperEnabled()) {
-        try { await keeperRound({ paceMs, signal }); } catch (error) { emit("error", { message: String(error?.message || error).slice(0, 200) }); }
+        try { await keeperRound({ paceMs, signal }); } catch (error) { emit("error", { reason: String(error?.message || error).slice(0, 200) }); }
       }
       if (signal.aborted) break;
-      state.phase = "descansando"; state.area = null; state.areaLabel = null;
+      state.phase = "descansando"; state.section = state.area = null; state.sectionLabel = state.areaLabel = null;
       state.restUntil = new Date(Date.now() + restMs).toISOString();
       emit("rest", { until: state.restUntil, stats: state.stats });
       await sleep(restMs, signal);
@@ -190,13 +297,27 @@ export function stopMemoryKeeper() {
   state.running = false; state.phase = "parada";
 }
 
-/** Undo a join (the archived copy comes back) or dismiss a flag. */
-export async function undoJoin(id) {
+/**
+ * Undo: for a compaction, the compacted memory goes to the archive and its originals come back; for a join,
+ * the archived copy comes back. Either way she never compacts those memories again.
+ */
+export async function undoKeeper(id) {
   const keep = await spared();
-  keep.add(id);
+  const compactions = await keeperCompactions();
+  const compaction = compactions.find((c) => c.id === id);
+  const back = compaction ? compaction.from : [id];
+  for (const m of back) keep.add(m);
   await setSetting("memory_keeper_spared", JSON.stringify([...keep].slice(-500)));
-  return setMemoryStatus(id, "active");
+  if (compaction) {
+    await setMemoryStatus(compaction.id, "archived");
+    await setSetting("memory_keeper_compactions", JSON.stringify(compactions.filter((c) => c.id !== id)));
+  }
+  let restored = null;
+  for (const m of back) restored = (await setMemoryStatus(m, "active")) || restored;
+  return restored;
 }
+export const undoJoin = undoKeeper;
+
 export async function dismissFlag(id, otherId) {
   const flags = (await keeperFlags()).filter((f) => !(f.id === id && (!otherId || f.otherId === otherId)));
   await setSetting("memory_keeper_flags", JSON.stringify(flags));

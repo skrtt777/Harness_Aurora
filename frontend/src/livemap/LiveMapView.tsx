@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
-import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
+import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, sectionProgress, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
 import { layoutGraph } from "./layout";
 import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Quality } from "./LiveMapScene";
 import type { Vec3 } from "./layout";
@@ -17,7 +17,7 @@ const LiveMapScene = lazy(() => import("./LiveMapScene"));
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
 const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu", keeper: "zeladora" };
 // The Zeladora's actions in the log, the reference's crawl log (read · link · flag · walk).
-const KEEPER_LABEL: Record<string, string> = { read: "lê", link: "liga", join: "junta", flag: "marca", walk: "anda", rest: "descansa", round: "ronda", error: "erro" };
+const KEEPER_LABEL: Record<string, string> = { read: "lê", link: "liga", join: "junta", compact: "compacta", flag: "marca", walk: "anda", rest: "descansa", round: "ronda", error: "erro" };
 // The steps of a turn, as the reference's sections: each lights up when its real event arrives.
 const STEPS: [Phase, string][] = [["pergunta", "pergunta"], ["busca", "busca na memória"], ["consulta", "memórias no contexto"], ["resposta", "resposta"]];
 type Phase = TurnPhase;
@@ -55,7 +55,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [turn, setTurn] = useState<Turn | null>(null);
   const [keeper, setKeeper] = useState<KeeperView | null>(null);
   const keeperArea = useRef<string | null>(null);
+  const keeperView = useRef<{ target: Vec3 | null; at: number }>({ target: null, at: 0 });
   const [dockOpen, setDockOpen] = useState(true);
+  const dockOpenRef = useRef(dockOpen); dockOpenRef.current = dockOpen;
   const [dockConversation, setDockConversation] = useState<string | null>(null);
   const turnTimer = useRef<number | null>(null);
   const [gl, setGl] = useState(webglAvailable);
@@ -88,14 +90,25 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     if (event.type === "keeper") {
       setKeeper((k) => reduceKeeper(k, event));
       const mark = (ids: (string | undefined)[], kind: Highlight["kind"]) => setHighlights((old) => { const next = new Map(old); for (const id of ids) if (id) next.set(id, { kind, at: now }); return next; });
-      if (event.action === "read") mark([event.id], "read");
+      const note = (id: string | undefined, kind: Highlight["kind"], text: string) => id && setHighlights((old) => new Map(old).set(id, { kind, at: now, note: text }));
+      if (event.action === "read") { if (event.kind === "vaga") note(event.id, "flagged", "▶ vaga"); else note(event.id, "read", event.kind || "lida"); }
       if (event.action === "link") mark([event.from, event.to], "linked");
-      if (event.action === "flag") mark([event.id, event.otherId], "flagged");
+      if (event.action === "flag" && event.otherId) mark([event.id, event.otherId], "flagged");
       if (event.action === "join") mark([event.kept], "joined");
+      if (event.action === "compact") note(event.id, "joined", `compactou ${event.merged?.length || 0}`);
       // Activity mode: the camera goes with her when she enters another area (not on every memory).
-      if (event.action === "read" && event.id && activityModeRef.current && !(turnRef.current && !turnRef.current.ended) && keeperArea.current !== event.area) {
+      // Activity mode: the camera keeps her in view — on entering another section, or when she has walked
+      // away from where the camera looks (at most every 2.5 s; the chat beside the map is accounted for).
+      if (event.action === "read" && event.id && activityModeRef.current && !(turnRef.current && !turnRef.current.ended)) {
         const p = layoutRef.current?.nodes.get(event.id);
-        if (p) { keeperArea.current = event.area || null; setCamera({ target: p, distance: 150, key: Date.now() }); }
+        const last = keeperView.current;
+        const far = !last.target || (p && Math.hypot(p[0] - last.target[0], p[1] - last.target[1]) > 55);
+        if (p && (keeperArea.current !== event.area || (far && Date.now() - last.at > 2500))) {
+          const target: Vec3 = [p[0] + (dockOpenRef.current ? 28 : 0), p[1], p[2]];
+          keeperArea.current = event.area || null;
+          keeperView.current = { target, at: Date.now() };
+          setCamera({ target, distance: 150, key: Date.now() });
+        }
       }
     }
     if (event.type === "turn-start" && turnTimer.current) window.clearTimeout(turnTimer.current);
@@ -130,7 +143,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
   const label = useCallback((id?: string) => (id ? nodeByIdRef.current.get(id)?.label || id.slice(0, 8) : ""), []);
   const keeperLine = (e: MemoryLiveEvent) =>
-    e.action === "read" ? label(e.id) : e.action === "link" ? `${label(e.from)} ↔ ${label(e.to)}` : e.action === "join" ? `${e.archivedTitle || "cópia"} → ${e.title || label(e.kept)}`
+    e.action === "read" ? `${label(e.id)}${e.kind ? ` · ${e.kind}` : ""}` : e.action === "compact" ? `${e.merged?.length || 0} memórias → ${e.title || label(e.id)}` : e.action === "link" ? `${label(e.from)} ↔ ${label(e.to)}` : e.action === "join" ? `${e.archivedTitle || "cópia"} → ${e.title || label(e.kept)}`
       : e.action === "flag" ? `${e.title || label(e.id)} · ${e.reason || ""}` : e.action === "walk" ? `${e.label} · ${e.total} memórias` : e.action === "rest" ? "ronda completa" : e.action === "round" ? `ronda ${e.round} · ${e.total} memórias` : e.reason || "";
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
@@ -215,6 +228,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
   const selected = selectedId ? nodeById.get(selectedId) || null : null;
   const focused = focusClusterId ? graph?.clusters.find((c) => c.id === focusClusterId) || null : null;
+  // The sections (one per thought) as the Zeladora goes through them.
+  const sections = useMemo(() => (graph ? sectionProgress(graph, keeper) : new Map()), [graph, keeper]);
+  const keeperCluster = keeper?.current && graph ? graph.clusters.find((c) => c.nodeIds.includes(keeper.current!)) || null : null;
   const focusIndex = focused && graph ? graph.clusters.indexOf(focused) + 1 : 0;
   const recallNodes = (lastRecall?.ids || snap?.recalls?.[0]?.used || []).map((id) => nodeById.get(id)).filter(Boolean);
   const recentRate = events.filter((e) => Date.now() - Date.parse(e.at) < 10 * 60_000).length;
@@ -230,6 +246,12 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <span>conexões <b className="teal">{graph.stats.edges}</b></span>
           <span>agrupamentos <b>{graph.stats.clusters}</b></span>
           <span>consultadas <b className="pink">{lastRecall?.ids.length ?? 0}</b></span>
+          {keeper?.enabled && <>
+            <span>lidas <b className="teal">{keeper.readIds.length}/{graph.stats.memories}</b></span>
+            <span>ligações <b>{keeper.stats.linked}</b></span>
+            <span>compactadas <b>{keeper.stats.compacted + keeper.stats.joined}</b></span>
+            <span>marcas <b className="yellow">{keeper.flags.length}</b></span>
+          </>}
           <span className={`lm-live ${live ? "on" : ""}`} title={live ? "Recebendo os eventos da memória ao vivo" : "Sem conexão com os eventos ao vivo"}>{live ? "ao vivo" : "sem conexão"}</span>
         </div>
         <nav className="lm-tabs" aria-label="Modo de visão">
@@ -291,6 +313,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         {turn && !turn.ended ? <>
           <h1>{String(STEPS.findIndex(([x]) => x === turn.phase) + 1).padStart(2, "0")} {STEPS.find(([x]) => x === turn.phase)![1].toUpperCase()}</h1>
           <p>{turn.phase === "busca" ? `avaliando ${turn.scanned.length} memórias` : turn.phase === "consulta" ? `${turn.recalled.length} memórias no contexto · respondendo` : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : `“${turn.message.slice(0, 60)}”`}{turn.conversationId && turn.conversationId === dockConversation ? " · nesta conversa" : ""}</p>
+        </> : !focused && keeperCluster && keeper?.phase === "andando" ? <>
+          <h1>{String(graph.clusters.indexOf(keeperCluster) + 1).padStart(2, "0")} {keeperCluster.label.toUpperCase()}</h1>
+          <p>zeladora lendo · {sections.get(keeperCluster.id)?.read ?? 0}/{keeperCluster.nodeIds.length} memórias · {keeperCluster.sublabel}</p>
         </> : <>
           <h1>{String(focusIndex || 0).padStart(2, "0")} {(focused?.label || "memória da aurora").toUpperCase()}</h1>
           <p>{focused ? `${focused.nodeIds.length} memórias · ${focused.sublabel}` : `${graph.stats.memories} memórias · ${graph.stats.clusters} agrupamentos`}</p>
@@ -301,7 +326,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent} keeper={keeper}
+            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} expanded={expanded} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
           </Suspense>
         ) : (
@@ -357,11 +382,12 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             </ol>
           </div>
           <div className="lm-panel">
-            <h4>agrupamentos <span>{graph.stats.clusters}</span></h4>
-            <ul className="lm-bars">
-              {graph.clusters.slice(0, 8).map((c) => {
-                const max = Math.max(...graph.clusters.map((x) => x.nodeIds.length));
-                return <li key={c.id} className={c.id === focusClusterId ? "on" : ""}><button onClick={() => focusCluster(c.id, true)}><span>{c.label}</span><b>{c.nodeIds.length}</b><i style={{ width: `${(c.nodeIds.length / max) * 100}%`, background: CATEGORY_COLOR[c.category] }} /></button></li>;
+            <h4>seções <span>{graph.stats.clusters}{keeper?.enabled ? ` · ${[...sections.values()].filter((x) => x.state === "feito").length} feitas` : ""}</span></h4>
+            <ul className="lm-bars lm-sections">
+              {graph.clusters.slice(0, 9).map((c) => {
+                const sec = sections.get(c.id);
+                const share = sec ? (sec.total ? sec.read / sec.total : 0) : 1;
+                return <li key={c.id} className={`${c.id === focusClusterId ? "on" : ""} ${sec?.state === "lendo" ? "reading" : sec?.state === "na fila" ? "queued" : ""}`}><button onClick={() => focusCluster(c.id, true)}><span>{c.label}</span><b>{sec ? `${sec.read}/${sec.total}` : c.nodeIds.length}</b><i style={{ width: `${Math.max(share * 100, sec ? 0 : 4)}%`, background: CATEGORY_COLOR[c.category] }} /></button></li>;
               })}
             </ul>
           </div>
@@ -392,10 +418,10 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
             {!keeper ? <p className="lm-muted">A zeladora roda no app instalado e anda pelas memórias sozinha.</p> : <>
               <div className="lm-k-head"><b>{keeper.areaLabel || (keeper.phase === "descansando" ? "ronda completa" : "—")}</b><button className="lm-btn" onClick={() => void setKeeperEnabled(!keeper.enabled).then((k) => setKeeper((v) => (v ? { ...v, enabled: k.enabled } : v)))}>{keeper.enabled ? "desligar" : "ligar"}</button></div>
               <div className="lm-k-stats">
-                <span><b>{keeper.stats.read}</b>lidas</span><span><b>{keeper.stats.linked}</b>ligadas</span><span><b>{keeper.stats.joined}</b>juntadas</span><span><b>{keeper.flags.length}</b>conflitos</span>
+                <span><b>{keeper.stats.read}</b>lidas</span><span><b>{keeper.stats.linked}</b>ligadas</span><span><b>{keeper.stats.compacted + keeper.stats.joined}</b>compactadas</span><span><b>{keeper.flags.length}</b>marcas</span>
               </div>
-              {keeper.areas.slice(0, 4).map((a) => <div key={a.key} className={`lm-k-area ${a.key === keeper.area ? "now" : ""}`} style={{ ["--p" as string]: `${a.total ? (a.read / a.total) * 100 : 0}%` }}><span>{a.label}</span><span>{a.read}/{a.total}</span><i /></div>)}
-              {keeper.flags.slice(0, 2).map((f) => <div key={`${f.id}-${f.otherId}`} className="lm-k-item flag"><span title={f.reason}>⚑ {f.title || label(f.id)} · {f.reason}</span><button onClick={() => goTo(f.id)}>ver</button><button onClick={() => void dismissKeeperFlag(f.id, f.otherId).then(() => setKeeper((v) => (v ? { ...v, flags: v.flags.filter((x) => !(x.id === f.id && x.otherId === f.otherId)) } : v)))}>ok</button></div>)}
+              {keeper.compactions.slice(0, 2).map((c) => <div key={c.id} className="lm-k-item"><span title={`${c.from.length} memórias do mesmo pensamento viraram uma`}>compactou {c.from.length}: {c.title || label(c.id)}</span><button onClick={() => goTo(c.id)}>ver</button><button onClick={() => void undoKeeperJoin(c.id).then(() => setKeeper((v) => (v ? { ...v, compactions: v.compactions.filter((x) => x.id !== c.id) } : v)))}>desfazer</button></div>)}
+              {keeper.flags.slice(0, 2).map((f) => <div key={`${f.id}-${f.otherId}`} className={`lm-k-item flag ${f.otherId ? "" : "vague"}`}><span title={f.reason}>⚑ {f.title || label(f.id)} · {f.reason}</span><button onClick={() => goTo(f.id)}>ver</button><button onClick={() => void dismissKeeperFlag(f.id, f.otherId ?? undefined).then(() => setKeeper((v) => (v ? { ...v, flags: v.flags.filter((x) => !(x.id === f.id && x.otherId === f.otherId)) } : v)))}>ok</button></div>)}
               {keeper.joins.slice(0, 2).map((j) => <div key={j.archived} className="lm-k-item"><span title={`${j.archivedTitle} → ${j.title}`}>juntou: {j.archivedTitle || "cópia"}</span><button onClick={() => void undoKeeperJoin(j.archived).then(() => setKeeper((v) => (v ? { ...v, joins: v.joins.filter((x) => x.archived !== j.archived) } : v)))}>desfazer</button></div>)}
             </>}
           </div>

@@ -90,27 +90,41 @@ Inspirado no vídeo de referência (o "crawler" que percorre o mapa enquanto um 
 
 ## A Zeladora das memórias (20/10)
 
-O "ser" do vídeo de referência: uma criatura (corpo oval com grade, núcleo rosa, 28 pernas) que anda sozinha
-pela memória e cuida dela — `app/memoryKeeper.js` no servidor, `Creature` em `LiveMapScene.tsx` no mapa.
+Conceito (imagens de referência do vídeo): **uma aranha andando pela teia**. Ela **não faz parte do
+funcionamento do cérebro** — uma pergunta no chat nunca espera por ela; ela cuida da memória.
+`app/memoryKeeper.js` no servidor; `Creature` em `LiveMapScene.tsx` no mapa.
 
-- **Ronda**: área por área (cada pasta, cada conversa, a memória geral), uma memória por vez (~1,2 s cada);
-  depois descansa 15 min e recomeça. Roda só no app instalado (`createServer({ memoryKeeper })`).
-- **O que ela faz, de verdade e reversível**:
-  - **lê** cada memória e compara com as outras;
-  - **liga** duas memórias muito parecidas (similaridade ≥ 0,88 ou ≥ 60% das palavras) que nada conecta —
-    relação "temática", no máximo 1 por memória lida;
-  - **junta** cópias: só memórias extraídas pela Aurora (nunca escritas à mão, nunca guias importados), no mesmo
-    lugar, com o **texto** quase idêntico (≥ 80% das palavras e, com embedding, ≥ 0,9). A cópia é arquivada com
-    relação "derivação" para a que ficou; **desfazer** a restaura e ela nunca mais é juntada;
-  - **marca** conflitos: memórias parecidas com valores diferentes (com unidade, separador ou data: "263 mil"
-    × "280 mil") — nada é alterado, a pessoa decide (ver / ok). Contadores como "nota 11" não contam.
+- **Ronda por seções**: cada seção é um pensamento (os agrupamentos semânticos do mapa; a memória geral é a
+  primeira). Dentro da seção ela anda **pela teia**: começa perto do meio e vai sempre para a memória mais
+  próxima ainda não lida (~1,2 s em cada). Depois da ronda descansa 15 min. Roda só no app instalado.
+- **Lê e classifica** cada memória (valor, regra, preferência, combinado, fato) — o rótulo no mapa fica
+  "título · tipo". Uma memória **vaga** (menos de 5 palavras) recebe a marca rosa "▶ vaga": uma pergunta para a
+  pessoa, nada é alterado.
+- **Compacta o pensamento**: memórias que a Aurora extraiu, na mesma pasta/conversa, que dizem a mesma coisa
+  (com embedding: similaridade ≥ 0,9 e ≥ 50% das palavras; sem: ≥ 70% das palavras) viram **uma** memória com
+  **todas as frases distintas** delas (uma frase dita por duas aparece uma vez; nada é reescrito nem perdido).
+  As originais vão para o arquivo com relação "derivação" para a nova. Cópia exata: só arquiva a cópia.
+  **Desfazer** traz as originais de volta, arquiva a compactada, e ela nunca mais compacta aquelas. Nunca
+  compacta memória escrita à mão, guia importado, nem duas que discordam num valor.
+- **Liga** duas memórias muito parecidas que nada conecta (≥ 0,88 ou ≥ 60% das palavras; 1 por memória lida).
+- **Marca conflitos** de valor (com unidade, separador ou data: "263 mil" × "280 mil"; "nota 11" não conta).
 - Medido na base real (196 memórias, 19 110 pares): guias diferentes da mesma família chegam a 0,93 de
-  similaridade, por isso juntar exige o texto quase igual, não só o embedding.
-- **No mapa**: ela anda até a memória que está lendo; as pernas alcançam as últimas lidas; um fio liga as
-  memórias que ela acabou de ligar; marcas amarelas ficam nos conflitos. Painel **ZELADORA**: área atual,
-  lidas/ligadas/juntadas/conflitos, progresso por área, conflitos (ver/ok) e junções (desfazer), botão
-  ligar/desligar. O log de atividade mostra lê · liga · junta · marca · anda (o "crawl log" do vídeo).
-  Durante uma pergunta no chat, a mesma criatura vai até as memórias da pergunta.
-- API: `GET/PUT /api/memories/keeper` (estado; `{enabled}`), `POST /api/memories/keeper/undo {id}`,
-  `POST /api/memories/keeper/dismiss {id, otherId}`; eventos `keeper` em `/api/memories/live`.
-- Testes: `test/memoryKeeper.test.js`, `frontend/test/livemap.test.mjs`; laboratório com `--keeper-pace`.
+  similaridade — por isso compactar exige o texto parecido, não só o embedding. Uma ronda sobre uma cópia da
+  base real: 189 lidas, 10 ligações (todas entre memórias irmãs), 0 compactações, 0 conflitos.
+- **No mapa** (referência: aranha com LEGS 16, TENTACLES 22):
+  - o corpo oval com grade e núcleo rosa, **16 pernas** curtas que andam mais rápido quando ela caminha e
+    **22 tentáculos** pontilhados que alcançam as últimas memórias lidas (várias de uma vez);
+  - **seções**: na fila em cinza, a que ela lê acesa ("lendo"), as lidas com a cor de volta ("feito"); o
+    painel **SEÇÕES** mostra lidas/total de cada uma, como o SECTIONS do vídeo; o título mostra a seção atual;
+  - fio luminoso a cada ligação nova; marcas amarelas (conflito) e rosas (vaga);
+  - topo: lidas x/total · ligações · compactadas · marcas; log: lê · liga · compacta · junta · marca · anda;
+  - painel **ZELADORA**: contadores, compactações e junções com "desfazer", marcas com "ver"/"ok", ligar/desligar;
+  - no modo atividade a câmera a mantém à vista (ao trocar de seção ou quando ela se afasta).
+- **O cérebro trabalhando** (uma pergunta no chat) é outra coisa: o mapa desenha o **caminho de acesso** da
+  memória A até a B (as memórias consultadas, na ordem da busca), um arco dourado com a cabeça brilhando,
+  salto por salto, de um setor ao outro; as candidatas avaliadas aparecem como pontos fracos (`AccessPath`).
+- API: `GET/PUT /api/memories/keeper`, `POST /api/memories/keeper/undo {id}` (compactação ou junção),
+  `POST /api/memories/keeper/dismiss {id, otherId?}`; eventos `keeper` (round, walk, read com `kind`, link,
+  join, compact com `merged`, flag, rest) em `/api/memories/live`.
+- Testes: `test/memoryKeeper.test.js`, `frontend/test/livemap.test.mjs`; laboratório
+  `scripts/livemap-lab/lab.mjs --keeper-pace 250 --no-chat` (planta cópias, um conflito e um pensamento a compactar).

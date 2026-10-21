@@ -728,10 +728,11 @@ export type MemoryLiveEvent = {
   /** answered: what the saved answer used and created. */
   used?: string[]; created?: string[]; ok?: boolean;
   /** keeper: what the Zeladora did (app/memoryKeeper.js). */
-  action?: "round" | "walk" | "read" | "link" | "join" | "flag" | "rest" | "error";
-  from?: string; to?: string; kept?: string; archived?: string; otherId?: string; reason?: string; similarity?: number;
+  action?: "round" | "walk" | "read" | "link" | "join" | "compact" | "flag" | "rest" | "error";
+  from?: string; to?: string; kept?: string; section?: string; sentences?: number; merged?: string[]; archived?: string; otherId?: string; reason?: string; similarity?: number;
   otherTitle?: string; archivedTitle?: string; label?: string; total?: number; index?: number; round?: number; until?: string; area?: string;
   areas?: { key: string; label: string; total: number }[];
+  sections?: { key: string; label: string; total: number }[];
 };
 export type MemoryGraphSnapshot = {
   generatedAt: string;
@@ -746,10 +747,12 @@ export type MemoryGraphSnapshot = {
 };
 export type KeeperStateApi = {
   running: boolean; enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
-  restUntil: string | null; stats: { read: number; linked: number; joined: number; flagged: number };
+  restUntil: string | null; stats: { read: number; linked: number; joined: number; compacted?: number; flagged: number };
   areas: { key: string; label: string; total: number; read: number }[];
+  sections?: { key: string; label: string; total: number; read: number }[];
+  compactions?: { id: string; from: string[]; title?: string; at: string }[];
   recent: (MemoryLiveEvent & { action: string; at: string })[];
-  flags: { id: string; otherId: string; reason: string; title?: string; otherTitle?: string; similarity?: number; at?: string }[];
+  flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string; similarity?: number; at?: string }[];
   last: { round: number; at: string; read: number; linked: number; joined: number; flagged: number } | null;
 };
 export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");

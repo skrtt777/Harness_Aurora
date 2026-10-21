@@ -67,6 +67,10 @@ for (let c = 0; c < 3; c += 1) {
 await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Meta de vendas do Sul", content: "A meta de vendas da região Sul em outubro é de 263 mil reais." });
 await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Meta de vendas do Sul atualizada", content: "A meta de vendas da região Sul em outubro é de 280 mil reais." });
 
+// …and one thought said twice with a detail more (she compacts them into one, keeping both sentences).
+await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Cliente Atlas: pagamento", content: "O cliente Atlas paga sempre por boleto e pede a nota fiscal antes do pagamento." });
+await store.createMemory({ scope: "project", projectId: projects.Vendas.id, kind: "extracted", dedupe: false, title: "Cliente Atlas: pagamento e contato", content: "O cliente Atlas paga sempre por boleto e pede a nota fiscal antes do pagamento. Contato com a Joana do financeiro." });
+
 const keeperPace = Number(arg("keeper-pace", 350));
 const server = createServer({ centralSync: false, agentScheduler: false, warmLocal: false, memoryKeeper: { paceMs: keeperPace, firstDelayMs: 1000, restMs: 600_000 } });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -102,6 +106,21 @@ for (let k = 1; k <= 3; k += 1) {
   await page.screenshot({ path: join(out, `08_zeladora_${k}.png`) });
 }
 console.log("zeladora:", await page.locator(".lm-keeper").innerText().catch(() => "?"));
+
+// The brain working (not the Zeladora): a turn's events as the chat emits them, with memories of three
+// different sections — the map draws the path from one to the next.
+{
+  const conv = conversations[0].conv.id;
+  const picks = [ids[3], ids[47], ids[121]];
+  emitMemoryEvent("turn-start", { conversationId: conv, message: "o que combinamos sobre comissão e férias?" });
+  emitMemoryEvent("scanned", { conversationId: conv, candidates: [...picks, ids[5], ids[9], ids[13]].map((id, i) => ({ id, score: 3 - i * 0.3, similarity: 0.8 - i * 0.05 })) });
+  await page.waitForTimeout(600);
+  emitMemoryEvent("recalled", { conversationId: conv, ids: picks });
+  await page.waitForTimeout(2600);
+  await page.screenshot({ path: join(out, "09_caminho_a_b.png") });
+  emitMemoryEvent("answered", { conversationId: conv, ok: true, used: picks, created: [] });
+  emitMemoryEvent("turn-end", { conversationId: conv });
+}
 
 // Live: new memories and a real recall event while the page watches.
 const fresh = [];

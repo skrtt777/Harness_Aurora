@@ -165,6 +165,24 @@ test("the Zeladora on the map: her place, her trail, links, joins and flags come
   assert.deepEqual(applyEvent(snap, { type: "keeper", at: "j", action: "link", from: "m2", to: "m1" }).snapshot.relations, [{ from: "m2", to: "m1", type: "thematic" }]);
 });
 
+test("sections: waiting, being read, done — from the memories she really read; compactions can be undone", async () => {
+  const { reduceKeeper, sectionProgress } = await import("../.test-build/livemap/adapter.js");
+  const graph = { nodes: [{ id: "a", clusterId: "s1" }, { id: "b", clusterId: "s1" }, { id: "c", clusterId: "s2" }], clusters: [{ id: "s1", nodeIds: ["a", "b"] }, { id: "s2", nodeIds: ["c"] }] };
+  let k = reduceKeeper(null, { type: "keeper", at: "1", action: "round", round: 1, sections: [{ key: "sem:0", label: "x", total: 3 }] });
+  assert.deepEqual([...sectionProgress(graph, k).values()].map((s) => s.state), ["na fila", "na fila"]);
+  k = reduceKeeper(k, { type: "keeper", at: "2", action: "read", id: "a", section: "sem:0", kind: "regra" });
+  let p = sectionProgress(graph, k);
+  assert.deepEqual([p.get("s1"), p.get("s2").state], [{ read: 1, total: 2, state: "lendo" }, "na fila"]);
+  assert.equal(k.kinds.a, "regra");
+  k = reduceKeeper(k, { type: "keeper", at: "3", action: "read", id: "b", section: "sem:0", kind: "vaga" });
+  k = reduceKeeper(k, { type: "keeper", at: "4", action: "read", id: "c", section: "sem:1" });
+  p = sectionProgress(graph, k);
+  assert.deepEqual([p.get("s1").state, p.get("s2").state], ["feito", "feito"]);
+  k = reduceKeeper(k, { type: "keeper", at: "5", action: "compact", id: "n", merged: ["a", "b"], title: "Pensamento" });
+  assert.deepEqual([k.compactions[0].from, k.stats.compacted, k.trail[0]], [["a", "b"], 1, "n"]);
+  assert.equal(sectionProgress(graph, { ...k, enabled: false }).size, 0, "off: no sections greyed");
+});
+
 test("layout: deterministic, the general memory at the core, clusters apart, a new memory does not move the others", () => {
   const s = snapshot();
   const g = buildMemoryGraph(s, { mode: "pasta", now: NOW });

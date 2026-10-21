@@ -207,46 +207,74 @@ export function applyEvent(snap: MemoryGraphSnapshot, event: MemoryLiveEvent): {
 }
 
 /**
- * A Zeladora as the map follows her (app/memoryKeeper.js): where she is, the memories she just read (her legs
- * reach them), the links she made a moment ago (threads), the open flags (marks), the joins she can undo, and
- * each area's progress in this round. Built from the snapshot's `keeper` and then only from "keeper" events.
+ * A Zeladora as the map follows her (app/memoryKeeper.js): a spider on the web of memories. Where she is, the
+ * memories she just read (her tentacles reach them) and what kind each one is, the links she made a moment ago
+ * (threads), the open flags (marks), the compactions and joins she can undo, and which memories she has read in
+ * this round (each section's progress). Built from the snapshot's `keeper`, then only from "keeper" events.
  */
 export type KeeperView = {
   enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
-  trail: string[]; links: { from: string; to: string; at: number }[];
-  flags: { id: string; otherId: string; reason: string; title?: string; otherTitle?: string }[];
+  trail: string[]; readIds: string[]; kinds: Record<string, string>; links: { from: string; to: string; at: number }[];
+  flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string }[];
   joins: { kept: string; archived: string; title?: string; archivedTitle?: string; at: string }[];
+  compactions: { id: string; from: string[]; title?: string; at: string }[];
   areas: { key: string; label: string; total: number; read: number }[];
-  stats: { read: number; linked: number; joined: number; flagged: number };
+  stats: { read: number; linked: number; joined: number; compacted: number; flagged: number };
   restUntil: string | null;
 };
-const TRAIL = 28;
+const TRAIL = 22;
+const emptyKeeperStats = () => ({ read: 0, linked: 0, joined: 0, compacted: 0, flagged: 0 });
 export function keeperFromSnapshot(k: MemoryGraphSnapshot["keeper"]): KeeperView | null {
   if (!k) return null;
   return {
     enabled: k.enabled, phase: k.phase, round: k.round, current: k.current, area: k.area, areaLabel: k.areaLabel,
-    trail: k.current ? [k.current] : [], links: [], flags: k.flags || [],
+    trail: k.current ? [k.current] : [], readIds: [], kinds: {}, links: [], flags: k.flags || [],
     joins: (k.recent || []).filter((a) => a.action === "join").map((a) => ({ kept: a.kept!, archived: a.archived!, title: a.title, archivedTitle: a.archivedTitle, at: a.at })),
-    areas: k.areas || [], stats: k.stats, restUntil: k.restUntil,
+    compactions: (k.compactions || []).map((c) => ({ id: c.id, from: c.from, title: c.title, at: c.at })),
+    areas: k.sections || k.areas || [], stats: { ...emptyKeeperStats(), ...k.stats }, restUntil: k.restUntil,
   };
 }
 export function reduceKeeper(view: KeeperView | null, event: MemoryLiveEvent, now = Date.now()): KeeperView | null {
   if (event.type !== "keeper" || !event.action) return view;
-  const v: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], links: [], flags: [], joins: [], areas: [], stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, restUntil: null };
+  const v: KeeperView = view || { enabled: true, phase: "andando", round: 0, current: null, area: null, areaLabel: null, trail: [], readIds: [], kinds: {}, links: [], flags: [], joins: [], compactions: [], areas: [], stats: emptyKeeperStats(), restUntil: null };
   switch (event.action) {
-    case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.areas || []).map((a) => ({ ...a, read: 0 })), stats: { read: 0, linked: 0, joined: 0, flagged: 0 }, restUntil: null };
-    case "walk": return { ...v, phase: "andando", area: event.area || null, areaLabel: event.label || null, trail: [] };
+    case "round": return { ...v, enabled: true, phase: "andando", round: event.round ?? v.round + 1, areas: (event.sections || event.areas || []).map((a) => ({ ...a, read: 0 })), readIds: [], stats: emptyKeeperStats(), restUntil: null };
+    case "walk": return { ...v, phase: "andando", area: event.section || event.area || null, areaLabel: event.label || null, trail: [] };
     case "read": {
       if (!event.id) return v;
-      const areas = v.areas.map((a) => (a.key === event.area ? { ...a, read: Math.min(a.total, a.read + 1) } : a));
-      return { ...v, phase: "andando", current: event.id, trail: [event.id, ...v.trail.filter((x) => x !== event.id)].slice(0, TRAIL), areas, stats: { ...v.stats, read: v.stats.read + 1 } };
+      const section = event.section || event.area;
+      const areas = v.areas.map((a) => (a.key === section ? { ...a, read: Math.min(a.total, a.read + 1) } : a));
+      return { ...v, phase: "andando", current: event.id, trail: [event.id, ...v.trail.filter((x) => x !== event.id)].slice(0, TRAIL), readIds: v.readIds.includes(event.id) ? v.readIds : [...v.readIds, event.id], kinds: event.kind ? { ...v.kinds, [event.id]: event.kind } : v.kinds, areas, stats: { ...v.stats, read: v.stats.read + 1 } };
     }
     case "link": return event.from && event.to ? { ...v, links: [...v.links.filter((l) => now - l.at < 8000), { from: event.from, to: event.to, at: now }], stats: { ...v.stats, linked: v.stats.linked + 1 } } : v;
     case "join": return event.kept && event.archived ? { ...v, trail: v.trail.filter((x) => x !== event.archived), joins: [{ kept: event.kept, archived: event.archived, title: event.title, archivedTitle: event.archivedTitle, at: event.at }, ...v.joins].slice(0, 30), stats: { ...v.stats, joined: v.stats.joined + 1 } } : v;
-    case "flag": return event.id && event.otherId && !v.flags.some((f) => f.id === event.id && f.otherId === event.otherId) ? { ...v, flags: [{ id: event.id, otherId: event.otherId, reason: event.reason || "", title: event.title }, ...v.flags], stats: { ...v.stats, flagged: v.stats.flagged + 1 } } : v;
+    case "compact": return event.id && event.merged ? { ...v, trail: [event.id, ...v.trail.filter((x) => !event.merged!.includes(x))].slice(0, TRAIL), readIds: [...v.readIds, event.id], compactions: [{ id: event.id, from: event.merged, title: event.title, at: event.at }, ...v.compactions].slice(0, 30), stats: { ...v.stats, compacted: v.stats.compacted + 1 } } : v;
+    case "flag": {
+      if (!event.id || v.flags.some((f) => f.id === event.id && (f.otherId || null) === (event.otherId || null))) return v;
+      return { ...v, flags: [{ id: event.id, otherId: event.otherId || null, reason: event.reason || "", title: event.title, otherTitle: event.otherTitle }, ...v.flags], stats: { ...v.stats, flagged: v.stats.flagged + 1 } };
+    }
     case "rest": return { ...v, phase: "descansando", current: null, area: null, areaLabel: null, trail: [], restUntil: event.until || null };
     default: return v;
   }
+}
+
+/**
+ * Each section of the map (a cluster: one thought) as the Zeladora goes: how many of its memories she has read
+ * in this round, and whether it is done, being read, or still waiting ("na fila"). While she rests, a section
+ * read in the last round stays done.
+ */
+export type SectionState = { read: number; total: number; state: "feito" | "lendo" | "na fila" };
+export function sectionProgress(graph: MemoryGraph, keeper: KeeperView | null): Map<string, SectionState> {
+  const out = new Map<string, SectionState>();
+  if (!keeper || !keeper.enabled) return out;
+  const read = new Set(keeper.readIds);
+  const here = keeper.current ? graph.nodes.find((n) => n.id === keeper.current)?.clusterId : undefined;
+  for (const c of graph.clusters) {
+    const done = c.nodeIds.filter((id) => read.has(id)).length;
+    const state = done >= c.nodeIds.length && c.nodeIds.length > 0 ? "feito" : c.id === here ? "lendo" : keeper.phase === "descansando" && done > 0 ? "feito" : "na fila";
+    out.set(c.id, { read: done, total: c.nodeIds.length, state });
+  }
+  return out;
 }
 
 /**
