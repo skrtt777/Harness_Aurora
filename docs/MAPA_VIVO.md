@@ -275,3 +275,17 @@ separação entre o que já foi comprovado e o que ainda espera revisão. A árv
   - "Ajustar" volta à vista de frente.
 - **A Zeladora, os anéis e as cruzes da poda ficam sempre de frente para a câmera.** As curvas se arqueiam na tela.
 - **Modo "arquivo 3D"** (`archive.ts`, `ArchiveScene.tsx`): torres-estante, livros e a Zeladora robô.
+
+### O enxame — as nuvens feitas de partículas na GPU (22/10)
+Terceira cena ("enxame", ao lado de "nuvens" e "arquivo 3D"), inspirada no Particle Love: as mesmas nuvens viram
+até **1 milhão de partículas** (qualidade alta 1024², média 512², baixa 256²) simuladas na placa de vídeo
+(`GPUComputationRenderer`: posição e velocidade em texturas float, um texel por partícula).
+- `swarm.ts` (puro, testado): cada partícula tem uma casa — uma memória (um novelo em volta dela; todas recebem a
+  mesma parte) ou uma seção (a névoa que enche a nuvem, 42% do total, dividida pelo volume).
+- `SwarmField.tsx`: fluxo de curl noise (fumaça que nunca se repete, na escala de cada casa), mola para casa, vida e
+  renascimento; pontos suaves + rastros ao longo da velocidade (motion blur) em média/alta.
+- O que mexe nele é só evento real (a cena escreve o estado de cada casa a cada quadro): cor da seção, cor do evento,
+  energia de quem acende; o que a Zeladora lê escorre para o corpo dela; o que a resposta usou flui para a sonda da
+  Aurora; ondas (busca, ronda, toque, nódulo novo) empurram; o cursor é um vórtice que mexe a fumaça.
+- Abertura: as partículas saem todas do centro e voam para casa (big bang da memória). Sem movimento, já nascem em casa.
+- Tudo o mais da cena de nuvens continua por cima (pontos das memórias, Zeladora, sonda, chips, rótulos, câmera).

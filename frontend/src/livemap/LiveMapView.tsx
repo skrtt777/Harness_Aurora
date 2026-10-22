@@ -360,7 +360,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         </div>
         <div className="lm-controls">
           <div className="lm-scene-toggle" role="group" aria-label="Cena">
-            <button className="lm-btn" aria-pressed={settings.scene !== "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória (2D)">nuvens</button>
+            <button className="lm-btn" aria-pressed={settings.scene !== "arquivo" && settings.scene !== "enxame"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória em 3D">nuvens</button>
+            <button className="lm-btn" aria-pressed={settings.scene === "enxame"} onClick={() => setSettings((s) => ({ ...s, scene: "enxame" }))} title="O enxame: as mesmas nuvens feitas de até 1 milhão de partículas vivas na placa de vídeo — o que a Zeladora lê escorre para ela, o que a resposta usou flui para a sonda, o cursor mexe a fumaça">enxame</button>
             <button className="lm-btn" aria-pressed={settings.scene === "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "arquivo" }))} title="O arquivo vivo em 3D: torres de estantes, livros e a Zeladora robô">arquivo 3D</button>
           </div>
           <button className="lm-btn" onClick={fit} title="Ajustar a vista (F)">ajustar</button>

@@ -7,6 +7,8 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ACTIVITY_COLOR, reviewOf, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
 import { hash01, type Vec3 } from "./layout";
 import { buildField, cloudColor, grainPerMemory, type CloudLayout } from "./clouds";
+import { planSwarm, swarmSide, MEMORY_REACH } from "./swarm";
+import SwarmField, { makeDrive, SWARM_WAVES } from "./SwarmField";
 import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVES, lineMaterial, pointMaterial, ribbonGeometry, ribbonMaterial, RibbonWriter, Writer } from "./gfx";
 
 /**
@@ -26,8 +28,9 @@ import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVE
  * Nothing is invented: every bright point is a stored memory, every tentacle and wave a real event.
  */
 export type Quality = "alta" | "media" | "baixa";
-/** autoFocus: the camera goes by itself to what is happening. scene: the clouds (3D) or the living archive. */
-export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; scene?: "nuvens" | "arquivo" };
+/** autoFocus: the camera goes by itself to what is happening. scene: the clouds (3D), the swarm (the clouds as a
+ * million particles on the GPU) or the living archive. */
+export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; scene?: "nuvens" | "enxame" | "arquivo" };
 export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number; note?: string };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
@@ -123,10 +126,22 @@ function Scene(props: SceneProps) {
   const indexOf = useMemo(() => new Map(ids.map((id, i) => [id, i])), [ids]);
 
   // ---------- the grain: static on the GPU, rebuilt only when the space changes ----------
-  const field = useMemo(() => buildField(layout, grainPerMemory(settings.quality, ids.length)), [layout, settings.quality, ids.length]);
+  const field = useMemo(() => buildField(layout, settings.scene === "enxame" ? 0 : grainPerMemory(settings.quality, ids.length)), [layout, settings.quality, ids.length, settings.scene]);
   const grain = useMemo(() => ({ points: fieldGeometry(field.points), fibres: fieldGeometry(field.fibres) }), [field]);
   useEffect(() => () => { grain.points.dispose(); grain.fibres.dispose(); }, [grain]);
   const fieldMats = useMemo(() => ({ points: fieldMaterial(true), fibres: fieldMaterial(false) }), []);
+  // ---------- or the swarm: the same clouds as up to a million particles simulated on the GPU (SwarmField) ----------
+  const swarmOn = settings.scene === "enxame";
+  const plan = useMemo(() => (swarmOn ? planSwarm(layout, ids, swarmSide(settings.quality)) : null), [swarmOn, layout, ids, settings.quality]);
+  const drive = useMemo(() => {
+    if (!plan) return null;
+    const d = makeDrive(plan, R);
+    d.motion = motion;
+    ids.forEach((id, i) => { const p = layout.nodes.get(id)!; d.home.set([p[0], p[1], p[2], MEMORY_REACH], i * 4); d.state.set([0.4, 0.43, 0.48, 0], i * 4); });
+    layout.clouds.forEach((c, j) => { const k = (ids.length + j) * 4; d.home.set([c.x, c.y, c.z, c.r * 0.92], k); d.state.set([0.3, 0.32, 0.36, 0], k); });
+    return d;
+  }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { gl.setClearColor(swarmOn ? "#08090c" : "#121418"); }, [gl, swarmOn]);
   useEffect(() => () => { fieldMats.points.dispose(); fieldMats.fibres.dispose(); }, [fieldMats]);
 
   // ---------- dynamic buffers ----------
@@ -248,6 +263,26 @@ function Scene(props: SceneProps) {
       for (let i = 0; i < FIELD_WAVES; i += 1) { const w = waves.current[i]; if (w) { wv[i].set(w.x, w.y, w.z, w.s); wa[i] = w.at; } else wv[i].set(0, 0, 0, 0); }
     }
     (mats.points.uniforms.uRef as { value: number }).value = R * 2.3;
+    if (drive) {
+      drive.motion = motion; drive.R = R; drive.light = 0.35 + 0.65 * fadeIn;
+      drive.pull.fill(0);
+      for (let i = 0; i < SWARM_WAVES; i += 1) { const w = waves.current[i]; if (w) { drive.waves[i].set(w.x, w.y, w.z, w.s); drive.waveAt[i] = w.at; } else drive.waves[i].set(0, 0, 0, 0); }
+      // The cursor in the space: on the plane through what the camera looks at, facing it.
+      cam.getWorldDirection(drive.view);
+      const ctr = (state.controls as unknown as { target?: THREE.Vector3 } | null)?.target || va.set(0, 0, 0);
+      const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(h.x, h.y), cam);
+      const hit = new THREE.Vector3();
+      if (h.s > 0.01 && ray.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(drive.view, ctr), hit)) drive.hand.set(hit.x, hit.y, hit.z, motion ? h.s : 0);
+      else drive.hand.w = 0;
+      // The sections' haze: grey, its own colour while something happens there.
+      layout.clouds.forEach((c, j) => {
+        const k = (ids.length + j) * 4, hh = heat[j] ?? 0;
+        c3.setRGB(0.3, 0.32, 0.36); if (colors[j]) c3.lerp(colors[j], 0.45 + 0.55 * Math.min(1, hh));
+        const l = light[j] ?? 1;
+        drive.home[k] = D.cx[j]; drive.home[k + 1] = D.cy[j]; drive.home[k + 2] = D.cz[j]; drive.home[k + 3] = c.r * 0.92;
+        drive.state[k] = c3.r * l; drive.state[k + 1] = c3.g * l; drive.state[k + 2] = c3.b * l; drive.state[k + 3] = hh * 0.15;
+      });
+    }
 
     const lw = new Writer(geo.lines).begin();
     const sw = new Writer(geo.sparks).begin();
@@ -338,6 +373,8 @@ function Scene(props: SceneProps) {
           if (reachU >= 1 && motion) { const q = ctrl(s, P(p), bend); const r = qAt(s, q, P(p), (t * 0.9) % 1); sw.dot3(r[0], r[1], r[2], 4, z.on * 0.9, kc); }
         } else curve(s, P(p), bend, a * 0.55, kc, 16, a * 0.9, C.white, reachU);
         glow[p] = Math.max(glow[p], a * (j === 0 ? 1 : 0.6));
+        // In the swarm: what she reads pours into her body.
+        if (drive && j < 4 && reachU >= 1) drive.pull[p * 4 + 1] = Math.max(drive.pull[p * 4 + 1], j === 0 ? 1 : 0.35 * a);
       });
       // The idle legs: short curling hairs all around her body (in the plane facing the eye).
       const legs = 22;
@@ -370,6 +407,7 @@ function Scene(props: SceneProps) {
       sw.dot3(z.x, z.y, z.z, 7 + (motion ? Math.sin(t * 3) : 0), z.on, kc);
       sw.dot3(z.x, z.y, z.z, 26, 0.12 * z.on, kc);
     }
+    if (drive) drive.keeper.set(z.x, z.y, z.z, motion ? z.on : 0);
     // Her last journey: a long arc from the section she left to the one she went to.
     if (z.travel) {
       const age = now - z.travel.at;
@@ -410,12 +448,16 @@ function Scene(props: SceneProps) {
         const end = curveRibbon(s, P(p), bend, (r.strength >= 1 ? 2 : 1.3) * wppAt(D.x[p], D.y[p], D.z[p]), r.strength * pr.on, C.recallHot, cEnd, easeOut(u));
         if (u < 1) sw.dot3(end[0], end[1], end[2], 6, pr.on, C.recallHot);
         glow[p] = Math.max(glow[p], r.strength * u);
+        // In the swarm: what the answer really used flows into the probe.
+        if (drive && u >= 1) drive.pull[p * 4] = Math.max(drive.pull[p * 4], r.strength);
       }
       sw.dot3(pr.x, pr.y, pr.z, 8 + (motion ? Math.sin(t * 4) * 1.2 : 0), pr.on, C.recallHot);
       sw.dot3(pr.x, pr.y, pr.z, 22, 0.18 * pr.on, C.recall);
       const w = wppAt(pr.x, pr.y, pr.z);
       ring(pr.x, pr.y, pr.z, 11 * w * (1 + (motion ? (t % 1.6) / 1.6 : 0.4)), pr.on * (motion ? 1 - (t % 1.6) / 1.6 : 0.5) * 0.7, C.recall, 32);
     }
+
+    if (drive) drive.probe.set(pr.x, pr.y, pr.z, motion ? pr.on : 0);
 
     // ---- the Zeladora's links: an arc between two memories ----
     for (const l of (keeper?.links || []).slice(-6)) {
@@ -521,6 +563,19 @@ function Scene(props: SceneProps) {
       if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active * 1.2));
       if (isSel) c3.lerp(C.select, 0.6);
       dw.dot3(D.x[i], D.y[i], D.z[i], review ? -(sz * 1.05 + 1.5) : sz, review ? alpha * 0.8 : alpha, c3);
+      if (drive) {
+        // Its knot of particles: its colour, darker at rest (a million of them add up), and its energy.
+        const en = Math.min(1, gl * 0.8 + active + ln * 0.3 + wv * 0.8 + (isSel ? 0.7 : isHover ? 0.45 : 0));
+        const dim = (0.5 + 0.3 * en) * (light[ci] ?? 1);
+        // Its section's colour, always (the swarm shows the space in colour); an event tints it with its own.
+        c3.copy(colors[ci] || C.memory).lerp(C.memory, 0.35);
+        if (review && flagged.has(id)) c3.lerp(C.flag, 0.7);
+        if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active * 1.2));
+        if (isSel) c3.lerp(C.select, 0.6);
+        const k = i * 4;
+        drive.home[k] = D.x[i]; drive.home[k + 1] = D.y[i]; drive.home[k + 2] = D.z[i]; drive.home[k + 3] = MEMORY_REACH * (1 + en * 0.7);
+        drive.state[k] = c3.r * dim; drive.state[k + 1] = c3.g * dim; drive.state[k + 2] = c3.b * dim; drive.state[k + 3] = en;
+      }
     }
     dw.end();
     sw.end();
@@ -584,8 +639,10 @@ function Scene(props: SceneProps) {
 
   return (
     <>
-      <lineSegments geometry={grain.fibres} material={fieldMats.fibres} frustumCulled={false} />
-      <points geometry={grain.points} material={fieldMats.points} frustumCulled={false} />
+      {plan && drive ? <SwarmField plan={plan} drive={drive} streaks={settings.quality !== "baixa"} /> : <>
+        <lineSegments geometry={grain.fibres} material={fieldMats.fibres} frustumCulled={false} />
+        <points geometry={grain.points} material={fieldMats.points} frustumCulled={false} />
+      </>}
       <lineSegments geometry={geo.lines} material={mats.lines} frustumCulled={false} />
       <mesh geometry={geo.ribbons} material={mats.ribbons} frustumCulled={false} />
       <points geometry={geo.dots} material={mats.points} frustumCulled={false} />
@@ -783,6 +840,7 @@ function CameraRig({ command, reduced, motion, onUserMove, R, busy }: { command:
 
 export default function LiveMapScene(props: SceneProps) {
   const high = props.settings.quality === "alta";
+  const swarm = props.settings.scene === "enxame";
   const R = props.layout.R;
   // Leaving this scene drops its context on purpose: only a loss while it is shown is the graphics card's.
   const alive = useRef(true);
@@ -794,16 +852,16 @@ export default function LiveMapScene(props: SceneProps) {
       gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
       camera={{ position: [0, 0, R * 2.3], fov: 45, near: 1, far: 30000 }}
       onCreated={({ gl }) => {
-        gl.setClearColor("#121418");
+        gl.setClearColor(swarm ? "#08090c" : "#121418");
         gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (alive.current) props.onContextLost(); }, { once: true });
       }}
     >
       <Scene {...props} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} screenSpacePanning minDistance={20} maxDistance={R * 6} zoomSpeed={0.9} panSpeed={0.9} rotateSpeed={0.6}
         mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }} touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} />
-      {high && (
+      {(high || swarm) && (
         <EffectComposer multisampling={0}>
-          <Bloom mipmapBlur intensity={0.65} luminanceThreshold={0.22} luminanceSmoothing={0.35} radius={0.55} />
+          <Bloom mipmapBlur intensity={swarm ? 0.9 : 0.65} luminanceThreshold={swarm ? 0.3 : 0.22} luminanceSmoothing={0.35} radius={swarm ? 0.7 : 0.55} />
           <Vignette eskil={false} offset={0.3} darkness={0.55} />
         </EffectComposer>
       )}
