@@ -319,3 +319,20 @@ Lido o código aberto (github.com/edankwan/The-Spirit, MIT). O que faltava, e en
   escuro em cada tufo (o lado voltado para a luz), para cada memória parecer uma nuvenzinha com volume.
 - **Chão de metal escuro** com uma luz quente de um lado e uma verde-água do outro (as duas luzes direcionais de lá).
 Não entrou: o motion blur por linhas (o nosso por amostras já cobre; ver depois se vale o custo).
+
+### A aurora — a memória como o céu da Aurora (22/10)
+Pedido: "refaça toda a parte da memória, algo que combine com a Aurora e seja impressionante". A cena nova (padrão,
+`scene: "aurora"`, `sceneVersion: 2` migra quem estava em outra cena uma vez) é uma aurora boreal sobre um lago:
+- **cada nódulo é uma cortina** (`aurora.ts`, `layoutAurora`): um véu que sobe de uma barra brilhante, com estrias
+  finas, topo irregular indo para lilás, dobras fixas e um balanço lento; acende quando algo acontece nele;
+- **cada memória é um raio** da sua cortina, em pé na barra, na ordem do atlas (vizinhas de sentido lado a lado):
+  alto quando relevante, contínuo quando comprovada, **tracejado em revisão**, branco quando lida, usada, criada,
+  selecionada ou sob o cursor. Nada mais faz um raio; o pé do raio é o ponto clicável;
+- as cortinas mantêm a ordem esquerda→direita do atlas, em duas fileiras (atrás e na frente) curvadas para quem olha;
+- **o lago espelha tudo**, com ondulação; céu escuro; brilho (bloom) só no que é luz;
+- a vista inteira é de cima do lago (as dobras aparecem), os nomes ficam acima de cada véu e nunca se cobrem
+  (separados em pixels na tela, valendo para todas as cenas);
+- tudo o que já existia continua por cima: a Zeladora, a sonda da pergunta, ligações, podas, nódulos novos.
+O `layoutAurora` devolve um CloudLayout (mesmos ids, mesmas seções, mesmas cores), então o resto do mapa não mudou.
+As cores das seções viraram as de uma aurora (verde, ciano, lilás, gelo, rosa, azul…) e o painel do mapa usa o
+preto e o gelo da marca. Nuvens, enxame e arquivo 3D continuam como alternativas.

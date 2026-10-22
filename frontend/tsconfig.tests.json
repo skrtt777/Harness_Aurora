@@ -17,6 +17,7 @@
     "src/livemap/layout.ts",
     "src/livemap/clouds.ts",
     "src/livemap/archive.ts",
-    "src/livemap/swarm.ts"
+    "src/livemap/swarm.ts",
+    "src/livemap/aurora.ts"
   ]
 }

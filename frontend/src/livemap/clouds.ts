@@ -32,8 +32,8 @@ const GAP = 60;
 const STRETCH = [1.6, 1, 0.75];
 export const cloudRadius = (count: number) => UNIT * Math.cbrt(Math.max(1, count)) + UNIT * 0.6;
 
-/** The sections' colours: one each, shown only while a section is active (the rest of the space is grey). */
-export const CLOUD_COLORS = ["#8fb8e8", "#e88fa6", "#e8c46f", "#a99af0", "#7fdcc0", "#f0a070", "#9fd27a", "#7fc8f0", "#e89fe0", "#c8c08f", "#f08f8f", "#8fe8e0"];
+/** The sections' colours: an aurora's (its green first, the biggest section; then cyan, ice, blue, violet, rose…). */
+export const CLOUD_COLORS = ["#6cffb8", "#4ce6ff", "#b48cff", "#9ff0ff", "#ff7db8", "#5aa8ff", "#a6ff8c", "#e07dff", "#3fd6c6", "#8f8cff", "#c8f0ff", "#ffa3d9"];
 export const cloudColor = (index: number) => CLOUD_COLORS[((index % CLOUD_COLORS.length) + CLOUD_COLORS.length) % CLOUD_COLORS.length];
 
 /** A point on the unit sphere from two numbers in [0, 1). */

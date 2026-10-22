@@ -10,6 +10,8 @@ import { hash01, type Vec3 } from "./layout";
 import { buildField, cloudColor, grainPerMemory, type CloudLayout } from "./clouds";
 import { planSwarm, swarmSide, MEMORY_REACH } from "./swarm";
 import SwarmField, { makeDrive, swarmBlur, SWARM_WAVES } from "./SwarmField";
+import AuroraField, { makeAuroraDrive } from "./AuroraField";
+import { swayAt, type AuroraLayout } from "./aurora";
 import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVES, lineMaterial, pointMaterial, ribbonGeometry, ribbonMaterial, RibbonWriter, Writer } from "./gfx";
 
 /**
@@ -29,9 +31,9 @@ import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVE
  * Nothing is invented: every bright point is a stored memory, every tentacle and wave a real event.
  */
 export type Quality = "alta" | "media" | "baixa";
-/** autoFocus: the camera goes by itself to what is happening. scene: the clouds (3D), the swarm (the clouds as a
- * million particles on the GPU) or the living archive. */
-export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; scene?: "nuvens" | "enxame" | "arquivo" };
+/** autoFocus: the camera goes by itself to what is happening. scene: the aurora (the memory as the Aurora's sky: a
+ * curtain per section, a ray per memory), the clouds (3D), the swarm (a million particles on the GPU) or the living archive. */
+export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; scene?: "aurora" | "nuvens" | "enxame" | "arquivo"; sceneVersion?: number };
 export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number; note?: string };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
@@ -72,6 +74,9 @@ const col = (hex: string) => new THREE.Color(hex);
 const ACTIVE_MS = 9000;
 /** The swarm's backdrop: a warm graphite, light enough for lit matter and its shadow to read (as in The Spirit). */
 const SWARM_BG = "#202328";
+/** The aurora's night (its sky dome covers it; this is what shows while it loads). */
+const AURORA_BG = "#020408";
+const bgOf = (scene?: MapSettings["scene"]) => (scene === "enxame" ? SWARM_BG : scene === "aurora" ? AURORA_BG : "#121418");
 const C = {
   memory: col("#c9d1dc"), white: col("#ffffff"),
   keeper: col("#cfe9ff"), recall: col("#ff9d5c"), recallHot: col("#ffe2c9"), scan: col("#8fb8e8"),
@@ -129,7 +134,7 @@ function Scene(props: SceneProps) {
   const indexOf = useMemo(() => new Map(ids.map((id, i) => [id, i])), [ids]);
 
   // ---------- the grain: static on the GPU, rebuilt only when the space changes ----------
-  const field = useMemo(() => buildField(layout, settings.scene === "enxame" ? 0 : grainPerMemory(settings.quality, ids.length)), [layout, settings.quality, ids.length, settings.scene]);
+  const field = useMemo(() => buildField(layout, settings.scene === "enxame" || settings.scene === "aurora" ? 0 : grainPerMemory(settings.quality, ids.length)), [layout, settings.quality, ids.length, settings.scene]);
   const grain = useMemo(() => ({ points: fieldGeometry(field.points), fibres: fieldGeometry(field.fibres) }), [field]);
   useEffect(() => () => { grain.points.dispose(); grain.fibres.dispose(); }, [grain]);
   const fieldMats = useMemo(() => ({ points: fieldMaterial(true), fibres: fieldMaterial(false) }), []);
@@ -146,7 +151,11 @@ function Scene(props: SceneProps) {
     d.floorY = Math.min(...layout.clouds.map((c) => c.y - c.r), -R * 0.5) - R * 0.12;
     return d;
   }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { gl.setClearColor(swarmOn ? SWARM_BG : "#121418"); }, [gl, swarmOn]);
+  // ---------- or the aurora: a curtain per section, a ray per memory (AuroraField; the layout comes from aurora.ts) ----------
+  const auroraOn = settings.scene === "aurora" && "aurora" in layout;
+  const aurora = auroraOn ? (layout as AuroraLayout).aurora : null;
+  const aDrive = useMemo(() => (auroraOn ? makeAuroraDrive(ids.length, layout.clouds.length) : null), [auroraOn, ids.length, layout]);
+  useEffect(() => { gl.setClearColor(bgOf(settings.scene)); }, [gl, settings.scene]);
   useEffect(() => () => { fieldMats.points.dispose(); fieldMats.fibres.dispose(); }, [fieldMats]);
 
   // ---------- dynamic buffers ----------
@@ -225,6 +234,11 @@ function Scene(props: SceneProps) {
     const k = reduced ? 1 : easeOut(Math.min(1, (now - D.at) / 1100));
     for (let i = 0; i < ids.length; i += 1) { const p = layout.nodes.get(ids[i])!; D.x[i] = D.sx[i] + (p[0] - D.sx[i]) * k; D.y[i] = D.sy[i] + (p[1] - D.sy[i]) * k; D.z[i] = D.sz[i] + (p[2] - D.sz[i]) * k; }
     layout.clouds.forEach((c, i) => { D.cx[i] = D.scx[i] + (c.x - D.scx[i]) * k; D.cy[i] = D.scy[i] + (c.y - D.scy[i]) * k; D.cz[i] = D.scz[i] + (c.z - D.scz[i]) * k; });
+    // In the aurora every memory rides its curtain's hem as it sways (the same sway as the veil's shader).
+    if (aurora && motion) for (let i = 0; i < ids.length; i += 1) {
+      const pl = aurora.place.get(ids[i]); const cu = pl && aurora.curtains[pl.curtain]; if (!cu) continue;
+      const w = swayAt(cu, pl.u, t); D.x[i] += cu.nx * w; D.z[i] += cu.nz * w;
+    }
     for (let i = 0; i < glow.length; i += 1) glow[i] *= Math.exp(-dt * 1.4);
     // World units per pixel at a point (for sizes that stay the same on screen).
     const wppAt = (x: number, y: number, z: number) => (2 * Math.max(1, Math.hypot(eye.x - x, eye.y - y, eye.z - z)) * Math.tan((cam.fov * Math.PI) / 360)) / Math.max(1, size.height);
@@ -291,6 +305,14 @@ function Scene(props: SceneProps) {
       });
     }
 
+    if (aDrive) {
+      aDrive.motion = motion; aDrive.light = 0.35 + 0.65 * fadeIn;
+      layout.clouds.forEach((c, j) => {
+        const hh = Math.min(1, heat[j] ?? 0), l = light[j] ?? 1;
+        c3.copy(colors[j] || C.memory).lerp(C.white, hh * 0.15);
+        aDrive.curt[j * 4] = c3.r * l; aDrive.curt[j * 4 + 1] = c3.g * l; aDrive.curt[j * 4 + 2] = c3.b * l; aDrive.curt[j * 4 + 3] = hh;
+      });
+    }
     const lw = new Writer(geo.lines).begin();
     const sw = new Writer(geo.sparks).begin();
     const rw = new RibbonWriter(geo.ribbons).begin();
@@ -569,7 +591,23 @@ function Scene(props: SceneProps) {
       if (review && flagged.has(id)) c3.lerp(C.flag, 0.7);
       if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active * 1.2));
       if (isSel) c3.lerp(C.select, 0.6);
-      dw.dot3(D.x[i], D.y[i], D.z[i], review ? -(sz * 1.05 + 1.5) : sz, review ? alpha * 0.8 : alpha, c3);
+      // (In the aurora the ray is the memory: its foot only a small point.)
+      const dk = auroraOn ? 0.5 : 1;
+      dw.dot3(D.x[i], D.y[i], D.z[i], (review ? -(sz * 1.05 + 1.5) : sz) * dk, (review ? alpha * 0.8 : alpha) * dk, c3);
+      if (aDrive) {
+        // Its ray: its section's colour, as tall as it is relevant, flaring white with what happens to it.
+        const en = Math.min(1, gl * 0.8 + active + ln * 0.5 + wv * 0.8 + (isSel ? 0.8 : isHover ? 0.5 : 0));
+        c3.copy(colors[ci] || C.memory);
+        if (review && flagged.has(id)) c3.lerp(C.flag, 0.7);
+        if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active));
+        if (isSel) c3.lerp(C.select, 0.5);
+        const l = light[ci] ?? 1, k = i * 4;
+        const cu = aurora!.curtains[ci];
+        aDrive.memA[k] = D.x[i]; aDrive.memA[k + 1] = D.y[i]; aDrive.memA[k + 2] = D.z[i];
+        aDrive.memA[k + 3] = (cu ? cu.height : 200) * (0.32 + 0.6 * n.relevance) * (1 + 0.45 * en);
+        aDrive.memB[k] = c3.r * l; aDrive.memB[k + 1] = c3.g * l; aDrive.memB[k + 2] = c3.b * l; aDrive.memB[k + 3] = en;
+        aDrive.memC[k] = review ? 1 : 0; aDrive.memC[k + 1] = n.relevance; aDrive.memC[k + 2] = hash01(id, 21); aDrive.memC[k + 3] = 0;
+      }
       if (drive) {
         // Its knot of particles: its colour, darker at rest (a million of them add up), and its energy.
         const en = Math.min(1, gl * 0.8 + active + ln * 0.3 + wv * 0.8 + (isSel ? 0.7 : isHover ? 0.45 : 0));
@@ -646,7 +684,7 @@ function Scene(props: SceneProps) {
 
   return (
     <>
-      {plan && drive ? <SwarmField plan={plan} drive={drive} /> : <>
+      {aDrive && auroraOn ? <AuroraField layout={layout as AuroraLayout} drive={aDrive} count={ids.length} /> : plan && drive ? <SwarmField plan={plan} drive={drive} /> : <>
         <lineSegments geometry={grain.fibres} material={fieldMats.fibres} frustumCulled={false} />
         <points geometry={grain.points} material={fieldMats.points} frustumCulled={false} />
       </>}
@@ -655,7 +693,7 @@ function Scene(props: SceneProps) {
       <points geometry={geo.dots} material={mats.points} frustumCulled={false} />
       <points geometry={geo.sparks} material={mats.points} frustumCulled={false} />
       <Labels {...props} reach={reach} lastSeen={lastSeen.current} flagged={flagged} />
-      <CameraRig command={camera} reduced={reduced} motion={motion} onUserMove={props.onUserMove} R={R} busy={Boolean((agent && !agent.ended) || (keeper?.enabled && keeper.running && keeper.phase === "andando"))} />
+      <CameraRig command={camera} reduced={reduced} motion={motion} onUserMove={props.onUserMove} R={R} front={aurora?.front} busy={Boolean((agent && !agent.ended) || (keeper?.enabled && keeper.running && keeper.phase === "andando"))} />
     </>
   );
 }
@@ -687,6 +725,7 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const controls = useThree((s) => s.controls) as unknown as OrbitControlsImpl | null;
   const viewH = useThree((s) => s.size.height);
+  const viewW = useThree((s) => s.size.width);
   const viewKey = useRef("");
   const [, setView] = useState("");
   const distNow = () => (controls ? camera.position.distanceTo(controls.target) : camera.position.length());
@@ -722,17 +761,38 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
   const planar = (p: Vec3) => ({ x: p[0] * right.x + p[1] * right.y + p[2] * right.z, y: p[0] * up.x + p[1] * up.y + p[2] * up.z });
   const offset = (p: Vec3, du: number, dv: number): Vec3 => [p[0] + right.x * du + up.x * dv, p[1] + right.y * du + up.y * dv, p[2] + right.z * du + up.z * dv];
   const hereCloud = here !== undefined ? layout.clouds[here] : undefined;
+  // The sections' names, never on top of each other: one that would cover a bigger section's name (they come
+  // biggest first) moves up above it — measured in pixels on the screen (the curtains stand at different depths).
+  const boxes: { x: number; y: number; w: number; h: number }[] = [];
+  const pv = new THREE.Vector3();
+  const secLabels = layout.clouds.flatMap((c, k) => {
+    const cl = clusterOf.get(c.id); if (!cl) return [];
+    const st = sections.get(c.id);
+    const on = c.id === focusClusterId || st?.state === "lendo" || here === c.index;
+    const px = c.r / wpp;
+    if (!on && (k >= 16 || px < 16 || (px < 30 && k >= 8))) return [];
+    const at3 = (layout as Partial<AuroraLayout>).aurora?.labelAt[c.index];
+    const base = at3 || offset([c.x, c.y, c.z], -c.r * 0.55, c.r * 0.92);
+    pv.set(base[0], base[1], base[2]).project(camera);
+    const sx = (pv.x * 0.5 + 0.5) * viewW, sy = (0.5 - pv.y * 0.5) * viewH;
+    const w = cl.label.length * 7.8 + 18, h = 34;
+    let top = sy;
+    for (let it = 0; it < 16; it += 1) {
+      const hit = boxes.find((b) => sx < b.x + b.w && sx + w > b.x && top < b.y + b.h && top + h > b.y);
+      if (!hit) break;
+      top = hit.y - h - 2;
+    }
+    boxes.push({ x: sx, y: top, w, h });
+    const d = camera.position.distanceTo(pv.set(base[0], base[1], base[2]));
+    const wppHere = (2 * Math.max(1, d) * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, viewH);
+    return [{ c, cl, st, on, px, pos: offset(base, 0, (sy - top) * wppHere) }];
+  });
   const placed = placeChips(chips.map((id) => { const q = planar(at(id)); return { id, x: q.x, y: q.y, left: Boolean(hereCloud && q.x < planar([hereCloud.x, hereCloud.y, hereCloud.z]).x) }; }), wpp);
   return (
     <>
-      {layout.clouds.map((c, k) => {
-        const cl = clusterOf.get(c.id); if (!cl) return null;
-        const st = sections.get(c.id);
-        const on = c.id === focusClusterId || st?.state === "lendo" || here === c.index;
-        const px = c.r / wpp;
-        if (!on && (k >= 16 || px < 16 || (px < 30 && k >= 8))) return null;
+      {secLabels.map(({ c, cl, st, on, px, pos }) => {
         return (
-          <Html key={c.id} position={offset([c.x, c.y, c.z], -c.r * 0.55, c.r * 0.92)} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+          <Html key={c.id} position={pos} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
             <div className={`lm-sec ${on ? "on" : ""} ${st?.state === "na fila" ? "queued" : st?.state === "feito" ? "done" : ""}`} style={{ ["--c" as string]: cloudColor(c.index) }}>
               <b>{cl.label}</b>
               {(on || px > 46) && <span>{st ? `${st.read}/${st.total} memórias · ${st.state === "lendo" ? "lendo" : st.state === "feito" ? "feito" : "na fila"}` : `${cl.nodeIds.length} memórias`}</span>}
@@ -801,7 +861,7 @@ function Labels({ graph, layout, selectedId, hoveredId, focusClusterId, highligh
  * already looks from, or from the front for the whole space. Left alone (no touch for 20 s, nothing happening),
  * the space turns slowly; any touch stops it.
  */
-function CameraRig({ command, reduced, motion, onUserMove, R, busy }: { command: CameraCommand; reduced: boolean; motion: boolean; onUserMove: () => void; R: number; busy: boolean }) {
+function CameraRig({ command, reduced, motion, onUserMove, R, busy, front }: { command: CameraCommand; reduced: boolean; motion: boolean; onUserMove: () => void; R: number; busy: boolean; front?: Vec3 }) {
   const { camera, controls } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: OrbitControlsImpl | null };
   const goal = useRef<{ target: THREE.Vector3; position: THREE.Vector3 } | null>(null);
   const placed = useRef(false);
@@ -826,7 +886,7 @@ function CameraRig({ command, reduced, motion, onUserMove, R, busy }: { command:
   useEffect(() => {
     if (!command || !controls) return;
     const target = new THREE.Vector3(command.target[0], command.target[1], command.target[2] || 0);
-    const dir = command.front ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+    const dir = command.front ? new THREE.Vector3(...(front || [0, 0, 1])).normalize() : new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
     if (!Number.isFinite(dir.x) || dir.lengthSq() < 0.5) dir.set(0, 0, 1);
     goal.current = { target, position: target.clone().add(dir.multiplyScalar(command.distance)) };
     // (Also when the controls arrive after the command: the first "fit" comes before them.)
@@ -867,14 +927,19 @@ export default function LiveMapScene(props: SceneProps) {
       gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
       camera={{ position: [0, 0, R * 2.3], fov: 45, near: 1, far: 30000 }}
       onCreated={({ gl }) => {
-        gl.setClearColor(swarm ? SWARM_BG : "#121418");
+        gl.setClearColor(bgOf(props.settings.scene));
         gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (alive.current) props.onContextLost(); }, { once: true });
       }}
     >
       <Scene {...props} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} screenSpacePanning minDistance={20} maxDistance={R * 6} zoomSpeed={0.9} panSpeed={0.9} rotateSpeed={0.6}
         mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }} touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} />
-      {swarm ? (
+      {props.settings.scene === "aurora" ? (
+        <EffectComposer key="aurora" multisampling={0}>
+          <Bloom mipmapBlur intensity={1.15} luminanceThreshold={0.08} luminanceSmoothing={0.35} radius={0.75} />
+          <Vignette eskil={false} offset={0.22} darkness={0.75} />
+        </EffectComposer>
+      ) : swarm ? (
         <EffectComposer key="swarm" multisampling={0}>
           <primitive object={swarmBlur()} />
           <SwarmFocus R={R} />

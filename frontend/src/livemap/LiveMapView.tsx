@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, visitKeeper, type MemoryGraphSnapshot, type MemoryLiveEvent, type ModelSpeedSample } from "../api";
 import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, reviewOf, sectionProgress, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
 import { cloudColor, fitDistance, layoutClouds, type CloudLayout } from "./clouds";
+import { layoutAurora } from "./aurora";
 import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality, RecallBush } from "./LiveMapScene";
 import type { Vec3 } from "./layout";
 import ChatDock from "./ChatDock";
@@ -30,8 +31,12 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2
 const prefersReduced = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 const webglAvailable = () => { try { const c = document.createElement("canvas"); return Boolean(c.getContext("webgl2") || c.getContext("webgl")); } catch { return false; } };
 const loadSettings = (): MapSettings => {
-  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true };
-  try { return { ...base, ...JSON.parse(localStorage.getItem("aurora-livemap-settings") || "{}") }; } catch { return base; }
+  // sceneVersion 2: the aurora became the memory's scene (an older choice of scene starts on it once).
+  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true, scene: "aurora", sceneVersion: 2 };
+  try {
+    const saved = JSON.parse(localStorage.getItem("aurora-livemap-settings") || "{}") as Partial<MapSettings>;
+    return { ...base, ...saved, ...(saved.sceneVersion === 2 ? {} : { scene: "aurora" as const, sceneVersion: 2 }) };
+  } catch { return base; }
 };
 
 type Props = { onOpenConversation?: (id: string) => void; onOpenMemory?: () => void };
@@ -74,7 +79,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const turnTimer = useRef<number | null>(null);
   const [gl, setGl] = useState(webglAvailable);
   const refreshTimer = useRef<number | null>(null);
-  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus, scene: settings.scene })); } catch { /* private mode */ } }, [settings]);
+  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus, scene: settings.scene, sceneVersion: 2 })); } catch { /* private mode */ } }, [settings]);
 
   // The semantic atlas held steady for the session (adapter.steadyAtlas): a new memory joins its neighbours'
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
@@ -176,7 +181,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
   const graph = useMemo(() => (snap ? buildMemoryGraph(snap, { mode, filters }) : null), [snap, mode, filters]);
-  const layout = useMemo(() => (graph ? layoutClouds(graph, snap) : null), [graph, snap]);
+  const cloudsLayout = useMemo(() => (graph ? layoutClouds(graph, snap) : null), [graph, snap]);
+  // The aurora hangs the same sections and memories as curtains and rays (same ids, same colours).
+  const layout = useMemo(() => (cloudsLayout && settings.scene === "aurora" ? layoutAurora(cloudsLayout) : cloudsLayout), [cloudsLayout, settings.scene]);
   const R = layout?.R || 400;
   graphRef.current = graph; layoutRef.current = layout;
   if (layout) for (const [id, p] of layout.nodes) lastPos.current.set(id, p);
@@ -239,6 +246,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   // The first time the map has a tree: the whole of it in view.
   const fitted = useRef(false);
   useEffect(() => { if (layout && !fitted.current) { fitted.current = true; fit(); } }, [layout, fit]);
+  // Another scene, another space: the whole of it in view again.
+  const lastScene = useRef(settings.scene);
+  useEffect(() => { if (lastScene.current !== settings.scene) { lastScene.current = settings.scene; fit(); } }, [settings.scene, fit]);
   const focusCluster = useCallback((id: string, double: boolean) => {
     const box = layout?.clusters.get(id); if (!box) return;
     if (double) { setFocusClusterId(id); setCamera({ target: box.center, distance: Math.min(layout!.R * 2.3, 120 + box.radius * 3.6), key: Date.now() }); return; }
@@ -360,7 +370,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         </div>
         <div className="lm-controls">
           <div className="lm-scene-toggle" role="group" aria-label="Cena">
-            <button className="lm-btn" aria-pressed={settings.scene !== "arquivo" && settings.scene !== "enxame"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória em 3D">nuvens</button>
+            <button className="lm-btn" aria-pressed={settings.scene === "aurora"} onClick={() => setSettings((s) => ({ ...s, scene: "aurora" }))} title="A aurora: a memória como o céu da Aurora — cada nódulo uma cortina de luz, cada memória um raio dela (alto quando relevante, tracejado em revisão), refletidos no lago">aurora</button>
+            <button className="lm-btn" aria-pressed={settings.scene === "nuvens"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória em 3D">nuvens</button>
             <button className="lm-btn" aria-pressed={settings.scene === "enxame"} onClick={() => setSettings((s) => ({ ...s, scene: "enxame" }))} title="O enxame: as mesmas nuvens feitas de até 1 milhão de partículas vivas na placa de vídeo — o que a Zeladora lê escorre para ela, o que a resposta usou flui para a sonda, o cursor mexe a fumaça">enxame</button>
             <button className="lm-btn" aria-pressed={settings.scene === "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "arquivo" }))} title="O arquivo vivo em 3D: torres de estantes, livros e a Zeladora robô">arquivo 3D</button>
           </div>

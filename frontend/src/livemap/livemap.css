@@ -1,8 +1,8 @@
 /* Memórias / Mapa Vivo — an instrument panel: near-black, hairlines, small monospace capitals, a chart on top,
    a barcode of live events below, callouts with a coloured left rule. Colours are tokens in one place. */
 .livemap {
-  --lm-bg: #15171b; --lm-panel: #1b1e23; --lm-line: #2a2e35; --lm-orange: #ff9a55; --lm-blue: #8fc2ff; --lm-text: #d7dde6; --lm-dim: #6b7685; --lm-faint: #3a4350;
-  --lm-teal: #3fd6c6; --lm-pink: #f05a8c; --lm-amber: #e8b04a; --lm-violet: #9b7cf0; --lm-green: #6fdc8c;
+  --lm-bg: #05070a; --lm-panel: #0a0e13; --lm-line: #18202b; --lm-orange: #ff9a55; --lm-blue: #4cc3ff; --lm-text: #e4edf5; --lm-dim: #6f7f92; --lm-faint: #2a3442;
+  --lm-teal: #6cffb8; --lm-pink: #f05a8c; --lm-amber: #e8b04a; --lm-violet: #9b7cf0; --lm-green: #6fdc8c;
   --lm-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace, monospace;
   position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--lm-bg); color: var(--lm-text);
   font-family: var(--lm-mono); font-size: 12px; overflow: hidden;
