@@ -580,7 +580,7 @@ function Scene(props: SceneProps) {
         if (active > 0 && hl) c3.lerp(HL_COLOR[hl.kind], Math.min(1, active * 1.2));
         if (isSel) c3.lerp(C.select, 0.6);
         const k = i * 4;
-        drive.home[k] = D.x[i]; drive.home[k + 1] = D.y[i]; drive.home[k + 2] = D.z[i]; drive.home[k + 3] = MEMORY_REACH * (1 + en * 0.7);
+        drive.home[k] = D.x[i]; drive.home[k + 1] = D.y[i]; drive.home[k + 2] = D.z[i]; drive.home[k + 3] = MEMORY_REACH * (0.75 + 0.5 * n.relevance) * (1 + en * 0.9);
         drive.state[k] = c3.r * dim; drive.state[k + 1] = c3.g * dim; drive.state[k + 2] = c3.b * dim; drive.state[k + 3] = en;
       }
     }

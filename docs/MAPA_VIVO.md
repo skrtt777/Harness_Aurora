@@ -301,3 +301,10 @@ o visual deles é tratar partícula como **matéria**: opaca, iluminada, com som
 - **motion blur** por buffer de velocidade (posição anterior + matriz anterior da câmera), como Effect do compositor;
 - **profundidade de campo** (Hyper Mix) focada onde a câmera olha; bloom só no que acende (memória viva).
 Os eventos reais (Zeladora lendo, sonda da Aurora, ondas, cursor-vórtice) continuam movendo a matéria.
+
+#### Enxame 3 — toda partícula é uma memória (22/10)
+Pedido: "várias bolas que não têm ligação nenhuma com as memórias". As massas grandes eram a névoa das seções
+(42% das partículas, sem memória por trás). Agora `HAZE_SHARE = 0`: cada partícula pertence a uma memória, cada
+memória é um tufo próprio em cima do seu ponto (curl no tamanho do tufo, preso perto: não se funde com os vizinhos),
+o tamanho do tufo vem da relevância e cresce quando a memória acende (lida, usada, selecionada). A seção é só a
+soma dos seus tufos; a névoa por seção só aparece numa vista sem nenhuma memória.

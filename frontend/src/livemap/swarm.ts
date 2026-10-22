@@ -3,16 +3,18 @@ import type { CloudLayout } from "./clouds";
 /**
  * Memórias / Mapa Vivo — the swarm: the clouds drawn as up to a million particles simulated on the graphics card
  * (SwarmField.tsx). This file is the plan, pure and testable: which "home" every particle belongs to.
- *   - a home is a memory (a bright knot of particles around it) or a whole section (its haze, filling the cloud);
- *   - every memory gets its share, never zero; the sections share the rest by their volume;
+ *   - every particle belongs to a memory: each memory is a knot of its own at its point, and a section is only
+ *     the sum of its memories' knots (no matter in the swarm that is not a memory);
+ *   - every memory gets the same share, never zero; a section gets particles (a haze by its volume) only when
+ *     there is no memory to show (an empty view);
  *   - the plan is written into a texture (one texel per particle): which home, a seed, how far from home it lives.
  * Homes are numbered memories first (in `ids` order), then the sections (in layout order).
  */
 export type SwarmQuality = "alta" | "media" | "baixa";
 /** Side of the particle textures: 1024² ≈ 1 M particles, 512² ≈ 262 k, 256² ≈ 65 k. */
 export const swarmSide = (q: SwarmQuality) => (q === "alta" ? 1024 : q === "media" ? 512 : 256);
-/** The share of particles that make the sections' haze (the rest knot around the memories). */
-export const HAZE_SHARE = 0.42;
+/** The share of particles that make the sections' haze when there are memories: none (everything is a memory). */
+export const HAZE_SHARE = 0;
 /** How far a memory's particles live from it (world units, before the per-particle factor). */
 export const MEMORY_REACH = 30;
 
@@ -44,7 +46,7 @@ export function planSwarm(layout: Pick<CloudLayout, "clouds" | "nodes">, ids: st
   const homeSide = Math.max(1, Math.ceil(Math.sqrt(homes)));
   const ref = new Float32Array(count * 4);
   const perHome = new Uint32Array(homes);
-  // The haze: each section by its volume; the knots: the same for every memory.
+  // The knots: the same for every memory; the haze (each section by its volume) only with no memory at all.
   const haze = sections ? Math.round(count * (memories ? HAZE_SHARE : 1)) : 0;
   const knots = count - haze;
   const vol = layout.clouds.map((c) => c.r ** 3);

@@ -16,7 +16,7 @@ const snapshot = () => {
   };
 };
 
-test("every particle has a home: every memory a knot of its own, every section a haze by its volume", () => {
+test("every particle has a home, and every home in the swarm is a memory: one knot each, no section haze", () => {
   const s = snapshot();
   const L = layoutClouds(buildMemoryGraph(s), s);
   const ids = [...L.nodes.keys()];
@@ -27,10 +27,13 @@ test("every particle has a home: every memory a knot of its own, every section a
   const knots = P.perHome.slice(0, ids.length), haze = P.perHome.slice(ids.length);
   assert.ok(knots.every((n) => n > 0), "no memory without particles");
   assert.ok(Math.max(...knots) - Math.min(...knots) <= 1, "the same for every memory");
-  const hazeTotal = haze.reduce((a, b) => a + b, 0);
-  assert.ok(Math.abs(hazeTotal / P.count - HAZE_SHARE) < 0.01);
+  assert.equal(HAZE_SHARE, 0);
+  assert.ok(haze.every((n) => n === 0), "no matter that is not a memory");
+  // A view with no memory still shows its sections, each a haze by its volume.
+  const E = planSwarm(L, [], 128);
   const big = L.clouds.findIndex((c) => c.ids.length === 40), small = L.clouds.findIndex((c) => c.ids.length === 3);
-  assert.ok(haze[big] > haze[small], "the bigger section, the more haze");
+  assert.equal(E.perHome.reduce((a, b) => a + b, 0), E.count);
+  assert.ok(E.perHome[big] > E.perHome[small], "the bigger section, the more haze");
   assert.equal(P.perHome.reduce((a, b) => a + b, 0), P.count);
   // The texture: each particle points at its home's texel, with a seed and a distance in 0..1.
   for (let i = 0; i < P.count; i += 997) {

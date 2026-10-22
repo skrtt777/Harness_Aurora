@@ -162,27 +162,28 @@ void main(){
   float pk = pl.y * uKeeper.w * step(ref.z, 0.25 * pl.y);
   float pp = pl.x * uProbe.w * step(ref.z, 0.32 * pl.x);
   bool arrived = (pk > 0.001 && distance(p, uKeeper.xyz) < uR * 0.03) || (pp > 0.001 && distance(p, uProbe.xyz) < uR * 0.03);
-  bool lost = uIntro > 3.2 && distance(p, home.xyz) > hw * 5.0 + uR * 0.3;
-  // A memory is a source (its particles are born at it, breathing, and flow out as a plume of smoke, as from the
-  // emitter of The Spirit); a section's particles are its body (born anywhere in it, drifting slowly).
+  // A memory is a source (its particles are born at it, breathing, and curl around it as smoke, as from the
+  // emitter of The Spirit, but held close: every knot sits on its memory's point and never melts into its
+  // neighbours'); a section's particles (only in a view with no memory) are its body, drifting slowly.
   float hi = floor(ref.y * uHomeSide) * uHomeSide + floor(ref.x * uHomeSide);
   float knot = step(hi, uMemories - 0.5);
+  bool lost = uIntro > 3.2 && pk + pp < 0.001 && distance(p, home.xyz) > mix(hw * 5.0 + uR * 0.3, hw * 2.2, knot);
   if (life <= 0.0 || arrived || lost) {
     float breathe = 1.0 + sin(uTime * 6.0 + ref.z * 6.28) * 0.25;
     float r = mix(0.1 + 0.55 * ref.w, 0.05 + 0.12 * ref.w * breathe, knot);
     p = home.xyz + randDir(uv + fract(uTime * 0.1373)) * hw * r;
     life = 0.55 + 0.45 * hash(uv * 3.1 + fract(uTime));
   } else {
-    // The current: the curl of 4D noise (a plume's at a broader scale than its source, so it streams far).
-    float scale = mix(hw * 1.3, hw * 2.6 + uR * 0.05, knot);
+    // The current: the curl of 4D noise (a knot's at its own size, so it swirls in place).
+    float scale = mix(hw * 1.3, hw * 0.9, knot);
     vec3 c = curl(p / scale, uTime * 0.1 + ref.z * 0.04, 0.1 + (1.0 - life) * 0.15);
     c /= (1.0 + length(c) * 0.25);
-    float speed = mix(hw * 0.004 + uR * 0.0003, hw * 0.022 + uR * 0.0004, knot);
+    float speed = mix(hw * 0.004 + uR * 0.0003, hw * 0.007, knot);
     p += c * speed * (1.0 + 1.4 * e) * k;
     // Home: a soft pull inside its reach, a firm one beyond (the opening flies everything home).
     vec3 d = home.xyz - p; float dl = length(d);
-    float reach = mix(hw * (0.3 + 0.7 * ref.w), hw * 2.4 + uR * 0.03, knot);
-    p += d * (mix(0.004, 0.0008, knot) + 0.03 * smoothstep(reach, reach * 2.0, dl) + 0.05 * opening) * k;
+    float reach = hw * mix(0.3 + 0.7 * ref.w, 0.25 + 0.45 * ref.w, knot);
+    p += d * (mix(0.004, 0.002, knot) + mix(0.03, 0.07, knot) * smoothstep(reach, reach * 1.7, dl) + 0.05 * opening) * k;
     // Real events pull: into the Zeladora's body, into the Aurora's probe (spiralling around the view axis).
     if (pk > 0.001) { vec3 q = uKeeper.xyz - p; float ql = length(q); vec3 n = q / max(ql, 1e-3); p += (n * min(ql, uR * 0.011) + cross(n, uView) * uR * 0.002) * pk * k; }
     if (pp > 0.001) { vec3 q = uProbe.xyz - p; float ql = length(q); vec3 n = q / max(ql, 1e-3); p += (n * min(ql, uR * 0.013) + cross(n, uView) * uR * 0.003) * pp * k; }
