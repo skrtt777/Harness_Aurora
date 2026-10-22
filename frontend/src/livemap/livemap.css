@@ -337,3 +337,14 @@
 .lm-speed line.normal { stroke: #4a515c; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .lm-speed em { font-style: normal; text-transform: none; letter-spacing: 0; color: #e88fa6; }
 .lm-speed.slow polyline { stroke: #e88fa6; }
+/* the living archive (3D) */
+.lm-scene-toggle { display: inline-flex; gap: 0; }
+.lm-scene-toggle .lm-btn { border-radius: 0; } .lm-scene-toggle .lm-btn:first-child { border-radius: 3px 0 0 3px; } .lm-scene-toggle .lm-btn:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
+.ar-tower { --c: #9fb2c8; white-space: nowrap; text-align: center; font: 11px var(--lm-mono); color: #c4cad3; text-shadow: 0 0 8px #000, 0 0 2px #000; }
+.ar-tower b { display: block; font-weight: 500; }
+.ar-tower span { font-size: 9px; color: #7b8391; }
+.ar-tower.on b { color: var(--c); font-size: 13px; }
+.ar-say { white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; font: 10px var(--lm-mono); color: #eef1f6; background: rgba(20,22,30,.88); border: 1px solid #3a4256; border-radius: 10px; padding: 3px 9px; }
+.ar-say.rest { color: #8b93a1; }
+.ar-book { white-space: nowrap; font: 10.5px var(--lm-mono); color: #fff; background: rgba(20,22,30,.9); border-left: 2px solid #fff; padding: 2px 7px; transform: translate(10px, -50%); max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+.lm-title { z-index: 59; }

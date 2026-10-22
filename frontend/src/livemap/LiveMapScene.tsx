@@ -26,7 +26,8 @@ import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVE
  */
 export type Quality = "alta" | "media" | "baixa";
 /** autoFocus: the camera goes by itself to what is happening (the Zeladora, a question's memories). */
-export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean };
+/** scene: the field of clouds (2D) or the living archive (3D, ArchiveScene.tsx). */
+export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; scene?: "nuvens" | "arquivo" };
 export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number; note?: string };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };
@@ -36,7 +37,7 @@ export type Merge = { from: Vec3[]; to: Vec3; at: number };
 /** A recent answer and the memories it used. */
 export type RecallBush = { id: string; at: string; prompt: string; used: string[] };
 
-type SceneProps = {
+export type SceneProps = {
   graph: MemoryGraph;
   layout: CloudLayout;
   settings: MapSettings;
@@ -729,6 +730,9 @@ function CameraRig({ command, reduced, onUserMove, R }: { command: CameraCommand
 
 export default function LiveMapScene(props: SceneProps) {
   const high = props.settings.quality === "alta";
+  // Leaving this scene drops its context on purpose: only a loss while it is shown is the graphics card's.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const R = props.layout.R;
   return (
     <Canvas
@@ -738,7 +742,7 @@ export default function LiveMapScene(props: SceneProps) {
       camera={{ position: [0, 0, R * 2.3], fov: 45, near: 1, far: 20000 }}
       onCreated={({ gl }) => {
         gl.setClearColor("#121418");
-        gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); props.onContextLost(); }, { once: true });
+        gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (alive.current) props.onContextLost(); }, { once: true });
       }}
     >
       <Scene {...props} />

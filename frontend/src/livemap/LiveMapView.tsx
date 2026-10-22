@@ -8,6 +8,7 @@ import ChatDock from "./ChatDock";
 import "./livemap.css";
 
 const LiveMapScene = lazy(() => import("./LiveMapScene"));
+const ArchiveScene = lazy(() => import("./ArchiveScene"));
 
 /**
  * Memórias / Mapa Vivo: the Aurora's memory as a field of clouds (one per section, the Zeladora's nodes) on an
@@ -73,7 +74,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const turnTimer = useRef<number | null>(null);
   const [gl, setGl] = useState(webglAvailable);
   const refreshTimer = useRef<number | null>(null);
-  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus })); } catch { /* private mode */ } }, [settings]);
+  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus, scene: settings.scene })); } catch { /* private mode */ } }, [settings]);
 
   // The semantic atlas held steady for the session (adapter.steadyAtlas): a new memory joins its neighbours'
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
@@ -358,6 +359,10 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           })}
         </div>
         <div className="lm-controls">
+          <div className="lm-scene-toggle" role="group" aria-label="Cena">
+            <button className="lm-btn" aria-pressed={settings.scene !== "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória (2D)">nuvens</button>
+            <button className="lm-btn" aria-pressed={settings.scene === "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "arquivo" }))} title="O arquivo vivo em 3D: torres de estantes, livros e a Zeladora robô">arquivo 3D</button>
+          </div>
           <button className="lm-btn" onClick={fit} title="Ajustar a vista (F)">ajustar</button>
           <button className="lm-btn" onClick={reorganize} title="Refazer os agrupamentos semânticos com todas as memórias de agora">reorganizar</button>
           <button className="lm-btn" aria-pressed={activityMode} onClick={() => setSettings((s) => ({ ...s, autoFocus: !s.autoFocus }))} title="A câmera vai sozinha até o que está acontecendo (a Zeladora, as memórias de uma pergunta). Pausa 10 s quando você mexe no mapa.">auto foco {activityMode ? "on" : "off"}</button>
@@ -387,9 +392,12 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : gl ? (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
+            {settings.scene === "arquivo" ? <ArchiveScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
+              readSet={null} merges={merges} recalls={bushes} onUserMove={onUserMove}
+              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} /> :
             <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
               readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
-              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />
+              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />}
           </Suspense>
         ) : (
           <FallbackList graph={graph} onSelect={goTo} />
