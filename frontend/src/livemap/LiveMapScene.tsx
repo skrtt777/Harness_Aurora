@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
-import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
+import { Bloom, DepthOfField, EffectComposer, Vignette } from "@react-three/postprocessing";
+import type { DepthOfFieldEffect } from "postprocessing";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ACTIVITY_COLOR, reviewOf, type KeeperView, type MemoryGraph, type SectionState } from "./adapter";
 import { hash01, type Vec3 } from "./layout";
 import { buildField, cloudColor, grainPerMemory, type CloudLayout } from "./clouds";
 import { planSwarm, swarmSide, MEMORY_REACH } from "./swarm";
-import SwarmField, { makeDrive, SWARM_WAVES } from "./SwarmField";
+import SwarmField, { makeDrive, swarmBlur, SWARM_WAVES } from "./SwarmField";
 import { dynamicGeometry, fieldGeometry, fieldMaterial, FIELD_CLOUDS, FIELD_WAVES, lineMaterial, pointMaterial, ribbonGeometry, ribbonMaterial, RibbonWriter, Writer } from "./gfx";
 
 /**
@@ -69,6 +70,8 @@ export type SceneProps = {
 
 const col = (hex: string) => new THREE.Color(hex);
 const ACTIVE_MS = 9000;
+/** The swarm's backdrop: a warm graphite, light enough for lit matter and its shadow to read (as in The Spirit). */
+const SWARM_BG = "#202328";
 const C = {
   memory: col("#c9d1dc"), white: col("#ffffff"),
   keeper: col("#cfe9ff"), recall: col("#ff9d5c"), recallHot: col("#ffe2c9"), scan: col("#8fb8e8"),
@@ -139,9 +142,11 @@ function Scene(props: SceneProps) {
     d.motion = motion;
     ids.forEach((id, i) => { const p = layout.nodes.get(id)!; d.home.set([p[0], p[1], p[2], MEMORY_REACH], i * 4); d.state.set([0.4, 0.43, 0.48, 0], i * 4); });
     layout.clouds.forEach((c, j) => { const k = (ids.length + j) * 4; d.home.set([c.x, c.y, c.z, c.r * 0.92], k); d.state.set([0.3, 0.32, 0.36, 0], k); });
+    // The floor: under the lowest cloud.
+    d.floorY = Math.min(...layout.clouds.map((c) => c.y - c.r), -R * 0.5) - R * 0.12;
     return d;
   }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { gl.setClearColor(swarmOn ? "#08090c" : "#121418"); }, [gl, swarmOn]);
+  useEffect(() => { gl.setClearColor(swarmOn ? SWARM_BG : "#121418"); }, [gl, swarmOn]);
   useEffect(() => () => { fieldMats.points.dispose(); fieldMats.fibres.dispose(); }, [fieldMats]);
 
   // ---------- dynamic buffers ----------
@@ -149,6 +154,8 @@ function Scene(props: SceneProps) {
   useEffect(() => () => { Object.values(geo).forEach((g) => g.dispose()); }, [geo]);
   const mats = useMemo(() => ({ points: pointMaterial(), lines: lineMaterial(), ribbons: ribbonMaterial() }), []);
   useEffect(() => () => { Object.values(mats).forEach((m) => m.dispose()); }, [mats]);
+  // In the swarm the memories' dots, threads and the Zeladora draw over the matter (it is opaque).
+  useEffect(() => { for (const m of Object.values(mats)) { m.depthTest = !swarmOn; m.needsUpdate = true; } }, [mats, swarmOn]);
   const c3 = useMemo(() => new THREE.Color(), []);
   const c4 = useMemo(() => new THREE.Color(), []);
   const va = useMemo(() => new THREE.Vector3(), []);
@@ -277,7 +284,7 @@ function Scene(props: SceneProps) {
       // The sections' haze: grey, its own colour while something happens there.
       layout.clouds.forEach((c, j) => {
         const k = (ids.length + j) * 4, hh = heat[j] ?? 0;
-        c3.setRGB(0.3, 0.32, 0.36); if (colors[j]) c3.lerp(colors[j], 0.45 + 0.55 * Math.min(1, hh));
+        c3.setRGB(0.42, 0.44, 0.48); if (colors[j]) c3.lerp(colors[j], 0.6 + 0.4 * Math.min(1, hh));
         const l = light[j] ?? 1;
         drive.home[k] = D.cx[j]; drive.home[k + 1] = D.cy[j]; drive.home[k + 2] = D.cz[j]; drive.home[k + 3] = c.r * 0.92;
         drive.state[k] = c3.r * l; drive.state[k + 1] = c3.g * l; drive.state[k + 2] = c3.b * l; drive.state[k + 3] = hh * 0.15;
@@ -566,7 +573,7 @@ function Scene(props: SceneProps) {
       if (drive) {
         // Its knot of particles: its colour, darker at rest (a million of them add up), and its energy.
         const en = Math.min(1, gl * 0.8 + active + ln * 0.3 + wv * 0.8 + (isSel ? 0.7 : isHover ? 0.45 : 0));
-        const dim = (0.5 + 0.3 * en) * (light[ci] ?? 1);
+        const dim = (0.9 + 0.1 * en) * (light[ci] ?? 1);
         // Its section's colour, always (the swarm shows the space in colour); an event tints it with its own.
         c3.copy(colors[ci] || C.memory).lerp(C.memory, 0.35);
         if (review && flagged.has(id)) c3.lerp(C.flag, 0.7);
@@ -639,7 +646,7 @@ function Scene(props: SceneProps) {
 
   return (
     <>
-      {plan && drive ? <SwarmField plan={plan} drive={drive} streaks={settings.quality !== "baixa"} /> : <>
+      {plan && drive ? <SwarmField plan={plan} drive={drive} /> : <>
         <lineSegments geometry={grain.fibres} material={fieldMats.fibres} frustumCulled={false} />
         <points geometry={grain.points} material={fieldMats.points} frustumCulled={false} />
       </>}
@@ -838,6 +845,14 @@ function CameraRig({ command, reduced, motion, onUserMove, R, busy }: { command:
   return null;
 }
 
+/** The swarm's depth of field (as in Hyper Mix): sharp where the camera looks, the near and far matter soft. */
+function SwarmFocus({ R }: { R: number }) {
+  const ref = useRef<DepthOfFieldEffect>(null);
+  const controls = useThree((s) => s.controls) as unknown as OrbitControlsImpl | null;
+  useFrame(() => { const e = ref.current; if (e?.target && controls) e.target.copy(controls.target); });
+  return <DepthOfField ref={ref} target={[0, 0, 0]} worldFocusRange={R * 0.9} bokehScale={2.2} height={540} />;
+}
+
 export default function LiveMapScene(props: SceneProps) {
   const high = props.settings.quality === "alta";
   const swarm = props.settings.scene === "enxame";
@@ -852,16 +867,23 @@ export default function LiveMapScene(props: SceneProps) {
       gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
       camera={{ position: [0, 0, R * 2.3], fov: 45, near: 1, far: 30000 }}
       onCreated={({ gl }) => {
-        gl.setClearColor(swarm ? "#08090c" : "#121418");
+        gl.setClearColor(swarm ? SWARM_BG : "#121418");
         gl.domElement.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (alive.current) props.onContextLost(); }, { once: true });
       }}
     >
       <Scene {...props} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} screenSpacePanning minDistance={20} maxDistance={R * 6} zoomSpeed={0.9} panSpeed={0.9} rotateSpeed={0.6}
         mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }} touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} />
-      {(high || swarm) && (
-        <EffectComposer multisampling={0}>
-          <Bloom mipmapBlur intensity={swarm ? 0.9 : 0.65} luminanceThreshold={swarm ? 0.3 : 0.22} luminanceSmoothing={0.35} radius={swarm ? 0.7 : 0.55} />
+      {swarm ? (
+        <EffectComposer key="swarm" multisampling={0}>
+          <primitive object={swarmBlur()} />
+          <SwarmFocus R={R} />
+          <Bloom mipmapBlur intensity={0.8} luminanceThreshold={0.82} luminanceSmoothing={0.2} radius={0.6} />
+          <Vignette eskil={false} offset={0.25} darkness={0.7} />
+        </EffectComposer>
+      ) : high && (
+        <EffectComposer key="clouds" multisampling={0}>
+          <Bloom mipmapBlur intensity={0.65} luminanceThreshold={0.22} luminanceSmoothing={0.35} radius={0.55} />
           <Vignette eskil={false} offset={0.3} darkness={0.55} />
         </EffectComposer>
       )}

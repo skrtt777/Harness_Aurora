@@ -289,3 +289,15 @@ até **1 milhão de partículas** (qualidade alta 1024², média 512², baixa 25
   Aurora; ondas (busca, ronda, toque, nódulo novo) empurram; o cursor é um vórtice que mexe a fumaça.
 - Abertura: as partículas saem todas do centro e voam para casa (big bang da memória). Sem movimento, já nascem em casa.
 - Tudo o mais da cena de nuvens continua por cima (pontos das memórias, Zeladora, sonda, chips, rótulos, câmera).
+
+#### Enxame 2 — matéria, não brilho (22/10, estudando o Particle Love por inteiro)
+Abrimos os 5 experimentos (The Spirit, Icicle Bubbles, Hyper Mix, Constraint, Touch) e lemos os shaders. O que faz
+o visual deles é tratar partícula como **matéria**: opaca, iluminada, com sombra própria e motion blur. O enxame passou a:
+- simular só posição, com o curl de ruído simplex 4D com derivadas analíticas (3 oitavas, o tempo como 4º eixo),
+  igual ao The Spirit; cada memória é uma **fonte** que respira e solta uma pluma de fumaça; a seção é o corpo;
+- desenhar cada partícula como uma esfera iluminada (difusa, céu, especular, borda), opaca e com teste de profundidade;
+- **sombra própria**: um shadow map do enxame visto da luz (ortográfica, 2048²) — as nuvens se sombreiam e jogam
+  sombra no chão abaixo do espaço;
+- **motion blur** por buffer de velocidade (posição anterior + matriz anterior da câmera), como Effect do compositor;
+- **profundidade de campo** (Hyper Mix) focada onde a câmera olha; bloom só no que acende (memória viva).
+Os eventos reais (Zeladora lendo, sonda da Aurora, ondas, cursor-vórtice) continuam movendo a matéria.
