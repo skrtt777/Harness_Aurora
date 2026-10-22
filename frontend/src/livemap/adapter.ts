@@ -46,6 +46,17 @@ export function relevanceOf(m: Pick<GraphMemory, "uses" | "helped" | "failed">):
   return score <= 0 ? 0 : Math.min(1, Math.log1p(score) / Math.log1p(30));
 }
 
+/**
+ * The Paper Lab's split: a memory is "comprovada" once it has proven itself (used or helped in an answer) or a
+ * person wrote or imported it; one the Aurora extracted and nobody used yet, or one the Zeladora flagged, is
+ * still "em revisão".
+ */
+export type Review = "comprovada" | "revisar";
+export function reviewOf(m: Pick<GraphMemory, "uses" | "helped" | "kind">, flagged = false): Review {
+  if (flagged) return "revisar";
+  return (m.uses || 0) > 0 || (m.helped || 0) > 0 || m.kind === "manual" || m.kind === "imported" ? "comprovada" : "revisar";
+}
+
 const short = (s: string, n = 34) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const fold = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -241,7 +252,7 @@ export type KeeperView = {
   compactions: { id: string; from: string[]; title?: string; at: string }[];
   /** The obsolete memories she pruned (archived; undo brings one back). */
   prunes: { id: string; title?: string; reason: string; byTitle?: string | null; at: string }[];
-  /** What she just did to the shape of the tree, for the map to show it (newest first, a few seconds each). */
+  /** What she just did to the shape of the field, for the map to show it (newest first, a few seconds each). */
   growth: Growth[];
   /** Her nodes: the sections of the map. */
   nodes: { id: number; label: string; count: number }[];

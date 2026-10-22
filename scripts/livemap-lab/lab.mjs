@@ -94,13 +94,13 @@ await page.screenshot({ path: join(out, "01_visao_geral.png") });
 const fps = await page.evaluate(() => new Promise((resolve) => { let n = 0; const t0 = performance.now(); const tick = () => { n += 1; if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else resolve(Math.round(n / ((performance.now() - t0) / 1000))); }; requestAnimationFrame(tick); }));
 console.log(`quadros por segundo (headless): ${fps}`);
 
-// The whole tree without the chat beside it.
+// The whole field without the chat beside it.
 await page.locator(".lm-dock header button").last().click().catch(() => {});
 await page.waitForTimeout(800);
-await page.screenshot({ path: join(out, "01b_arvore_inteira.png") });
+await page.screenshot({ path: join(out, "01b_campo_inteiro.png") });
 await page.locator(".lm-dock-open").click().catch(() => {});
-// A section in focus (from the chart on top).
-await page.locator(".lm-chart-labels button").nth(1).click();
+// A section in focus (from its tab on top).
+await page.locator(".lm-sectabs button").nth(1).click();
 await page.waitForTimeout(2500);
 await page.screenshot({ path: join(out, "02_agrupamento_em_foco.png") });
 
@@ -131,7 +131,7 @@ await page.waitForTimeout(3500);
 await page.screenshot({ path: join(out, "10_chamado.png") });
 console.log("depois do chamado:", await page.locator(".lm-keeper .lm-k-head").first().innerText().catch(() => "?"));
 
-// The Zeladora shaping the tree: an old vague memory and one replaced by a newer one (she prunes them), and a
+// The Zeladora shaping the field: an old vague memory and one replaced by a newer one (she prunes them), and a
 // subject no node holds yet (a node sprouts for it).
 {
   const { getDb } = await import("../../app/db.js");
@@ -152,7 +152,7 @@ console.log("depois do chamado:", await page.locator(".lm-keeper .lm-k-head").fi
   ]) { await store.createMemory({ scope: "project", projectId: legal.id, kind: "extracted", dedupe: false, title, content }); await page.waitForTimeout(250); }
   for (let k = 1; k <= 6; k += 1) { await page.waitForTimeout(900); await page.screenshot({ path: join(out, `14_zeladora_molda_${k}.png`) }); }
   memoryEvents.off("event", log);
-  console.log("a zeladora moldou a árvore:\n  " + (shaped.join("\n  ") || "(nada)"));
+  console.log("a zeladora moldou o campo:\n  " + (shaped.join("\n  ") || "(nada)"));
 }
 
 // The brain working (not the Zeladora): a turn's events as the chat emits them, with memories of three

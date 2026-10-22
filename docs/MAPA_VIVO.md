@@ -220,3 +220,46 @@ o mapa confia neles entre recargas. A memória geral também entra nos nódulos 
 - Eventos novos da Zeladora: `prune`, `arrival`, `adopt`, `plant`, `node-born`, `node-gone`.
 - Laboratório: `scripts/livemap-lab/lab.mjs` cria uma memória vaga antiga, uma meta revisada e quatro
   memórias de um assunto novo e captura `14_zeladora_molda_*.png`.
+
+## Nuvens de memória — o Mapa Vivo como o crawler da referência (21/10)
+
+Referência: gravação de tela da pessoa com três posts (Paper Lab, prompt-crawler e a árvore Opus × Astra). Ela
+escolheu **misturar**: a cena de nuvens do prompt-crawler, o painel de instrumentos denso do Paper Lab e a
+separação entre o que já foi comprovado e o que ainda espera revisão. A árvore saiu (`tree.ts` removido).
+
+- **Cada nódulo da Zeladora é uma nuvem** (`frontend/src/livemap/clouds.ts`): fica onde o sentido das suas
+  memórias a põe no atlas semântico, o tamanho cresce com √(memórias) e as nuvens nunca se sobrepõem. O campo é
+  largo como a tela. Dentro da nuvem, cada memória mantém a direção que tem no atlas: memórias quase iguais
+  ficam lado a lado.
+- **A massa** são milhares de grãos e fibras estáticos na GPU, animados só por uniforms (cor e calor de cada
+  nuvem, lente do cursor, ondas, deriva lenta): 45 mil grãos no máximo, ~160 fps em headless. O grão é
+  decoração; as memórias são os pontos brilhantes.
+- **Tudo cinza; a seção ativa acende na própria cor** (onde a Zeladora lê, onde a pergunta buscou, a seção em
+  foco, um nódulo que nasceu). O mesmo tom aparece no título grande, na aba de cima e nas barras dos painéis.
+- **Comprovada × em revisão** (`reviewOf` em `adapter.ts`): ponto cheio quando a memória já foi usada ou ajudou
+  numa resposta, ou quando foi escrita/importada por uma pessoa; quadrado vazado quando foi extraída e ninguém
+  usou ainda, ou quando a Zeladora a marcou.
+- **A Zeladora é um leitor**: corpo elipsoide em grade que gira devagar, com um losango na cor da seção e
+  pernas finas em volta. Tentáculos alcançam as memórias que ela leu, a mais nova como uma fita com uma faísca
+  correndo. Um chip nomeia cada uma com o que ela achou ("fato", "regra", "⚑ vaga"). Ao trocar de seção, ela
+  deixa um arco longo da viagem.
+- **A pergunta da Aurora é uma sonda laranja**: onda a partir de onde a busca olhou, tentáculos finos (azuis)
+  para tudo o que foi avaliado, fitas laranja para o que entrou no contexto e callout na melhor com a pontuação
+  da busca. Durante a pergunta, os chips da Zeladora esperam.
+- **Painel de instrumentos (aberto por padrão)**:
+  - registro: o log de leitura;
+  - nódulos: barras lidas/total;
+  - cobertura: radar por nódulo;
+  - calor: grade de 12 células por nódulo e contadores;
+  - saúde: medidor 0–100 = % comprovadas − 2 por marca aberta, com histórico;
+  - `zeladora.py`: o laço real dela, com a linha em execução acesa e os valores de agora;
+  - revisão: podas, marcas e compactações com desfazer/ok, e o liga/desliga.
+- A câmera enquadra o campo na parte do palco que o chat não cobre (`fitDistance`). Ao seguir a Zeladora, ela
+  vai para a seção inteira em que ela entra.
+- Testes: `frontend/test/clouds.test.mjs` cobre:
+  - uma nuvem por seção, com cada memória dentro da sua;
+  - nuvens sem sobreposição e na posição do atlas;
+  - a direção das memórias preservada dentro da nuvem;
+  - o layout sem atlas;
+  - o orçamento de grão;
+  - as regras de comprovada/em revisão.

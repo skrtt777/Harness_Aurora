@@ -15,6 +15,6 @@
     "src/officeSim.ts",
     "src/livemap/adapter.ts",
     "src/livemap/layout.ts",
-    "src/livemap/tree.ts"
+    "src/livemap/clouds.ts"
   ]
 }

@@ -87,24 +87,33 @@ export class RibbonWriter {
 
 /**
  * Points sized in pixels at the "fit" distance, growing a little as the camera comes closer (uRef / depth,
- * clamped), with a hot core and a soft halo.
+ * clamped), with a hot core and a soft halo. A negative size draws a small hollow square instead (a memory
+ * still in review, like the reference's square marks).
  */
 export const pointMaterial = () => new THREE.ShaderMaterial({
   vertexShader: /* glsl */ `
     attribute float size; attribute float alpha; attribute vec3 tint;
     uniform float uRef; uniform float pixelRatio;
-    varying float vAlpha; varying vec3 vTint;
+    varying float vAlpha; varying vec3 vTint; varying float vSquare;
     void main() {
-      vAlpha = alpha; vTint = tint;
+      vAlpha = alpha; vTint = tint; vSquare = size < 0.0 ? 1.0 : 0.0;
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
       float zoom = clamp(uRef / -mv.z, 0.7, 3.2);
-      gl_PointSize = max(1.5, size * zoom) * pixelRatio;
+      gl_PointSize = max(1.5, abs(size) * zoom) * pixelRatio;
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */ `
-    varying float vAlpha; varying vec3 vTint;
+    varying float vAlpha; varying vec3 vTint; varying float vSquare;
     void main() {
-      vec2 p = gl_PointCoord - 0.5; float d = length(p);
+      vec2 p = gl_PointCoord - 0.5;
+      if (vSquare > 0.5) {
+        float m = max(abs(p.x), abs(p.y));
+        float ring = smoothstep(0.5, 0.42, m) * smoothstep(0.22, 0.3, m);
+        if (ring < 0.01) discard;
+        gl_FragColor = vec4(vTint, vAlpha * ring);
+        return;
+      }
+      float d = length(p);
       if (d > 0.5) discard;
       float core = smoothstep(0.2, 0.0, d);
       float halo = exp(-d * d * 16.0);
@@ -113,6 +122,74 @@ export const pointMaterial = () => new THREE.ShaderMaterial({
   uniforms: { uRef: { value: 800 }, pixelRatio: { value: Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1) } },
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
 });
+
+/** How many clouds the field's shaders know by colour (more clouds share colours). */
+export const FIELD_CLOUDS = 48;
+export const FIELD_WAVES = 4;
+/**
+ * The field's grain (clouds.ts buildField): static buffers on the GPU, animated only through uniforms — each
+ * cloud's colour, heat (0 grey, 1 in its colour) and light, the cursor's lens, a few expanding waves, a slow
+ * drift of every grain. So tens of thousands of particles and fibres cost nothing per frame on the CPU.
+ */
+const FIELD_VERTEX = (points: boolean) => /* glsl */ `
+  attribute float cloud; attribute float seed; attribute float alpha;
+  uniform vec3 uColor[${FIELD_CLOUDS}]; uniform float uHeat[${FIELD_CLOUDS}]; uniform float uLight[${FIELD_CLOUDS}];
+  uniform float uTime; uniform float uMotion; uniform float uDrift; uniform vec3 uHand; uniform float uLensR;
+  uniform vec4 uWaves[${FIELD_WAVES}]; uniform float uWaveSpeed; uniform float uWaveBand; uniform float uRef; uniform float pixelRatio;
+  varying float vAlpha; varying vec3 vTint;
+  void main() {
+    int ci = int(cloud + 0.5);
+    float heat = uHeat[ci]; float light = uLight[ci];
+    vec3 p = position;
+    if (uMotion > 0.5) {
+      p.x += sin(uTime * (0.25 + seed * 0.6) + seed * 40.0) * uDrift;
+      p.y += cos(uTime * (0.2 + seed * 0.5) + seed * 17.0) * uDrift;
+    }
+    float dh = distance(p.xy, uHand.xy);
+    float lens = uHand.z * pow(max(0.0, 1.0 - dh / uLensR), 2.0);
+    float wv = 0.0;
+    for (int i = 0; i < ${FIELD_WAVES}; i++) {
+      vec4 w = uWaves[i];
+      if (w.w > 0.0) {
+        float age = uTime - w.z;
+        float d = abs(distance(p.xy, w.xy) - age * uWaveSpeed);
+        wv = max(wv, w.w * max(0.0, 1.0 - d / uWaveBand) * max(0.0, 1.0 - age / 2.6));
+      }
+    }
+    float twinkle = uMotion > 0.5 ? 0.72 + 0.28 * sin(uTime * (0.5 + seed * 2.0) + seed * 60.0) : 0.86;
+    vec3 grey = vec3(0.56, 0.6, 0.67);
+    vTint = mix(mix(grey, uColor[ci], heat), vec3(1.0), clamp(wv * 0.55 + lens * 0.35, 0.0, 1.0));
+    vAlpha = alpha * light * (0.6 + 0.85 * heat) * twinkle + lens * 0.45 + wv * 0.7;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    ${points ? "float zoom = clamp(uRef / -mv.z, 0.7, 2.6); gl_PointSize = (1.25 + heat * 0.55 + wv * 1.6 + lens * 0.8) * zoom * pixelRatio;" : ""}
+    gl_Position = projectionMatrix * mv;
+  }`;
+export const fieldMaterial = (points: boolean) => new THREE.ShaderMaterial({
+  vertexShader: FIELD_VERTEX(points),
+  fragmentShader: points
+    ? /* glsl */ `varying float vAlpha; varying vec3 vTint; void main() { vec2 p = gl_PointCoord - 0.5; float d = length(p); if (d > 0.5) discard; gl_FragColor = vec4(vTint, vAlpha * smoothstep(0.5, 0.1, d)); }`
+    : /* glsl */ `varying float vAlpha; varying vec3 vTint; void main() { gl_FragColor = vec4(vTint, vAlpha); }`,
+  uniforms: {
+    uColor: { value: Array.from({ length: FIELD_CLOUDS }, () => new THREE.Color("#9aa4b4")) },
+    uHeat: { value: new Array(FIELD_CLOUDS).fill(0) },
+    uLight: { value: new Array(FIELD_CLOUDS).fill(1) },
+    uTime: { value: 0 }, uMotion: { value: 1 }, uDrift: { value: 1.2 }, uHand: { value: new THREE.Vector3() }, uLensR: { value: 60 },
+    uWaves: { value: Array.from({ length: FIELD_WAVES }, () => new THREE.Vector4(0, 0, 0, 0)) }, uWaveSpeed: { value: 400 }, uWaveBand: { value: 40 },
+    uRef: { value: 800 }, pixelRatio: { value: Math.min(2, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1) },
+  },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
+/** A static geometry for the field's grain (points or fibre vertices). */
+export function fieldGeometry(part: { pos: Float32Array; cloud: Float32Array; seed: Float32Array; alpha: Float32Array; count: number }) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(part.count ? part.pos : new Float32Array(3), 3));
+  g.setAttribute("cloud", new THREE.BufferAttribute(part.count ? part.cloud : new Float32Array(1), 1));
+  g.setAttribute("seed", new THREE.BufferAttribute(part.count ? part.seed : new Float32Array(1), 1));
+  g.setAttribute("alpha", new THREE.BufferAttribute(part.count ? part.alpha : new Float32Array(1), 1));
+  g.setDrawRange(0, part.count);
+  return g;
+}
 
 export const lineMaterial = () => new THREE.ShaderMaterial({
   vertexShader: /* glsl */ `attribute float alpha; attribute vec3 tint; varying float vAlpha; varying vec3 vTint;
