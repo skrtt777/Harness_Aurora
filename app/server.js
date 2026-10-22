@@ -63,6 +63,7 @@ import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngin
 import { engineStatus, refreshApiEngines } from "./engine.js";
 import { listEgress, secretTerms } from "./blind.js";
 import { memoryGraphSnapshot } from "./memoryGraph.js";
+import { modelSpeedState } from "./modelSpeed.js";
 import { memoryEvents } from "./memoryEvents.js";
 import { dismissFlag, keeperEnabled, keeperState, startMemoryKeeper, stopMemoryKeeper, undoJoin, visitMemories } from "./memoryKeeper.js";
 // Tests and scripts import these from here.
@@ -961,7 +962,7 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
       if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       // ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
-      if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, { ...(await memoryGraphSnapshot()), keeper: await keeperState() });
+      if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, { ...(await memoryGraphSnapshot()), keeper: await keeperState(), speed: modelSpeedState() });
       // A Zeladora (app/memoryKeeper.js): where she is, what she did; on/off; undo a join; dismiss a flag.
       if (method === "GET" && pathname === "/api/memories/keeper") return sendJson(response, 200, await keeperState());
       if (method === "PUT" && pathname === "/api/memories/keeper") {

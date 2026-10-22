@@ -1,6 +1,7 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
 import { llamaServerInfo } from './llamaServer.js';
+import { recordModelSpeed } from './modelSpeed.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
@@ -69,7 +70,12 @@ export async function thinkOption(baseUrl, model, env = process.env) {
   return (await thinkingModels.get(key)) ? { think: on } : {};
 }
 
-export async function runLocal(prompt, env = process.env, externalSignal, {onText}={}) {
+/** Every answer of the local model also feeds the speed monitor (app/modelSpeed.js). */
+const measured = (result) => { if (result?.ok) recordModelSpeed(result.metrics, result.usage); return result; };
+export async function runLocal(prompt, env = process.env, externalSignal, options = {}) { return measured(await runLocalOnce(prompt, env, externalSignal, options)); }
+export async function runLocalChat(messages, tools = [], env = process.env, externalSignal, options = {}) { return measured(await runLocalChatOnce(messages, tools, env, externalSignal, options)); }
+
+async function runLocalOnce(prompt, env = process.env, externalSignal, {onText}={}) {
   if(env.LOCAL_ENGINE==='llama.cpp')return runLlama(prompt,env,externalSignal,{onText});
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
@@ -131,7 +137,7 @@ function localErrorDetail(error, externalSignal) {
  * model was trained on instead of being pasted into one flat prompt.
  * Returns {ok, text, toolCalls:[{name, arguments}]}.
  */
-export async function runLocalChat(messages, tools = [], env = process.env, externalSignal, options = {}) {
+async function runLocalChatOnce(messages, tools = [], env = process.env, externalSignal, options = {}) {
   if (env.LOCAL_ENGINE === 'llama.cpp') return runLlamaChat(messages, tools, env, externalSignal, options);
   // Desktop agent on llama-server (llamaServer.js): same model, parallel slots for the copies.
   if (env.LOCAL_CHAT_BASE_URL) return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: await resolveLocalModel(env), LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(llamaServerInfo()?.gpu === false ? CPU_TIMEOUT_MS : LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, options);

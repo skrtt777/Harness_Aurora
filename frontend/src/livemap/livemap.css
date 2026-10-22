@@ -329,3 +329,11 @@
 .lm-side { background: rgba(24,26,31,.96); border-color: #2a2e35; }
 .lm-sec { transform: translate(0, -100%); }
 .lm-chip.left { transform: translate(calc(-100% - 9px), -50%); }
+/* the local model's speed (the Strata video's monitor) */
+.lm-speed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font: 9.5px var(--lm-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--lm-dim); }
+.lm-speed b { color: #dfe3e8; font-weight: 500; text-transform: none; }
+.lm-speed svg { width: 200px; height: 18px; }
+.lm-speed polyline { fill: none; stroke: #8fb8e8; stroke-width: 1.3; vector-effect: non-scaling-stroke; }
+.lm-speed line.normal { stroke: #4a515c; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.lm-speed em { font-style: normal; text-transform: none; letter-spacing: 0; color: #e88fa6; }
+.lm-speed.slow polyline { stroke: #e88fa6; }

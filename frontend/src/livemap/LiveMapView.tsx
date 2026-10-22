@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, visitKeeper, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
+import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, visitKeeper, type MemoryGraphSnapshot, type MemoryLiveEvent, type ModelSpeedSample } from "../api";
 import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, reviewOf, sectionProgress, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
 import { cloudColor, fitDistance, layoutClouds, type CloudLayout } from "./clouds";
 import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality, RecallBush } from "./LiveMapScene";
@@ -49,6 +49,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [highlights, setHighlights] = useState<Map<string, Highlight>>(new Map());
   const [events, setEvents] = useState<MemoryLiveEvent[]>([]);
+  // The local model's speed, call by call (its own stream: many calls per answer, they would flood the log).
+  const [speed, setSpeed] = useState<ModelSpeedSample[]>([]);
   const [lastRecall, setLastRecall] = useState<{ ids: string[]; at: string; conversationId?: string | null } | null>(null);
   const [camera, setCamera] = useState<CameraCommand>(null);
   // Auto foco: the camera goes by itself to what is happening — never while the person is moving the map
@@ -77,7 +79,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
   const frozen = useRef(newFrozenAtlas());
   const steady = useCallback((s: MemoryGraphSnapshot) => ({ ...s, atlas: steadyAtlas(s.atlas, frozen.current) }), []);
-  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setKeeper((k) => { const base = keeperFromSnapshot(s.keeper); return !k || !base ? k || base : { ...base, current: k.current ?? base.current, trail: k.trail.length ? k.trail : base.trail, links: k.links, flags: k.flags.length > base.flags.length ? k.flags : base.flags, growth: k.growth, prunes: k.prunes.length > base.prunes.length ? k.prunes : base.prunes }; }); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
+  const load = useCallback(() => getMemoryGraph().then((s) => { setSnap(steady(s)); setSpeed((old) => (old.length ? old : s.speed?.calls || [])); setKeeper((k) => { const base = keeperFromSnapshot(s.keeper); return !k || !base ? k || base : { ...base, current: k.current ?? base.current, trail: k.trail.length ? k.trail : base.trail, links: k.links, flags: k.flags.length > base.flags.length ? k.flags : base.flags, growth: k.growth, prunes: k.prunes.length > base.prunes.length ? k.prunes : base.prunes }; }); setError(""); setEvents((old) => (old.length ? old : s.events)); }).catch((e: Error) => setError(e.message)), [steady]);
   useEffect(() => { void load(); }, [load]);
   const reorganize = useCallback(() => { frozen.current = newFrozenAtlas(); void load(); }, [load]);
   const quietRefresh = useCallback(() => {
@@ -91,6 +93,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const layoutRef = useRef<CloudLayout | null>(null);
   useEffect(() => subscribeMemoryEvents((event) => {
     if (event.type === "hello") return;
+    if (event.type === "speed") { setSpeed((old) => [...old, event as unknown as ModelSpeedSample].slice(-40)); return; }
     setEvents((old) => [event, ...old].slice(0, 80));
     const now = performance.now();
     // ---- the turn as it happens (pergunta → busca → consulta → resposta), only from real events ----
@@ -440,6 +443,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
       <div className="lm-strip" aria-label="Linha do tempo">
         <Barcode events={events} />
+        <SpeedMonitor calls={speed} />
         {turn && <ol className="lm-steps on" aria-label="O turno da Aurora agora">
           {STEPS.map(([id, label], i) => {
             const at = turn ? STEPS.findIndex(([x]) => x === turn.phase) : -1;
@@ -654,6 +658,35 @@ function Barcode({ events }: { events: MemoryLiveEvent[] }) {
     <div className="lm-barcode" role="img" aria-label={`${events.length} eventos da memória desde que o app abriu`}>
       <span>eventos ao vivo · {events.length}</span>
       <div>{list.map((e, i) => <i key={`${e.seq}-${i}`} className={e.type === "keeper" ? `k-${e.action}` : e.type} style={{ height: `${Math.round((TICK[e.type] ?? 0.4) * 100)}%` }} title={`${fmtTime(e.at)} · ${EVENT_LABEL[e.type] || e.type}${e.type === "keeper" && e.action ? ` · ${KEEPER_LABEL[e.action] || e.action}` : ""}`} />)}</div>
+    </div>
+  );
+}
+
+/**
+ * The local model's speed as it runs (the Strata video's monitor): how fast the last answer was written and its
+ * prompt read, how much came from the cache, the last calls as a line, and a warning when it falls well below
+ * what is normal for that model on this machine (a game or another program holding the graphics card).
+ */
+function SpeedMonitor({ calls }: { calls: ModelSpeedSample[] }) {
+  const measured = calls.filter((c) => c.writeTps != null && (c.outTokens || 0) >= 24);
+  const last = measured[measured.length - 1] || calls[calls.length - 1];
+  if (!last) return <div className="lm-speed"><span>velocidade do modelo · aparece na próxima resposta da Aurora</span></div>;
+  const max = Math.max(1, ...measured.map((c) => c.writeTps || 0), last.normal || 0);
+  const pts = measured.length > 1 ? measured.map((c, i) => `${(i / (measured.length - 1)) * 200},${28 - ((c.writeTps || 0) / max) * 24}`).join(" ") : "";
+  const normalY = last.normal ? 28 - (last.normal / max) * 24 : null;
+  const num = (v: number | null | undefined, d = 0) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d }));
+  return (
+    <div className={`lm-speed ${last.slow ? "slow" : ""}`} role="status" aria-label="Velocidade do modelo local">
+      <span>velocidade · <b>{last.model}</b></span>
+      <span>escreve <b>{num(last.writeTps)}</b> t/s</span>
+      <span>lê <b>{num(last.readTps)}</b> t/s</span>
+      <span>cache <b>{last.cacheShare == null ? "—" : `${Math.round(last.cacheShare * 100)}%`}</b></span>
+      {last.normal ? <span>normal <b>{num(last.normal)}</b> t/s</span> : null}
+      <svg viewBox="0 0 200 30" preserveAspectRatio="none" aria-hidden="true">
+        {normalY != null && <line x1="0" x2="200" y1={normalY} y2={normalY} className="normal" />}
+        {pts && <polyline points={pts} />}
+      </svg>
+      {last.slow && <em>abaixo do normal ({num(last.writeTps)} de {num(last.normal)} t/s): a placa de vídeo pode estar ocupada por outro programa</em>}
     </div>
   );
 }

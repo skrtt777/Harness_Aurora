@@ -719,7 +719,7 @@ export type GraphMemory = {
   createdAt: string; updatedAt: string; uses: number; helped: number; failed: number; status: string;
 };
 export type MemoryLiveEvent = {
-  type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled" | "scanned" | "turn-start" | "turn-end" | "answered" | "keeper";
+  type: "hello" | "created" | "updated" | "archived" | "restored" | "deleted" | "recalled" | "scanned" | "turn-start" | "turn-end" | "answered" | "keeper" | "speed";
   at: string; seq?: number; id?: string; ids?: string[]; title?: string; scope?: string; projectId?: string | null; conversationId?: string | null; kind?: string;
   /** scanned: the candidates the memory search really scored, best first. */
   candidates?: { id: string; score: number; similarity: number | null }[];
@@ -740,6 +740,8 @@ export type MemoryLiveEvent = {
   areas?: { key: string; label: string; total: number }[];
   sections?: { key: string; label: string; total: number }[];
 };
+/** One answer of the local model: how fast it read and wrote, how much came from the cache (app/modelSpeed.js). */
+export type ModelSpeedSample = { at: number; model: string; engine: string; readTps: number | null; writeTps: number | null; inTokens: number | null; outTokens: number | null; cachedTokens: number | null; cacheShare: number | null; wallMs: number | null; normal?: number | null; slow?: boolean };
 export type MemoryGraphSnapshot = {
   generatedAt: string;
   memories: GraphMemory[];
@@ -751,6 +753,7 @@ export type MemoryGraphSnapshot = {
   recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];
   events: MemoryLiveEvent[];
   keeper?: KeeperStateApi;
+  speed?: { calls: ModelSpeedSample[]; normal: { writeTps: number | null; readTps: number | null } | null };
 };
 export type KeeperStateApi = {
   running: boolean; enabled: boolean; phase: string; round: number; current: string | null; area: string | null; areaLabel: string | null;
