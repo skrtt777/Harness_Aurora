@@ -36,12 +36,15 @@ test("one cloud per section, every memory a point of its own cloud, inside it", 
     const c = L.clouds[L.cloudOf.get(n.id)];
     assert.equal(c.id, n.clusterId, `${n.id} drawn in its own section`);
     const [x, y] = L.nodes.get(n.id);
-    assert.ok(Math.hypot(x - c.x, y - c.y) <= c.r, `${n.id} inside its cloud`);
+    const z = L.nodes.get(n.id)[2];
+    assert.ok(Math.hypot(x - c.x, y - c.y, z - c.z) <= c.r, `${n.id} inside its cloud`);
   }
   // Bigger sections, bigger clouds.
   const sales = L.clouds.find((c) => c.ids.includes("a1")), law = L.clouds.find((c) => c.ids.includes("c1"));
   assert.ok(sales.r > law.r);
   assert.equal(sales.r, cloudRadius(4));
+  // A space: the atlas's third axis gives the clouds depth.
+  assert.ok(L.clouds.every((c) => Number.isFinite(c.z)));
 });
 
 test("clouds never overlap, and sit where their meaning puts them", () => {
@@ -50,12 +53,12 @@ test("clouds never overlap, and sit where their meaning puts them", () => {
   const L = layoutClouds(g, s);
   for (let i = 0; i < L.clouds.length; i += 1) for (let j = i + 1; j < L.clouds.length; j += 1) {
     const a = L.clouds[i], b = L.clouds[j];
-    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= a.r + b.r - 0.5, `${a.id} and ${b.id} apart`);
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) >= a.r + b.r - 0.5, `${a.id} and ${b.id} apart`);
   }
   const at = (id) => L.clouds.find((c) => c.ids.includes(id));
   assert.ok(at("a1").x < at("b1").x, "sales left of games, as in the atlas");
   assert.ok(at("c1").y > at("a1").y && at("c1").y > at("b1").y, "law above both");
-  for (const c of L.clouds) assert.ok(Math.hypot(c.x, c.y) + c.r <= L.R + 1e-6);
+  for (const c of L.clouds) assert.ok(Math.hypot(c.x, c.y, c.z) + c.r <= L.R + 1e-6);
 });
 
 test("inside a cloud, memories keep their direction: the odd one out is away from the twins", () => {
@@ -63,7 +66,7 @@ test("inside a cloud, memories keep their direction: the odd one out is away fro
   const g = buildMemoryGraph(s, { now: NOW });
   const L = layoutClouds(g, s);
   const p = (id) => L.nodes.get(id);
-  const d = (a, b) => Math.hypot(p(a)[0] - p(b)[0], p(a)[1] - p(b)[1]);
+  const d = (a, b) => Math.hypot(p(a)[0] - p(b)[0], p(a)[1] - p(b)[1], p(a)[2] - p(b)[2]);
   assert.ok(d("a1", "a2") < d("a1", "a4"));
   // Deterministic.
   const again = layoutClouds(buildMemoryGraph(s, { now: NOW }), s);
@@ -87,11 +90,11 @@ test("the grain: particles and fibres of each cloud stay near it, with a budget 
   assert.ok(f.fibres.count > 0 && f.fibres.count % 2 === 0);
   for (let i = 0; i < f.points.count; i += 1) {
     const c = L.clouds[f.points.cloud[i]];
-    assert.ok(Math.hypot(f.points.pos[i * 3] - c.x, f.points.pos[i * 3 + 1] - c.y) < c.r * 1.8);
+    assert.ok(Math.hypot(f.points.pos[i * 3] - c.x, f.points.pos[i * 3 + 1] - c.y, f.points.pos[i * 3 + 2] - c.z) < c.r * 1.8);
     assert.ok(Number.isFinite(f.points.pos[i * 3]));
   }
-  assert.equal(grainPerMemory("alta", 100), 60);
-  assert.ok(grainPerMemory("alta", 5000) * 5000 <= 45_000);
+  assert.equal(grainPerMemory("alta", 100), 70);
+  assert.ok(grainPerMemory("alta", 5000) * 5000 <= 50_000);
   assert.ok(grainPerMemory("baixa", 10) < grainPerMemory("media", 10));
 });
 

@@ -127,9 +127,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
         const ci = L?.cloudOf.get(event.id);
         const cloud = ci !== undefined ? L!.clouds[ci] : undefined;
         if (L && cloud && keeperArea.current !== cloud.id) {
-          // The camera goes to the section she enters (the whole cloud in view, the chat beside it accounted for).
+          // The camera goes to the section she enters (the whole cloud in view), from where it already looks.
           const distance = Math.min(L.R * 2.3, Math.max(320, cloud.r * 4.4));
-          const target: Vec3 = [cloud.x + (dockOpenRef.current ? distance * 0.16 : 0), cloud.y, 0];
+          const target: Vec3 = [cloud.x, cloud.y, cloud.z];
           keeperArea.current = cloud.id;
           keeperView.current = { target, at: Date.now() };
           setCamera({ target, distance, key: Date.now() });
@@ -208,7 +208,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     const key = `${agent.key}:${turn?.phase}`;
     if (followed.current === key) return;
     followed.current = key;
-    const spread = Math.max(40, ...agent.tentacles.map((t) => { const p = layout?.nodes.get(t.id); return p ? Math.hypot(p[0] - agent.target![0], p[1] - agent.target![1]) : 0; }));
+    const spread = Math.max(40, ...agent.tentacles.map((t) => { const p = layout?.nodes.get(t.id); return p ? Math.hypot(p[0] - agent.target![0], p[1] - agent.target![1], p[2] - agent.target![2]) : 0; }));
     setCamera({ target: agent.target, distance: Math.min(R * 2.3, 200 + spread * 2.6), key: Date.now() });
   }, [agent, activityMode, turn?.phase, layout, R]);
 
@@ -234,7 +234,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     const covered = dock ? Math.min(352, w * 0.42) : 0;
     const distance = fitDistance(layout, (w - covered) / h);
     const wpp = (2 * distance * Math.tan(Math.PI / 8)) / h;
-    setFocusClusterId(null); setCamera({ target: [(covered / 2) * wpp, 0, 0], distance, key: Date.now() });
+    setFocusClusterId(null); setCamera({ target: [(covered / 2) * wpp, 0, 0], distance, key: Date.now(), front: true });
   }, [layout]);
   // The first time the map has a tree: the whole of it in view.
   const fitted = useRef(false);

@@ -221,7 +221,7 @@ o mapa confia neles entre recargas. A memória geral também entra nos nódulos 
 - Laboratório: `scripts/livemap-lab/lab.mjs` cria uma memória vaga antiga, uma meta revisada e quatro
   memórias de um assunto novo e captura `14_zeladora_molda_*.png`.
 
-## Nuvens de memória — o Mapa Vivo como o crawler da referência (21/10)
+## Nuvens de memória — o Mapa Vivo como o crawler da referência (21/10; em 3D desde 22/10)
 
 Referência: gravação de tela da pessoa com três posts (Paper Lab, prompt-crawler e a árvore Opus × Astra). Ela
 escolheu **misturar**: a cena de nuvens do prompt-crawler, o painel de instrumentos denso do Paper Lab e a
@@ -263,3 +263,15 @@ separação entre o que já foi comprovado e o que ainda espera revisão. A árv
   - o layout sem atlas;
   - o orçamento de grão;
   - as regras de comprovada/em revisão.
+
+### As nuvens em 3D e o arquivo vivo (22/10)
+
+- **As nuvens agora são volumes 3D.** A posição vem dos três eixos do atlas: nuvens esticadas na largura, rasas
+  na profundidade e sem sobreposição. Dentro de cada nuvem, as memórias ficam distribuídas por ∛rank.
+- **A massa ganhou "baforadas"**: pontos grandes e suaves que dão brilho de nebulosa.
+- **A lente do cursor é calculada na tela** e funciona de qualquer ângulo. As ondas viram esferas.
+- **A câmera orbita**: arrastar gira, a roda dá zoom para dentro de uma nuvem, o botão direito move.
+  - Parada há 20 s sem nada acontecendo, ela gira devagar.
+  - "Ajustar" volta à vista de frente.
+- **A Zeladora, os anéis e as cruzes da poda ficam sempre de frente para a câmera.** As curvas se arqueiam na tela.
+- **Modo "arquivo 3D"** (`archive.ts`, `ArchiveScene.tsx`): torres-estante, livros e a Zeladora robô.
