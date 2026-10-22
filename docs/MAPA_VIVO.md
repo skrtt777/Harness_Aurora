@@ -308,3 +308,14 @@ Pedido: "várias bolas que não têm ligação nenhuma com as memórias". As mas
 memória é um tufo próprio em cima do seu ponto (curl no tamanho do tufo, preso perto: não se funde com os vizinhos),
 o tamanho do tufo vem da relevância e cresce quando a memória acende (lida, usada, selecionada). A seção é só a
 soma dos seus tufos; a névoa por seção só aparece numa vista sem nenhuma memória.
+
+#### Enxame 4 — a partícula do The Spirit, pelo código-fonte (22/10)
+Lido o código aberto (github.com/edankwan/The-Spirit, MIT). O que faltava, e entrou:
+- **Triângulo, não esfera** (o padrão de lá): cada partícula é um triângulo minúsculo de frente para a câmera,
+  virado de cabeça para baixo a cada quadro (metade de um jeito, metade do outro): um milhão deles cintila.
+  Sem atributos: o índice do vértice diz qual partícula e qual canto. Alta e média usam triângulos; a baixa
+  mantém as esferas iluminadas (o visual do Hyper Mix, com poucas partículas grandes).
+- **Sem iluminação, só sombra** (como lá): a cor do tufo × a sombra (escuridão 0,6), mais um lado claro e um
+  escuro em cada tufo (o lado voltado para a luz), para cada memória parecer uma nuvenzinha com volume.
+- **Chão de metal escuro** com uma luz quente de um lado e uma verde-água do outro (as duas luzes direcionais de lá).
+Não entrou: o motion blur por linhas (o nosso por amostras já cobre; ver depois se vale o custo).

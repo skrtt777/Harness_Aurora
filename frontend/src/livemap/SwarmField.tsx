@@ -257,6 +257,52 @@ void main(){
   gl_FragColor = vec4(c * uLight, 1.0);
 }
 `;
+// The Spirit's own particle (edankwan/The-Spirit, MIT): a tiny triangle facing the camera, turned upside down
+// every frame (so a million of them shimmer instead of sitting as dots), not lit: its colour, darkened where the
+// light does not reach it (the shadow is all the shading, as there). No attributes: the vertex index says which
+// particle and which corner.
+const TRIANGLE_VERTEX = /* glsl */ `
+uniform sampler2D tPos; uniform sampler2D tRef; uniform sampler2D tState; uniform sampler2D tHome;
+uniform float uSize; uniform float uSide; uniform float uFlip; uniform mat4 uLightMatrix; uniform vec3 uLightDir;
+varying vec3 vColor; varying float vEnergy; varying vec4 vShadow; varying float vSide;
+void main(){
+  float vid = float(gl_VertexID);
+  float pid = floor(vid / 3.0); float corner = vid - pid * 3.0;
+  vec2 sim = vec2((mod(pid, uSide) + 0.5) / uSide, (floor(pid / uSide) + 0.5) / uSide);
+  vec4 pos = texture2D(tPos, sim);
+  vec4 ref = texture2D(tRef, sim);
+  vec4 st = texture2D(tState, ref.xy);
+  vec4 mv = modelViewMatrix * vec4(pos.xyz, 1.0);
+  // The corners at 120 degrees; every other particle (and every other frame) the other way up.
+  float a = 2.0943951 * (corner == 0.0 ? 2.0 : corner == 1.0 ? 1.0 : 3.0) + 3.1415927 * mod(mod(pid, 2.0) + uFlip, 2.0);
+  float size = uSize * (0.55 + 0.9 * ref.z) * (1.0 + st.a * 0.6) * smoothstep(0.0, 0.2, pos.w);
+  mv.xy += vec2(sin(a), cos(a)) * size;
+  gl_Position = projectionMatrix * mv;
+  vColor = mix(st.rgb * 0.62, min(vec3(1.0), st.rgb * 1.35 + 0.08), smoothstep(0.0, 0.7, pos.w));
+  vEnergy = st.a;
+  vShadow = uLightMatrix * vec4(pos.xyz, 1.0);
+  // Its knot is a small cloud: the side of it facing the light is lit, the far side in its own shade.
+  vec4 home = texture2D(tHome, ref.xy);
+  vec3 off = pos.xyz - home.xyz; float ol = length(off);
+  vSide = ol > 1e-3 ? dot(off / ol, uLightDir) * smoothstep(0.0, max(home.w, 1.0) * 0.35, ol) : 0.0;
+}
+`;
+const TRIANGLE_FRAGMENT = /* glsl */ `
+uniform sampler2D tShadow; uniform float uLight; uniform float uShadowTexel; uniform float uDarkness;
+varying vec3 vColor; varying float vEnergy; varying vec4 vShadow; varying float vSide;
+void main(){
+  vec3 s = vShadow.xyz / vShadow.w * 0.5 + 0.5;
+  float lit = 1.0;
+  if (s.x > 0.0 && s.x < 1.0 && s.y > 0.0 && s.y < 1.0) {
+    lit = 0.0;
+    for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) lit += step(s.z - 0.0025, texture2DLodEXT(tShadow, s.xy + vec2(float(x), float(y)) * uShadowTexel, 0.0).r);
+    lit /= 9.0;
+  }
+  vec3 c = vColor * (1.0 - uDarkness * (1.0 - lit)) * (0.62 + 0.38 * vSide);
+  c += vColor * vEnergy * 1.1;
+  gl_FragColor = vec4(c * uLight, 1.0);
+}
+`;
 // Seen from the light: the depth of the nearest particle in every texel.
 const DEPTH_VERTEX = /* glsl */ `
 uniform sampler2D tPos; uniform sampler2D tRef; uniform float uSize; uniform float uPx;
@@ -312,6 +358,9 @@ void main(){
   }
   float edge = 1.0 - smoothstep(0.35, 1.0, length(vXZ) / uExtent);
   vec3 c = uColor * (0.35 + 0.65 * lit);
+  // The Spirit's floor: dark metal catching a warm light from one side and a teal one from the other.
+  vec2 dir = vXZ / max(length(vXZ), 1e-3); float near = 1.0 - smoothstep(0.0, 1.0, length(vXZ) / uExtent);
+  c += (vec3(0.73, 0.55, 0.55) * max(0.0, dot(dir, vec2(0.71, 0.71))) + vec3(0.55, 0.73, 0.71) * max(0.0, dot(dir, vec2(0.71, -0.71))) * 0.6) * 0.07 * near * lit;
   gl_FragColor = vec4(c * uLight, edge * 0.9);
 }
 `;
@@ -418,7 +467,19 @@ export default function SwarmField({ plan, drive }: { plan: SwarmPlan; drive: Sw
     });
     const depth = new THREE.ShaderMaterial({ vertexShader: DEPTH_VERTEX, fragmentShader: DEPTH_FRAGMENT, uniforms: { tPos: { value: null }, tRef: { value: tRef }, uSize: { value: unit }, uPx: { value: 1 } } });
     const motion = new THREE.ShaderMaterial({ vertexShader: MOTION_VERTEX, fragmentShader: MOTION_FRAGMENT, uniforms: { tPos: { value: null }, tPrev: { value: null }, tRef: { value: tRef }, uSize: { value: unit }, uScale: { value: 1 }, uPrevViewProjection: { value: new THREE.Matrix4() } } });
-    const swarmMesh = new THREE.Points(geo, sphere); swarmMesh.frustumCulled = false;
+    const triangles = side >= 512;
+    const triGeo = new THREE.BufferGeometry();
+    if (triangles) triGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 1));
+    triGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity); // drawn where the simulation puts it
+    const tri = new THREE.ShaderMaterial({
+      vertexShader: TRIANGLE_VERTEX, fragmentShader: TRIANGLE_FRAGMENT, side: THREE.DoubleSide,
+      uniforms: {
+        tPos: { value: null }, tRef: { value: tRef }, tState: { value: tState }, tHome: { value: tHome }, tShadow: { value: shadowRT.texture },
+        uSize: { value: unit * 0.8 }, uLightDir: { value: LIGHT_DIR }, uSide: { value: side }, uFlip: { value: 0 }, uLightMatrix: { value: lightMatrix },
+        uLight: { value: 1 }, uShadowTexel: { value: 1 / SHADOW_SIZE }, uDarkness: { value: 0.6 },
+      },
+    });
+    const swarmMesh: THREE.Object3D = triangles ? new THREE.Mesh(triGeo, tri) : new THREE.Points(geo, sphere); swarmMesh.frustumCulled = false; swarmMesh.raycast = () => {};
     const depthScene = new THREE.Scene(); const depthMesh = new THREE.Points(geo, depth); depthMesh.frustumCulled = false; depthScene.add(depthMesh);
     const motionScene = new THREE.Scene(); const motionMesh = new THREE.Points(geo, motion); motionMesh.frustumCulled = false; motionScene.add(motionMesh);
     const floorMat = new THREE.ShaderMaterial({
@@ -426,11 +487,11 @@ export default function SwarmField({ plan, drive }: { plan: SwarmPlan; drive: Sw
       uniforms: { tShadow: { value: shadowRT.texture }, uShadowTexel: { value: 1 / SHADOW_SIZE }, uLightMatrix: { value: lightMatrix }, uExtent: { value: drive.R * 2.2 }, uColor: { value: new THREE.Color("#2c3038") }, uLight: { value: 1 } },
     });
     const floorGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-    return { born: -1, gpu, posVar, tRef, tHome, tState, tPull, lightCam, shadowRT, motionRT, lightMatrix, geo, sphere, depth, motion, swarmMesh, depthScene, motionScene, floorMat, floorGeo, prevVP: new THREE.Matrix4(), hasPrev: false, error };
+    return { born: -1, gpu, posVar, tRef, tHome, tState, tPull, lightCam, shadowRT, motionRT, lightMatrix, geo, sphere, tri, triGeo, depth, motion, swarmMesh, depthScene, motionScene, floorMat, floorGeo, prevVP: new THREE.Matrix4(), hasPrev: false, error };
   }, [plan, gl]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     sim.gpu.dispose(); sim.tRef.dispose(); sim.tHome.dispose(); sim.tState.dispose(); sim.tPull.dispose();
-    sim.shadowRT.dispose(); sim.motionRT.dispose(); sim.geo.dispose(); sim.sphere.dispose(); sim.depth.dispose(); sim.motion.dispose();
+    sim.shadowRT.dispose(); sim.motionRT.dispose(); sim.geo.dispose(); sim.sphere.dispose(); sim.tri.dispose(); sim.triGeo.dispose(); sim.depth.dispose(); sim.motion.dispose();
     sim.floorMat.dispose(); sim.floorGeo.dispose();
     const b = swarmBlur(); b.uniforms.get("uStrength")!.value = 0; b.uniforms.get("tMotion")!.value = null;
   }, [sim]);
@@ -465,6 +526,8 @@ export default function SwarmField({ plan, drive }: { plan: SwarmPlan; drive: Sw
     const scale = (state.gl.getPixelRatio() * size.height) / (2 * Math.tan((cam.fov * Math.PI) / 360));
     sim.sphere.uniforms.tPos.value = pos; sim.sphere.uniforms.uScale.value = scale; sim.sphere.uniforms.uLight.value = drive.light;
     (sim.sphere.uniforms.uLightView.value as THREE.Vector3).copy(LIGHT_DIR).transformDirection(cam.matrixWorldInverse);
+    sim.tri.uniforms.tPos.value = pos; sim.tri.uniforms.uLight.value = drive.light;
+    if (drive.motion) sim.tri.uniforms.uFlip.value = 1 - sim.tri.uniforms.uFlip.value;
 
     // The velocity buffer, then the blur reads it.
     const buf = gl.getDrawingBufferSize(new THREE.Vector2());
