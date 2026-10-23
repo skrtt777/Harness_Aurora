@@ -9,6 +9,7 @@ import ChatDock from "./ChatDock";
 import "./livemap.css";
 
 const AtlasMap = lazy(() => import("./AtlasMap"));
+const BrainMap = lazy(() => import("./BrainMap"));
 
 /**
  * Memórias / Mapa Vivo: the Aurora's memory as an atlas (one territory per section, the Zeladora's nodes; one
@@ -29,10 +30,10 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hou
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const prefersReduced = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 const loadSettings = (): MapSettings => {
-  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true };
+  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true, view: "cerebro" };
   try {
     const saved = JSON.parse(localStorage.getItem("aurora-livemap-settings") || "{}") as Partial<MapSettings>;
-    return { ...base, paused: saved.paused ?? base.paused, quality: saved.quality ?? base.quality, labels: saved.labels ?? base.labels, autoFocus: saved.autoFocus ?? base.autoFocus };
+    return { ...base, paused: saved.paused ?? base.paused, quality: saved.quality ?? base.quality, labels: saved.labels ?? base.labels, autoFocus: saved.autoFocus ?? base.autoFocus, view: saved.view === "atlas" ? "atlas" : "cerebro" };
   } catch { return base; }
 };
 
@@ -75,7 +76,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [dockConversation, setDockConversation] = useState<string | null>(null);
   const turnTimer = useRef<number | null>(null);
   const refreshTimer = useRef<number | null>(null);
-  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus })); } catch { /* private mode */ } }, [settings]);
+  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus, view: settings.view })); } catch { /* private mode */ } }, [settings]);
 
   // The semantic atlas held steady for the session (adapter.steadyAtlas): a new memory joins its neighbours'
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
@@ -367,9 +368,11 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <button className="lm-btn" aria-pressed={activityMode} onClick={() => setSettings((s) => ({ ...s, autoFocus: !s.autoFocus }))} title="A câmera vai sozinha até o que está acontecendo (a Zeladora, as memórias de uma pergunta). Pausa 10 s quando você mexe no mapa.">auto foco {activityMode ? "on" : "off"}</button>
           <button className="lm-btn" aria-pressed={settings.paused} onClick={() => setSettings((s) => ({ ...s, paused: !s.paused }))} title="Pausar o movimento (P)">{settings.paused ? "retomar" : "pausar"}</button>
           <button className="lm-btn" aria-pressed={settings.labels} onClick={() => setSettings((s) => ({ ...s, labels: !s.labels }))} title="Rótulos (L)">rótulos</button>
-          <select aria-label="Detalhe do relevo" value={settings.quality} onChange={(e) => setSettings((s) => ({ ...s, quality: e.target.value as Quality }))} title="O quanto o relevo e as costas são finos (mais detalhe custa mais para desenhar)">
+          <button className="lm-btn" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void stageRef.current?.requestFullscreen?.(); }} title="O mapa na tela inteira (Esc sai)">tela cheia</button>
+          <button className="lm-btn" aria-pressed={settings.view === "cerebro"} onClick={() => setSettings((s) => ({ ...s, view: s.view === "cerebro" ? "atlas" : "cerebro" }))} title="Trocar entre o cérebro 3D e o atlas 2D">{settings.view === "cerebro" ? "ver atlas 2D" : "ver cérebro 3D"}</button>
+          {settings.view === "atlas" && <select aria-label="Detalhe do relevo" value={settings.quality} onChange={(e) => setSettings((s) => ({ ...s, quality: e.target.value as Quality }))} title="O quanto o relevo e as costas são finos (mais detalhe custa mais para desenhar)">
             <option value="alta">relevo fino</option><option value="media">relevo médio</option><option value="baixa">relevo leve</option>
-          </select>
+          </select>}
         </div>
       </div>
 
@@ -391,9 +394,11 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            <AtlasMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
+            {settings.view === "cerebro" ? <BrainMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
               readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
-              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} />
+              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} /> : <AtlasMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
+              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
+              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} />}
           </Suspense>
         )}
         {graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
