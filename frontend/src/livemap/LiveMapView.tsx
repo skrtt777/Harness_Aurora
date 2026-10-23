@@ -1,21 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dismissKeeperFlag, getMemoryGraph, setKeeperEnabled, subscribeMemoryEvents, undoKeeperJoin, visitKeeper, type MemoryGraphSnapshot, type MemoryLiveEvent, type ModelSpeedSample } from "../api";
 import { applyEvent, buildMemoryGraph, keeperFromSnapshot, reduceKeeper, reduceTurn, reviewOf, sectionProgress, type KeeperView, type TurnPhase, type TurnState, CATEGORY_COLOR, CATEGORY_LABEL, edgesOf, newFrozenAtlas, RELATION_LABEL, searchIds, steadyAtlas, type Category, type Filters, type ViewMode } from "./adapter";
-import { cloudColor, fitDistance, layoutClouds, type CloudLayout } from "./clouds";
-import { layoutAurora } from "./aurora";
-import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality, RecallBush } from "./LiveMapScene";
+import { cloudColor, fitDistance, type CloudLayout } from "./clouds";
+import { layoutAtlas } from "./atlas";
+import type { AgentState, AgentTentacle, CameraCommand, Highlight, MapSettings, Merge, Quality, RecallBush } from "./types";
 import type { Vec3 } from "./layout";
 import ChatDock from "./ChatDock";
 import "./livemap.css";
 
-const LiveMapScene = lazy(() => import("./LiveMapScene"));
-const ArchiveScene = lazy(() => import("./ArchiveScene"));
+const AtlasMap = lazy(() => import("./AtlasMap"));
 
 /**
- * Memórias / Mapa Vivo: the Aurora's memory as a field of clouds (one per section, the Zeladora's nodes) on an
- * instrument panel. Every bright point is a stored memory, every cloud a real grouping, every tentacle and wave
- * a real event (a search, a memory used in an answer, the Zeladora at work); every number on the panel is
- * counted from the memories and the live events. No demo data: with nothing stored, the map says so.
+ * Memórias / Mapa Vivo: the Aurora's memory as an atlas (one territory per section, the Zeladora's nodes; one
+ * settlement per memory) on an instrument panel. Every dot is a stored memory, every territory a real grouping,
+ * every line and pulse a real event (a search, a memory used in an answer, the Zeladora at work); every number on
+ * the panel is counted from the memories and the live events. No demo data: with nothing stored, the map says so.
  */
 const MODES: [ViewMode, string][] = [["geral", "visão geral"], ["pasta", "por pasta / projeto"], ["conversa", "por conversa"]];
 const EVENT_LABEL: Record<string, string> = { created: "criada", updated: "atualizada", archived: "arquivada", restored: "restaurada", deleted: "apagada", recalled: "consultada", scanned: "buscou", "turn-start": "pergunta", "turn-end": "fim", answered: "respondeu", keeper: "zeladora" };
@@ -29,13 +28,11 @@ const PERIODS: [number, string][] = [[0, "todo o período"], [1, "últimas 24 h"
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const prefersReduced = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
-const webglAvailable = () => { try { const c = document.createElement("canvas"); return Boolean(c.getContext("webgl2") || c.getContext("webgl")); } catch { return false; } };
 const loadSettings = (): MapSettings => {
-  // sceneVersion 2: the aurora became the memory's scene (an older choice of scene starts on it once).
-  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true, scene: "aurora", sceneVersion: 2 };
+  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true };
   try {
     const saved = JSON.parse(localStorage.getItem("aurora-livemap-settings") || "{}") as Partial<MapSettings>;
-    return { ...base, ...saved, ...(saved.sceneVersion === 2 ? {} : { scene: "aurora" as const, sceneVersion: 2 }) };
+    return { ...base, paused: saved.paused ?? base.paused, quality: saved.quality ?? base.quality, labels: saved.labels ?? base.labels, autoFocus: saved.autoFocus ?? base.autoFocus };
   } catch { return base; }
 };
 
@@ -77,9 +74,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const dockOpenRef = useRef(dockOpen); dockOpenRef.current = dockOpen;
   const [dockConversation, setDockConversation] = useState<string | null>(null);
   const turnTimer = useRef<number | null>(null);
-  const [gl, setGl] = useState(webglAvailable);
   const refreshTimer = useRef<number | null>(null);
-  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus, scene: settings.scene, sceneVersion: 2 })); } catch { /* private mode */ } }, [settings]);
+  useEffect(() => { try { localStorage.setItem("aurora-livemap-settings", JSON.stringify({ quality: settings.quality, labels: settings.labels, paused: settings.paused, autoFocus: settings.autoFocus })); } catch { /* private mode */ } }, [settings]);
 
   // The semantic atlas held steady for the session (adapter.steadyAtlas): a new memory joins its neighbours'
   // cluster instead of the server's re-clustering moving every group. "Reorganizar" starts it over.
@@ -181,9 +177,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
   // ---------- Graph and layout (only when the data, the mode or the filters change) ----------
   const graph = useMemo(() => (snap ? buildMemoryGraph(snap, { mode, filters }) : null), [snap, mode, filters]);
-  const cloudsLayout = useMemo(() => (graph ? layoutClouds(graph, snap) : null), [graph, snap]);
-  // The aurora hangs the same sections and memories as curtains and rays (same ids, same colours).
-  const layout = useMemo(() => (cloudsLayout && settings.scene === "aurora" ? layoutAurora(cloudsLayout) : cloudsLayout), [cloudsLayout, settings.scene]);
+  // The atlas: a territory per section, a settlement per memory (its terrain's detail from the quality chosen).
+  const layout = useMemo(() => (graph ? layoutAtlas(graph, snap, settings.quality) : null), [graph, snap, settings.quality]);
   const R = layout?.R || 400;
   graphRef.current = graph; layoutRef.current = layout;
   if (layout) for (const [id, p] of layout.nodes) lastPos.current.set(id, p);
@@ -238,17 +233,15 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     // The whole field in the part of the stage the chat does not cover (the field moves left of it).
     const el = stageRef.current, dock = dockOpenRef.current;
     const w = el?.clientWidth || 1200, h = el?.clientHeight || 520;
-    const covered = dock ? Math.min(352, w * 0.42) : 0;
-    const distance = fitDistance(layout, (w - covered) / h);
+    // (and below the title at the top).
+    const covered = dock ? Math.min(352, w * 0.42) : 0, top = 64;
+    const distance = fitDistance(layout, (w - covered) / (h - top)) * (h / (h - top));
     const wpp = (2 * distance * Math.tan(Math.PI / 8)) / h;
-    setFocusClusterId(null); setCamera({ target: [(covered / 2) * wpp, 0, 0], distance, key: Date.now(), front: true });
+    setFocusClusterId(null); setCamera({ target: [(covered / 2) * wpp, (-top / 2) * wpp, 0], distance, key: Date.now(), front: true });
   }, [layout]);
   // The first time the map has a tree: the whole of it in view.
   const fitted = useRef(false);
   useEffect(() => { if (layout && !fitted.current) { fitted.current = true; fit(); } }, [layout, fit]);
-  // Another scene, another space: the whole of it in view again.
-  const lastScene = useRef(settings.scene);
-  useEffect(() => { if (lastScene.current !== settings.scene) { lastScene.current = settings.scene; fit(); } }, [settings.scene, fit]);
   const focusCluster = useCallback((id: string, double: boolean) => {
     const box = layout?.clusters.get(id); if (!box) return;
     if (double) { setFocusClusterId(id); setCamera({ target: box.center, distance: Math.min(layout!.R * 2.3, 120 + box.radius * 3.6), key: Date.now() }); return; }
@@ -272,7 +265,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
     return () => window.removeEventListener("keydown", onKey);
   }, [fit]);
 
-  // Fewer particles by itself with many memories (the brief's "reduce density automatically").
+  // A coarser terrain by itself with many memories (the brief's "reduce density automatically").
   useEffect(() => { if (graph && graph.nodes.length > 2500 && settings.quality === "alta") setSettings((s) => ({ ...s, quality: "media" })); }, [graph, settings.quality]);
 
   const selected = selectedId ? nodeById.get(selectedId) || null : null;
@@ -369,19 +362,13 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           })}
         </div>
         <div className="lm-controls">
-          <div className="lm-scene-toggle" role="group" aria-label="Cena">
-            <button className="lm-btn" aria-pressed={settings.scene === "aurora"} onClick={() => setSettings((s) => ({ ...s, scene: "aurora" }))} title="A aurora: a memória como o céu da Aurora — cada nódulo uma cortina de luz, cada memória um raio dela (alto quando relevante, tracejado em revisão), refletidos no lago">aurora</button>
-            <button className="lm-btn" aria-pressed={settings.scene === "nuvens"} onClick={() => setSettings((s) => ({ ...s, scene: "nuvens" }))} title="As nuvens de memória em 3D">nuvens</button>
-            <button className="lm-btn" aria-pressed={settings.scene === "enxame"} onClick={() => setSettings((s) => ({ ...s, scene: "enxame" }))} title="O enxame: as mesmas nuvens feitas de até 1 milhão de partículas vivas na placa de vídeo — o que a Zeladora lê escorre para ela, o que a resposta usou flui para a sonda, o cursor mexe a fumaça">enxame</button>
-            <button className="lm-btn" aria-pressed={settings.scene === "arquivo"} onClick={() => setSettings((s) => ({ ...s, scene: "arquivo" }))} title="O arquivo vivo em 3D: torres de estantes, livros e a Zeladora robô">arquivo 3D</button>
-          </div>
           <button className="lm-btn" onClick={fit} title="Ajustar a vista (F)">ajustar</button>
           <button className="lm-btn" onClick={reorganize} title="Refazer os agrupamentos semânticos com todas as memórias de agora">reorganizar</button>
           <button className="lm-btn" aria-pressed={activityMode} onClick={() => setSettings((s) => ({ ...s, autoFocus: !s.autoFocus }))} title="A câmera vai sozinha até o que está acontecendo (a Zeladora, as memórias de uma pergunta). Pausa 10 s quando você mexe no mapa.">auto foco {activityMode ? "on" : "off"}</button>
           <button className="lm-btn" aria-pressed={settings.paused} onClick={() => setSettings((s) => ({ ...s, paused: !s.paused }))} title="Pausar o movimento (P)">{settings.paused ? "retomar" : "pausar"}</button>
           <button className="lm-btn" aria-pressed={settings.labels} onClick={() => setSettings((s) => ({ ...s, labels: !s.labels }))} title="Rótulos (L)">rótulos</button>
-          <select aria-label="Qualidade e partículas" value={settings.quality} onChange={(e) => setSettings((s) => ({ ...s, quality: e.target.value as Quality }))}>
-            <option value="alta">qualidade alta</option><option value="media">média</option><option value="baixa">baixa (poucas partículas)</option>
+          <select aria-label="Detalhe do relevo" value={settings.quality} onChange={(e) => setSettings((s) => ({ ...s, quality: e.target.value as Quality }))} title="O quanto o relevo e as costas são finos (mais detalhe custa mais para desenhar)">
+            <option value="alta">relevo fino</option><option value="media">relevo médio</option><option value="baixa">relevo leve</option>
           </select>
         </div>
       </div>
@@ -402,19 +389,14 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
 
         {graph.nodes.length === 0 ? (
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
-        ) : gl ? (
-          <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            {settings.scene === "arquivo" ? <ArchiveScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
-              readSet={null} merges={merges} recalls={bushes} onUserMove={onUserMove}
-              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} /> :
-            <LiveMapScene graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
-              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
-              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} onContextLost={() => setGl(false)} />}
-          </Suspense>
         ) : (
-          <FallbackList graph={graph} onSelect={goTo} />
+          <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
+            <AtlasMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
+              readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
+              onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} />
+          </Suspense>
         )}
-        {gl && graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
+        {graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
           <li className="ok">comprovada</li>
           <li className="rev">em revisão</li>
           <li className="zeladora">zeladora · lendo</li>
@@ -652,21 +634,6 @@ function KeeperCode({ keeper, nodes, where }: { keeper: KeeperView | null; nodes
     <ol className="lm-code">
       {lines.map(([code, value, acts], i) => <li key={i} className={`${i === 0 ? "comment" : ""} ${act && acts.includes(act) ? "now" : ""}`}><code>{code}</code>{value && <em>{value}</em>}</li>)}
     </ol>
-  );
-}
-
-/** Without WebGL (or after the GPU context was lost): the same data as a navigable list. */
-function FallbackList({ graph, onSelect }: { graph: Graph; onSelect: (id: string) => void }) {
-  return (
-    <div className="lm-fallback">
-      <p className="lm-muted">O mapa 3D precisa de aceleração gráfica (WebGL), que não está disponível agora. As mesmas memórias, em lista:</p>
-      {graph.clusters.map((c) => (
-        <details key={c.id} open={c.general}>
-          <summary style={{ color: CATEGORY_COLOR[c.category] }}>{c.label} · {c.nodeIds.length}</summary>
-          <ul>{c.nodeIds.map((id) => { const n = graph.nodes.find((x) => x.id === id)!; return <li key={id}><button onClick={() => onSelect(id)}>{n.memory.title}</button></li>; })}</ul>
-        </details>
-      ))}
-    </div>
   );
 }
 

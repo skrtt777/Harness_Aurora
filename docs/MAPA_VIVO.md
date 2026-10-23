@@ -336,3 +336,34 @@ Pedido: "refaça toda a parte da memória, algo que combine com a Aurora e seja 
 O `layoutAurora` devolve um CloudLayout (mesmos ids, mesmas seções, mesmas cores), então o resto do mapa não mudou.
 As cores das seções viraram as de uma aurora (verde, ciano, lilás, gelo, rosa, azul…) e o painel do mapa usa o
 preto e o gelo da marca. Nuvens, enxame e arquivo 3D continuam como alternativas.
+
+## O atlas — o Mapa Vivo refeito como um mapa (22/10)
+
+As quatro cenas (aurora, nuvens, enxame, arquivo 3D) saíram. No lugar delas fica um único mapa 2D, desenhado como uma
+carta noturna. A pesquisa de referências cobriu o Nomic Atlas (rótulos por tópico que aparecem conforme o zoom), o
+Embedding Atlas da Apple (contornos de densidade por KDE), o "map of GitHub" do anvaka (clusters desenhados como
+países), o cosmos.gl e o sigma.js. Os dois últimos são grafos em WebGL e foram descartados: com centenas a poucos
+milhares de memórias, o Canvas 2D fica nítido e a 171 fps.
+
+| O que se vê | De onde vem |
+|---|---|
+| **Território** (um por nódulo) | A densidade das suas memórias (uma gaussiana por memória, um pouco mais forte nas relevantes). A terra fica onde a soma passa de um limiar. A fronteira entre dois nódulos fica onde nenhum pesa mais que o outro. As curvas de nível são as dessa densidade: o miolo denso de um nódulo brilha mais. |
+| **Cidade** (uma por memória) | O território fica onde as suas memórias estão no atlas semântico (os dois primeiros eixos do PCA). Dentro dele, os vizinhos medidos se puxam, ninguém fica a menos de 22 unidades de outro e todo mundo fica dentro da terra do seu nódulo. Ponto cheio: comprovada. Anel: em revisão. O tamanho cresce com a relevância. |
+| **Rotas pontilhadas** | Nódulos que compartilham conexões (`graph.bridges`). A linha é mais grossa com mais conexões. |
+| **Nomes** | Primeiro as memórias em evento, selecionadas ou sob o cursor. Depois os territórios, no ponto da terra mais longe da borda, em duas linhas quando não cabem. Por último as outras memórias, à medida que o zoom abre espaço. Dois nomes nunca ficam um sobre o outro. |
+| **Zeladora** | Um retículo claro que anda de memória em memória. Mostra o rastro, os fios até o que ela acabou de ler e uma etiqueta com o que está fazendo. A poda, a adoção, os nódulos que nascem ou recolhem e as junções aparecem no lugar onde acontecem. |
+| **Pergunta** | Uma sonda laranja. Linhas finas vão até as memórias avaliadas e linhas fortes, com pulso, até as usadas. |
+| **Moldura** | Grade de referência (A–J, 1–n) e um mapa-índice no canto mostrando onde está a vista. Um clique no índice leva até lá. |
+
+- **Ferramentas:** `d3-contour` (terra, costa, águas rasas e relevo), `d3-delaunay` (a memória sob o cursor),
+  `d3-zoom` (arrastar, roda, pinça) e `d3-interpolate` (`interpolateZoom`, os voos suaves de van Wijk & Nuij para os
+  comandos de câmera).
+- **Arquivos:**
+  - `frontend/src/livemap/atlas.ts` é puro e testado em `frontend/test/atlas.test.mjs`. Os testes conferem que toda
+    memória fica na terra do seu território, que duas cidades nunca se tocam, que vizinhos de sentido ficam juntos e
+    que o mesmo conjunto gera o mesmo mapa.
+  - `frontend/src/livemap/AtlasMap.tsx` desenha o mapa.
+  - `frontend/src/livemap/types.ts` guarda os tipos.
+- **Comandos de câmera:** continuam com a mesma medida (`distance`). A altura visível é 2·distance·tan(22,5°).
+- **Detalhe do relevo:** o seletor de qualidade virou o detalhe do relevo (fino, médio ou leve), que é o tamanho da
+  grade da densidade.

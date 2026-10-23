@@ -15,9 +15,6 @@
     "src/officeSim.ts",
     "src/livemap/adapter.ts",
     "src/livemap/layout.ts",
-    "src/livemap/clouds.ts",
-    "src/livemap/archive.ts",
-    "src/livemap/swarm.ts",
-    "src/livemap/aurora.ts"
+    "src/livemap/atlas.ts"
   ]
 }

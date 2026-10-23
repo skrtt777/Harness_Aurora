@@ -348,3 +348,10 @@
 .ar-say.rest { color: #8b93a1; }
 .ar-book { white-space: nowrap; font: 10.5px var(--lm-mono); color: #fff; background: rgba(20,22,30,.9); border-left: 2px solid #fff; padding: 2px 7px; transform: translate(10px, -50%); max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 .lm-title { z-index: 59; }
+/* the atlas (AtlasMap.tsx): a 2D canvas filling the stage, a night chart */
+.lm-stage { background: #05070a; border-color: #18202b; }
+.lm-atlas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.lm-atlas:active { cursor: grabbing; }
+.lm-hover { left: 214px; bottom: 22px; }
+.lm-legend .rev::before { content: "○"; }
+@media (max-width: 900px) { .lm-hover { left: 18px; bottom: 150px; } }
