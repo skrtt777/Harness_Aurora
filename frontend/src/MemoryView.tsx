@@ -5,6 +5,9 @@ import Icon from './Icon';
 import {
   createMemory,
   importMemories,
+  listOtherHarnesses,
+  importOtherHarness,
+  type HarnessFound,
   deleteMemory,
   getCommunityBundle,
   getCommunityManifest,
@@ -316,6 +319,11 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
     onMemoriesChanged?.();
   };
 
+  // Memories of Hermes / OpenClaw on this computer (read in place; importing twice adds nothing).
+  const [harnesses, setHarnesses] = useState<HarnessFound[] | null>(null);
+  const findHarnesses = () => { setImportStatus("Procurando Hermes e OpenClaw neste computador…"); void listOtherHarnesses().then((h) => { setHarnesses(h); setImportStatus(h.length ? "" : "Nenhuma memória do Hermes ou do OpenClaw encontrada neste computador."); }).catch((e: Error) => setImportStatus(e.message)); };
+  const bringHarness = (h: string) => { setImportStatus(`Trazendo as memórias do ${h}…`); void importOtherHarness(h).then((r) => { setImportStatus(`${r.imported} memórias trazidas do ${r.harness}, ${r.skipped} já estavam aqui.`); afterChange(); }).catch((e: Error) => setImportStatus(e.message)); };
+
   const importEnvelope = async (parsed: unknown, _sourceLabel: string) => {
     const result = await importMemories(parsed);
     setImportStatus(`${result.imported} memórias importadas, ${result.relationsCreated} relações recriadas, ${result.skipped} já existentes.`);
@@ -439,12 +447,25 @@ export default function MemoryView({ projects, conversations, onMemoriesChanged,
             <Icon name="upload" size={13} /> Importar
             <input type="file" accept="application/json,.json" onChange={importFile} />
           </label>
+          <button className="memory-action" onClick={findHarnesses} title="Trazer as memórias do Hermes ou do OpenClaw deste computador">
+            <Icon name="upload" size={13} /> De outro harness
+          </button>
           <button className={`memory-action ${communityOpen ? "on" : ""}`} onClick={toggleCommunity} title="Pacotes compartilhados pela comunidade">
             <Icon name="globe" size={13} /> Comunidade
           </button>
         </div>
       </div>
       {importStatus && <p className="memory-import-status">{importStatus}</p>}
+      {harnesses && harnesses.length > 0 && (
+        <div className="memory-import-status" role="group" aria-label="Memórias de outros harnesses">
+          {harnesses.map((h) => (
+            <p key={h.harness}>
+              <b>{h.harness === "hermes" ? "Hermes" : "OpenClaw"}</b>: {h.entries} memória{h.entries === 1 ? "" : "s"} em {h.files.length} arquivo{h.files.length === 1 ? "" : "s"} (ex.: {h.sample.join(" · ").slice(0, 160)}){" "}
+              <button className="memory-action" onClick={() => bringHarness(h.harness)}>Trazer</button>
+            </p>
+          ))}
+        </div>
+      )}
 
       {communityOpen && (
         <div className="community-panel">

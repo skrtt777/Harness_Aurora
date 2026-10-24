@@ -38,6 +38,7 @@ import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEv
 import { createSource, deleteSource, knowledgeMap, listSources, startIndexing, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
 import { memoryAtlas, memorySimilarity } from "./memoryAtlas.js";
+import { harnessSummary, importHarness } from "./harnessMigration.js";
 import { systemVitals } from "./systemVitals.js";
 import { recallProbe, recentRecalls } from "./memoryRecall.js";
 import { ACTION_TOOLS, TEACHER_MODES } from "./teacher.js";
@@ -965,7 +966,10 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Memories ----------
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
-      if (method === "GET" && pathname === "/api/memories/similarity") return sendJson(response, 200, await memorySimilarity(String(url.searchParams.get("a") || ""), String(url.searchParams.get("b") || "")));
+      // Coming from Hermes / OpenClaw: what each has, and bringing one in.
+    if (method === "GET" && pathname === "/api/migrate/harnesses") return sendJson(response, 200, { harnesses: harnessSummary() });
+    if (method === "POST" && pathname === "/api/migrate/harnesses") { const body = await readJson(request); return sendJson(response, 200, await importHarness(String(body.harness || ""))); }
+    if (method === "GET" && pathname === "/api/memories/similarity") return sendJson(response, 200, await memorySimilarity(String(url.searchParams.get("a") || ""), String(url.searchParams.get("b") || "")));
     if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       // ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
       if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, { ...(await memoryGraphSnapshot()), keeper: await keeperState(), speed: modelSpeedState() });

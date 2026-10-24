@@ -773,6 +773,10 @@ export type KeeperStateApi = {
   flags: { id: string; otherId: string | null; reason: string; title?: string; otherTitle?: string; similarity?: number; at?: string }[];
   last: { round: number; at: string; read: number; linked: number; joined: number; flagged: number } | null;
 };
+/** Memories of other harnesses (Hermes, OpenClaw) found on this computer, and bringing them in. */
+export type HarnessFound = { harness: "hermes" | "openclaw"; files: { file: string; entries: number }[]; entries: number; sample: string[] };
+export const listOtherHarnesses = () => request<{ harnesses: HarnessFound[] }>("/migrate/harnesses").then((r) => r.harnesses);
+export const importOtherHarness = (harness: string) => request<{ harness: string; imported: number; skipped: number }>("/migrate/harnesses", { method: "POST", body: JSON.stringify({ harness }) });
 export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");
 /** The real cosine of two memories' embeddings (null when one has none). */
 export const getMemorySimilarity = (a: string, b: string) => request<{ similarity: number | null; model: string }>(`/memories/similarity?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
