@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -68,12 +68,49 @@ async function scan(root, source, depth = 0, out = []) {
   return out;
 }
 
+/**
+ * Where the other harnesses keep their skills (all in the open SKILL.md format, agentskills.io): Hermes, Claude
+ * Code, Codex, OpenClaw and the shared ~/.agents folder. They are read in place, never changed; a copy is imported
+ * to be used here. AURORA_SKILL_HOME replaces the home folder (tests).
+ */
+export function externalSkillRoots(env = process.env) {
+  const home = env.AURORA_SKILL_HOME || homedir();
+  return [
+    ['hermes-local', join(home, '.hermes', 'skills')],
+    ['claude-local', join(home, '.claude', 'skills')],
+    ['codex-local', join(home, '.codex', 'skills')],
+    ['openclaw-local', join(home, '.openclaw', 'skills')],
+    ['openclaw-local', join(home, '.openclaw', 'workspace', 'skills')],
+    ['agents-local', join(home, '.agents', 'skills')],
+  ];
+}
+
 export async function allSkills() {
   const db = await dbReady();
-  const [local, external] = await Promise.all([scan(bundled, 'bundled'), scan(join(homedir(), '.hermes', 'skills'), 'hermes-local')]);
+  const [local, ...external] = await Promise.all([scan(bundled, 'bundled'), ...externalSkillRoots().map(([source, root]) => scan(root, source))]);
   const imported = db.prepare('SELECT * FROM skill_library').all().map(row => ({ ...parseSkill(row.content), id: row.id, source: row.source, enabled: !!row.enabled }));
   // Imported copies are versioned snapshots; external originals are never changed.
-  return [...local, ...external, ...imported];
+  return [...local, ...external.flat(), ...imported];
+}
+
+/** Where a skill can be published for the other harnesses to use it (the open standard's folders). */
+export const PUBLISH_TARGETS = { agents: ['.agents', 'skills'], claude: ['.claude', 'skills'], codex: ['.codex', 'skills'], hermes: ['.hermes', 'skills'] };
+/**
+ * Publish a skill (its SKILL.md, as is) to another harness' folder: <home>/<target>/<name>/SKILL.md. An existing
+ * one with other content is not overwritten (the person decides there).
+ */
+export async function publishSkill(id, target, env = process.env) {
+  const parts = PUBLISH_TARGETS[target];
+  if (!parts) throw httpError(400, 'Destino inválido.');
+  const skill = (await allSkills()).find(s => s.id === id);
+  if (!skill) throw httpError(404, 'Skill não encontrada.');
+  const dir = join(env.AURORA_SKILL_HOME || homedir(), ...parts, skill.name);
+  const file = join(dir, 'SKILL.md');
+  const existing = await readFile(file, 'utf8').catch(() => null);
+  if (existing !== null && digest(existing) !== digest(skill.text)) throw httpError(409, `Já existe outra skill "${skill.name}" em ${dir}.`);
+  await mkdir(dir, { recursive: true });
+  await writeFile(file, skill.text, 'utf8');
+  return { ok: true, path: file };
 }
 
 export async function listSkills() {

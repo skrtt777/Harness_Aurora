@@ -1,10 +1,10 @@
 import { useEffect,useState } from 'react';
 import EnginePanel from './EnginePanel';
-import { listSkills,readSkill,readSkillResource,importSkill,enableSkill,getHermesSkills,getRuntimePolicy,searchSkillCatalog,syncSkillCatalog,importCatalogSkill,type SkillCatalogResult,type SkillInfo } from './api';
+import { listSkills,readSkill,readSkillResource,importSkill,enableSkill,publishSkill,getHermesSkills,getRuntimePolicy,searchSkillCatalog,syncSkillCatalog,importCatalogSkill,type SkillCatalogResult,type SkillInfo } from './api';
 export default function SkillsView() {
   const [skills,setSkills]=useState<SkillInfo[]>([]),[query,setQuery]=useState(''),[selected,setSelected]=useState<SkillInfo & {body?:string,text?:string,resources?:string[]}|null>(null);
   const [reference,setReference]=useState('');
-  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[content,setContent]=useState('');
+  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[content,setContent]=useState(''),[notice,setNotice]=useState('');
   const [catalog,setCatalog]=useState<{revision:string,skills:{name:string,path:string}[]}|null>(null);
   const [rules,setRules]=useState<Record<string,string>>({});
   const [hub,setHub]=useState<SkillCatalogResult|null>(null),[hubQuery,setHubQuery]=useState(''),[hubSource,setHubSource]=useState('');
@@ -16,7 +16,7 @@ export default function SkillsView() {
   const action=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn();setSkills(await listSkills());}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar skills.');}finally{setBusy(false);}};
   return <section className="skills-view page-skin"><header className="page-header"><h1 className="page-title">Skills e regras</h1>
     <p className="page-desc">Procedimentos reutilizáveis, carregados conforme a tarefa. Importações ficam inativas até você revisar e ativar. Ler uma skill não instala ferramentas nem executa scripts.</p></header>
-    {error&&<p role="alert" className="memory-form-error">{error}</p>}
+    {error&&<p role="alert" className="memory-form-error">{error}</p>}{notice&&<p role="status" className="skills-hub-notice">{notice}</p>}
     <EnginePanel onChange={()=>void listSkills().then(setSkills).catch(e=>setError(e.message))}/>
     <section className="skills-hub" aria-label="Catálogo de skills"><div className="skills-hub-heading"><div><h2>Explore o catálogo Hermes</h2><p>{hub?.meta?`${hub.meta.total.toLocaleString('pt-BR')} entradas no índice`:'Carregue o índice para descobrir skills de várias fontes.'}</p></div><button disabled={busy} onClick={()=>void action(async()=>{await syncSkillCatalog();setHub(await searchSkillCatalog(hubFilter.q,hubFilter.source,0,hubFilter.includeAll));})}>{busy?'Aguarde…':'Atualizar catálogo'}</button></div>
       <p>Busque na lista e importe apenas o que precisa. O catálogo não entra no contexto da IA. A skill selecionada é salva para revisão; nenhuma ferramenta é instalada.</p>
@@ -39,7 +39,11 @@ export default function SkillsView() {
       <h3>{s.name}</h3><p>{s.description}</p><small>{s.source} · {s.enabled?'ativa':'inativa'} · ~{s.estimatedTokens} tokens no corpo</small>
       {s.compatibility&&<p className="skill-compatibility">{s.compatibility.status==='blocked'?'Incompatível':s.compatibility.status==='compatible'?'Compatível com a engine':'Dependências a revisar'}{s.compatibility.status==='blocked'&&': '+s.compatibility.reasons.join(' ')}</p>}
       <div className="workflow-actions"><button disabled={busy} onClick={()=>void action(async()=>{setReference('');setSelected(await readSkill(s.id));})}>Ler</button>
-      {s.id.startsWith('import:')?<button disabled={busy} onClick={()=>void action(async()=>{await enableSkill(s.id,!s.enabled);})}>{s.enabled?'Desativar':'Ativar'}</button>:s.source!=='bundled'&&<button disabled={busy} onClick={()=>void action(async()=>{await importSkill({skillId:s.id});})}>Importar cópia</button>}</div>
+      {s.id.startsWith('import:')?<button disabled={busy} onClick={()=>void action(async()=>{await enableSkill(s.id,!s.enabled);})}>{s.enabled?'Desativar':'Ativar'}</button>:s.source!=='bundled'&&<button disabled={busy} onClick={()=>void action(async()=>{await importSkill({skillId:s.id});})}>Importar cópia</button>}
+      <button disabled={busy} title="Baixar o SKILL.md (padrão aberto agentskills.io)" onClick={()=>void action(async()=>{const full=await readSkill(s.id);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([full.text],{type:'text/markdown'}));a.download=`${s.name}-SKILL.md`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);})}>Exportar</button>
+      <select aria-label={`Publicar ${s.name} em outro harness`} disabled={busy} value="" onChange={e=>{const target=e.target.value;if(target)void action(async()=>{const r=await publishSkill(s.id,target);setNotice(`Publicada em ${r.path}`);});}}>
+        <option value="">publicar em…</option><option value="agents">~/.agents (padrão aberto)</option><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="hermes">Hermes</option>
+      </select></div>
     </article>)}</div>
     <details><summary>Importar SKILL.md</summary><textarea rows={9} value={content} onChange={e=>setContent(e.target.value)} placeholder={'---\nname: minha-skill\ndescription: Quando usar\n---\nProcedimento e verificação.'}/><button disabled={busy||!content.trim()} onClick={()=>void action(async()=>{await importSkill({content});setContent('');})}>Importar para revisão</button></details>
     <details><summary>Busca direto no repositório da Hermes (sem cache)</summary><p>Diferente da busca acima — que usa o índice de {hub?.meta?hub.meta.total.toLocaleString('pt-BR'):'98 mil'} skills, atualizado periodicamente — esta consulta lista, em tempo real, só as skills que já estão no branch principal do repositório oficial da Hermes no GitHub. Use quando quiser a versão mais recente de uma skill específica ou suspeitar que o índice está desatualizado. Busca somente os nomes disponíveis; a importação fixa a revisão do repositório. Verifique ferramentas e dependências antes de ativar.</p>

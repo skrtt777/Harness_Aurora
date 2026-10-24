@@ -56,7 +56,7 @@ import { getOrLaunchBrowserContext, installChromium, isChromiumInstalled, runBro
 import { extractRunnableHtml, materializeSandboxFile, readSandboxFile } from "./sandboxCode.js";
 import { extractArtifacts, listArtifacts, materializeArtifact } from "./artifacts.js";
 import { rules, DEFAULT_BUDGET } from "./economy.js";
-import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill } from "./skills.js";
+import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, importHermesSkill, publishSkill } from "./skills.js";
 import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, recheckWorkflow } from "./workflows.js";
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skillCatalog.js";
 import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
@@ -202,6 +202,11 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         const skill = body.hermesPath ? await importHermesSkill(body.hermesPath) : body.skillId ? await importSkill((await readSkill(body.skillId)).text, 'Cópia local') : await importSkill(body.content);
         return sendJson(response, 201, skill);
       }
+      // A skill as its SKILL.md (download), or published to another harness' skills folder.
+      const skillExport = pathname.match(/^\/api\/skills\/([^/]+)\/export$/);
+      if (skillExport && method === 'GET') { const s = await readSkill(decodeURIComponent(skillExport[1])); response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="${s.name}-SKILL.md"` }); return response.end(s.text); }
+      const skillPublish = pathname.match(/^\/api\/skills\/([^/]+)\/publish$/);
+      if (skillPublish && method === 'POST') { const body = await readJson(request); return sendJson(response, 200, await publishSkill(decodeURIComponent(skillPublish[1]), String(body.target || ''))); }
       const skillMatch = pathname.match(/^\/api\/skills\/([^/]+)$/);
       if (skillMatch && method === 'GET') return sendJson(response, 200, await readSkill(decodeURIComponent(skillMatch[1]), url.searchParams.get('resource')));
       if (skillMatch && method === 'PATCH') { const body = await readJson(request); return sendJson(response, 200, await enableSkill(decodeURIComponent(skillMatch[1]), body.enabled)); }

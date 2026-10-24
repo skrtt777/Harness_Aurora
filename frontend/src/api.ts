@@ -513,6 +513,8 @@ export const listSkills=()=>request<{skills:SkillInfo[]}>('/skills').then(r=>r.s
 export const readSkill=(id:string)=>request<SkillInfo & {body:string;text:string;resources:string[]}>('/skills/'+encodeURIComponent(id));
 export const importSkill=(data:{content?:string;hermesPath?:string;skillId?:string})=>request<SkillInfo>('/skills/import',{method:'POST',body:JSON.stringify(data)});
 export const enableSkill=(id:string,enabled:boolean)=>request('/skills/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({enabled})});
+/** Publish a skill's SKILL.md to another harness' folder (agents · claude · codex · hermes). */
+export const publishSkill=(id:string,target:string)=>request<{ok:true;path:string}>('/skills/'+encodeURIComponent(id)+'/publish',{method:'POST',body:JSON.stringify({target})});
 export const getHermesSkills=()=>request<{revision:string;skills:{name:string;path:string}[]}>('/skills/hermes');
 export const getRuntimePolicy=()=>request<{rules:Record<string,string>}>('/runtime-policy');
 export const listWorkflows=(id:string)=>request<{workflows:Workflow[]}>('/conversations/'+id+'/workflows').then(r=>r.workflows);
