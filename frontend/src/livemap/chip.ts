@@ -120,11 +120,12 @@ export function slotRect(n: Pick<Nucleus, "x" | "y" | "bankCols">, s: number): R
  * bus from each nucleus to a pin on the core's side that faces it (Manhattan routes, under the blocks, like a
  * metal layer).
  */
-export function layoutChip(categories: ChipCategory[], slots: Map<string, (string | null)[]>): ChipLayout {
+/** aspect: the width / height of the view the die is shown in (rows are packed to fill it). */
+export function layoutChip(categories: ChipCategory[], slots: Map<string, (string | null)[]>, aspect = 1.75): ChipLayout {
   const items = categories.map((c, index) => ({ c, index, ...nucleusSize(slots.get(c.id)?.length || 0) }))
     .sort((a, b) => b.h - a.h || b.w - a.w || a.index - b.index);
   const area = items.reduce((s, it) => s + (it.w + GAP) * (it.h + GAP), (CORE + GAP) ** 2);
-  const target = Math.max(BANK_W * 2.2, Math.sqrt(area * 1.75));
+  const target = Math.max(BANK_W * 2.2, Math.sqrt(area * Math.max(0.8, Math.min(3, aspect)) * 1.1));
   const rows: (typeof items[number] | "core")[][] = [[]];
   let width = 0;
   for (const it of items) {

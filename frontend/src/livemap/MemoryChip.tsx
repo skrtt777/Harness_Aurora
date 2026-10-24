@@ -90,7 +90,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     live: false, focus: null as string | null, selected: null as string | null, dirty: true, uiAt: 0, drag: null as null | { x: number; y: number; cx: number; cy: number; moved: boolean },
     pointers: new Map<number, [number, number]>(), pinch: null as null | { d: number }, textW: new Map<string, string>(),
     /** The search's memories (ringed; the rest dim), the cell under the mouse, the Zeladora's probe gliding between cells. */
-    highlight: new Set<string>(), hover: null as string | null, mouse: null as [number, number] | null,
+    lastAspect: 0, highlight: new Set<string>(), hover: null as string | null, mouse: null as [number, number] | null,
     probe: null as null | { x: number; y: number; to: string; at: number; label: string },
     /** The answers that used memory (live ones keep their scores and candidates), newest first. */
     history: [] as ChipRecall[], forgottenTotal: 0, timeT: null as number | null, prevT: null as number | null, playing: false, heat: false,
@@ -108,7 +108,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
   const rebuild = useCallback(() => {
     const e = E.current;
     e.slots = assignSlots(e.slots, e.cats, [...e.mems.values()]);
-    e.L = layoutChip(e.cats, e.slots);
+    e.L = layoutChip(e.cats, e.slots, e.W / Math.max(200, e.H - 180));
     resizeFit();
     e.dirty = true;
   }, []);
@@ -384,6 +384,8 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
       e.W = Math.max(10, r.width); e.H = Math.max(10, r.height); e.dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = Math.round(e.W * e.dpr); canvas.height = Math.round(e.H * e.dpr);
       setNarrow(root.getBoundingClientRect().width < 820);
+      // A view of another shape: the die is packed again to fill it (and the whole of it shown).
+      if (e.L && Math.abs(e.W / Math.max(200, e.H - 180) - (e.lastAspect || 0)) > 0.25) { e.lastAspect = e.W / Math.max(200, e.H - 180); e.fitted = false; rebuild(); }
       resizeFit(); e.dirty = true;
     });
     ro.observe(canvas); ro.observe(root);
