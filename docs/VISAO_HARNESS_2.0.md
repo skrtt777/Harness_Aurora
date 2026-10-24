@@ -51,7 +51,13 @@
   - **Gateway:** `app/gateway.js` dá uma conversa do celular para todos os canais, e a resposta volta pelo canal usado por último.
   - **Canais:** o Telegram passou a ser canal do gateway, e o WhatsApp (`app/whatsapp.js`) entrou pelo WhatsApp Web, com QR, a conversa "Mensagem para você" ou um número próprio por código.
   - **Testado com modelos reais:** o qwen3.5:4b pelo Ollama, como endpoint próprio, fez a soma às cegas certa. O WhatsApp Web gerou o QR, mas o pareamento com o celular ainda falta testar.
-- **Próximo: fase 2** (heartbeat; skills no padrão aberto com `/aprenda`).
+- **24/10, fase 2 quase toda feita** (docs/NOITE_2026-10-24.md):
+  - **Heartbeat:** os agentes "a cada N minutos" têm horário de silêncio e um `HEARTBEAT.md` lido a cada rodada; vazio, a rodada não acontece.
+  - **Skills no padrão aberto:**
+    - a biblioteca lê as skills do Claude Code, do Codex, do OpenClaw e de `~/.agents`;
+    - cada skill pode ser exportada como `SKILL.md` ou publicada nas pastas dessas ferramentas.
+  - **Fase 3, item 5 (migração):** as memórias do Hermes e do OpenClaw entram por Memória → "De outro harness".
+- **Falta:** `/aprenda` criando uma skill a partir de um documento ou URL, e a skill criada sozinha depois de uma tarefa difícil. Em 15/10 as receitas de passos como contexto não ajudaram o 4b; como rascunho para revisar e exportar a outros harnesses, ainda vale.
 
 ## 5. Proposta de roteiro
 
