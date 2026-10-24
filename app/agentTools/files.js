@@ -348,6 +348,19 @@ export function nextDueHint(lines, request, now = new Date()) {
  */
 export function extremeHint(lines, request) {
   const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  // "Qual categoria pesou mais" asks for a group's total (groupHint), not the biggest single row — when the
+  // groups have several rows. One row per área ("qual área está mais acima do orçamento"): the row is the group.
+  const groupAsk = rankedGroupAsk(text).map((m) => m[1].slice(0, 5));
+  if (groupAsk.length) {
+    const h = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+    const cols = h >= 0 ? lines[h].replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => foldText(c.trim())) : [];
+    const k = cols.findIndex((c) => groupAsk.some((a) => c.startsWith(a)));
+    if (k >= 0) {
+      const values = [];
+      for (let i = h + 1; i < lines.length && lines[i].includes(" | ") && !lines[i].startsWith("## "); i += 1) values.push(foldText(lines[i].replace(/^\s*\d+ {2}/, "").split(" | ")[k] || ""));
+      if (new Set(values).size < values.length) return "";
+    }
+  }
   const most = /\b(maior|maiores|mais (acima|alto|alta|caro|cara|salgad[oa]|vendeu|gastou)|pesou mais|custou mais|maximo|campe[aã]o)\b/.test(text);
   // "Mais em conta" is the cheapest (it came back as the most expensive, ladder D03).
   const least = /\b(menor|menores|mais (baixo|baixa|barato|barata|em conta|economic[oa])|custou menos|menos|minimo)\b/.test(text);
@@ -672,11 +685,23 @@ export function categoryCounts(lines, request) {
   return notes.length ? `\n(Contagem já feita por categoria: ${notes.join("; ")}.)` : "";
 }
 
+/**
+ * "Qual categoria pesou mais", "em que categoria eu gastei mais", "onde eu mais gastei": a ranking of GROUPS.
+ * The read answered with the single biggest row (Pizzaria) and the model added categories up by hand, wrong
+ * (ladder D04, 24/10). Returns [match, column-ish word] pairs like matchAll.
+ */
+export function rankedGroupAsk(text) {
+  const t = foldText(text);
+  const out = [...t.matchAll(/\b(?:qual|que|em que|em qual|de que|de qual|com que|com qual|quais)\s+(categoria|setor|cliente|fornecedor|area|produto|departamento|tipo|loja|vendedor|filial|regiao|centro de custo)s?\b[^.?!]{0,40}\b(?:mais|menos|maior|menor|pesou|pesaram)\b/g)];
+  if (!out.length && /\bonde\s+(?:eu\s+|q\s+|que\s+)?(?:mais|menos)\s+gast|\bcom o que\s+(?:eu\s+)?(?:mais|menos)\s+gast|\bmaior parte do (?:meu )?dinheiro/.test(t)) out.push(["", "categoria"]);
+  return out;
+}
+
 export function groupHint(lines, request) {
   const text = foldText(request);
   // "Por cliente", and also "o cliente que mais deve" / "qual fornecedor mais…": the top one needs the
   // sums per client (an e-mail went to the client of the single biggest bill, not the biggest debtor).
-  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g)].map((m) => m[1].slice(0, 5));
+  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g), ...rankedGroupAsk(text)].map((m) => m[1].slice(0, 5));
   if (!asked.length) return "";
   const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 1);
   if (!sheet) return "";
@@ -1584,6 +1609,18 @@ export const fileTools = [
     stage: (a) => `Procurando ${a.pattern}…`,
     describe: (a, ctx) => ({ kind: "read", paths: searchRoots(a, ctx) }),
     async run({ pattern, path }, ctx) {
+      // Several globs in one ("*.xlsx;*.xls;*.csv", "*gasto* *despesa*"): each searched, the results joined.
+      // As one name they found nothing, and the model listed folder after folder (ladder D04, 24/10).
+      const parts = String(pattern || "").split(/\s*[;|]\s*|\s*,\s*(?=\S*[*?])|\s+(?=\S*[*?])/).map((p) => p.trim()).filter(Boolean);
+      if (parts.length > 1 && parts.some((p) => /[*?]/.test(p))) {
+        const self = fileTools.find((t) => t.name === "search_files");
+        const outs = [];
+        for (const part of parts.slice(0, 6)) {
+          const out = await self.run({ pattern: part, path }, ctx);
+          if (!/^Nenhum arquivo com /.test(out)) outs.push(`— ${part}:\n${out}`);
+        }
+        return outs.length ? outs.join("\n") : `Nenhum arquivo com ${parts.map((p) => `"${p}"`).join(", ")} em ${searchRoots({ path }, ctx).join("; ")}.`;
+      }
       const roots = searchRoots({ path }, ctx);
       // A bare name is a "contains" search, accent- and case-insensitive.
       const glob = /[*?{]/.test(pattern) ? pattern : `*${fold(String(pattern).replace(/\.[a-z0-9]{1,5}$/i, ""))}*`;
@@ -1637,7 +1674,9 @@ export const fileTools = [
       // No name has it: what is INSIDE the person's files. "quanto gastei com lazr" looked for files named
       // "Lazr", "roupa", "luz" and said there were no data, with the spending sheet right there; "o telefone
       // do Paulo" never opened the notes in Contatos (ladder D04/D05, 24/10). Typos tolerated.
-      if (!found.length && !ctx.workspace) {
+      // Only in the person's own folders: in the company's it read big sheets and brought noise (regression 24/10).
+      const personal = Object.entries(ctx.knownFolders || {}).filter(([k, p]) => k !== "home" && p).map(([, p]) => resolve(p).toLowerCase());
+      if (!found.length && !ctx.workspace && personal.length && roots.every((r) => personal.some((p) => resolve(r).toLowerCase().startsWith(p)))) {
         const inside = await contentSearch(pattern, roots, ctx);
         if (inside.length) return `Nenhum arquivo com "${pattern}" no NOME, mas estes têm isso DENTRO (leia o que responde ao pedido):\n${inside.map((h) => `${h.file}${h.word !== h.asked ? ` ("${h.asked}" = "${h.word}")` : ""}: ${h.line}`).join("\n")}`;
       }
