@@ -20,6 +20,8 @@ export function hashString(value) {
 
 const NEIGHBORS = 4;
 const NEIGHBOR_MIN = 0.72;
+/** A memory with no neighbour that close keeps its best match down to this (nomic-embed-text: p10 of best matches ≈ 0.72). */
+const NEIGHBOR_FLOOR = 0.62;
 const DUPLICATE_MIN = 0.95;
 const SPREAD = 16;
 
@@ -212,13 +214,29 @@ export async function memoryAtlas({ env = process.env } = {}) {
   const ringRadius = SPREAD * 3.2;
   const loosePoints = loose.map(({ row }, i) => { const angle = (i / Math.max(loose.length, 1)) * Math.PI * 2 + (hashString(row.id) % 100) / 400; return [Math.cos(angle) * ringRadius, ((hashString(`${row.id}y`) % 100) / 100 - 0.5) * 6, Math.sin(angle) * ringRadius]; });
 
-  // Neighbours and duplicates, compared within each cluster (scales to thousands).
+  // Neighbours and duplicates: each memory against its own cluster and the clusters closest to it in meaning
+  // (measured on the real data: a third of the best matches sat in another node), scaling to thousands.
   const neighbors = embedded.map(() => []);
+  const centerOf = new Map();
   for (const { id: c } of groups) {
-    const members = embedded.map((_, i) => i).filter((i) => assign[i] === c);
+    const sum = new Float32Array(embedded[0]?.vector.length || 0);
+    let n = 0;
+    embedded.forEach((e, i) => { if (assign[i] === c) { n += 1; for (let d = 0; d < sum.length; d += 1) sum[d] += e.vector[d]; } });
+    if (n) centerOf.set(c, normalize(sum));
+  }
+  const membersOf = new Map(groups.map(({ id: c }) => [c, embedded.map((_, i) => i).filter((i) => assign[i] === c)]));
+  const near = embedded.length > 3000 ? 1 : 2;
+  for (const { id: c } of groups) {
+    const members = membersOf.get(c) || [];
+    if (!members.length) continue;
+    const others = [...centerOf].filter(([o]) => o !== c).map(([o, v]) => ({ o, s: dot(v, centerOf.get(c)) })).sort((a, b) => b.s - a.s).slice(0, near).map((x) => x.o);
+    const pool = [...members, ...others.flatMap((o) => membersOf.get(o) || [])];
     for (const i of members) {
-      const sims = members.filter((j) => j !== i).map((j) => ({ j, s: dot(embedded[i].vector, embedded[j].vector) })).filter((x) => x.s >= NEIGHBOR_MIN).sort((a, b) => b.s - a.s);
-      neighbors[i] = sims.slice(0, NEIGHBORS).map(({ j, s }) => ({ id: embedded[j].row.id, similarity: Math.round(s * 100) / 100 }));
+      const sims = pool.filter((j) => j !== i).map((j) => ({ j, s: dot(embedded[i].vector, embedded[j].vector) })).sort((a, b) => b.s - a.s);
+      const close = sims.filter((x) => x.s >= NEIGHBOR_MIN);
+      // Nobody that close: its single best match, when it is still a real kinship (≥ NEIGHBOR_FLOOR).
+      const kept = close.length ? close.slice(0, NEIGHBORS) : sims.slice(0, 1).filter((x) => x.s >= NEIGHBOR_FLOOR);
+      neighbors[i] = kept.map(({ j, s }) => ({ id: embedded[j].row.id, similarity: Math.round(s * 100) / 100, ...(assign[j] !== c ? { across: true } : {}) }));
     }
   }
 

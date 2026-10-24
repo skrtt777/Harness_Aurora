@@ -45,7 +45,10 @@ test("Anthropic: the official SDK loop runs the tools until end_turn, with the s
   const results = requests[1].messages.at(-1);
   assert.equal(results.role, "user");
   assert.deepEqual([results.content[0].type, results.content[0].tool_use_id], ["tool_result", "t1"]);
-  assert.deepEqual(out.usage, { input: 30, output: 7 });
+  assert.deepEqual(out.usage, { input: 30, output: 7, cacheRead: 0, cacheWrite: 0 });
+  // Every turn of the loop caches the conversation so far; Opus works at high effort.
+  assert.deepEqual(requests[1].cache_control, { type: "ephemeral" });
+  assert.deepEqual(requests[0].output_config, { effort: "high" });
 
   const refused = await runApiEngine({ kind: "anthropic", apiKey: "k" }, "x", { cwd: root, client: { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } } });
   assert.deepEqual([refused.ok, refused.error], [false, "o modelo recusou a tarefa"]);

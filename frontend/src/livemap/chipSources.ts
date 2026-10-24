@@ -31,7 +31,7 @@ export function toChipSnapshot(s: MemoryGraphSnapshot, view: { mode: ViewMode; f
   }
   const memories: ChipMemory[] = graph.nodes.map(({ memory: m, clusterId }) => {
     const p = point.get(m.id);
-    const links = [...(p?.neighbors || []).map((n) => ({ id: n.id, score: n.similarity, kind: "similar" as const })), ...(relations.get(m.id) || [])]
+    const links = [...(p?.neighbors || []).map((n) => ({ id: n.id, score: n.similarity, kind: "similar" as const, ...(n.across ? { across: true } : {}) })), ...(relations.get(m.id) || [])]
       .filter((l, i, all) => visible.has(l.id) && all.findIndex((x) => x.id === l.id) === i).slice(0, 5);
     return {
       id: m.id, category: clusterId, createdAt: Date.parse(m.createdAt) || 0, uses: m.uses, lastUsedAt: lastUsed.get(m.id) ?? null, links,

@@ -5,7 +5,8 @@
 // levels. Pure (no DOM): tested in frontend/test/chip.test.mjs.
 
 // ---------- the contract: what a source gives (snapshot) and emits (events) ----------
-export type ChipLink = { id: string; score: number; kind: "similar" | "relation" };
+/** across: the neighbour sits in another nucleus (a kinship between two subjects). */
+export type ChipLink = { id: string; score: number; kind: "similar" | "relation"; across?: boolean };
 export type ChipMemory = {
   id: string; text: string; snippet: string | null; category: string; createdAt: number;
   uses: number; lastUsedAt: number | null; links: ChipLink[];

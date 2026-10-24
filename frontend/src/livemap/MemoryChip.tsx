@@ -892,10 +892,10 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     ctx.fillStyle = `rgba(0,0,0,${0.72 * al})`; ctx.fillRect(X(c.x), Y(c.y), c.w * k, c.h * k);
     const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
     const links = m.links.filter((l) => e.mems.has(l.id)).slice(0, 5);
-    const clouds = [{ id: m.id, x: cx, y: cy, score: 1, kind: "self" as string }, ...links.map((l, i) => {
+    const clouds = [{ id: m.id, x: cx, y: cy, score: 1, kind: "self" as string, across: false }, ...links.map((l, i) => {
       // Closer when more similar (all within the view at this level).
       const ang = -Math.PI / 2 + (i / Math.max(1, links.length)) * Math.PI * 2, r = 1.25 - clamp(l.score - 0.72, 0, 0.28) * 1.2;
-      return { id: l.id, x: cx + Math.cos(ang) * r * 1.35, y: cy + Math.sin(ang) * r * 0.85, score: l.score, kind: l.kind };
+      return { id: l.id, x: cx + Math.cos(ang) * r * 1.35, y: cy + Math.sin(ang) * r * 0.85, score: l.score, kind: l.kind as string, across: Boolean(l.across) };
     })];
     const pts = clouds.map((cl) => {
       const rnd = seeded(hash(cl.id, 31)), n = cl.kind === "self" ? 80 : 56, spread = cl.kind === "self" ? 0.2 : 0.13;
@@ -924,7 +924,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
       ctx.fillStyle = hex(col, 0.95 * al);
       for (const p of P) { ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), ci === 0 ? 2.4 : 2, 0, Math.PI * 2); ctx.fill(); }
       const other = e.mems.get(cl.id);
-      const label = ci === 0 ? m.text : `${other?.text || cl.id} · ${cl.kind === "relation" ? "relação" : `similaridade ${cl.score.toFixed(2).replace(".", ",")}`}`;
+      const label = ci === 0 ? m.text : `${other?.text || cl.id} · ${cl.kind === "relation" ? "relação" : `similaridade ${cl.score.toFixed(2).replace(".", ",")}`}${cl.across ? " · outro núcleo" : ""}`;
       ctx.font = `${ci === 0 ? 600 : 400} ${ci === 0 ? 14 : 12}px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
       const lx = X(cl.x), ly = Y(cl.y + (ci === 0 ? 0.3 : 0.22)) + 6;
       const tw = Math.min(ctx.measureText(label).width, 320) + 12;

@@ -103,14 +103,26 @@ async function runAnthropic(engine, prompt, { cwd, signal, env, client = null })
   const messages = [{ role: "user", content: prompt }];
   const model = engine.model || API_PRESETS.anthropic.model;
   let text = "";
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   let usedTools = false, nudged = false;
+  // Streamed (a long answer never times out) and collected whole with finalMessage(); a client without
+  // stream() (the tests' fake) is called plainly.
+  const call = (body) => (anthropic.beta.messages.stream ? anthropic.beta.messages.stream(body, { signal }).finalMessage() : anthropic.beta.messages.create(body, { signal }));
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     if (signal?.aborted) return { ok: false, error: "cancelado" };
-    // Server-side fallback ("default" routes a policy decline to another model in the same call).
-    const response = await anthropic.beta.messages.create({ model, max_tokens: 16000, system: SYSTEM, tools, messages, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }, { signal });
+    // - Server-side fallback ("default" routes a policy decline to another model in the same call).
+    // - Automatic prompt caching: the request's last block is cached, so every turn of the tool loop reads the
+    //   whole conversation so far from the cache (~0.1× the price) instead of paying for it again.
+    // - The work is a delivery (files, scripts, checks): high effort; thinking is adaptive (always on in 5.5).
+    const response = await call({
+      model, max_tokens: 32000, system: SYSTEM, tools, messages,
+      cache_control: { type: "ephemeral" }, ...(/opus|sonnet-5|fable/i.test(model) ? { output_config: { effort: "high" } } : {}),
+      betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+    });
     usage.input += response.usage?.input_tokens || 0;
     usage.output += response.usage?.output_tokens || 0;
+    usage.cacheRead += response.usage?.cache_read_input_tokens || 0;
+    usage.cacheWrite += response.usage?.cache_creation_input_tokens || 0;
     const said = response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     if (said) text = said;
     if (response.stop_reason === "refusal") return { ok: false, error: "o modelo recusou a tarefa" };
