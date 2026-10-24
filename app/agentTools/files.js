@@ -825,7 +825,16 @@ export function filterRows(lines, filter, { sort, request } = {}) {
     out.push(...sheetBlock(s, hits, sort));
   }
   const columns = [...new Set(sheets.flatMap((s) => s.header?.line.split(" | ") || []))].join(", ");
-  if (!total) return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}${dateNote}`;
+  if (!total) {
+    // The value is not in its column: a typo is fixed, or the column's values are shown (filterAll).
+    if (op === "=" && anyColumn && !dateNote) {
+      const near = filterAll(lines, [filter], filter, sort);
+      if (!/^Nenhuma linha/.test(near)) return near;
+      const values = /\((valores de [^)]*)\)/.exec(near)?.[1];
+      if (values) return `Nenhuma linha com "${filter}". (${values})${columns ? ` Colunas: ${columns}.` : ""}`;
+    }
+    return `Nenhuma linha com "${filter}".${columns ? ` Colunas: ${columns}.` : ""}${dateNote}`;
+  }
   return `${out.join("\n")}\n${total} linha(s) com "${filter}"${column && !anyColumn ? ` (coluna "${colPart}" não existe; procurei o texto na linha inteira)` : ""}.${dateNote}`;
 }
 function parseSheets(lines) {
@@ -890,8 +899,41 @@ function filterAll(lines, conditions, label, sort = null) {
     out.push(...sheetBlock(s, hits, sort));
   }
   if (!found) return `Nenhuma planilha tem as colunas de "${label}".${columns ? ` Colunas: ${columns}.` : ""}`;
-  if (!total) return `Nenhuma linha com "${label}".`;
+  if (!total) {
+    // "Situação=A Aberto" (a typo) found nothing, and the model then counted 15 of the 18 open tickets by
+    // eye (regression 24/10, empresa ti-3). A text condition whose value is not in its column: the one
+    // value there that it clearly means is used (said so); otherwise the values that exist are listed.
+    const s = sheets.find((x) => x.header);
+    const notes = [];
+    const fixed = conditions.slice();
+    parsed.forEach((p, k) => {
+      if (p.op !== "=" && p.op !== "!=") return;
+      const col = s?.header.cells.findIndex((c) => c === p.col || c.includes(p.col)) ?? -1;
+      if (col < 0) return;
+      const values = [...new Set(s.rows.map(({ line }) => String(line.split(" | ")[col] ?? "").trim()).filter(Boolean))];
+      if (values.some((v) => foldText(v).includes(p.text))) return;
+      const near = values.filter((v) => { const f = foldText(v); return f.length >= 3 && (p.text.includes(f) || (Math.abs(f.length - p.text.length) <= 2 && sameish(f, p.text))); });
+      const name = s.header.line.split(" | ")[col].trim();
+      if (near.length === 1) { fixed[k] = `${name}${p.op}${near[0]}`; notes.push(`não há "${p.raw.split(/!?=/).slice(1).join("=").trim()}" em ${name}; usei ${name}${p.op}${near[0]}`); }
+      else if (values.length <= 12) notes.push(`valores de ${name}: ${values.join(", ")}`);
+    });
+    if (fixed.some((c, k) => c !== conditions[k])) {
+      const again = filterAll(lines, fixed, fixed.join("; "), sort);
+      if (!/^Nenhuma /.test(again)) return `${again}\n(${notes.join("; ")}.)`;
+    }
+    return `Nenhuma linha com "${label}".${notes.length ? ` (${notes.join("; ")}.)` : ""}`;
+  }
   return `${out.join("\n")}\n${total} linha(s) com "${label}".`;
+}
+/** Two short words a letter or two apart (a typo: "abreto" for "aberto"). */
+function sameish(a, b) {
+  if (a === b) return true;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prev = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) { const tmp = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; }
+  }
+  return row[b.length] <= 2;
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "$recycle.bin", "appdata"]);

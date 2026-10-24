@@ -495,3 +495,16 @@ test("an automatic run saves a new file aimed outside its folders into its own f
   const manual = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], env: { ...process.env, AGENT_RUN_TRIGGER: "manual" } });
   assert.equal((await executeTool("write_document", { path: join(root, "outra-saida", "x.md"), content: "x" }, manual)).ok, false);
 });
+
+test("a text filter with a typo uses the one value it clearly means, or lists the column's values", async () => {
+  const dir = join(root, "ti-chamados");
+  mkdirSync(dir, { recursive: true });
+  const rows = Array.from({ length: 10 }, (_, i) => `CH-${5200 + i};${i % 3 === 0 ? "Aberto" : "Resolvido"}`);
+  writeFileSync(join(dir, "chamados.csv"), `Chamado;Situação\n${rows.join("\n")}\n`);
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir], request: "Quantos chamados estão abertos?" });
+  const typo = await executeTool("read_file", { path: "chamados.csv", filter: "Situação=A Aberto" }, c);
+  assert.match(typo.result, /4 linha\(s\) com "Situação=Aberto"/);
+  assert.match(typo.result, /não há "A Aberto" em Situação; usei Situação=Aberto/);
+  const other = await executeTool("read_file", { path: "chamados.csv", filter: "Situação=Cancelado" }, c);
+  assert.match(other.result, /Nenhuma linha com "Situação=Cancelado"\. \(valores de Situação: Aberto, Resolvido\.?\)/);
+});
