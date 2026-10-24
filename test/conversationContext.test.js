@@ -50,3 +50,20 @@ test("a name the person gave is stated plainly in the context", async () => {
   assert.match(block, /^A pessoa se chama Rafaela\./);
   assert.doesNotMatch(personFacts([{ role: "user", content: "Eu cuido das parcerias da empresa." }])[0] || "", /se chama/);
 });
+
+test("'onde ficou aquela planilha que você criou?' in another conversation: the diary's file, checked on disk", async () => {
+  const { whereDelivered } = await import("../app/chatTurn.js");
+  const store = await import("../app/store.js");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "aurora-where-"));
+  const file = join(dir, "Planilha_Parc_Luma.xlsx");
+  writeFileSync(file, "x");
+  const other = await store.createConversation({ title: "Kit de mídia", provider: "local" });
+  await store.addMessage({ conversationId: other.id, role: "assistant", content: "Pronto.", provider: "local", execution: { toolSteps: [{ tool: "write_document", ok: true, summary: `Criei ${file} (XLSX, 4431 bytes).` }] } });
+  const block = await whereDelivered("onde ficou aquela planilha que você criou?", []);
+  assert.match(block[0], /Planilha_Parc_Luma\.xlsx/);
+  assert.match(block[0], /existe nesse caminho/);
+  assert.deepEqual(await whereDelivered("crie uma planilha nova, onde ficou a outra?", []), [], "a request to create is not a question about where");
+  assert.deepEqual(await whereDelivered("onde fica a praia mais perto?", []), [], "not about a file");
+  assert.deepEqual(await whereDelivered("onde ficou a apresentação?", []), [], "no presentation in the diary");
+});

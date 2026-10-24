@@ -293,6 +293,31 @@ export function lastDelivery(text, history = []) {
   return [`A pessoa pergunta onde está o que você entregou na resposta anterior. Os arquivos são:\n${files.map((f) => `- ${f}`).join("\n")}\nResponda com esse caminho; não crie nem altere arquivos.`];
 }
 
+// "onde ficou aquela planilha que você criou?", "cadê o relatório?": a question about where a file it made is.
+const WHERE_FILE = /\b(onde|cad[êe])\b[^?.!]{0,40}?\b(planilha|arquivo|documento|apresenta[cç][aã]o|relat[oó]rio|pdf|gr[aá]fico|tabela|xlsx|docx|pptx)\b/i;
+const KIND_EXT = [[/planilha|tabela|xlsx/i, /\.(xlsx|xlsm|csv)$/i], [/apresenta|pptx/i, /\.pptx$/i], [/pdf/i, /\.pdf$/i], [/documento|relat|docx/i, /\.(docx|pdf|md|txt)$/i], [/gr[aá]fico/i, /\.(png|svg|xlsx|html)$/i]];
+/**
+ * A question about where a file the Aurora made is, when the answer is not in this conversation: the newest
+ * matching file in its diary (any conversation of this project, today and yesterday), checked on disk. The 4B
+ * model, with the diary in context, still searched the computer map, found nothing in the temp folder and said
+ * the file was gone (regression, 24/10).
+ */
+export async function whereDelivered(text, history = [], { projectId = "" } = {}) {
+  if (!WHERE_FILE.test(String(text)) || /\b(crie|cria|gere|gera|fa[cç]a|monte)\b/i.test(String(text))) return [];
+  if (lastDelivery(text, history).length) return [];
+  if (deliveredPaths(history.filter((m) => m.role === "assistant").at(-1)?.execution?.toolSteps || []).length) return [];
+  const kind = KIND_EXT.find(([word]) => word.test(String(text)))?.[1] || null;
+  const { diaryEntries } = await import("./diary.js");
+  const { existsSync } = await import("node:fs");
+  for (const entry of await diaryEntries(new Date(), { projectId })) {
+    const file = entry.files.find((f) => !kind || kind.test(f));
+    if (!file) continue;
+    const there = existsSync(file);
+    return [`A pessoa pergunta onde está um arquivo que você criou (em "${entry.title.slice(0, 60)}", ${entry.day} às ${entry.time}). Ele está em:\n- ${file}\n${there ? "O arquivo existe nesse caminho (conferido agora)." : "Esse arquivo não está mais nesse caminho (conferido agora): diga isso e onde ele foi salvo."} Responda com o caminho completo; não procure com ferramentas, não crie nem altere arquivos.`];
+  }
+  return [];
+}
+
 const nameWords = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^\d+$/.test(w));
 /** The file (among those the conversation named) whose name shares the most words with `text`. */
 export function topicFile(text, mentions) {
@@ -612,7 +637,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
       memories: relevant,
       instructions: project?.instructions || "",
       limit: contextLimit,
-      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:wordIsOpen(conversationId)?[WORD_DIRECT]:pptIsOpen(conversationId)?[PPT_DIRECT]:connectedReport(conversationId)?[pbiDirect(conversationId)]:coworkApp(conversationId)?[coworkDirect(coworkApp(conversationId))]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history)],
+      required:[...(observation?[observation.block]:[]),...(brief?[brief.block]:[]),...(env.AGENT_RUN_TRIGGER?[]:excelIsOpen(conversationId)?[EXCEL_DIRECT]:wordIsOpen(conversationId)?[WORD_DIRECT]:pptIsOpen(conversationId)?[PPT_DIRECT]:connectedReport(conversationId)?[pbiDirect(conversationId)]:coworkApp(conversationId)?[coworkDirect(coworkApp(conversationId))]:requestsFile(trimmed)?[FILE_DIRECT]:onlyTextAsked(trimmed)?[TEXT_DIRECT]:[]),...continuity,...personFacts(history),...lastDelivery(trimmed, history),...(env.AGENT_RUN_TRIGGER ? [] : await whereDelivered(trimmed, history, { projectId: conversation.projectId || "" }).catch(() => []))],
     };
     // Settings (Central de Configurações) are the user-facing control for
     // both knobs; an explicit env var (dev/test override, e.g. running from
