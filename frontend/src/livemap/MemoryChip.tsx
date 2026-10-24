@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BANK, BANK_H, BANK_W, BITS, CELL_H, CELL_W, COPPER, slotRect, GOLD, GRID, LEVELS, SILICON, ZOOM_MAX, ZOOM_MIN,
-  along, assignSlots, bitsOf, chunkAround, layerAlpha, layoutChip, levelAt, strengthOf,
-  type ChipCategory, type ChipEvent, type ChipLayout, type ChipMemory, type ChipSnapshot, type ChipSource, type Rect,
+  ARCHIVE, along, assignSlots, bitsOf, chunkAround, heatColor, heatOf, layerAlpha, layoutChip, levelAt, lifeAt, strengthOf, timelineBuckets,
+  type ChipCategory, type ChipEvent, type ChipLayout, type ChipMemory, type ChipRecall, type ChipSnapshot, type ChipSource, type Rect,
 } from "./chip";
+import { ChipSound } from "./chipSound";
+import ChipTimeline from "./ChipTimeline";
+import ChipCompare from "./ChipCompare";
 
 /**
  * MemoryChip — the memory, live, as a silicon die (chip.ts lays it out; a source feeds it: chipSources.ts).
@@ -17,6 +20,11 @@ import {
  * Live: written (the cell is built, a dashed trace from its bus), recalled (it lights by score and a packet runs to
  * the core, in rank order), the answer (the cells it used, with scores, then they fade), updated (a flash; a merge
  * moves the old cell into the kept one), forgotten (the cell dissolves; its slot stays empty), the Zeladora reading.
+ * Also, all from the real memory: a timeline (go back to any moment: memories not written yet disappear, the
+ * forgotten ones are alive again until the day they were archived; play it to watch the memory grow, with every
+ * past answer lighting the memories it used), replays of past answers (step by step), a heat layer (real uses and
+ * recency), a comparison of two memories (their bits, where their signs agree, the real cosine from the server),
+ * the ARQUIVO nucleus (what was forgotten, restorable), and sound (off by default; each tone is an event).
  * Nothing blinks (every light is a fade); every pattern is deterministic (seeded by the memory's id).
  */
 const MONO = '"JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace';
@@ -65,6 +73,15 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmForget, setConfirmForget] = useState(false);
   const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
+  // Timeline (null: now), playing it, the heat layer, the sound, a comparison, a replay's caption.
+  const [timeT, setTimeT] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [heat, setHeat] = useState(false);
+  const [sound, setSound] = useState(false);
+  const [compareA, setCompareA] = useState<string | null>(null);
+  const [compare, setCompare] = useState<{ a: string; b: string; sim: number | null | undefined } | null>(null);
+  const [replayCap, setReplayCap] = useState<{ query: string; step: number; total: number; note: string } | null>(null);
+  const [histVersion, setHistVersion] = useState(0);
   const E = useRef({
     mems: new Map<string, ChipMemory>(), cats: [] as ChipCategory[], slots: null as Map<string, (string | null)[]> | null, L: null as ChipLayout | null,
     bits: new Map<string, Uint8Array>(), fx: new Map<string, Fx>(), ghosts: [] as Ghost[], packets: [] as Packet[], traces: [] as Trace[],
@@ -75,9 +92,16 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     /** The search's memories (ringed; the rest dim), the cell under the mouse, the Zeladora's probe gliding between cells. */
     highlight: new Set<string>(), hover: null as string | null, mouse: null as [number, number] | null,
     probe: null as null | { x: number; y: number; to: string; at: number; label: string },
+    /** The answers that used memory (live ones keep their scores and candidates), newest first. */
+    history: [] as ChipRecall[], forgottenTotal: 0, timeT: null as number | null, prevT: null as number | null, playing: false, heat: false,
+    sound: new ChipSound(), compareA: null as string | null, compareB: null as string | null, replayTimers: [] as number[], scanned: [] as { id: string; score: number }[],
   });
   E.current.selected = selected;
   E.current.highlight = new Set(highlight);
+  E.current.playing = playing; E.current.heat = heat; E.current.compareA = compareA; E.current.compareB = compare?.b ?? null;
+  useEffect(() => { E.current.sound.enable(sound); }, [sound]);
+  // The timeline's moment: the frame moves it while playing (the panel follows a few times a second).
+  useEffect(() => { E.current.timeT = timeT; E.current.dirty = true; }, [timeT]);
   const onSelectRef = useRef(onSelect); onSelectRef.current = onSelect;
   useEffect(() => { onSelectRef.current?.(selected); }, [selected]);
   // ---------- the state: a snapshot, the events ----------
@@ -100,9 +124,14 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     if (regrouped) e.slots = null;
     e.mems = new Map(s.memories.map((m) => [m.id, m])); e.cats = s.categories; e.bits.clear();
     e.recallsToday = Math.max(e.recallsToday, s.recallsToday);
+    // The answers: the server's, plus the ones seen live this session (with their scores) not yet in it.
+    const known = new Set((s.history || []).map((h) => h.at));
+    e.history = [...e.history.filter((h) => h.id.startsWith("live:") && ![...known].some((t) => Math.abs(t - h.at) < 8000)), ...(s.history || [])].sort((a, b) => b.at - a.at);
+    e.forgottenTotal = s.forgottenTotal || 0;
+    setHistVersion((v) => v + 1);
     rebuild();
     // A new die: the whole of it in view again.
-    if (regrouped && e.L) { const b = e.L.bounds; flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2 - 42 / e.kFit, 1, 900); }
+    if (regrouped && e.L) { const b = e.L.bounds; flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2 - 6 / e.kFit, 1, 900); }
     if (animate) for (const m of s.memories) if (!before.has(m.id)) built(m, now);
   }, [rebuild]);
 
@@ -113,6 +142,16 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     const n = e.L.nuclei[c.n], p0 = n.bus[0], cx = c.x + c.w / 2, cy = c.y + c.h / 2;
     if (!quiet && p0) e.traces.push({ pts: Math.abs(p0[0] - n.x) < 1 || Math.abs(p0[0] - (n.x + n.w)) < 1 ? [p0, [p0[0], cy], [cx, cy]] : [p0, [cx, p0[1]], [cx, cy]], t0: now });
     feed("+", `gravou «${m.text}»`, n.color);
+    e.sound.written();
+  };
+  /** A memory goes to the ARQUIVO nucleus (forgotten, restorable): a packet carries it there. */
+  const toArchive = (m: ChipMemory, now: number) => {
+    const e = E.current, from = e.L?.cell.get(m.id);
+    m.category = ARCHIVE; m.archivedAt = Date.now();
+    if (!e.cats.some((c) => c.id === ARCHIVE)) e.cats = [...e.cats, { id: ARCHIVE, label: "arquivo · esquecidas" }];
+    rebuild();
+    const to = e.L?.cell.get(m.id);
+    if (from && to) e.packets.push({ pts: [[from.x + from.w / 2, from.y + from.h / 2], [to.x + to.w / 2, to.y + to.h / 2]], t0: now + 300, dur: 1400, color: "#ff8a7a" });
   };
 
   const process = (ev: ChipEvent, burst: boolean) => {
@@ -134,30 +173,34 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
         for (const from of ev.mergedFrom || []) {
           const c = e.L?.cell.get(from);
           if (c && to) e.ghosts.push({ rect: { x: c.x, y: c.y, w: c.w, h: c.h }, color: colorOf(from), at: now, to: { x: to.x, y: to.y, w: to.w, h: to.h }, seed: hash(from) });
-          e.mems.delete(from);
+          // Joined into another: it is archived (the Zeladora's joins can be undone).
+          const fm = e.mems.get(from); if (fm && !fm.archivedAt) { fm.category = ARCHIVE; fm.archivedAt = Date.now(); if (!e.cats.some((x) => x.id === ARCHIVE)) e.cats = [...e.cats, { id: ARCHIVE, label: "arquivo · esquecidas" }]; }
         }
         if (ev.mergedFrom?.length) { rebuild(); feed("≈", `juntou ${ev.mergedFrom.length} em «${m.text}»`, colorOf(m.id)); }
         else feed("~", `atualizou «${m.text}»`, colorOf(m.id));
         break;
       }
       case "memory.deleted": {
-        const m = e.mems.get(ev.id); if (!m) break;
+        const m = e.mems.get(ev.id); if (!m || m.archivedAt) break;
         const c = e.L?.cell.get(ev.id);
         if (c && !burst) e.ghosts.push({ rect: { x: c.x, y: c.y, w: c.w, h: c.h }, color: colorOf(ev.id), at: now, seed: hash(ev.id) });
-        e.mems.delete(ev.id); rebuild();
-        feed("↓", `esqueceu «${m.text}»${ev.reason === "decay" ? " · obsoleta" : ev.reason === "merge" ? " · juntada" : ""}`, "#ff8a7a");
-        if (e.selected === ev.id) setSelected(null);
+        if (ev.archived) toArchive(m, now); else { e.mems.delete(ev.id); rebuild(); if (e.selected === ev.id) setSelected(null); }
+        feed("↓", `esqueceu «${m.text}»${ev.reason === "decay" ? " · obsoleta" : ev.reason === "merge" ? " · juntada" : ""}${ev.archived ? " → arquivo" : " · apagada"}`, "#ff8a7a");
+        e.sound.forgotten();
         break;
       }
       case "recall.started":
-        e.recall = { id: ev.requestId, query: ev.query, at: now, scores: new Map(), used: [], doneAt: null }; e.recallsToday += 1;
-        feed("?", `lembrando: «${ev.query.slice(0, 60)}»`, GOLD);
+        e.recall = { id: ev.requestId, query: ev.query, at: now, scores: new Map(), used: [], doneAt: null }; e.scanned = [];
+        if (!ev.replay) e.recallsToday += 1;
+        feed(ev.replay ? "↺" : "?", `${ev.replay ? "replay" : "lembrando"}: «${ev.query.slice(0, 60)}»`, GOLD);
         break;
-      case "memory.scanned": { const fx = e.fx.get(ev.id) || {}; fx.scan = ev.score; fx.scanAt = now; e.fx.set(ev.id, fx); e.recall?.scores.set(ev.id, ev.score); break; }
+      case "memory.scanned": { const fx = e.fx.get(ev.id) || {}; fx.scan = ev.score; fx.scanAt = now; e.fx.set(ev.id, fx); e.recall?.scores.set(ev.id, ev.score); e.scanned.push({ id: ev.id, score: ev.score }); break; }
       case "memory.recalled": {
         const fx = e.fx.get(ev.id) || {}, delay = ev.rank * 180;
-        fx.lit = ev.score; fx.litAt = now + delay; fx.fadeAt = undefined; e.fx.set(ev.id, fx);
+        // A score below 0: not measured (a past answer replayed): it lights fully, the list shows "—".
+        fx.lit = ev.score < 0 ? 0.85 : ev.score; fx.litAt = now + delay; fx.fadeAt = undefined; e.fx.set(ev.id, fx);
         e.recall?.scores.set(ev.id, ev.score);
+        if (!burst) e.sound.recalled(Math.max(0, ev.score), ev.rank);
         const c = e.L?.cell.get(ev.id);
         if (c && e.L && !burst) { const n = e.L.nuclei[c.n]; e.packets.push({ pts: [[c.x + c.w / 2, c.y + c.h / 2], ...n.bus], t0: now + delay, dur: 1100 + n.bus.length * 60, color: GOLD }); }
         break;
@@ -177,13 +220,22 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
         const scores = e.recall?.scores || new Map<string, number>();
         e.used = ev.memoriesUsed.filter((id) => e.mems.has(id)).map((id) => ({ id, score: scores.get(id) ?? e.fx.get(id)?.lit ?? 0 })).sort((a, b) => b.score - a.score);
         for (const id of [...ev.memoriesUsed, ...(e.recall?.used || [])]) { const fx = e.fx.get(id); if (fx) fx.fadeAt = now; }
-        for (const id of ev.memoriesUsed) { const m = e.mems.get(id); if (m) { m.uses += 1; m.lastUsedAt = Date.now(); } }
+        if (!ev.replay) {
+          for (const id of ev.memoriesUsed) { const m = e.mems.get(id); if (m) { m.uses += 1; m.lastUsedAt = Date.now(); } }
+          // Kept for the replays and the timeline, with what was measured live.
+          if (e.recall) e.history = [{ id: `live:${ev.requestId}`, at: Date.now(), query: e.recall.query, used: ev.memoriesUsed, created: ev.created || [], scores: Object.fromEntries(e.recall.scores), scanned: e.scanned.slice(0, 24) }, ...e.history];
+          setHistVersion((v) => v + 1);
+        }
+        // What the answer wrote is rebuilt in place (it is there already).
+        for (const id of ev.created || []) { const fx = e.fx.get(id) || {}; fx.buildAt = now + 400; e.fx.set(id, fx); }
         if (e.recall) e.recall.doneAt = now;
-        feed("✓", `respondeu usando ${ev.memoriesUsed.length} memória${ev.memoriesUsed.length === 1 ? "" : "s"}${ev.tokensUsed ? ` · ${ev.tokensUsed} tokens` : ""}`, "#8DFF6A");
+        e.sound.answered(ev.memoriesUsed.length);
+        feed(ev.replay ? "↺" : "✓", `respondeu usando ${ev.memoriesUsed.length} memória${ev.memoriesUsed.length === 1 ? "" : "s"}${ev.tokensUsed ? ` · ${ev.tokensUsed} tokens` : ""}`, "#8DFF6A");
         break;
       }
       case "keeper.read": {
         const fx = e.fx.get(ev.id) || {}; fx.probeAt = now; e.fx.set(ev.id, fx);
+        e.sound.read();
         // Her probe glides from the cell she read before to this one.
         const c = e.L?.cell.get(ev.id);
         if (c) e.probe = { x: e.probe ? e.probe.x : c.x + c.w / 2, y: e.probe ? e.probe.y : c.y - 30, to: ev.id, at: now, label: e.mems.get(ev.id)?.text || "" };
@@ -197,9 +249,9 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
   const resizeFit = () => {
     const e = E.current; if (!e.L) return;
     const b = e.L.bounds, bw = b.x1 - b.x0, bh = b.y1 - b.y0;
-    // Room at the top for the level's legend.
-    e.kFit = Math.min(e.W / bw, (e.H - 84) / bh) * 0.96;
-    if (!e.fitted && e.W > 50) { e.cam = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 - 42 / e.kFit, k: e.kFit }; e.fitted = true; }
+    // Room at the top for the level's legend, at the bottom for the timeline and the tools.
+    e.kFit = Math.min(e.W / bw, (e.H - 180) / bh) * 0.96;
+    if (!e.fitted && e.W > 50) { e.cam = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 - 6 / e.kFit, k: e.kFit }; e.fitted = true; }
   };
   const flyTo = (x: number, y: number, z: number, ms = 1000, then?: Fly) => {
     const e = E.current;
@@ -234,6 +286,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
   const descend = (wx: number, wy: number) => {
     const e = E.current, z = e.cam.k / e.kFit, lv = levelAt(z);
     const id = cellNear(wx, wy, z < 2.4 ? 30 : 4), c = id ? e.L?.cell.get(id) : null;
+    if (id && e.compareA && id !== e.compareA) { openCompare(e.compareA, id); return; }
     if (id) setSelected(id);
     const next = Math.min(LEVELS.length - 1, lv + 1);
     const target = lv === LEVELS.length - 1 ? z * 1.5 : LEVELS[next].from * 1.5;
@@ -243,7 +296,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     const e = E.current;
     const id = [e.selected, e.focus, e.used[0]?.id, [...e.mems.keys()][0]].find((x) => x && e.L?.cell.has(x)), c = id ? e.L?.cell.get(id) : null;
     const L = LEVELS[i], z = i === 0 ? 1 : Math.sqrt(L.from * Math.min(L.to, ZOOM_MAX));
-    if (i === 0 && e.L) { const b = e.L.bounds; flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2 - 42 / e.kFit, 1, 1000); return; }
+    if (i === 0 && e.L) { const b = e.L.bounds; flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2 - 6 / e.kFit, 1, 1000); return; }
     if (c) { if (!e.selected && id) setSelected(id); flyTo(c.x + c.w / 2, c.y + c.h / 2, z, 1100); }
   };
   const dive = () => {
@@ -254,7 +307,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     const c = id ? e.L.cell.get(id) : null; if (!c || !id) return;
     setSelected(id);
     const b = e.L.bounds;
-    const back: Fly = { x0: c.x + c.w / 2, y0: c.y + c.h / 2, l0: Math.log(1100 * e.kFit), x1: (b.x0 + b.x1) / 2, y1: (b.y0 + b.y1) / 2 - 42 / e.kFit, l1: Math.log(e.kFit), t0: 0, ms: 3500 };
+    const back: Fly = { x0: c.x + c.w / 2, y0: c.y + c.h / 2, l0: Math.log(1100 * e.kFit), x1: (b.x0 + b.x1) / 2, y1: (b.y0 + b.y1) / 2 - 6 / e.kFit, l1: Math.log(e.kFit), t0: 0, ms: 3500 };
     const hold: Fly = { ...back, x1: back.x0, y1: back.y0, l1: back.l0, ms: 2600, then: back };
     flyTo(c.x + c.w / 2, c.y + c.h / 2, 1100, 16000, hold);
     e.diving = true;
@@ -389,6 +442,15 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
         e.cam.x = f.x0 + (f.x1 - f.x0) * up; e.cam.y = f.y0 + (f.y1 - f.y0) * up; e.cam.k = Math.exp(f.l0 + (f.l1 - f.l0) * uz);
         if (u >= 1) { e.fly = f.then ? { ...f.then, t0: now } : null; if (!e.fly) e.diving = false; }
       }
+      // The timeline: playing moves time forward; whatever happened between two frames happens on the chip.
+      if (e.playing && e.timeT !== null) {
+        const span = Math.max(1, Date.now() - e.history.reduce((t, h) => Math.min(t, h.at), [...e.mems.values()].reduce((t, m) => Math.min(t, m.createdAt), Date.now())));
+        const next = Math.min(Date.now(), e.timeT + (span / 30000) * 16.7);
+        if (next >= Date.now()) { e.timeT = null; setTimeT(null); setPlaying(false); }
+        else { e.timeT = next; if (now - e.uiAt > 200) setTimeT(next); }
+      }
+      if (e.timeT !== null && e.prevT !== null && e.timeT > e.prevT) passTime(e.prevT, e.timeT, now);
+      e.prevT = e.timeT;
       // The cell under the mouse (its name in a tip, its links drawn).
       const hv = e.mouse && e.L ? cellNear(e.cam.x + (e.mouse[0] - e.W / 2) / e.cam.k, e.cam.y + (e.mouse[1] - e.H / 2) / e.cam.k, 0.5) : null;
       if (hv !== e.hover) { e.hover = hv; setTip(hv && e.mouse ? { id: hv, x: e.mouse[0], y: e.mouse[1] } : null); }
@@ -401,6 +463,52 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  /** Time went from a to b on the timeline: memories written then are built, answers then light what they used. */
+  const passTime = (a: number, b: number, now: number) => {
+    const e = E.current; if (!e.L) return;
+    let built = 0;
+    for (const m of e.mems.values()) {
+      if (m.createdAt > a && m.createdAt <= b && built < 12) { const fx = e.fx.get(m.id) || {}; fx.buildAt = now; e.fx.set(m.id, fx); built += 1; }
+      if (m.archivedAt && m.archivedAt > a && m.archivedAt <= b) { const fx = e.fx.get(m.id) || {}; fx.flashAt = now; e.fx.set(m.id, fx); }
+    }
+    for (const h of e.history) if (h.at > a && h.at <= b) h.used.forEach((id, rank) => {
+      const c = e.L!.cell.get(id); if (!c) return;
+      const fx = e.fx.get(id) || {}; fx.lit = h.scores?.[id] ?? 0.85; fx.litAt = now + rank * 120; fx.fadeAt = now + 900; e.fx.set(id, fx);
+      const n = e.L!.nuclei[c.n]; e.packets.push({ pts: [[c.x + c.w / 2, c.y + c.h / 2], ...n.bus], t0: now + rank * 120, dur: 900, color: GOLD });
+    });
+  };
+
+  /** Replay a past answer, step by step: the question, the candidates (if measured), the memories by rank, the answer. */
+  const replay = (h: ChipRecall) => {
+    const e = E.current;
+    e.replayTimers.forEach((t) => window.clearTimeout(t)); e.replayTimers = [];
+    const id = `replay:${h.id}:${Date.now()}`, used = h.used.filter((x) => e.mems.has(x));
+    const at = (ms: number, f: () => void) => { e.replayTimers.push(window.setTimeout(f, ms)); };
+    const cap = (step: number, note: string) => setReplayCap({ query: h.query, step, total: 4, note });
+    // The camera goes to the nucleus it used most.
+    if (e.L && used.length) {
+      const count = new Map<number, number>();
+      for (const u of used) { const c = e.L.cell.get(u); if (c) count.set(c.n, (count.get(c.n) || 0) + 1); }
+      const best = [...count].sort((x, y) => y[1] - x[1])[0];
+      if (best) { const n = e.L.nuclei[best[0]]; interacted(); flyTo(n.x + n.w / 2, n.y + n.h / 2, clamp((Math.min(e.W / n.w, e.H / n.h) * 0.75) / e.kFit, 1, 6), 1200); }
+    }
+    at(0, () => { cap(1, "a pergunta chega"); e.queue.push({ type: "recall.started", requestId: id, query: h.query, replay: true }); });
+    at(1300, () => { cap(2, h.scanned?.length ? `${h.scanned.length} candidatas pontuadas` : "candidatas não registradas (resposta antiga)"); for (const c of h.scanned || []) if (e.mems.has(c.id)) e.queue.push({ type: "memory.scanned", requestId: id, id: c.id, score: c.score }); });
+    at(2800, () => { cap(3, `${used.length} memória${used.length === 1 ? "" : "s"} no contexto`); used.forEach((u, rank) => e.queue.push({ type: "memory.recalled", requestId: id, id: u, score: h.scores?.[u] ?? -1, rank })); e.queue.push({ type: "recall.finished", requestId: id, usedIds: used }); });
+    at(5200, () => { cap(4, `respondeu${h.created.length ? ` · gravou ${h.created.length}` : ""}`); e.queue.push({ type: "response.done", requestId: id, memoriesUsed: used, created: h.created.filter((x) => e.mems.has(x)), replay: true }); });
+    at(8500, () => setReplayCap(null));
+  };
+
+  /** Compare two memories: the real cosine is asked to the source (the server); the bits are on the chip. */
+  const openCompare = (a: string, b: string) => {
+    setCompareA(null); setCompare({ a, b, sim: undefined });
+    const sim = source.similarity ? source.similarity(a, b).catch(() => null) : Promise.resolve(null);
+    void sim.then((v) => setCompare((c) => (c && c.a === a && c.b === b ? { ...c, sim: v } : c)));
+    const e = E.current, ca = e.L?.cell.get(a), cb = e.L?.cell.get(b);
+    if (ca && cb) { interacted(); const z = clamp((Math.min(e.W / (Math.abs(ca.x - cb.x) + 80), e.H / (Math.abs(ca.y - cb.y) + 60)) * 0.6) / e.kFit, 1, 10); flyTo((ca.x + cb.x) / 2 + 12, (ca.y + cb.y) / 2 + 4, z, 1000); }
+  };
+  useEffect(() => () => { E.current.replayTimers.forEach((t) => window.clearTimeout(t)); }, []);
+
   const pushUi = () => {
     const e = E.current, z = e.cam.k / e.kFit, level = levelAt(z);
     // The cell in focus: the one at the middle of the view (from the memory level on).
@@ -411,9 +519,9 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     if (fm && z >= 8) crumbs.push(fm.text.length > 28 ? `${fm.text.slice(0, 27)}…` : fm.text);
     const recall = e.recall && (!e.recall.doneAt || performance.now() - e.recall.doneAt < 3000) ? e.recall.query : null;
     setUi({
-      live: e.live, z, level, crumbs, focus: e.focus, memories: e.mems.size, recallsToday: e.recallsToday, recall,
+      live: e.live, z, level, crumbs, focus: e.focus, memories: [...e.mems.values()].filter((m) => lifeAt(m, e.timeT) === "alive").length, recallsToday: e.recallsToday, recall,
       used: e.used.map((u) => ({ id: u.id, text: e.mems.get(u.id)?.text || "(esquecida)", score: u.score })), feed: [...e.feed],
-      occupancy: (e.L?.nuclei || []).map((n) => ({ id: n.id, label: n.label, color: n.color, n: n.slots.filter(Boolean).length, cap: n.banks * 60 })),
+      occupancy: (e.L?.nuclei || []).map((n) => ({ id: n.id, label: n.id === ARCHIVE && e.forgottenTotal > n.slots.filter(Boolean).length ? `${n.label} (+${e.forgottenTotal - n.slots.filter(Boolean).length} antigas)` : n.label, color: n.id === ARCHIVE ? "#ff8a7a" : n.color, n: n.slots.filter((x) => x && lifeAt(e.mems.get(x)!, e.timeT) !== "unborn").length, cap: n.banks * 60 })),
       follow: e.follow, diving: e.diving, ready: true,
     });
   };
@@ -468,7 +576,9 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
       ctx.fillStyle = "#0b1d16"; ctx.fillRect(X(C.x), Y(C.y), C.w * k, C.h * k);
       ctx.strokeStyle = GOLD; ctx.lineWidth = 1.5; ctx.strokeRect(X(C.x) + 0.5, Y(C.y) + 0.5, C.w * k, C.h * k);
       ctx.strokeStyle = hex(GOLD, 0.25); ctx.lineWidth = 1;
-      for (let i = 1; i < 6; i += 1) { const q = C.w * k * i / 6; ctx.strokeRect(X(C.x) + q / 2, Y(C.y) + q / 2, C.w * k - q, C.h * k - q); }
+      // One inner ring per answer that used memory today (up to eight): the core's real load.
+      const rings = Math.min(8, e.recallsToday);
+      for (let i = 1; i <= rings; i += 1) { const q = (C.w * k * i) / (rings + 2); ctx.strokeStyle = hex(GOLD, 0.18 + 0.05 * i); ctx.strokeRect(X(C.x) + q / 2, Y(C.y) + q / 2, C.w * k - q, C.h * k - q); }
       if (recOn) {
         const p = 0.5 + 0.5 * Math.sin(recAge / 420);
         ctx.fillStyle = hex(GOLD, 0.08 + 0.12 * p); ctx.fillRect(X(C.x), Y(C.y), C.w * k, C.h * k);
@@ -480,7 +590,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
       ctx.font = `600 ${fs}px ${MONO}`; ctx.fillStyle = GOLD; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText("INFERÊNCIA", X(C.x + C.w / 2), Y(C.y + C.h / 2) - fs * 0.7);
       ctx.font = `400 ${fs * 0.75}px ${MONO}`; ctx.fillStyle = hex(GOLD, 0.7);
-      ctx.fillText(recOn ? (rec!.doneAt ? "respondeu" : "lembrando…") : "em espera", X(C.x + C.w / 2), Y(C.y + C.h / 2) + fs * 0.6);
+      ctx.fillText(recOn ? (rec!.doneAt ? "respondeu" : "lembrando…") : `${e.recallsToday} hoje`, X(C.x + C.w / 2), Y(C.y + C.h / 2) + fs * 0.6);
       if (recOn && rec) {
         const q = rec.query.length > 54 ? `${rec.query.slice(0, 53)}…` : rec.query;
         ctx.font = `400 12px ${MONO}`; const w = ctx.measureText(q).width + 16;
@@ -618,12 +728,27 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     const e = E.current, m = e.mems.get(id)!, k = e.cam.k, fx = e.fx.get(id);
     const x = X(c.x), y = Y(c.y), w = c.w * k, h = c.h * k;
     const s = strengthOf(m);
+    // The timeline: not written yet at that moment (an empty slot), alive, or already forgotten (a fossil).
+    const life = lifeAt(m, e.timeT);
+    if (life === "unborn") {
+      if (a[1] + a[2] > 0.05) { ctx.setLineDash([2, 3]); ctx.strokeStyle = hex(GRID, 0.9); ctx.strokeRect(x + 0.5, y + 0.5, w, h); ctx.setLineDash([]); }
+      return;
+    }
+    const fossil = life === "fossil";
+    // The heat layer: real uses and recency, cold silicon to white hot (the category stays on the nucleus' frame).
+    const fill = e.heat && !fossil ? heatColor(heatOf(m)) : fossil ? "#3a1d1a" : color;
     // Built left to right in a second.
     const build = fx?.buildAt ? clamp((now - fx.buildAt) / 1000, 0, 1) : 1;
-    ctx.fillStyle = hex(color, (a[0] * (0.2 + 0.5 * s)) + (1 - a[0]) * (0.07 + 0.1 * s));
+    ctx.fillStyle = e.heat && !fossil ? hex(fill, 0.35 + 0.6 * a[0] + 0.05) : hex(fill, fossil ? 0.55 : (a[0] * (0.2 + 0.5 * s)) + (1 - a[0]) * (0.07 + 0.1 * s));
     ctx.fillRect(x, y, w * build, h);
     if (build < 1) { ctx.fillStyle = hex("#ffffff", 0.8); ctx.fillRect(x + w * build - 1, y, 2, h); }
-    if (cellPx > 14) { ctx.strokeStyle = hex(color, 0.35 + 0.4 * s); ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1); }
+    if (fossil) { ctx.setLineDash([3, 2]); ctx.strokeStyle = hex("#ff8a7a", 0.55); ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1); ctx.setLineDash([]); }
+    else if (cellPx > 14) { ctx.strokeStyle = hex(color, 0.35 + 0.4 * s); ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1); }
+    // Being compared: A and B are marked.
+    if (e.compareA === id || e.compareB === id) {
+      ctx.strokeStyle = "#ffffff"; ctx.setLineDash([5, 3]); ctx.lineWidth = 1.5; ctx.strokeRect(x - 4, y - 4, w + 8, h + 8); ctx.setLineDash([]);
+      ctx.font = `600 11px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#ffffff"; ctx.fillText(e.compareA === id ? "A" : "B", x + w / 2, y - 6);
+    }
     // Live light: recalled (by score, fades ~3 s after the answer), scanned (faint), updated (a flash), the Zeladora.
     if (fx) {
       let lit = 0;
@@ -661,7 +786,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     if (t2 > 0.02) {
       const fs = clamp(h * 0.42, 8, 13);
       ctx.font = `400 ${fs}px ${MONO}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      ctx.fillStyle = hex(m.sensitive ? DIM : INK, t2 * (0.55 + 0.45 * s));
+      ctx.fillStyle = hex(m.sensitive || fossil ? DIM : INK, t2 * (fossil ? 0.6 : 0.55 + 0.45 * s));
       ctx.fillText(fit(m.text, w - 8, fs, `${id}2`), x + 4, y + h / 2);
     }
     // Level 3: the memory and its fragments.
@@ -717,6 +842,11 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     // Header: what is being read, or what this level is.
     const fs = clamp(k * 0.42, 10, 15);
     ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = `600 ${fs}px ${MONO}`;
+    if (m.archivedAt) {
+      ctx.fillStyle = hex("#ff8a7a", al);
+      ctx.fillText(`${m.text.slice(0, 40)} · esquecida em ${date(m.archivedAt)}: fora do atlas, sem assinatura (restaure para voltar)`, X(c.x + 1), Y(c.y + 0.9));
+      return;
+    }
     if (reading && m.entities.length) {
       ctx.fillStyle = hex(GOLD, al); ctx.fillText(`LENDO FRAGMENTO ${cur + 1} · «${P[cur].label}»`, X(c.x + 1), Y(c.y + 0.9));
       ctx.font = `400 ${fs}px ${MONO}`; ctx.fillStyle = hex(INK, al);
@@ -813,7 +943,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     ctx.fillStyle = `rgba(2,8,6,${0.9 * al})`; ctx.fillRect(X(c.x), Y(c.y), c.w * k, c.h * k);
     const j0 = Math.max(0, Math.floor((vy0 - c.y) / RH) - 1), j1 = Math.min(Math.ceil(c.h / RH), Math.ceil((vy1 - c.y) / RH) + 1);
     const i0 = Math.max(0, Math.floor((vx0 - c.x) / A) - 1), i1 = Math.min(Math.ceil(c.w / A), Math.ceil((vx1 - c.x) / A) + 1);
-    const charged = (i: number, j: number) => !m.sensitive && bits[(j % 12) * 16 + (i % 16)] === 1;
+    const charged = (i: number, j: number) => !m.sensitive && !m.archivedAt && bits[(j % 12) * 16 + (i % 16)] === 1;
     const pos = (i: number, j: number): [number, number] => [X(c.x + i * A + (j % 2 ? A / 2 : 0)), Y(c.y + j * RH)];
     if ((i1 - i0) * (j1 - j0) < 9000) {
       ctx.strokeStyle = hex(GRID, 0.55 * al); ctx.lineWidth = 1; ctx.beginPath();
@@ -835,7 +965,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
     ctx.restore();
     // The caption, fixed on the screen.
     const W = E.current.W, H = E.current.H;
-    const line1 = m.sensitive ? "memória privada — o padrão de cargas não é mostrado" : `'${m.text.length > 60 ? `${m.text.slice(0, 59)}…` : m.text}' — gravada como padrão de cargas`;
+    const line1 = m.archivedAt ? `'${m.text.slice(0, 50)}' — esquecida: o cristal está descarregado` : m.sensitive ? "memória privada — o padrão de cargas não é mostrado" : `'${m.text.length > 60 ? `${m.text.slice(0, 59)}…` : m.text}' — gravada como padrão de cargas`;
     const line2 = m.sig ? `átomo dourado = dimensão positiva do embedding · cada ladrilho 16×12 = as primeiras ${BITS} dimensões` : "sem embedding: as cargas vêm do hash do texto";
     ctx.font = `600 14px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const tw = Math.max(ctx.measureText(line1).width, 420) + 40;
@@ -877,8 +1007,21 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
         </section>
         <section>
           <h4>Usadas nesta resposta</h4>
-          {ui.used.length ? <ol className="mc-used">{ui.used.map((u) => <li key={u.id}><button onClick={() => goTo(u.id)}>{u.text}</button><small>{u.score.toFixed(2).replace(".", ",")}</small></li>)}</ol> : <p className="mc-empty">Nenhuma resposta ainda nesta sessão.</p>}
+          {ui.used.length ? <ol className="mc-used">{ui.used.map((u) => <li key={u.id}><button onClick={() => goTo(u.id)}>{u.text}</button><small title={u.score < 0 ? "resposta antiga: o score não foi registrado" : "score da busca"}>{u.score < 0 ? "—" : u.score.toFixed(2).replace(".", ",")}</small></li>)}</ol> : <p className="mc-empty">Nenhuma resposta ainda nesta sessão.</p>}
         </section>
+        <section>
+          <h4>Respostas com memória <small>{E.current.history.length}</small></h4>
+          {E.current.history.length ? <ol className="mc-replays" data-v={histVersion}>
+            {E.current.history.slice(0, 8).map((h) => (
+              <li key={h.id}>
+                <button className="mc-play" onClick={() => replay(h)} title="Repetir esta resposta passo a passo">▶</button>
+                <span title={h.query}>{h.query || "(sem texto)"}</span>
+                <small>{new Date(h.at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {h.used.length} usada{h.used.length === 1 ? "" : "s"}{h.created.length ? ` · ${h.created.length} gravada${h.created.length === 1 ? "" : "s"}` : ""}</small>
+              </li>
+            ))}
+          </ol> : <p className="mc-empty">Nenhuma resposta usou memória ainda.</p>}
+        </section>
+        {compareA && <p className="mc-hint">Comparar: clique em outra célula para ser a B. <button onClick={() => setCompareA(null)}>cancelar</button></p>}
         {cm && cc && (
           <section className="mc-card" style={{ ["--c" as string]: E.current.L?.nuclei[cc.n].color }}>
             <h4>Memória em foco <button className="mc-x" onClick={() => setSelected(null)} aria-label="Fechar">×</button></h4>
@@ -887,6 +1030,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
                 <input name="t" defaultValue={cm.text} autoFocus /><button>salvar</button>
               </form>
             ) : <p className="mc-title">{cm.text}</p>}
+            {cm.archivedAt ? <p className="mc-text mc-gone">Esquecida (arquivada) em {date(cm.archivedAt)}. Fica no arquivo e pode voltar.</p> : null}
             {cm.snippet && <p className="mc-text">{cm.snippet}</p>}
             <dl>
               <dt>núcleo</dt><dd>{E.current.L?.nuclei[cc.n].label}</dd>
@@ -896,7 +1040,11 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
               {cm.entities.length > 0 && <><dt>fragmentos</dt><dd>{cm.entities.join(" · ")}</dd></>}
             </dl>
             {cm.links.length > 0 && <ul className="mc-links">{cm.links.filter((l) => E.current.mems.has(l.id)).map((l) => <li key={l.id}><button onClick={() => goTo(l.id)}>{E.current.mems.get(l.id)?.text}</button><small>{l.kind === "relation" ? "relação" : l.score.toFixed(2).replace(".", ",")}</small></li>)}</ul>}
-            {source.actions && !cm.sensitive && (
+            <div className="mc-actions">
+              {!cm.archivedAt && <button onClick={() => { setCompareA(cm.id); setSelected(null); }} title="Escolha outra célula para comparar bits, sinais e similaridade real">comparar</button>}
+              {cm.archivedAt && source.actions?.restore && <button onClick={() => source.actions!.restore!(cm.id).then(() => { const m = E.current.mems.get(cm.id); if (m && source.mock) { m.archivedAt = null; m.category = E.current.cats[0]?.id || m.category; rebuild(); } feed("↑", `restaurou «${cm.text}»`, "#8DFF6A"); }).catch(() => feed("!", "não consegui restaurar", "#ff8a7a"))}>restaurar</button>}
+            </div>
+            {source.actions && !cm.sensitive && !cm.archivedAt && (
               <div className="mc-actions">
                 {source.actions.edit && <button onClick={() => setEditing(cm.id)}>editar</button>}
                 {source.actions.forget && (confirmForget
@@ -916,6 +1064,23 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
       <div className="mc-stage" style={{ marginRight: narrow ? 0 : inset }}>
         <canvas ref={canvasRef} className="mc-canvas" aria-label="Chip de memória: cada célula é uma memória gravada" />
         {!ui.ready && <div className="mc-loading">lendo as memórias…</div>}
+        {replayCap && <div className="mc-replay-cap"><b>↺ REPLAY · {String(replayCap.step).padStart(2, "0")}/{String(replayCap.total).padStart(2, "0")}</b><span>“{replayCap.query.slice(0, 80)}”</span><small>{replayCap.note}</small></div>}
+        {timeT !== null && <div className="mc-past">VOLTANDO NO TEMPO · {new Date(timeT).toLocaleString("pt-BR")} · {ui.memories} memórias vivas</div>}
+        {heat && <div className="mc-heat-legend"><span>frio</span><i /><span>quente</span><small>usos reais + recência</small></div>}
+        {compare && (() => {
+          const a = E.current.mems.get(compare.a), b = E.current.mems.get(compare.b);
+          if (!a || !b) return null;
+          return <ChipCompare a={a} b={b} bitsA={bitsFor(a)} bitsB={bitsFor(b)} colorA={colorOf(a.id)} colorB={colorOf(b.id)} similarity={compare.sim} mock={source.mock} onClose={() => setCompare(null)} />;
+        })()}
+        {(() => {
+          const ms = [...E.current.mems.values()];
+          if (!ms.length) return null;
+          const t0 = Math.min(...ms.map((m) => m.createdAt).filter((x) => x > 0), ...E.current.history.map((h) => h.at)), t1 = Date.now();
+          return <ChipTimeline t0={t0} t1={t1} value={timeT} playing={playing} buckets={timelineBuckets(ms, E.current.history, t0, t1)}
+            onChange={(t) => { setPlaying(false); setTimeT(t >= t1 - 60_000 ? null : t); }}
+            onPlay={() => { if (playing) { setPlaying(false); return; } E.current.prevT = null; setTimeT((t) => t ?? t0); setPlaying(true); }}
+            onLive={() => { setPlaying(false); setTimeT(null); }} />;
+        })()}
         {tip && ui.level <= 1 && (() => {
           const m = E.current.mems.get(tip.id), c = E.current.L?.cell.get(tip.id), n = c && E.current.L ? E.current.L.nuclei[c.n] : null;
           if (!m || !n) return null;
@@ -943,6 +1108,8 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0, command 
           <button onClick={() => { interacted(); zoomAt(E.current.W / 2, E.current.H / 2, 2); }} aria-label="Aproximar">+</button>
           <button onClick={() => { interacted(); zoomAt(E.current.W / 2, E.current.H / 2, 0.5); }} aria-label="Afastar">−</button>
           <button className={ui.diving ? "on" : ""} onClick={() => { dive(); E.current.dirty = true; }}>{ui.diving ? "parar mergulho" : "mergulho automático"}</button>
+          <button className={heat ? "on" : ""} onClick={() => setHeat((h) => !h)} title="Pintar cada célula pelo uso real (quantas vezes e quão recente)">calor de uso</button>
+          <button className={sound ? "on" : ""} onClick={() => setSound((v) => !v)} title="Um som para cada evento real: lembrar, gravar, esquecer, responder, a zeladora lendo">som {sound ? "on" : "off"}</button>
           <button className={ui.follow ? "on" : ""} onClick={() => { E.current.follow = !E.current.follow; E.current.dirty = true; }} title="A cada recall a câmera vai até o núcleo mais usado; desliga quando você mexe no chip">seguir a IA {ui.follow ? "on" : "off"}</button>
         </div>
       </div>

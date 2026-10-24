@@ -751,6 +751,8 @@ export type MemoryGraphSnapshot = {
   projects: { id: string; name: string }[];
   conversations: { id: string; title: string; projectId: string | null }[];
   recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];
+  /** Archived memories and when (the chip's timeline). */
+  forgotten?: { id: string; title: string; createdAt: string; archivedAt: string }[];
   events: MemoryLiveEvent[];
   keeper?: KeeperStateApi;
   speed?: { calls: ModelSpeedSample[]; normal: { writeTps: number | null; readTps: number | null } | null };
@@ -770,6 +772,8 @@ export type KeeperStateApi = {
   last: { round: number; at: string; read: number; linked: number; joined: number; flagged: number } | null;
 };
 export const getMemoryGraph = () => request<MemoryGraphSnapshot>("/memories/graph");
+/** The real cosine of two memories' embeddings (null when one has none). */
+export const getMemorySimilarity = (a: string, b: string) => request<{ similarity: number | null; model: string }>(`/memories/similarity?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
 export const setKeeperEnabled = (enabled: boolean) => request<KeeperStateApi>("/memories/keeper", { method: "PUT", body: JSON.stringify({ enabled }) });
 export const undoKeeperJoin = (id: string) => request<{ memory: unknown }>("/memories/keeper/undo", { method: "POST", body: JSON.stringify({ id }) });
 export const visitKeeper = (ids: string[], label: string) => request<{ queued: number }>("/memories/keeper/visit", { method: "POST", body: JSON.stringify({ ids, label }) });

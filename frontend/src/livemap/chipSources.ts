@@ -1,8 +1,11 @@
 // The MemoryChip's sources (chip.ts has the contract): the Aurora's real memory, and a simulation that speaks the
 // same events (to see the chip work without a backend or a model running).
-import { getMemoryGraph, setMemoryStatus, subscribeMemoryEvents, updateMemory, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
+import { getMemoryGraph, getMemorySimilarity, setMemoryStatus, subscribeMemoryEvents, updateMemory, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
 import { buildMemoryGraph, type Filters, type MemoryGraph, type ViewMode } from "./adapter";
-import { fragmentsOf, type ChipEvent, type ChipLink, type ChipMemory, type ChipSnapshot, type ChipSource } from "./chip";
+import { ARCHIVE, bitsOf, compareBits, fragmentsOf, type ChipEvent, type ChipLink, type ChipMemory, type ChipRecall, type ChipSnapshot, type ChipSource } from "./chip";
+
+/** How many forgotten memories the ARQUIVO nucleus shows (the newest; the rest are counted). */
+export const ARCHIVE_SHOWN = 180;
 
 const day = (t: number) => new Date(t).toDateString();
 
@@ -38,9 +41,17 @@ export function toChipSnapshot(s: MemoryGraphSnapshot, view: { mode: ViewMode; f
       entities: m.sensitive ? [] : fragmentsOf({ text: m.title, snippet: m.snippet, tags: m.tags }),
     };
   });
+  // What was forgotten (archived), newest first: the ARQUIVO nucleus, each alive from its birth to its archiving.
+  const forgotten = (s.forgotten || []).slice(0, ARCHIVE_SHOWN).map((f): ChipMemory => ({
+    id: f.id, category: ARCHIVE, createdAt: Date.parse(f.createdAt) || 0, archivedAt: Date.parse(f.archivedAt) || 0, uses: 0, lastUsedAt: lastUsed.get(f.id) ?? null, links: [],
+    text: f.title, snippet: null, sig: null, sensitive: f.title === "memória privada", entities: f.title === "memória privada" ? [] : fragmentsOf({ text: f.title, snippet: null }),
+  }));
+  const history: ChipRecall[] = s.recalls.map((r) => ({ id: r.id, at: Date.parse(r.at) || 0, query: r.prompt || r.conversationTitle, used: r.used, created: r.created }));
   return {
-    memories, categories: clusterOrder(graph).map((c) => ({ id: c.id, label: c.label })),
+    memories: [...memories, ...forgotten],
+    categories: [...clusterOrder(graph).map((c) => ({ id: c.id, label: c.label })), ...(forgotten.length ? [{ id: ARCHIVE, label: "arquivo · esquecidas" }] : [])],
     recallsToday: s.recalls.filter((r) => day(Date.parse(r.at)) === day(now)).length,
+    history, forgottenTotal: s.forgotten?.length || 0,
   };
 }
 
@@ -64,7 +75,9 @@ export function auroraChipSource(opts: { load?: () => Promise<MemoryGraphSnapsho
     actions: {
       edit: async (id, text) => { await updateMemory(id, { title: text }); },
       forget: async (id) => { await setMemoryStatus(id, "archived"); },
+      restore: async (id) => { await setMemoryStatus(id, "active"); },
     },
+    similarity: (a, b) => getMemorySimilarity(a, b).then((r) => r.similarity),
     subscribe(onEvent, onState) {
       let request = "", scores = new Map<string, number>(), wasLive = true;
       const gone = new Set<string>();
@@ -74,14 +87,14 @@ export function auroraChipSource(opts: { load?: () => Promise<MemoryGraphSnapsho
         timer = setTimeout(() => { load().then((s) => onEvent({ type: "snapshot", snapshot: shape(s) })).catch(() => {}); }, 700);
       };
       resync = () => { load().then((s) => onEvent({ type: "snapshot", snapshot: shape(s), quiet: true })).catch(() => {}); };
-      const forget = (id: string | undefined, reason: "user" | "decay" | "merge") => { if (!id || gone.has(id)) return; gone.add(id); onEvent({ type: "memory.deleted", id, reason }); };
+      const forget = (id: string | undefined, reason: "user" | "decay" | "merge", archived = true) => { if (!id || gone.has(id)) return; gone.add(id); onEvent({ type: "memory.deleted", id, reason, archived }); };
       const on = (e: MemoryLiveEvent) => {
         switch (e.type) {
           case "created": refresh(); break;
           case "updated": if (e.id) onEvent({ type: "memory.updated", id: e.id, text: e.title }); break;
-          case "restored": refresh(); break;
+          case "restored": if (e.id) gone.delete(e.id); refresh(); break;
           // Who archived it is told by the Zeladora's event, which may come just after: wait a moment.
-          case "archived": case "deleted": { const id = e.id; setTimeout(() => forget(id, "user"), 400); break; }
+          case "archived": case "deleted": { const id = e.id, archived = e.type === "archived"; setTimeout(() => forget(id, "user", archived), 400); break; }
           case "turn-start": request = `r${e.seq ?? e.at}`; scores = new Map(); onEvent({ type: "recall.started", requestId: request, query: e.message || "" }); break;
           case "scanned": {
             const c = e.candidates || [];
@@ -95,7 +108,7 @@ export function auroraChipSource(opts: { load?: () => Promise<MemoryGraphSnapsho
             onEvent({ type: "recall.finished", requestId: request, usedIds: ids });
             break;
           }
-          case "answered": onEvent({ type: "response.done", requestId: request, memoriesUsed: e.used || [] }); if (e.created?.length) refresh(); break;
+          case "answered": onEvent({ type: "response.done", requestId: request, memoriesUsed: e.used || [], created: e.created || [] }); if (e.created?.length) refresh(); break;
           case "keeper":
             if (e.action === "read" && e.id) onEvent({ type: "keeper.read", id: e.id });
             else if (e.action === "join" && e.kept && e.archived) { onEvent({ type: "memory.updated", id: e.kept, mergedFrom: [e.archived] }); forget(e.archived, "merge"); }
@@ -152,12 +165,27 @@ export function mockChipSource(count = 240): ChipSource {
   };
   memories.forEach((m) => fix(m, memories));
   const live = [...memories];
+  const archived: ChipMemory[] = Array.from({ length: 14 }, (_, i) => { const m = mockMemory(r, t0 + i * 4e8); fix(m, memories); return { ...m, category: ARCHIVE, archivedAt: m.createdAt + (2 + r() * 20) * 86_400_000, links: [] }; });
+  const history: ChipRecall[] = Array.from({ length: 24 }, (_, i) => {
+    const used = Array.from({ length: 2 + Math.floor(r() * 3) }, () => live[Math.floor(r() * live.length)].id);
+    return { id: `h${i}`, at: Date.now() - (24 - i) * 3.4 * 86_400_000, query: `Pergunta simulada ${i + 1}`, used, created: [], scores: Object.fromEntries(used.map((u) => [u, Math.round((0.5 + r() * 0.45) * 100) / 100])) };
+  }).reverse();
   return {
     label: "simulação", mock: true,
-    snapshot: async () => ({ memories: live.map((m) => ({ ...m })), categories: MOCK_CATS.map(({ id, label }) => ({ id, label })), recallsToday: 3 }),
+    snapshot: async () => ({
+      memories: [...live, ...archived].map((m) => ({ ...m })), categories: [...MOCK_CATS.map(({ id, label }) => ({ id, label })), { id: ARCHIVE, label: "arquivo · esquecidas" }],
+      recallsToday: 3, history, forgottenTotal: archived.length,
+    }),
     actions: {
       edit: async (id, text) => { const m = live.find((x) => x.id === id); if (m) m.text = text; },
-      forget: async (id) => { const i = live.findIndex((x) => x.id === id); if (i >= 0) live.splice(i, 1); },
+      forget: async (id) => { const i = live.findIndex((x) => x.id === id); if (i >= 0) { const [m] = live.splice(i, 1); archived.unshift({ ...m, category: ARCHIVE, archivedAt: Date.now() }); } },
+      restore: async (id) => { const i = archived.findIndex((x) => x.id === id); if (i >= 0) { const [m] = archived.splice(i, 1); live.push({ ...m, category: MOCK_CATS[0].id, archivedAt: null }); } },
+    },
+    // In the simulation there are no embeddings: the angle its random fingerprints would give (labelled simulação).
+    similarity: async (a, b) => {
+      const A = [...live, ...archived].find((m) => m.id === a), B = [...live, ...archived].find((m) => m.id === b);
+      if (!A?.sig || !B?.sig) return null;
+      return Math.round(Math.cos(Math.PI * (1 - compareBits(bitsOf(A.sig, ""), bitsOf(B.sig, "")).share)) * 1000) / 1000;
     },
     subscribe(onEvent, onState) {
       const timers: ReturnType<typeof setTimeout>[] = [];
@@ -184,10 +212,10 @@ export function mockChipSource(count = 240): ChipSource {
         if (x < 0.4) recall();
         else if (x < 0.65) { const m = mockMemory(r, Date.now()); fix(m, live); live.push(m); onEvent({ type: "memory.created", memory: { ...m } }); }
         else if (x < 0.75 && live.length) { const m = live[Math.floor(r() * live.length)]; if (!m.sensitive) { m.text = `${m.text} (revisado)`.replace(/( \(revisado\))+/, " (revisado)"); onEvent({ type: "memory.updated", id: m.id, text: m.text }); } }
-        else if (x < 0.83 && live.length > 20) { const i = Math.floor(r() * live.length); const [m] = live.splice(i, 1); onEvent({ type: "memory.deleted", id: m.id, reason: r() < 0.5 ? "decay" : "user" }); }
+        else if (x < 0.83 && live.length > 20) { const i = Math.floor(r() * live.length); const [m] = live.splice(i, 1); archived.unshift({ ...m, category: ARCHIVE, archivedAt: Date.now() }); onEvent({ type: "memory.deleted", id: m.id, reason: r() < 0.5 ? "decay" : "user", archived: true }); }
         else if (x < 0.9 && live.length > 20) {
           const a = live[Math.floor(r() * live.length)], b = live.find((m) => m.category === a.category && m.id !== a.id);
-          if (b) { live.splice(live.indexOf(b), 1); onEvent({ type: "memory.updated", id: a.id, mergedFrom: [b.id] }); onEvent({ type: "memory.deleted", id: b.id, reason: "merge" }); }
+          if (b) { live.splice(live.indexOf(b), 1); archived.unshift({ ...b, category: ARCHIVE, archivedAt: Date.now() }); onEvent({ type: "memory.updated", id: a.id, mergedFrom: [b.id] }); onEvent({ type: "memory.deleted", id: b.id, reason: "merge", archived: true }); }
         } else if (live.length) for (let k = 0; k < 4; k += 1) later(k * 700, () => onEvent({ type: "keeper.read", id: live[Math.floor(r() * live.length)].id }));
         later(2600 + r() * 2600, tick);
       };

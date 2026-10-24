@@ -43,6 +43,20 @@ export function signature(vector, bits = SIG_BITS) {
   }
   return hex;
 }
+/**
+ * How alike two memories really are: the cosine of their stored embeddings (same model), or null when one of
+ * them has none. The Mapa Vivo's chip compares two memories with it.
+ */
+export async function memorySimilarity(a, b, { env = process.env } = {}) {
+  const db = await getDb();
+  const model = resolveEmbeddingModel(env);
+  const row = (id) => db.prepare("SELECT embedding, embedding_model FROM memories WHERE id = ?").get(id);
+  const ra = row(a), rb = row(b);
+  const va = ra?.embedding && ra.embedding_model === model ? decodeEmbedding(ra.embedding) : null;
+  const vb = rb?.embedding && rb.embedding_model === model ? decodeEmbedding(rb.embedding) : null;
+  if (!va?.length || !vb?.length || va.length !== vb.length) return { similarity: null, model };
+  return { similarity: Math.round(dot(normalize(va), normalize(vb)) * 1000) / 1000, model };
+}
 const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i += 1) s += a[i] * b[i]; return s; };
 
 /** Top principal components by power iteration with deflation (no covariance matrix). */

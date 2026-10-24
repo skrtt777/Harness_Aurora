@@ -80,3 +80,20 @@ test("strength, chunk, along", () => {
   assert.match(chunkAround("um texto longo que fala de contratos e multas no fim", "multas", 20), /multas/);
   assert.deepEqual(along([[0, 0], [10, 0], [10, 10]], 0.75), [10, 5]);
 });
+
+test("timeline, heat, comparison: from the memory's own dates, uses and bits", async () => {
+  const { lifeAt, heatOf, heatColor, compareBits, timelineBuckets } = await import("../.test-build/livemap/chip.js");
+  const m = { createdAt: 100, archivedAt: 200 };
+  assert.deepEqual([50, 150, 250].map((t) => lifeAt(m, t)), ["unborn", "alive", "fossil"]);
+  assert.equal(lifeAt(m, null), "fossil");
+  assert.equal(lifeAt({ createdAt: 100, archivedAt: null }, null), "alive");
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  assert.ok(heatOf({ uses: 10, lastUsedAt: now, createdAt: 0 }, now) > 0.9);
+  assert.equal(heatOf({ uses: 0, lastUsedAt: null, createdAt: now }, now), 0);
+  assert.match(heatColor(0.5), /^#[0-9a-f]{6}$/);
+  const { agree, share } = compareBits(Uint8Array.from([1, 0, 1, 1]), Uint8Array.from([1, 1, 1, 0]));
+  assert.deepEqual([...agree], [1, 0, 1, 0]);
+  assert.equal(share, 0.5);
+  const b = timelineBuckets([{ createdAt: 0, archivedAt: 90 }, { createdAt: 50, archivedAt: null }], [{ at: 99 }], 0, 100, 10);
+  assert.equal(b.born[0], 1); assert.equal(b.born[5], 1); assert.equal(b.gone[9], 1); assert.equal(b.asked[9], 1);
+});

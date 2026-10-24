@@ -26,6 +26,9 @@ export async function memoryGraphSnapshot({ env = process.env, limit = 5000 } = 
     .map((r) => ({ from: r.from_id, to: r.to_id, type: r.type }));
   const atlas = await memoryAtlas({ env }).catch(() => null);
   const projects = db.prepare("SELECT id, name FROM projects").all();
+  // What was forgotten (archived), with when: the chip's timeline shows each memory alive from its birth to then.
+  const forgotten = has("status") ? db.prepare("SELECT id, title, sensitive, created_at, updated_at FROM memories WHERE status = 'archived' ORDER BY updated_at DESC LIMIT 1000").all()
+    .map((r) => ({ id: r.id, title: r.sensitive ? "memória privada" : r.title, createdAt: r.created_at, archivedAt: r.updated_at })) : [];
   const conversations = db.prepare("SELECT id, title, project_id FROM conversations").all().map((c) => ({ id: c.id, title: c.title || "Conversa", projectId: c.project_id || null }));
   return {
     generatedAt: new Date().toISOString(),
@@ -46,7 +49,9 @@ export async function memoryGraphSnapshot({ env = process.env, limit = 5000 } = 
     } : null,
     projects,
     conversations,
-    recalls: await recentRecalls(30).catch(() => []),
+    forgotten,
+    // The answers that used or wrote memory (the chip's timeline and replays go back through them).
+    recalls: await recentRecalls(300).catch(() => []),
     events: recentMemoryEvents({ limit: 60 }),
   };
 }

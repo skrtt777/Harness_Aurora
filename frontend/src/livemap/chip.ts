@@ -11,19 +11,33 @@ export type ChipMemory = {
   uses: number; lastUsedAt: number | null; links: ChipLink[];
   /** The signs of the first values of its real embedding, as hex (null: no embedding — bits come from the text's hash). */
   sig: string | null; sensitive: boolean; entities: string[];
+  /** When it was forgotten (archived): it lives in the ARQUIVO nucleus from then on (restoring brings it back). */
+  archivedAt?: number | null;
 };
 export type ChipCategory = { id: string; label: string };
-export type ChipSnapshot = { memories: ChipMemory[]; categories: ChipCategory[]; recallsToday: number };
+/** An answer that used or wrote memory: what was asked, what it used (in order) and wrote; scores when measured live. */
+export type ChipRecall = { id: string; at: number; query: string; used: string[]; created: string[]; scores?: Record<string, number>; scanned?: { id: string; score: number }[] };
+export type ChipSnapshot = {
+  memories: ChipMemory[]; categories: ChipCategory[]; recallsToday: number;
+  /** The answers that used memory, newest first (the timeline and the replays go through them). */
+  history?: ChipRecall[];
+  /** How many archived memories there are in all (the ARQUIVO nucleus shows the newest). */
+  forgottenTotal?: number;
+};
+/** The nucleus that holds what was forgotten (archived memories). */
+export const ARCHIVE = "__arquivo";
 export type ChipEvent =
   | { type: "memory.created"; memory: ChipMemory }
   | { type: "memory.updated"; id: string; text?: string; category?: string; mergedFrom?: string[] }
-  | { type: "memory.deleted"; id: string; reason: "user" | "decay" | "merge" }
-  | { type: "recall.started"; requestId: string; query: string }
+  /** archived: it goes to the ARQUIVO nucleus (it can be restored); otherwise it is gone for good. */
+  | { type: "memory.deleted"; id: string; reason: "user" | "decay" | "merge"; archived?: boolean }
+  /** replay: a past answer played again (it changes no counter). */
+  | { type: "recall.started"; requestId: string; query: string; replay?: boolean }
   /** Every candidate the search scored (a faint glow); recalled ones go into the answer's context. */
   | { type: "memory.scanned"; requestId: string; id: string; score: number }
   | { type: "memory.recalled"; requestId: string; id: string; score: number; rank: number; chunk?: string }
   | { type: "recall.finished"; requestId: string; usedIds: string[] }
-  | { type: "response.done"; requestId: string; tokensUsed?: number; memoriesUsed: string[] }
+  | { type: "response.done"; requestId: string; tokensUsed?: number; memoriesUsed: string[]; created?: string[]; replay?: boolean }
   /** The Zeladora (the memory's keeper) reading a memory. */
   | { type: "keeper.read"; id: string }
   /** The whole state again (after a reconnection, or when a new memory needs its nucleus and fingerprint). */
@@ -34,7 +48,9 @@ export interface ChipSource {
   mock: boolean;
   snapshot(): Promise<ChipSnapshot>;
   subscribe(onEvent: (e: ChipEvent) => void, onState?: (live: boolean) => void): () => void;
-  actions?: { edit?: (id: string, text: string) => Promise<void>; forget?: (id: string) => Promise<void> };
+  actions?: { edit?: (id: string, text: string) => Promise<void>; forget?: (id: string) => Promise<void>; restore?: (id: string) => Promise<void> };
+  /** The real cosine of two memories' embeddings (null when one has none). */
+  similarity?: (a: string, b: string) => Promise<number | null>;
   /** Send the whole state again now (a "snapshot" event, quiet): the view around the chip changed. */
   resync?: () => void;
 }
@@ -126,7 +142,7 @@ export function layoutChip(categories: ChipCategory[], slots: Map<string, (strin
     let x = -w / 2;
     for (const it of row) {
       if (it === "core") { core = { x, y: y + (h - CORE) / 2, w: CORE, h: CORE }; x += CORE + GAP; continue; }
-      nuclei.push({ id: it.c.id, label: it.c.label, index: it.index, color: categoryColor(it.index), x, y: y + (h - it.h) / 2, w: it.w, h: it.h, banks: it.banks, bankCols: it.cols, slots: slots.get(it.c.id) || [], bus: [] });
+      nuclei.push({ id: it.c.id, label: it.c.label, index: it.index, color: it.c.id === ARCHIVE ? "#ff8a7a" : categoryColor(it.index), x, y: y + (h - it.h) / 2, w: it.w, h: it.h, banks: it.banks, bankCols: it.cols, slots: slots.get(it.c.id) || [], bus: [] });
       x += it.w + GAP;
     }
     rowBoxes.push({ y, h }); y += h + GAP;
@@ -245,4 +261,43 @@ export function layerAlpha(z: number, i: number, half = 0.07): number {
   const lo = L.from > 0 ? s((lz - Math.log10(L.from) + half) / (2 * half)) : 1;
   const hi = Number.isFinite(L.to) ? s((Math.log10(L.to) + half - lz) / (2 * half)) : 1;
   return lo * hi;
+}
+
+// ---------- time, heat, comparison ----------
+/** A memory at moment t of the timeline: not written yet, alive, or already forgotten. */
+export function lifeAt(m: Pick<ChipMemory, "createdAt" | "archivedAt">, t: number | null): "unborn" | "alive" | "fossil" {
+  const archived = m.archivedAt ?? null;
+  if (t === null) return archived !== null ? "fossil" : "alive";
+  if (m.createdAt > t) return "unborn";
+  return archived !== null && archived <= t ? "fossil" : "alive";
+}
+
+/** How hot a memory is (0–1): its real uses and how recently it was used, half and half. */
+export function heatOf(m: Pick<ChipMemory, "uses" | "lastUsedAt" | "createdAt">, now = Date.now()): number {
+  const since = Math.max(0, now - (m.lastUsedAt ?? m.createdAt)) / 86_400_000;
+  return Math.min(1, 0.5 * (1 - Math.exp(-m.uses / 4)) + 0.5 * (m.lastUsedAt ? Math.pow(0.5, since / 14) : 0));
+}
+/** The heat scale: cold silicon → copper → gold → white hot. */
+export function heatColor(h: number): string {
+  const stops: [number, [number, number, number]][] = [[0, [16, 40, 32]], [0.35, [184, 116, 62]], [0.7, [226, 184, 92]], [1, [255, 246, 214]]];
+  let i = 0; while (i < stops.length - 2 && h > stops[i + 1][0]) i += 1;
+  const [a, ca] = stops[i], [b, cb] = stops[i + 1], u = Math.max(0, Math.min(1, (h - a) / (b - a)));
+  return `#${ca.map((x, k) => Math.round(x + (cb[k] - x) * u).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Two memories' bits side by side: where their embeddings' signs agree, and the share that agrees. */
+export function compareBits(a: Uint8Array, b: Uint8Array): { agree: Uint8Array; share: number } {
+  const agree = new Uint8Array(Math.min(a.length, b.length));
+  let n = 0;
+  for (let i = 0; i < agree.length; i += 1) { agree[i] = a[i] === b[i] ? 1 : 0; n += agree[i]; }
+  return { agree, share: agree.length ? n / agree.length : 0 };
+}
+
+/** The births per bucket over [t0, t1] (the timeline's histogram), and where answers and forgettings fall. */
+export function timelineBuckets(memories: Pick<ChipMemory, "createdAt" | "archivedAt">[], history: Pick<ChipRecall, "at">[], t0: number, t1: number, n = 120) {
+  const born = new Array(n).fill(0), gone = new Array(n).fill(0), asked = new Array(n).fill(0);
+  const at = (t: number) => Math.max(0, Math.min(n - 1, Math.floor(((t - t0) / Math.max(1, t1 - t0)) * n)));
+  for (const m of memories) { born[at(m.createdAt)] += 1; if (m.archivedAt) gone[at(m.archivedAt)] += 1; }
+  for (const r of history) asked[at(r.at)] += 1;
+  return { born, gone, asked };
 }

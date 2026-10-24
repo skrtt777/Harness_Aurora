@@ -109,3 +109,16 @@ test("signature: the signs of the first dimensions of the embedding, as hex (the
   assert.equal(sig.slice(0, 3), "924");
   assert.equal(signature([]), "0".repeat(SIG_BITS / 4));
 });
+
+test("similarity: the real cosine of two stored embeddings, null without one", async () => {
+  const { memorySimilarity } = await import("../app/memoryAtlas.js");
+  const db = await getDb();
+  const model = resolveEmbeddingModel(process.env);
+  const a = await store.createMemory({ scope: "global", title: "sim a", content: "a", kind: "manual", env: { EMBEDDINGS_ENABLED: "false" } });
+  const b = await store.createMemory({ scope: "global", title: "sim b", content: "b", kind: "manual", env: { EMBEDDINGS_ENABLED: "false" } });
+  const c = await store.createMemory({ scope: "global", title: "sim c", content: "c", kind: "manual", env: { EMBEDDINGS_ENABLED: "false" } });
+  db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?").run(encodeEmbedding([1, 0, 0]), model, a.id);
+  db.prepare("UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?").run(encodeEmbedding([1, 1, 0]), model, b.id);
+  assert.equal((await memorySimilarity(a.id, b.id)).similarity, 0.707);
+  assert.equal((await memorySimilarity(a.id, c.id)).similarity, null);
+});

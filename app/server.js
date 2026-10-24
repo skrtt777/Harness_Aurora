@@ -37,7 +37,7 @@ import { AGENT_MODES } from "./agentPolicy.js";
 import { cancelEvalRun, evalStatus, listEvalRuns, startEvalRun } from "./agentEvalRuns.js";
 import { createSource, deleteSource, knowledgeMap, listSources, startIndexing, updateSource } from "./knowledge.js";
 import { decideSuggestion, listSuggestions, reviewSourceCards } from "./knowledgeReview.js";
-import { memoryAtlas } from "./memoryAtlas.js";
+import { memoryAtlas, memorySimilarity } from "./memoryAtlas.js";
 import { systemVitals } from "./systemVitals.js";
 import { recallProbe, recentRecalls } from "./memoryRecall.js";
 import { ACTION_TOOLS, TEACHER_MODES } from "./teacher.js";
@@ -960,7 +960,8 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Memories ----------
       if (method === "POST" && pathname === "/api/memories/import") return sendJson(response, 200, await importMemories(await readJson(request)));
-      if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
+      if (method === "GET" && pathname === "/api/memories/similarity") return sendJson(response, 200, await memorySimilarity(String(url.searchParams.get("a") || ""), String(url.searchParams.get("b") || "")));
+    if (method === "GET" && pathname === "/api/memories/atlas") return sendJson(response, 200, await memoryAtlas());
       // ---------- Mapa Vivo de Memórias (app/memoryGraph.js, app/memoryEvents.js) ----------
       if (method === "GET" && pathname === "/api/memories/graph") return sendJson(response, 200, { ...(await memoryGraphSnapshot()), keeper: await keeperState(), speed: modelSpeedState() });
       // A Zeladora (app/memoryKeeper.js): where she is, what she did; on/off; undo a join; dismiss a flag.

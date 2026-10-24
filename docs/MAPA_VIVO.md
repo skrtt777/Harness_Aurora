@@ -460,3 +460,36 @@ Novidades no chip:
 - **Brilho real** (blur) nas células sendo lembradas.
 - **Teclado**: Enter desce um nível, Esc sobe, + e − aproximam e afastam, as setas movem.
 - **Mudança de modo**: ao trocar o modo, o chip volta à vista inteira.
+
+### Tempo, replays, calor, comparação, arquivo e som (24/10)
+
+Tudo vem da memória real.
+
+- **Linha do tempo** (`ChipTimeline.tsx`). Vai do primeiro registro até agora.
+  - Cada barra mostra as memórias gravadas naquele trecho. Os traços dourados são respostas que usaram memória, e os vermelhos são esquecimentos.
+  - Ao arrastar para um momento do passado:
+    - as memórias que ainda não existiam viram slot vazio;
+    - as esquecidas voltam a estar vivas até o dia em que foram arquivadas;
+    - os contadores mostram quantas memórias estavam vivas naquele momento.
+  - O ▶ toca a história em 30 s. Cada resposta do passado acende, na hora em que aconteceu, as memórias que usou.
+- **Respostas com memória.** O painel lista as respostas a partir de `recalls`. O servidor agora manda as últimas 300, e as respostas vistas ao vivo vêm com os scores e as candidatas.
+  - O ▶ repete a resposta em 4 passos: pergunta, candidatas, memórias no contexto e resposta, com legenda.
+  - Nas respostas antigas o score não foi registrado, então aparece "—".
+- **Calor de uso.** Cada célula é pintada pelo uso real: 50% vem dos usos (1 − e^(−usos/4)) e 50% da recência (meia-vida de 14 dias).
+- **Comparar** (`ChipCompare.tsx`). Abra uma memória, clique em "comparar" e escolha outra célula. O painel mostra:
+  - os bits de A e de B;
+  - onde os sinais concordam e a fração que concorda;
+  - a similaridade real, que é o cosseno dos embeddings, obtida em `GET /api/memories/similarity` (`memorySimilarity` em `app/memoryAtlas.js`);
+  - se as duas são vizinhas no atlas;
+  - os fragmentos em comum.
+- **Arquivo.** Um núcleo novo, "arquivo · esquecidas", mostra as 180 memórias arquivadas mais recentes. Elas vêm de `forgotten` em `/api/memories/graph`, com a data do arquivamento.
+  - O que é esquecido ao vivo dissolve no lugar onde estava e vai para o arquivo como um pacote vermelho.
+  - Pelo cartão da memória arquivada dá para restaurá-la.
+  - Uma memória arquivada não tem mais assinatura, e os níveis 4 e 6 dizem isso.
+- **Som** (`chipSound.ts`, desligado por padrão). Cada som corresponde a um evento:
+  - lembrar: um sino, mais agudo quanto maior o score;
+  - gravar: duas notas subindo;
+  - esquecer: uma nota descendo;
+  - responder: um acorde com uma voz por memória usada;
+  - a Zeladora lendo: um tique.
+- **Núcleo de inferência.** Ganha um anel por resposta com memória feita hoje, até 8.
