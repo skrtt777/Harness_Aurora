@@ -114,15 +114,26 @@ export function extremeMismatch(answer, found) {
  * (ladder D10, 24/10). Returns "invented" (values not in the request, nothing read), "asked" (asks the person
  * for data without having looked) or null.
  */
-export function unreadPersonalData(answer, request, steps = []) {
+const brValue = (token) => {
+  const t = String(token).replace(/^R\$\s*/, "").trim();
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) return Number(t.replace(/\./g, "").replace(",", "."));
+  if (/^\d+,\d+$/.test(t)) return Number(t.replace(",", "."));
+  return Number(t);
+};
+export function unreadPersonalData(answer, request, steps = [], context = "") {
   const looked = steps.some((s) => s.ok && /^(read_file|search_files|list_dir|bills_table|grep|knowledge_search|computer_map|web_search|web_fetch)$/.test(s.tool));
-  if (looked) return null;
+  // Read now, or a file written from what the person gave: not from nowhere.
+  if (looked || steps.some((s) => s.ok && /^(write_document|write_file|edit_file)$/.test(s.tool))) return null;
   const asks = fold(request);
-  if (!/\b(minha|meu|minhas|meus|aquel[ae]|planilha|arquivo|extrato|boleto|conta[s]? de|gastos?|gastei|churras\w*|lista|anotei|salvei|baixei)\b/.test(asks)) return null;
-  const said = new Set((String(request).match(/\d+(?:[.,]\d+)*/g) || []).map((n) => n.replace(/\D/g, "")));
-  const values = (String(answer).match(/R\$\s?\d[\d.]*(?:,\d{2})?|\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || []).filter((n) => !said.has(n.replace(/\D/g, "")));
+  if (!/\b(minha|meu|minhas|meus|aquel[ae]|planilha|arquivo|extrato|boleto|conta[s]? de|gastos?|gastei|churras\w*|lista|anotei|salvei|baixei|condominio|aluguel|fatura)\b/.test(asks)) return null;
+  // Compared by value ("1800" asked, "R$ 1.800,00" answered), with what the conversation already read and
+  // the sum of the person's own numbers (regression 24/10: both were taken for inventions).
+  const known = (String(request) + "\n" + String(context)).match(/\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/g) || [];
+  const mine = (String(request).match(/\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/g) || []).map(brValue).filter(Number.isFinite);
+  const allowed = [...known.map(brValue), mine.reduce((a, b) => a + b, 0)].filter(Number.isFinite);
+  const values = (String(answer).match(/R\$\s?\d[\d.]*(?:,\d{2})?|\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || []).map(brValue).filter((v) => Number.isFinite(v) && !allowed.some((a) => Math.abs(a - v) < 0.006));
   if (values.length) return "invented";
-  if (/\?/.test(answer) && /\b(voce tem|tem acesso|me (passa|manda|envia|diz|informe)|preciso (saber|que voce)|qual (e|o) (o )?(valor|total)|onde (esta|fica))\b/.test(fold(answer))) return "asked";
+  if (/\?/.test(answer) && /\b(voce (tem|possui)|tem acesso|me (passa|manda|envia|diz|informe)|preciso (saber|que voce|verificar se)|que eu possa (consultar|ler|ver)|qual (e|o) (o )?(valor|total)|onde (esta|fica))\b/.test(fold(answer))) return "asked";
   return null;
 }
 

@@ -524,7 +524,7 @@ export async function runChatAgent({
       continue;
     }
     // The person's data answered without reading it (values from nowhere, or asking for what is in the files).
-    const unread = !toolCalls.length && !unreadChecked && offered.some((t) => t.name === "search_files") ? unreadPersonalData(text, question, steps) : null;
+    const unread = !toolCalls.length && !unreadChecked && offered.some((t) => t.name === "search_files") ? unreadPersonalData(text, question, steps, contextText(messages)) : null;
     if (unread) {
       unreadChecked = true;
       checks.push({ check: unread === "invented" ? "unread_values" : "asked_before_looking" });

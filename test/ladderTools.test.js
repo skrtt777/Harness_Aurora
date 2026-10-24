@@ -91,10 +91,15 @@ test("search_files looks INSIDE the person's files when no name has it, typos to
   assert.match(await search.run({ pattern: "paulo" }, ctxOf(f, "telefone do paulo")), /anotacao_3\.txt: Paulo/);
 });
 
-test("guards: the other end of a sorted read, a month typed wrong", () => {
+test("guards: the other end of a sorted read, a month typed wrong, the person's data not read", async () => {
   const found = [{ side: "menor", column: "Valor", label: "Detergente", value: "2.5" }];
   assert.ok(extremeMismatch("O mais em conta é o Leite (caixa), R$ 52,13.", found));
   assert.equal(extremeMismatch("O mais barato é o Detergente, R$ 2,50.", found), null);
   assert.match(monthTypoNote("qnto foi lazer em stembro"), /"stembro" = setembro/);
+  const { unreadPersonalData } = await import("../app/codeGuards.js");
+  assert.equal(unreadPersonalData("Total R$ 3.540,00 (aluguel R$ 1.800,00)", "faz uma planilha com meus gastos: aluguel 1800, luz 230, internet 120, mercado 850, condominio 540"), null, "the person's own numbers and their sum");
+  assert.equal(unreadPersonalData("sobra R$ 1.161,65", "sobra quanto da minha conta?", [], "saldo R$ 1.932,10; luz R$ 230,45; condomínio R$ 540,00; 1.161,65"), null, "read earlier in the conversation");
+  assert.equal(unreadPersonalData("Dividindo R$ 500,00 por 45 pessoas, R$ 11,11 cada.", "divide o churrasco de sábado pela galera"), "invented");
+  assert.equal(unreadPersonalData("Você possui alguma conta de condomínio que eu possa consultar?", "qual o valor do condominio de setembro?"), "asked");
   assert.equal(monthTypoNote("junto de outro arquivo"), "");
 });
