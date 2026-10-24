@@ -602,11 +602,24 @@ export function shareNote(lines, request) {
   return out.length ? `\n(Participação de cada linha no total, calculada pela ferramenta: ${out.slice(0, 3).join(" | ")}. Use estes percentuais.)` : "";
 }
 
-export function columnSums(lines) {
+// "Pessoas | 8" under the items of a churrasco sheet is how many share it, not an item: it went into the sum
+// (443,85 for 435,85) and the split per person came out wrong (ladder D10, 24/10).
+const HEADCOUNT_ROW = /^(pessoas|participantes|convidados|n[uú]mero de pessoas|qtd\.? (de )?pessoas|quantidade de pessoas|dividir por|divis[aã]o)$/i;
+
+export function columnSums(lines, request = "") {
   const out = [];
+  let split = "";
   for (const s of parseSheets(lines).filter((x) => x.header)) {
     const names = s.header.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((n) => n.trim());
-    const rows = s.rows.map((r) => r.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1);
+    const all = s.rows.map((r) => r.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1);
+    const heads = all.filter((c) => HEADCOUNT_ROW.test(c[0]) && cellValue(c[1] || "") !== null);
+    const rows = all.filter((c) => !heads.includes(c));
+    if (heads.length) {
+      const people = cellValue(heads[0][1]);
+      const j = names.findIndex((n, k) => k > 0 && rows.length && rows.every((c) => cellValue(c[k] || "") !== null));
+      const total = j > 0 ? rows.reduce((a, c) => a + cellValue(c[j]), 0) : null;
+      if (total !== null && people > 0) split = `\n(${heads[0][0]}: ${brNumber(people)} — não é um item, ficou fora da soma. Total dos itens: ${brNumber(total)}${/\b(por pessoa|cada um|divid|divide|rachar|parte de cada)/i.test(foldText(request)) ? `; por pessoa: ${brNumber(Math.round((total / people) * 100) / 100)}` : ""}. Use estes números.)`;
+    }
     if (!rows.length || rows.length > 2000 || rows.some((c) => c.some((x) => /^total\b/i.test(x)))) continue;
     const label = names.findIndex((n, j) => !ID_COLUMN.test(n) && rows.every((c) => cellValue(c[j] || "") === null));
     const parts = [];
@@ -621,7 +634,7 @@ export function columnSums(lines) {
     });
     if (parts.length) out.push(`${s.name.replace(/^##\s*/, "") || "Tabela"}, ${rows.length} linhas: ${parts.slice(0, 6).join("; ")}`);
   }
-  return out.length ? `\n(Contas prontas, feitas pela ferramenta sobre todas as linhas: ${out.slice(0, 2).join(" | ")}. Use estes números; não some de cabeça.)` : "";
+  return (out.length ? `\n(Contas prontas, feitas pela ferramenta sobre todas as linhas: ${out.slice(0, 2).join(" | ")}. Use estes números; não some de cabeça.)` : "") + split;
 }
 
 export function totalRowsNote(lines) {
@@ -1777,7 +1790,7 @@ export const fileTools = [
         // "Como está o budget esse ano?" got every area and no total (empresa eval controladoria-1):
         // the sheet's TOTAL row, with its column names, goes first.
         const own = totalRowsNote(table);
-        const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|maior|menor|m[eé]dia|ranking|porcentagem|percentual|propor[cç][aã]o|fatia|participa[cç][aã]o|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table) : "";
+        const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|quanto (deu|da|foi|fica)|gastei|por pessoa|cada um|divid\w*|divide|maior|menor|m[eé]dia|ranking|porcentagem|percentual|propor[cç][aã]o|fatia|participa[cç][aã]o|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table, ctx.request) : "";
         ready = own + ready + sums + shareNote(table, ctx.request) + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request);
         ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table }].slice(-4);
       }

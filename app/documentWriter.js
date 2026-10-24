@@ -148,8 +148,20 @@ export function cellNumber(value) {
 function checkTable(rows, name) {
   if (rows.length < 2) throw new Error(`A tabela "${name}" só tem o cabeçalho: grave as linhas de dados abaixo dele.`);
   const width = rows[0].length;
-  const bad = rows.findIndex((r) => r.length !== width);
-  if (bad > 0) throw new Error(`A tabela "${name}" tem ${width} colunas no cabeçalho, mas a linha ${bad + 1} tem ${rows[bad].length}: cada linha com uma célula por coluna (uma planilha assim chega quebrada no Power BI).`);
+  // A stray row with cells missing or over is mended, not refused: refused, the small model rewrote the same
+  // table 8 times and gave up without the file (ladder D10, 24/10). Missing cells are left empty; extra ones
+  // join the last column (trailing empty ones are dropped). When most rows are off, the columns are shifted
+  // (8 in the header, 7 in every row): that is refused, padding would put values under the wrong column.
+  const trimmed = (r) => { let n = r.length; while (n > width && String(r[n - 1] ?? "").trim() === "") n -= 1; return n; };
+  const bad = rows.slice(1).filter((r) => trimmed(r) !== width).length;
+  const first = rows.findIndex((r, i) => i > 0 && trimmed(r) !== width);
+  if (bad && rows.length > 2 && bad * 2 >= rows.length - 1) throw new Error(`A tabela "${name}" tem ${width} colunas no cabeçalho, mas a linha ${first + 1} tem ${rows[first].length}: cada linha com uma célula por coluna (uma planilha assim chega quebrada no Power BI).`);
+  for (let i = 1; i < rows.length; i += 1) {
+    const r = rows[i];
+    while (r.length > width && String(r[r.length - 1] ?? "").trim() === "") r.pop();
+    if (r.length > width) r.splice(width - 1, r.length - width + 1, r.slice(width - 1).join(" "));
+    while (r.length < width) r.push("");
+  }
 }
 async function makeSheet(blocks) {
   const { makeXlsx } = await import("./sampleDocs.js");

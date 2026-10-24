@@ -1,5 +1,5 @@
 import { BASE_TOOLS } from "./toolRouter.js";
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch, extremeMismatch } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch, extremeMismatch, unreadPersonalData } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
 const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
@@ -312,6 +312,7 @@ export async function runChatAgent({
   let nudged = false;
   let citationChecked = false;
   let inventionChecked = false;
+  let unreadChecked = false;
   let groundingNudged = false;
   // Answers sent back by a guard, with what triggered it (telemetry and the battery).
   const checks = [];
@@ -520,6 +521,14 @@ export async function runChatAgent({
       orderChecked = true;
       checks.push({ check: "order_mismatch" });
       messages.push({ role: "assistant", content: text }, { role: "user", content: `A ordem da sua lista não é a que a ferramenta deu. A ordem certa é: ${wrongOrder.join(", ")}. Responda de novo com os itens exatamente nessa ordem, com os mesmos números da leitura.` });
+      continue;
+    }
+    // The person's data answered without reading it (values from nowhere, or asking for what is in the files).
+    const unread = !toolCalls.length && !unreadChecked && offered.some((t) => t.name === "search_files") ? unreadPersonalData(text, question, steps) : null;
+    if (unread) {
+      unreadChecked = true;
+      checks.push({ check: unread === "invented" ? "unread_values" : "asked_before_looking" });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: unread === "invented" ? "Você deu valores sem ler nenhum arquivo: eles não estão no pedido e nenhuma ferramenta os trouxe. Procure os dados da pessoa (search_files com uma palavra do pedido; contas e boletos: bills_table), leia e faça a conta com calculate. Só depois responda, com os números lidos." : "Antes de pedir à pessoa, procure nos arquivos dela: search_files com uma palavra do pedido (ex.: o nome da planilha ou do assunto) e leia o que achar. Pergunte só se não houver nada." });
       continue;
     }
     // The tool found the cheapest, the answer named the most expensive: the tool's row.

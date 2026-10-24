@@ -8,6 +8,7 @@ import { extractText } from "../docText.js";
 import { expandPath, namedFolder, resolveExisting } from "./files.js";
 
 const READABLE = new Set([".pdf", ".docx", ".txt", ".md", ".html", ".htm"]);
+const STATEMENT = /extrato|movimenta/i;
 const MAX_FILES = 80;
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const brl = (v) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -36,12 +37,29 @@ export function parseDay(text, { month, year }) {
   return new Date(y, (m[2] ? Number(m[2]) : month) - 1, Number(m[1]));
 }
 
+/**
+ * "Já paguei os boletos? Vê pelo extrato": each bill looked up in the statements of the folder (a line with
+ * the company and a payment). The model listed the statement and never crossed it (ladder D10, 24/10).
+ */
+export function paidIn(bill, statements) {
+  const key = fold(bill.name).split(/\s+-\s+|\s+/).filter((w) => w.length >= 3 && !/^(conta|boleto|fatura|de|da|do)$/.test(w)).slice(0, 2);
+  if (!key.length) return null;
+  for (const line of statements) {
+    const l = fold(line);
+    if (key.every((w) => l.includes(w)) && /pag|debito automatico|quitad/.test(l)) {
+      const d = line.match(/(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?/);
+      return d ? `${pad(Number(d[1]))}/${pad(Number(d[2]))}` : "sim";
+    }
+  }
+  return null;
+}
+
 async function filesIn(dir, depth = 0, out = []) {
   for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (out.length >= MAX_FILES) break;
     const path = join(dir, e.name);
     if (e.isDirectory() && depth < 2 && !e.name.startsWith(".")) await filesIn(path, depth + 1, out);
-    else if (e.isFile() && READABLE.has(extname(e.name).toLowerCase())) out.push(path);
+    else if (e.isFile() && (READABLE.has(extname(e.name).toLowerCase()) || (STATEMENT.test(e.name) && /\.(csv|xlsx|tsv)$/i.test(e.name)))) out.push(path);
   }
   return out;
 }
@@ -49,15 +67,16 @@ async function filesIn(dir, depth = 0, out = []) {
 export const billTools = [
   {
     name: "bills_table",
-    description: "Lê de uma vez TODAS as contas/boletos/faturas de uma pasta (PDF, Word, texto) e devolve uma tabela pronta: conta, valor, vencimento e arquivo, em ordem de vencimento, com o total, a que vence primeiro e a mais cara. Use para \"quais contas eu tenho\", \"qual vence primeiro\", \"quanto dá tudo\", \"as contas que vencem até dia X\" — em vez de ler arquivo por arquivo e comparar datas de cabeça. Filtros opcionais: vence_ate e vence_depois (dia, dd/mm ou dd/mm/aaaa).",
+    description: "Lê de uma vez TODAS as contas/boletos/faturas de uma pasta (PDF, Word, texto) e devolve uma tabela pronta: conta, valor, vencimento e arquivo, em ordem de vencimento, com o total, a que vence primeiro e a mais cara. Se houver um extrato na pasta, diz quais aparecem pagas nele e quais faltam (\"já paguei?\"). Use para \"quais contas eu tenho\", \"qual vence primeiro\", \"quanto dá tudo\", \"as contas que vencem até dia X\" — em vez de ler arquivo por arquivo e comparar datas de cabeça. Filtros opcionais: vence_ate e vence_depois (dia, dd/mm ou dd/mm/aaaa).",
     parameters: { type: "object", properties: { path: { type: "string", description: "A pasta (ex.: Downloads, Documentos/Contas)" }, vence_ate: { type: "string", description: "Só as que vencem até esta data (inclusive)" }, vence_depois: { type: "string", description: "Só as que vencem depois desta data" } }, required: ["path"] },
     stage: (a) => `Lendo as contas de ${a.path}…`,
     describe: (a, ctx) => ({ kind: "read", paths: [expandPath(a.path || ".", ctx.knownFolders, ctx.workspace)] }),
     async run({ path, vence_ate: until, vence_depois: after }, ctx) {
       const dir = await resolveExisting(namedFolder(path || ".", ctx), ctx, { directory: true });
-      const bills = [], skipped = [];
+      const bills = [], skipped = [], statements = [];
       for (const file of await filesIn(dir)) {
         const text = await extractText(file).catch(() => "");
+        if (STATEMENT.test(basename(file))) { statements.push(...String(text).split(/\r?\n/)); continue; }
         const bill = parseBill(text, file);
         if (bill) bills.push({ ...bill, file: relative(dir, file) || basename(file) });
         else if (/boleto|fatura|conta/i.test(basename(file))) skipped.push(basename(file));
@@ -77,11 +96,16 @@ export const billTools = [
       const total = Math.round(chosen.reduce((a, b) => a + b.value, 0) * 100) / 100;
       const filterText = [untilDate && `até ${pad(untilDate.getDate())}/${pad(untilDate.getMonth() + 1)}`, afterDate && `depois de ${pad(afterDate.getDate())}/${pad(afterDate.getMonth() + 1)}`].filter(Boolean).join(" e ");
       const top = [...chosen].sort((a, b) => b.value - a.value)[0];
+      // With a statement in the folder, whether each one shows up paid in it.
+      const crossed = statements.length > 0;
+      const paid = (b) => paidIn(b, statements);
+      const open = chosen.filter((b) => !paid(b));
       return [
         `Contas em ${dir}${filterText ? ` que vencem ${filterText}` : ""}: ${chosen.length}${filterText ? ` de ${bills.length}` : ""}.`,
         "",
-        "| Conta | Valor | Vencimento | Arquivo |", "|---|---|---|---|",
-        ...chosen.map((b) => `| ${b.name} | ${brl(b.value)} | ${date(b)} | ${b.file} |`),
+        crossed ? "| Conta | Valor | Vencimento | Situação no extrato | Arquivo |" : "| Conta | Valor | Vencimento | Arquivo |", crossed ? "|---|---|---|---|---|" : "|---|---|---|---|",
+        ...chosen.map((b) => (crossed ? `| ${b.name} | ${brl(b.value)} | ${date(b)} | ${paid(b) ? `paga (${paid(b)})` : "NÃO aparece paga"} | ${b.file} |` : `| ${b.name} | ${brl(b.value)} | ${date(b)} | ${b.file} |`)),
+        crossed ? `\nPelo extrato: ${open.length ? `faltam pagar ${open.length} — ${open.map((b) => `${b.name} (${brl(b.value)})`).join("; ")}` : "todas aparecem pagas"}.` : "",
         "",
         `Total: ${brl(total)}.${chosen[0]?.due ? ` Vence primeiro: ${chosen[0].name} (${date(chosen[0])}).` : ""}${top ? ` Mais cara: ${top.name} (${brl(top.value)}).` : ""}`,
         left.length ? `Fora do filtro — NÃO ponha estas na resposta nem no documento: ${left.map((b) => `${b.name} (${date(b)})`).join("; ")}.` : "",
