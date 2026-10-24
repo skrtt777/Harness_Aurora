@@ -696,6 +696,11 @@ export const rehireAgent = (agentId: string) => request<HrSnapshot>("/hr/rehire"
 export type ApiEnginePreset = { kind: "anthropic" | "openai"; label: string; baseUrl?: string; model?: string; models?: string[] };
 export type ApiEngine = { id: string; label: string; kind: "anthropic" | "openai"; baseUrl: string; model: string; hasKey: boolean; keyHint: string };
 export type EngineState = { label: string; api: boolean; installed: boolean; limitedUntil: number | null; reason: string | null; probe?: { ok: boolean; at: number; reason: string | null } | null };
+/** Installing Hermes / OpenClaw from Configurações, and opening their own setup wizard. */
+export type InstallJob = { jobId: string; id: string; label: string; state: "instalando" | "instalado" | "falhou"; lines: string[]; startedAt: number; endedAt: number | null; code: number | null };
+export const installEngine = (id: string) => request<InstallJob>(`/engines/${id}/install`, { method: "POST", body: "{}" });
+export const installProgress = (jobId: string) => request<InstallJob>(`/engines/install/${jobId}`);
+export const openEngineSetup = (id: string) => request<{ ok: boolean; command: string }>(`/engines/${id}/setup`, { method: "POST", body: "{}" });
 /** Each strong engine tried for real: one (id), or the ones not tested today. */
 export const probeEngines = (id?: string) => request<{ status: Record<string, EngineState> }>("/engines/probe", { method: "POST", body: JSON.stringify(id ? { id } : {}) }).then((r) => r.status);
 export const listApiEngines = () => request<{ engines: ApiEngine[]; presets: Record<string, ApiEnginePreset>; status: Record<string, EngineState> }>("/engines");

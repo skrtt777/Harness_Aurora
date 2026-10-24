@@ -2497,3 +2497,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .engine-health li.ok i { color: #4cd38a; } .engine-health li.bad i { color: #ff7a6b; } .engine-health li.off { opacity: .6; }
 .engine-health-tip { margin: 0; padding: 8px 10px; border-radius: 8px; background: rgba(255, 200, 80, .08); font-size: 13px; line-height: 1.45; }
 .engine-health.compact { margin: 6px 0 0; }
+.engine-health-log { display: block; margin-top: 2px; color: var(--muted, #8b95a3); font-size: 12px; }
+.engine-health-log.bad { color: #ff7a6b; }

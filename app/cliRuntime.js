@@ -45,6 +45,13 @@ export function resolveCli(provider, env = process.env) {
       candidates.push(join(directory, "node_modules", NPM_ENTRY[provider] || NPM_ENTRY.claude));
     }
   }
+  // Installed from Configurações a moment ago, the PATH of this process does not have it yet: where the
+  // official installers put them.
+  if (process.platform === "win32" && configured === provider) {
+    const local = env.LOCALAPPDATA || process.env.LOCALAPPDATA || "", roaming = env.APPDATA || process.env.APPDATA || "";
+    if (provider === "hermes" && local) candidates.push(join(local, "hermes", "bin", "hermes.exe"));
+    if (provider === "openclaw" && roaming) candidates.push(join(roaming, "npm", "node_modules", "openclaw", "openclaw.mjs"));
+  }
   const found = candidates.find(existsSync);
   if (found?.endsWith(".js") || found?.endsWith(".mjs")) return { command: process.execPath, prefix: [found], installed: true, runAsNode: true };
   if (found && !/\.cmd$/i.test(found)) return { command: found, prefix: [], installed: true };

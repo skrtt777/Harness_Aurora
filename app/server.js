@@ -62,6 +62,7 @@ import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skillCatalog.js";
 import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
 import { engineStatus, probeEngine, probeStaleEngines, refreshApiEngines } from "./engine.js";
+import { installJob, openSetup, startInstall } from "./harnessInstall.js";
 import { listEgress, secretTerms } from "./blind.js";
 import { memoryGraphSnapshot } from "./memoryGraph.js";
 import { modelSpeedState } from "./modelSpeed.js";
@@ -255,7 +256,12 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Engines by API key (app/apiEngines.js) ----------
       // The keys stay in the local database; the screen only sees "…1234".
-      // Does each strong engine really answer? One (id), or the ones not tested today (stale): a tiny task each.
+      // Hermes / OpenClaw from Configurações: install (official installer, polled), and their own setup wizard.
+    const installMatch = pathname.match(/^\/api\/engines\/(hermes|openclaw)\/(install|setup)$/);
+    if (method === "POST" && installMatch) return sendJson(response, 200, installMatch[2] === "install" ? startInstall(installMatch[1]) : openSetup(installMatch[1]));
+    const installJobMatch = pathname.match(/^\/api\/engines\/install\/([a-f0-9-]{36})$/);
+    if (method === "GET" && installJobMatch) { const job = installJob(installJobMatch[1]); return job ? sendJson(response, 200, job) : sendJson(response, 404, { error: "Instalação não encontrada." }); }
+    // Does each strong engine really answer? One (id), or the ones not tested today (stale): a tiny task each.
     if (method === "POST" && pathname === "/api/engines/probe") {
       const body = await readJson(request);
       if (body.id) await probeEngine(String(body.id));

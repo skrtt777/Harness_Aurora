@@ -88,12 +88,14 @@ const PROBE_SKIP_MS = 6 * 60 * 60 * 1000;
 async function readProbes() { try { return JSON.parse((await getSetting(PROBE_KEY)) || "{}") || {}; } catch { return {}; } }
 
 /** What to tell a person about an engine that did not answer: what happened and what to do, in one sentence. */
-export function plainReason(label, result = {}) {
+export function plainReason(label, result = {}, { setup = false } = {}) {
   const e = String(result.error || "");
+  // Hermes and OpenClaw have a "Configurar conta" button beside them (their own wizard).
+  const fix = setup ? "clique em Configurar conta" : null;
   if (result.status === 503 && /não encontrado|ENOENT/i.test(e)) return `O ${label} não está instalado neste computador.`;
-  if (/login|log in|not logged|auth|401|recusad|chave/i.test(e)) return `O ${label} precisa de uma conta: abra o ${label} uma vez e entre na sua conta (ou confira a chave).`;
+  if (/login|log in|not logged|auth|401|recusad|chave/i.test(e)) return `O ${label} precisa de uma conta: ${fix || `abra o ${label} uma vez`} e entre na sua conta (ou confira a chave).`;
   if (result.status === 429 || OUT_OF_LIMIT.test(e) || /crédit/i.test(e)) return `O ${label} está sem créditos ou no limite de uso agora.`;
-  if (/provedor|provider|conex|connection/i.test(e)) return `O ${label} está instalado, mas o modelo dele não responde: abra o ${label} e escolha um modelo que funcione.`;
+  if (/provedor|provider|conex|connection/i.test(e)) return `O ${label} está instalado, mas o modelo dele não responde: ${fix || `abra o ${label}`} e escolha um modelo que funcione.`;
   if (/demorou|timeout|killed/i.test(e)) return `O ${label} demorou demais para responder.`;
   return `O ${label} não respondeu (${e.slice(0, 120) || "sem detalhe"}).`;
 }
@@ -111,7 +113,7 @@ export async function probeEngine(id, { env = process.env, now = Date.now(), tim
   catch (error) { result = { ok: false, error: error.message }; }
   finally { try { rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } }
   const ok = Boolean(result?.ok && String(result.text || "").trim());
-  const probe = { ok, at: now, reason: ok ? null : plainReason(engine.label, result) };
+  const probe = { ok, at: now, reason: ok ? null : plainReason(engine.label, result, { setup: id === "hermes" || id === "openclaw" }) };
   const probes = await readProbes();
   probes[id] = probe;
   await setSetting(PROBE_KEY, JSON.stringify(probes));
