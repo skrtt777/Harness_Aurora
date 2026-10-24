@@ -17,6 +17,7 @@ test("a text to use is not saved as a file unless saving was asked", async () =>
   assert.equal(onlyTextAsked("Qual o total da planilha de gastos?"), false);
   assert.equal(onlyTextAsked("Quais pedidos atrasaram? faz um relatório"), false);
   assert.equal(onlyTextAsked("pode criar o painel?"), false);
+  assert.equal(onlyTextAsked("qual a melhor forma de separar meus arquivos? organiza pra mim"), false);
   const dir = mkdtempSync(join(tmpdir(), "aurora-textonly-"));
   const out = await executeTool("write_file", { path: "msg.txt", content: "Parabéns!" }, { mode: "auto", workspace: dir, workspaceRoots: [dir], approve: async () => true, env: process.env, request: "me ajuda a escrever uma msg de aniversario pra ana" });
   assert.equal(out.ok, false);

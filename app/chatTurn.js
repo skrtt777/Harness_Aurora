@@ -37,7 +37,7 @@ import { mapOverview } from "./computerMap.js";
 import { learnFromMessage, nameObservation, profileBlock } from "./profile.js";
 import { diaryBlock } from "./diary.js";
 import { mapEnabled } from "./agentTools/computer.js";
-import { onlyTextAsked, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
+import { onlyTextAsked, redactExcerpt, redactRestricted, resolveExisting, totalRowsNote } from "./agentTools/files.js";
 import { excelIsOpen, pptIsOpen, wordIsOpen } from "./agentTools/desktop.js";
 import { coworkApp } from "./desktop.js";
 import { connectedReport, modelNames } from "./powerbi.js";
@@ -706,6 +706,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           const autoDocs = conversation.provider === "local" ? await relatedDocuments(trimmed, env, controller.signal, history) : [];
           const hasKnowledge = conversation.provider === "local" && (await listSources().catch(() => [])).some((s) => s.documents > 0);
           for (const doc of autoDocs) if (!doc.paidAllowed) toolContext.restrictedSources.add(doc.sourceId);
+          // A colleague's salary in an excerpt of the HR sheet is restricted here too (not only in read_file).
+          for (const doc of autoDocs) doc.text = await redactExcerpt(doc.text, doc.path, trimmed, env);
           agentDocs = [...new Set(autoDocs.map((d) => d.path))];
           // Sheets the model only saw as an excerpt: write_document checks a table built from them was read whole.
           toolContext.excerptSheets = agentDocs.filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p));

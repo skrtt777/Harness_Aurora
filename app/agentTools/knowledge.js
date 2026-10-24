@@ -3,6 +3,7 @@ import { allSkills, importSkill } from "../skills.js";
 import { importCatalogSkill, searchSkillCatalog } from "../skillCatalog.js";
 import { createSource, knowledgeMap, listSources, searchKnowledge, startIndexing } from "../knowledge.js";
 import { discoverCompanyFolders } from "../fileAccess.js";
+import { redactExcerpt } from "./files.js";
 
 // Paid providers (Claude/Codex chats) only see restricted company documents
 // when the person approves; the local model sees everything it indexed.
@@ -46,6 +47,8 @@ export const knowledgeTools = [
       if (!hits.length && category) hits = await search(undefined);
       if (!hits.length) return `Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.${enough}`;
       rememberRestricted(ctx, hits);
+      // A colleague's salary in an excerpt of the HR sheet stays restricted (as read_file does).
+      for (const h of hits) h.text = await redactExcerpt(h.text, h.path, ctx.request, ctx.env);
       // Sheets seen here only as excerpts: a table written from them without reading them whole is
       // flagged by write_document (a Controladoria agent wrote its report from this, 05/10/2026).
       ctx.excerptSheets = [...new Set([...(ctx.excerptSheets || []), ...hits.map((h) => h.path).filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p))])];

@@ -520,3 +520,41 @@ test("a company path typed without accents is the file with them (Logistica/Posi
   const other = await executeTool("read_file", { path: join(company, "Logistica", "Estoque", "Posicao de Vendas.csv") }, c);
   assert.equal(other.ok, false, "another name is still an error");
 });
+
+test("a glob that finds nothing is tried as 'contains': aluguel* finds comprovante_aluguel_setembro.pdf (24/10)", async () => {
+  const dir = join(root, "pessoal-aluguel");
+  mkdirSync(join(dir, "Casa"), { recursive: true });
+  writeFileSync(join(dir, "Casa", "comprovante_aluguel_setembro.pdf"), "x");
+  writeFileSync(join(dir, "extrato_banco_agosto.pdf"), "x");
+  const c = ctx(async () => false, { workspace: dir, workspaceRoots: [dir] });
+  const out = await executeTool("search_files", { pattern: "aluguel*" }, c);
+  assert.match(out.result, /comprovante_aluguel_setembro\.pdf/);
+  const odd = await executeTool("search_files", { pattern: "*extrato*.agosto*" }, c);
+  assert.match(odd.result, /extrato_banco_agosto\.pdf/);
+});
+
+test("an excerpt of a sheet with no header row still hides a colleague's salary (Bruno, 24/10)", async () => {
+  const { redactExcerpt } = await import("../app/agentTools/files.js");
+  const dir = join(root, "rh-excerpt");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "quadro.csv");
+  writeFileSync(file, "Matrícula;Nome;Setor;Salário base\n1076;Júlia Cardoso;Administrativo;3.100,00\n1088;Bruno Gomes Souza;Produção;2.518,03\n");
+  const excerpt = "1088 | Bruno Gomes Souza | Produção | 2.518,03";
+  const out = await redactExcerpt(excerpt, file, "quanto ganha o Bruno Gomes Souza da produção?");
+  assert.doesNotMatch(out, /2\.518/);
+  assert.match(out, /Bruno Gomes Souza \| Produção \| \(restrito\)/);
+  assert.match(await redactExcerpt(excerpt, file, "qual o total da folha da produção?"), /2\.518/, "totals still work");
+  assert.equal(await redactExcerpt("texto qualquer", join(dir, "nota.pdf"), "x"), "texto qualquer");
+});
+
+test("a guessed file name that does not exist points to the person's files with a word of it (aluguel, 24/10)", async () => {
+  const home = join(root, "pessoa-aluguel");
+  mkdirSync(join(home, "Documents", "Casa"), { recursive: true });
+  writeFileSync(join(home, "Documents", "Casa", "contrato_aluguel_apto.pdf"), "x");
+  writeFileSync(join(home, "Documents", "Casa", "condominio_setembro.pdf"), "x");
+  const c = ctx(async () => false, { workspace: home, workspaceRoots: [home], knownFolders: { desktop: home, documents: join(home, "Documents"), downloads: home } });
+  const out = await executeTool("read_file", { path: join(home, "Documents", "Casa", "aluguel_setembro.pdf") }, c);
+  assert.equal(out.ok, false);
+  assert.match(out.result, /nome parecido[\s\S]*contrato_aluguel_apto\.pdf/);
+  assert.doesNotMatch(out.result, /condominio_setembro/, "the month alone is not a match");
+});

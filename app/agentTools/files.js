@@ -410,6 +410,45 @@ export function dateFilterHint(lines, request, now = new Date()) {
 // in 2 of 3 runs: "Bruno ganha R$ 2.518,03", usage tests 06/10). Totals and averages still work,
 // and an agent's own run (the RH agent doing payroll) sees everything.
 const RESTRICTED_COLUMN = /sal[aá]rio|remunera|vencimento base|\bcpf\b|\brg\b|endere[cç]o|telefone pessoal|celular pessoal|e-?mail pessoal|data de nascimento/i;
+/**
+ * The same for a slice of a sheet (a company-search excerpt, the automatic excerpts of a turn): the slice
+ * often has no header row, so the file's own headers say which cells are restricted. The excerpt went to
+ * the model raw and it answered "Bruno ganha R$ 2.518,03" with no tool at all (usage battery 3, 24/10).
+ */
+const headerCache = new Map();
+export async function redactExcerpt(text, path, request, env = {}) {
+  if (!/\.(xlsx|xlsm|csv|tsv)$/i.test(String(path || "")) || env?.AGENT_RUN_TRIGGER || /\b(total|soma|somad|folha|m[eé]dia|custo)\b/i.test(String(request || ""))) return text;
+  // A spreadsheet's text uses " | " between cells; a CSV keeps its own separator (; , or tab).
+  const csv = /\.(csv|tsv)$/i.test(String(path));
+  let cached = headerCache.get(path);
+  if (!cached) {
+    const raw = csv ? await readFile(path, "utf8").catch(() => "") : await extractText(path).catch(() => "");
+    const lines = raw.split(/\r?\n/);
+    const first = lines.find((l) => l.trim()) || "";
+    const sep = csv ? ([";", "\t", ","].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0]) : " | ";
+    const headers = [];
+    let want = true;
+    for (const line of lines) {
+      if (!csv && line.startsWith("## ")) { want = true; continue; }
+      if (want && line.includes(sep)) { headers.push(line.split(sep).map((c) => RESTRICTED_COLUMN.test(c))); want = false; }
+    }
+    cached = { sep, headers };
+    if (headerCache.size > 200) headerCache.clear();
+    headerCache.set(path, cached);
+  }
+  const { headers } = cached;
+  if (!headers.some((h) => h.some(Boolean))) return text;
+  return String(text).split(/\r?\n/).map((line) => {
+    // The excerpt may come as the sheet's text (" | ") whatever the file's separator.
+    const sep = line.includes(" | ") ? " | " : cached.sep;
+    if (!line.includes(sep)) return line;
+    const cells = line.split(sep);
+    const header = headers.find((h) => h.length === cells.length && h.some(Boolean));
+    if (!header || cells.some((c, j) => header[j] && RESTRICTED_COLUMN.test(c))) return line;
+    return cells.map((c, j) => (header[j] && c.trim() ? "(restrito)" : c)).join(sep);
+  }).join("\n");
+}
+
 export function redactRestricted(lines, request, env = {}) {
   if (env?.AGENT_RUN_TRIGGER || /\b(total|soma|somad|folha|m[eé]dia|custo)\b/i.test(String(request || ""))) return lines;
   let restricted = null;
@@ -1056,7 +1095,7 @@ const CODE_ASKED = /\b(script|c[oó]digo|programa|fun[cç][aã]o|site|p[aá]gina
 // the answer as Diretoria/Decisões_15-09-2026.docx and replied only with its path (empresa diretoria-2, 24/10).
 // ("onde está?" is about a file already made: its path is the answer, not a text; it stays out.)
 const QUESTION = /^\s*(o que|qual|quais|quando|quem|como|quanto|quantos|quantas|por que|porque|existe|existem|tem|ha|a empresa)\b[^?]*\?\s*$/;
-const DO_VERB = /\b(fa[cç]a|faz|crie|cria|gere|gera|monte|monta|prepare|prepara|organize|mova|copie|apague|envie|mande|abra)\b/;
+const DO_VERB = /\b(fa[cç]a|faz|fazer|cri[ae]r?|ger[ae]r?|mont[ae]r?|prepar[ae]r?|organiz[ae]r?|mov[ae]r?|copi[ae]r?|apag[ae]r?|envi[ae]r?|mand[ae]r?|abr[ae]|abrir|salv[ae]r?|coloc[ae]r?|atualiz[ae]r?|preench[ae]r?|grav[ae]r?)\b/;
 export function onlyTextAsked(request, env = {}) {
   if (env?.AGENT_RUN_TRIGGER) return false;
   const text = foldText(request);
@@ -1421,6 +1460,21 @@ export async function resolveExisting(path, ctx, { directory = false } = {}) {
   // the repetition guard stopped it (usage battery 2, 24/10).
   const same = (p) => foldText(String(p)).replace(/\\/g, "/").replace(/\/+/g, "/");
   if (close && same(close) === same(target)) return close;
+  // A guessed name ("aluguel_setembro.pdf" next to condominio_setembro.pdf; the file was
+  // contrato_aluguel_apto.pdf): the person's files whose names share a word with it, instead of giving up
+  // (usage battery 3, 24/10).
+  if (!close) {
+    const words = foldText(basename(target).replace(/\.[^.]+$/, "")).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !/^(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d+)$/.test(w));
+    const similar = [];
+    for (const root of words.length ? personalFolders(ctx) : []) {
+      for await (const file of walk(root, ctx.signal)) {
+        if (words.some((w) => foldText(basename(file)).includes(w))) similar.push(file);
+        if (similar.length >= 6) break;
+      }
+      if (similar.length >= 6) break;
+    }
+    if (similar.length) throw new Error(`O arquivo ${target} não existe. Arquivos da pessoa com nome parecido (leia o que servir): ${similar.join("; ")}`);
+  }
   throw new Error(`O arquivo ${target} não existe${close ? `. O arquivo da empresa com nome mais parecido é ${close}: leia esse caminho completo` : ` e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário`}.`);
 }
 
@@ -1526,6 +1580,19 @@ export const fileTools = [
           if (regex.test(fold(rel(root, file)))) found.push(roots.length > 1 ? file : rel(root, file));
           if (found.length >= 200) break;
         }
+      }
+      // "aluguel*" (the name must START with it) missed comprovante_aluguel_setembro.pdf, and the model
+      // then listed folder after folder (usage battery 3, 24/10): a glob without folders that finds
+      // nothing is tried again as "contains" (*aluguel*), the dots and words of it in any place.
+      if (!found.length && /[*?]/.test(pattern) && !/[\\/]/.test(pattern)) {
+        const loose = globToRegExp(`*${fold(pattern).replace(/^\*+|\*+$/g, "").replace(/\*?\.\*?/g, "*")}*`);
+        for (const root of roots) {
+          for await (const file of walk(root, ctx.signal)) {
+            if (loose.test(fold(basename(file)))) found.push(roots.length > 1 ? file : rel(root, file));
+            if (found.length >= 200) break;
+          }
+        }
+        if (found.length) return `Nada com "${pattern}" exatamente; com o nome contendo isso:\n${roots.length > 1 ? "" : `${roots[0]}\n`}${found.slice(0, 50).join("\n")}`;
       }
       // "contrato apartamento" as one string found nothing; the file was contrato_aluguel_apto.pdf
       // (usage tests, 06/10). Then each word on its own, the names with more of them first.
