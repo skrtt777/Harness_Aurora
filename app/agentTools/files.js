@@ -348,8 +348,9 @@ export function nextDueHint(lines, request, now = new Date()) {
  */
 export function extremeHint(lines, request) {
   const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const most = /\b(maior|maiores|mais (acima|alto|alta|caro|cara|vendeu|gastou)|maximo|campe[aã]o)\b/.test(text);
-  const least = /\b(menor|menores|mais (baixo|baixa|barato|barata)|menos|minimo)\b/.test(text);
+  const most = /\b(maior|maiores|mais (acima|alto|alta|caro|cara|salgad[oa]|vendeu|gastou)|pesou mais|custou mais|maximo|campe[aã]o)\b/.test(text);
+  // "Mais em conta" is the cheapest (it came back as the most expensive, ladder D03).
+  const least = /\b(menor|menores|mais (baixo|baixa|barato|barata|em conta|economic[oa])|custou menos|menos|minimo)\b/.test(text);
   if (most === least) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
   if (at < 0) return "";
@@ -1620,6 +1621,13 @@ export const fileTools = [
         }
         if (inProject.length) return `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}, mas na pasta do projeto há:\n${inProject.join("\n")}`;
       }
+      // No name has it: what is INSIDE the person's files. "quanto gastei com lazr" looked for files named
+      // "Lazr", "roupa", "luz" and said there were no data, with the spending sheet right there; "o telefone
+      // do Paulo" never opened the notes in Contatos (ladder D04/D05, 24/10). Typos tolerated.
+      if (!found.length && !ctx.workspace) {
+        const inside = await contentSearch(pattern, roots, ctx);
+        if (inside.length) return `Nenhum arquivo com "${pattern}" no NOME, mas estes têm isso DENTRO (leia o que responde ao pedido):\n${inside.map((h) => `${h.file}${h.word !== h.asked ? ` ("${h.asked}" = "${h.word}")` : ""}: ${h.line}`).join("\n")}`;
+      }
       return found.length ? `${roots.length > 1 ? "" : `${roots[0]}\n`}${found.join("\n")}${found.length >= 200 ? "\n… (limite de 200)" : ""}` : `Nenhum arquivo com "${pattern}" em ${roots.join("; ")}.`;
     },
   },
@@ -1738,6 +1746,10 @@ export const fileTools = [
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n")) : lines;
         const now = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         const filtered = nextDueHint(table, ctx.request, now) || dateFilterHint(table, ctx.request, now) || numberFilterHint(table, ctx.request) || sortHint(table, ctx.request) || minimumHint(table, ctx.request) || notStatusHint(table, ctx.request) || limitHint(table, ctx.request) || extremeHint(table, ctx.request);
+        // The extreme the tool already found ("menor Valor: Detergente"), for the answer to be checked against
+        // (codeGuards extremeMismatch): "o item mais em conta" came back as the most expensive (ladder D03).
+        const extreme = /Já ordenei, sem a linha de total: (.+?)\. (?:O pedido|Use isto)/.exec(filtered || "")?.[1];
+        ctx.readyExtreme = extreme ? extreme.split("; ").map((p) => /^(maior|menor) ([^:]+): (.+?) \(([^)]*)\)$/.exec(p)).filter(Boolean).map((m) => ({ side: m[1], column: m[2], label: m[3], value: m[4] })) : null;
         // The order the tool put the rows in, for the answer to be checked against (codeGuards orderMismatch).
         ctx.readyOrder = /Já ordenei aqui/.test(filtered) ? [...filtered.matchAll(/^\s*\d+ {2}([^|\n]+?) \|/gm)].map((x) => x[1].trim()) : null;
         // Totals per client over the rows the request's condition keeps ("acima de 30 dias"), when one was applied.
@@ -1790,6 +1802,8 @@ export const fileTools = [
       // folder inside the VS Code project (13/10).
       if (ctx.workspace && CODE_FILE.test(String(path || "")) && /^(documentos|documents|area de trabalho|desktop)[\\/]/i.test(foldText(String(path || "")))) path = String(path).replace(/^[^\\/]+[\\/]/, "");
       path = inAskedFolder(path, ctx);
+      // An empty "file" with no extension is a folder the model meant to make ("Desktop/Mudança/fotos").
+      if (!String(content ?? "").trim() && !extname(String(path || "")) && !existsSync(full(path, ctx))) return makeFolder(full(path, ctx));
       const file = safeFileName(landing(full(path, ctx), ctx));
       content = cleanCode(file, content);
       // Text written into a .xlsx is a file Excel refuses (an agent delivered one, 05/10/2026).
@@ -1939,11 +1953,25 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
     },
   },
   {
+    // There was no way to make an empty folder: the model wrote empty FILES named "fotos", "contratos"
+    // and the next move into them failed (ladder D07, 24/10).
+    name: "make_folder",
+    description: "Cria uma ou mais pastas (vazias), com as subpastas. Ex.: paths [\"Desktop/Mudança/Fotos\", \"Desktop/Mudança/Contratos\"]. Não use write_file para criar pasta.",
+    parameters: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "As pastas a criar (caminhos completos; as de cima são criadas junto)" } }, required: ["paths"] },
+    stage: (a) => `Criando ${folderList(a).length > 1 ? `${folderList(a).length} pastas` : folderList(a)[0] || "pasta"}…`,
+    describe: (a, ctx) => ({ kind: "write", paths: folderList(a).map((f) => full(f, ctx)), summary: `Criar ${folderList(a).map((f) => full(f, ctx)).join(", ")}` }),
+    async run(args, ctx) {
+      const list = folderList(args);
+      if (!list.length) throw new Error("Diga as pastas em paths.");
+      return (await Promise.all(list.map((f) => makeFolder(full(newFolderHome(f, [], ctx), ctx))))).join("\n");
+    },
+  },
+  {
     // Organizing a folder needs moving and renaming; through run_command a small model wrote
     // shell one-liners that were hard to check. Never overwrites, never deletes.
     name: "move_file",
-    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Para RENOMEAR: from com o arquivo e to com o novo nome na MESMA pasta (ex.: from \"Downloads/IMG_1.jpg\", to \"Downloads/foto.jpg\"). Para levar vários arquivos à mesma pasta numa chamada, use files (lista) e to com a pasta. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
-    parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual (um arquivo)" }, files: { type: "array", items: { type: "string" }, description: "Vários arquivos que vão para a mesma pasta (to)" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\ ou /" } }, required: ["to"] },
+    description: "Move ou renomeia um arquivo ou pasta (ex.: organizar Downloads em subpastas por tipo). Para RENOMEAR: from com o arquivo e to com o novo nome na MESMA pasta (ex.: from \"Downloads/IMG_1.jpg\", to \"Downloads/foto.jpg\"). Para levar vários arquivos à mesma pasta numa chamada, use files (lista) e to com a pasta. Cria a pasta de destino se faltar. Para levar TODOS os arquivos de um tipo (\"as fotos dos downloads\", \"os pdfs\"), use from_folder e types (ex.: from_folder \"Downloads\", types \"imagens\" ou \"pdf\") em vez de listar: o tipo vem da extensão, não do nome. Nunca sobrescreve: se o destino já existe, salva com (2). Não apaga nada.",
+    parameters: { type: "object", properties: { from: { type: "string", description: "Caminho atual (um arquivo)" }, files: { type: "array", items: { type: "string" }, description: "Vários arquivos que vão para a mesma pasta (to)" }, from_folder: { type: "string", description: "Pasta de onde levar todos os arquivos de um tipo (com types)" }, types: { type: "string", description: "Tipos a levar de from_folder: extensões (\"pdf, docx\") ou palavras (imagens, fotos, documentos, planilhas, vídeos, músicas, compactados, instaladores)" }, to: { type: "string", description: "Novo caminho completo, com o nome, ou uma pasta terminada em \\\\ ou /" } }, required: ["to"] },
     stage: (a) => `Movendo ${moveSources(a).length > 1 ? `${moveSources(a).length} arquivos` : moveSources(a)[0] || ""}…`,
     describe: (a, ctx) => {
       const pairs = moveSources(a).map((from) => [full(from, ctx), moveTarget({ from, to: moveFolder(a) }, ctx)]);
@@ -1951,6 +1979,29 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
     },
     async run(args, ctx) {
       const sources = moveSources(args);
+      // Every file of a kind in a folder: chosen by extension (the model, choosing by name, took
+      // "foto_6.pdf" with the photos — ladder D07, 24/10).
+      if (args.from_folder || args.types) {
+        let dir = await resolveExisting(namedFolder(args.from_folder || ".", ctx), ctx, { directory: true });
+        // "As fotos que baixei" taken from the Desktop's beach album: the request named Downloads.
+        const home = requestFolder(ctx);
+        if (home && !resolve(dir).toLowerCase().startsWith(resolve(home).toLowerCase()) && !foldText(ctx.request || "").includes(foldText(basename(dir)))) dir = home;
+        const exts = typeExtensions(args.types);
+        if (!exts.size) throw new Error(`Não entendi os tipos "${args.types || ""}": use extensões (pdf, jpg) ou imagens, documentos, planilhas, vídeos, músicas.`);
+        const picked = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && exts.has(extname(e.name).slice(1).toLowerCase())).map((e) => join(dir, e.name));
+        if (!picked.length) return `Não há arquivos ${[...exts].join(", ")} soltos em ${dir}: nada movido.`;
+        sources.push(...picked);
+        args = { ...args, to: /[\\/]$/.test(String(args.to)) ? args.to : `${args.to}/` };
+      }
+      args = { ...args, to: newFolderHome(args.to, sources, ctx) };
+      // "As fotos": only images go, whatever the name says ("foto_8.pdf" went with them, ladder D07).
+      const asked = askedKind(ctx.request);
+      const fromHome = asked.size && !args.from_folder ? requestFolder(ctx) : null;
+      // …and only from the folder the request says ("as fotos que baixei" took the Desktop's beach album too).
+      const offKind = asked.size && !args.from_folder ? sources.filter((f) => !asked.has(extname(String(f)).slice(1).toLowerCase()) || (fromHome && !resolve(full(String(f), ctx)).toLowerCase().startsWith(resolve(fromHome).toLowerCase()))) : [];
+      if (offKind.length) sources.splice(0, sources.length, ...sources.filter((f) => !offKind.includes(f)));
+      const offNote = offKind.length ? `\nNão movi ${offKind.map((f) => basename(String(f))).join(", ")}: pelo tipo do arquivo não é ${[...asked].slice(0, 4).join("/")}${fromHome ? ` ou não está em ${fromHome}, a pasta pedida` : ""}.` : "";
+      if (offKind.length && !sources.length) return offNote.trim();
       // Only "to" given (renaming IMG_20260912.jpg, moving "Fotos Praia 2025": 3 calls, all refused,
       // usage tests 06/10): the source is the file named in the request or the destination's own name.
       if (!sources.length && args.to) {
@@ -1960,7 +2011,7 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
         const look = async (dir, depth) => {
           for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
             const path = join(dir, e.name);
-            if (want.has(e.name.toLowerCase()) && resolve(path) !== resolve(String(args.to))) return path;
+            if (want.has(e.name.toLowerCase()) && resolve(path) !== resolve(full(String(args.to), ctx))) return path;
             if (e.isDirectory() && depth < 2 && !e.name.startsWith(".")) { const hit = await look(path, depth + 1); if (hit) return hit; }
           }
           return null;
@@ -1970,14 +2021,16 @@ ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false 
           if (hit) { sources.push(hit); break; }
         }
       }
+      // Only a folder that does not exist yet ("cria a pasta Mudança"): made, empty.
+      if (!sources.length && args.to && !extname(String(args.to).replace(/[\\/]+$/, "")) && !existsSync(full(args.to, ctx))) return `${await makeFolder(full(args.to, ctx))} Para levar arquivos para ela, chame move_file com files (ou from_folder e types) e to com esta pasta.`;
       if (!sources.length) throw new Error("Diga o arquivo (from) ou a lista de arquivos (files).");
-      if (sources.length === 1) return moveOne(sources[0], moveFolder(args), ctx);
+      if (sources.length === 1) return (await moveOne(sources[0], moveFolder(args), ctx)) + offNote;
       // Several files, one folder: a small model organizing Downloads listed the folder five times
       // and moved one file per call. Each file goes or says why not; one failure stops nothing.
       const lines = [];
       for (const from of sources) lines.push(await moveOne(from, moveFolder(args), ctx).catch((error) => `ERRO em ${from}: ${error.message}`));
       const failed = lines.filter((l) => l.startsWith("ERRO")).length;
-      return `${lines.join("\n")}\n${sources.length - failed} de ${sources.length} arquivo(s) movido(s).`;
+      return `${lines.join("\n")}\n${sources.length - failed} de ${sources.length} arquivo(s) movido(s).${offNote}`;
     },
   },
   {
@@ -2053,7 +2106,7 @@ export function namedFolder(path, ctx) {
   return others.includes(given.toLowerCase()) ? target : path;
 }
 
-const ORGANIZE_ASKED =/\b(organiz|arrum|separ|ajeit|agrup|limp|bagun|class(e|i)fi|orden|em ordem|ponha em pastas|coloque em pastas|por tipo|em subpastas|(mova|mover|move|distribua|distribuir) (os|todos os|cada) arquivos)/;
+const ORGANIZE_ASKED =/\b(organiz|arrum|separ|ajeit|agrup|junt|limp|bagun|class(e|i)fi|orden|em ordem|ponha em pastas|coloque em pastas|por tipo|em subpastas|(mova|mover|move|distribua|distribuir) (os|todos os|cada) arquivos|(poe|ponha|coloca|coloque|mova|move|leva|leve) (as|os|todas as|todos os) (fotos|imagens|pdfs?|documentos|planilhas|videos|musicas|arquivos))/;
 
 export function parseGroups(groups) {
   if (!groups) return [];
@@ -2070,6 +2123,104 @@ export const fileKind = (name) => KINDS.find(([, re]) => re.test(name))?.[0] || 
 function moveSources(args) {
   const list = Array.isArray(args.files) ? args.files : typeof args.files === "string" ? args.files.split(/\s*[,;\n]\s*/) : [];
   return [...new Set([...list, ...(args.from ? [args.from] : [])].map((f) => String(f).trim()).filter(Boolean))];
+}
+const folderList = (a) => (Array.isArray(a.paths) ? a.paths : String(a.paths || a.path || "").split(/\s*[,;\n]\s*/)).map((f) => String(f).trim()).filter(Boolean);
+async function makeFolder(dir) {
+  if (existsSync(dir) && !statSafe(dir)?.isDirectory()) throw new Error(`${dir} já existe e é um arquivo, não uma pasta.`);
+  const existed = existsSync(dir);
+  await mkdir(dir, { recursive: true });
+  return existed ? `A pasta ${dir} já existia.` : `Criei a pasta ${dir}.`;
+}
+const KIND_WORDS = [[/^(imagens?|fotos?|figuras?|prints?)$/, "Imagens"], [/^(documentos?|docs?|textos?)$/, "Documentos"], [/^(planilhas?)$/, "Planilhas"], [/^(apresenta\w*|slides?)$/, "Apresentações"], [/^(videos?|filmes?)$/, "Vídeos"], [/^(musicas?|audios?|sons?)$/, "Áudio"], [/^(compactados?|zips?)$/, "Compactados"], [/^(instaladores?|programas?)$/, "Instaladores"]];
+/** The one personal folder the request names ("dos downloads", "que baixei", "na área de trabalho"), or null. */
+function requestFolder(ctx) {
+  const known = ctx.knownFolders || {};
+  const text = foldText(ctx.request || "");
+  // Named as the place the files come FROM ("dos downloads", "que baixei"), not where they go.
+  const keys = [["downloads", /\b(d[oa]s?|nos?|na pasta( de)?) downloads?\b|\bque baixei\b|\bbaixad[ao]s\b/], ["desktop", /\b(d[oa]s?|nas?|na pasta( de)?) (area de trabalho|desktop)\b/], ["documents", /\b(d[oa]s?|nos?|na pasta( de)?) (meus )?documentos\b/]].filter(([k, re]) => known[k] && re.test(text));
+  return keys.length === 1 ? known[keys[0][0]] : null;
+}
+/** "move as fotos", "junta os pdfs": the kind the request asks for (its extensions), or none. */
+export function askedKind(request) {
+  const m = foldText(String(request || "")).match(/\b(?:as|os|todas as|todos os|minhas|meus)\s+(fotos|imagens|pdfs?|planilhas|videos|musicas|apresentacoes)\b/);
+  return m ? typeExtensions(m[1]) : new Set();
+}
+/** "imagens" / "pdf, docx" / "fotos e pdfs" → the extensions. */
+export function typeExtensions(types) {
+  const out = new Set();
+  for (const word of foldText(String(types || "")).split(/[\s,;/]+|\be\b/).map((w) => w.replace(/^\*?\./, "").trim()).filter(Boolean)) {
+    const kind = KIND_WORDS.find(([re]) => re.test(word))?.[1];
+    if (kind) { const re = KINDS.find(([k]) => k === kind)[1]; for (const m of re.source.match(/\(([^)]+)\)/)[1].split("|")) for (const e of expandExt(m)) out.add(e); }
+    else if (/^[a-z0-9]{2,5}$/.test(word)) out.add(word.replace(/s$/, (x, i) => (["pdfs", "docs", "xlss"].includes(word) ? "" : x)));
+  }
+  return out;
+}
+// "jpe?g" → jpg, jpeg; "docx?" → doc, docx; "tiff?" → tif, tiff.
+const expandExt = (m) => (m.includes("?") ? [m.replace(/.\?/, ""), m.replace("?", "")] : [m]);
+/**
+ * "Cria uma pasta fotos nos downloads e move as imagens": the model sent them to Desktop/fotos. A NEW folder
+ * placed in one of the person's folders the request does not mention, for files that all come from the one it
+ * does mention, goes in that one.
+ */
+function newFolderHome(to, sources, ctx) {
+  const known = ctx.knownFolders || {};
+  if (!to || !ctx.request) return to;
+  const target = full(String(to).replace(/[\\/]+$/, ""), ctx);
+  if (existsSync(target) || extname(target)) return to;
+  const text = foldText(ctx.request);
+  const said = { downloads: /\bdownloads?\b|\bbaixei\b|\bbaixad/, desktop: /\b(area de trabalho|desktop)\b/, documents: /\b(meus )?documentos\b/ };
+  const parentKey = Object.keys(said).find((k) => known[k] && resolve(dirname(target)).toLowerCase() === resolve(known[k]).toLowerCase());
+  if (!parentKey || said[parentKey].test(text)) return to;
+  // The files' folder; with none yet (make_folder), the one folder the request names.
+  const fromKeys = new Set(sources.length ? sources.map((f) => Object.keys(said).find((k) => known[k] && resolve(full(f, ctx)).toLowerCase().startsWith(resolve(known[k]).toLowerCase()))) : Object.keys(said).filter((k) => known[k] && said[k].test(text)));
+  if (fromKeys.size !== 1) return to;
+  const [fromKey] = fromKeys;
+  if (!fromKey || !said[fromKey].test(text)) return to;
+  return join(known[fromKey], basename(target)) + (/[\\/]$/.test(String(to)) ? sep : "");
+}
+const CONTENT_EXT = /\.(xlsx|xlsm|csv|tsv|pdf|docx|txt|md)$/i;
+const contentCache = new Map();
+const SEARCH_NOISE = new Set(["xlsx", "xls", "csv", "pdf", "docx", "doc", "txt", "arquivo", "arquivos", "planilha", "documento", "pasta", "downloads", "documentos", "desktop", "gasto", "gastos", "gastei", "quanto", "valor", "conta", "contas", "2025", "2026"]);
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j += 1) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** The person's documents whose text has the words of a name search (a typo away at most), with the line. */
+async function contentSearch(pattern, roots, ctx) {
+  const words = [...new Set(fold(String(pattern)).replace(/\.[a-z0-9]{2,5}\b/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !SEARCH_NOISE.has(w)))].slice(0, 6);
+  if (!words.length) return [];
+  const hits = [];
+  let seen = 0;
+  for (const root of roots) {
+    for await (const file of walk(root, ctx.signal)) {
+      if (!CONTENT_EXT.test(file) || seen >= 150) continue;
+      seen += 1;
+      const info = statSafe(file);
+      if (!info || info.size > 5_000_000) continue;
+      const key = `${file}|${info.mtimeMs}`;
+      if (!contentCache.has(key)) contentCache.set(key, await extractText(file).catch(() => ""));
+      const text = contentCache.get(key);
+      const lines = String(text).split(/\r?\n/);
+      for (const asked of words) {
+        const tolerance = asked.length >= 7 ? 2 : asked.length >= 4 ? 1 : 0;
+        let found = null;
+        for (const line of lines) {
+          const tokens = fold(line).split(/[^a-z0-9]+/);
+          const word = tokens.find((t) => t === asked || (t.length >= 4 && (t.startsWith(asked) || (tolerance && editDistance(t, asked) <= tolerance))));
+          if (word) { found = { file: roots.length > 1 ? file : rel(root, file), asked, word, line: line.trim().slice(0, 160) }; break; }
+        }
+        if (found) { hits.push(found); break; }
+      }
+      if (hits.length >= 12) break;
+    }
+  }
+  return hits;
 }
 /** Several files go to a folder even when "to" has no trailing slash. */
 function moveFolder(args) {

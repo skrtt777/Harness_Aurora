@@ -11,7 +11,7 @@ export const codeRules = readFileSync(fileURLToPath(new URL('./runtime-policy/CO
 // Each department's checklist (app/headquarters.js areas), only in a request of that area.
 // The rules of each tool group (app/toolRouter.js), only when the request gets those tools: the
 // browser's, the programs', the Power BI's… were in every prompt (10.7k characters of AGENT.md, 13/10).
-const TOPIC_FILES = { "arquivos+": "arquivos", web: "web", navegador: "navegador", office: "office", powerbi: "powerbi", comandos: "comandos", habilidades: "habilidades", equipe: "equipe" };
+const TOPIC_FILES = { "arquivos+": "arquivos", web: "web", navegador: "navegador", office: "office", powerbi: "powerbi", comandos: "comandos", habilidades: "habilidades", equipe: "equipe", contas: "contas" };
 export const topicRules = Object.fromEntries(Object.entries(TOPIC_FILES).map(([group, file]) => [group, readFileSync(fileURLToPath(new URL(`./runtime-policy/topics/${file}.md`, import.meta.url)), 'utf8')]));
 export const areaRules = Object.fromEntries(['juridico', 'financeiro', 'pessoas', 'comercial', 'operacoes'].map((id) => [id, readFileSync(fileURLToPath(new URL(`./runtime-policy/areas/${id}.md`, import.meta.url)), 'utf8')]));
 export const rules = Object.fromEntries(['SOUL','RULES','ECONOMY','KERNEL'].map(name => [name, readFileSync(fileURLToPath(new URL(`./runtime-policy/${name}.md`, import.meta.url)), 'utf8')]));

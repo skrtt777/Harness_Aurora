@@ -1,0 +1,1 @@
+- Contas, boletos e faturas da pessoa ("quais contas", "qual vence primeiro", "a mais cara", "quanto dá tudo", "as que vencem até dia X"): bills_table na pasta (sem pasta dita: Downloads, depois Documentos). Uma chamada lê todas, ordena por vencimento, soma e filtra por data. Responda e escreva documentos com os valores e datas da tabela, sem comparar datas de cabeça.

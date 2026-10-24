@@ -1,8 +1,8 @@
 import { BASE_TOOLS } from "./toolRouter.js";
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch, extremeMismatch } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
-const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
+const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -268,6 +268,26 @@ const contextText = (messages) => messages.map((m) => (typeof m.content === "str
 
 const DELETE_ASKED = /\b(apag|exclu|delet|limp|remov|jog(a|ue) fora|lixeira|livr(a|e) espa[cç]o)/i;
 
+const COMMON_NEAR_MONTH = new Set(["junto", "junta", "juntos", "juntas", "juntar", "juntou", "julia", "julio", "abrir", "abriu", "abria", "outro", "outra", "outros", "outras", "mano", "marca", "marcar", "marcou", "massa", "mesmo", "setor", "setores", "agora", "gosto", "novo", "nova", "novos", "novas", "dezena"]);
+const MONTH_NAMES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+function nearWord(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) { const cur = [i]; for (let j = 1; j <= b.length; j += 1) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+  return prev[b.length] <= 2;
+}
+/**
+ * A month typed wrong, said plainly to the model: "qnto foi lazer em stembro" was read as novembro and
+ * "seembro" found nothing (ladder D04, 24/10). Same first letter, two letters off at most.
+ */
+export function monthTypoNote(text) {
+  const all = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  // Only where a month goes ("em seembro", "de agsto", "até otubro"), and never a common word ("junto", "outro", "abrir").
+  const words = all.filter((w, i) => w.length >= 4 && /^(em|de|do|da|no|mes|ate|desde|e|ou|pra|para)$/.test(all[i - 1] || "") && !COMMON_NEAR_MONTH.has(w));
+  const fixes = [...new Set(words.filter((w) => !MONTH_NAMES.includes(w)).map((w) => { const m = MONTH_NAMES.find((n) => n[0] === w[0] && n.length >= 5 && nearWord(w, n)); return m ? `"${w}" = ${m === "marco" ? "março" : m}` : null; }).filter(Boolean))];
+  return fixes.length ? `\n\n(Erro de digitação no pedido: ${fixes.join("; ")}.)` : "";
+}
+
 export async function runChatAgent({
   provider = "local", system, history = [], input, question = input, env = process.env, signal,
   onStage = () => {}, onStep = () => {}, onCheck = null, approve = async () => false, toolContext = {},
@@ -275,7 +295,7 @@ export async function runChatAgent({
   tools = AGENT_TOOLS, maxSteps = DEFAULT_MAX_STEPS, callModel = defaultCallModel(provider), grounded = false, checkCitations = null,
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null, priorSteps = [],
 }) {
-  const messages = [{ role: "system", content: system }, ...history, { role: "user", content: input }];
+  const messages = [{ role: "system", content: system }, ...history, { role: "user", content: `${input}${monthTypoNote(question)}` }];
   // What was already done in this turn before the agent (the subagents' parts): it counts as done.
   const steps = [...priorSteps];
   const calls = [];
@@ -502,6 +522,14 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: `A ordem da sua lista não é a que a ferramenta deu. A ordem certa é: ${wrongOrder.join(", ")}. Responda de novo com os itens exatamente nessa ordem, com os mesmos números da leitura.` });
       continue;
     }
+    // The tool found the cheapest, the answer named the most expensive: the tool's row.
+    const wrongEnd = !toolCalls.length && !orderChecked ? extremeMismatch(text, ctx.readyExtreme) : null;
+    if (wrongEnd) {
+      orderChecked = true;
+      checks.push({ check: "extreme_mismatch" });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `A leitura já achou a resposta: ${wrongEnd.map((f) => `${f.side} ${f.column} = ${f.label} (${f.value})`).join("; ")}. Sua resposta fala de outro item. Releia o pedido (\"mais em conta\", \"mais barato\", \"custou menos\" = o MENOR valor) e responda de novo com o item certo e o valor dele, direto.` });
+      continue;
+    }
     // "Liste os departamentos" with 8 rows read and 2 shown: the whole list.
     const short = !toolCalls.length && !listChecked ? shortList(text, question, ctx.lastTable?.rows?.length) : null;
     if (short) {
@@ -568,7 +596,7 @@ export async function runChatAgent({
     // Asked for a spreadsheet, it read the data and wrote the list into the answer instead
     // (orchestrated RH task, 05/10/2026): nothing claimed, nothing delivered.
     if (!toolCalls.length && offered.length && !fileChecked && offered.some((t) => t.name === "write_document") && requestsFile(question)
-      && !steps.some((s) => (s.ok || s.denied) && (WRITE_TOOLS.has(s.tool) || s.tool === "move_file" || s.tool === "organize_folder"))
+      && !steps.some((s) => (s.ok || s.denied) && (WRITE_TOOLS.has(s.tool) || s.tool === "move_file" || s.tool === "organize_folder" || s.tool === "make_folder"))
       && !/\bn[ãa]o (consegui|encontrei|achei|foi poss[ií]vel|existe|h[áa])\b/i.test(text)) {
       fileChecked = true;
       checks.push({ check: "missing_delivery", answer: text.slice(0, 300) });

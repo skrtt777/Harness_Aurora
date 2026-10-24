@@ -97,6 +97,17 @@ const foldCount = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, ""
 const COUNT_STOP = new Set(["quantos", "quantas", "ainda", "esta", "estao", "temos", "existem", "empresa", "desse", "deste", "dessa", "desta", "mais", "menos", "total"]);
 // Only a near miss (19 or 15 for 18) that is no total of the turn's filtered reads nor a sum of two of them:
 // "9 aguardando + 5 parcial = 14" over two reads is a right answer, not a miscount.
+/**
+ * The tool found the extreme ("menor Valor: Detergente") and the answer names none of the found rows: the
+ * answer took the other end. Returns the expected [{ side, column, label }] or null.
+ */
+export function extremeMismatch(answer, found) {
+  if (!found?.length) return null;
+  const text = fold(answer);
+  const named = (label) => { const words = fold(label).replace(/\(.*?\)/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length > 2); return words.length > 0 && words.slice(0, 2).every((w) => text.includes(w)); };
+  return found.some((f) => named(f.label)) ? null : found;
+}
+
 export function filteredCountMismatch(answer, question, filtered, counts = []) {
   if (!filtered || filtered < 2 || !/\bquant[oa]s\b/i.test(foldCount(question))) return null;
   const known = new Set([...counts, ...counts.flatMap((a, i) => counts.slice(i + 1).map((b) => a + b))]);

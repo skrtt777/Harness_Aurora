@@ -76,7 +76,7 @@ export function writeFreshFixtures(where) {
 
 const FRESH_FIXTURES = new Set(["Departamentos_Empresa.csv", "Funcionarios_Empresa.xlsx", "Pedidos_Compras.xlsx", "Estoque_Almoxarifado.csv", "Kit_Midia_Luma_2026.pdf", "contratos_fornecedores.xlsx"]);
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-const ACTS = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "open", "access_db"]);
+const ACTS = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "open", "access_db"]);
 const okSteps = (t, tool) => (t.steps || []).filter((s) => s.ok && (!tool || s.tool === tool));
 // Every file anywhere under a folder (the BI lands in Documentos/Power BI, the rest in the project).
 const walk = (dir) => { try { return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])); } catch { return []; } };
