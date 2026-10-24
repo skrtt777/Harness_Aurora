@@ -5,7 +5,7 @@ import type { AtlasLayout } from "./atlas";
 /** Detail of the terrain (the grid its relief and shores are measured on). */
 export type Quality = "alta" | "media" | "baixa";
 /** autoFocus: the camera goes by itself to what is happening. */
-export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; view: "cerebro" | "atlas" };
+export type MapSettings = { paused: boolean; quality: Quality; labels: boolean; reducedMotion: boolean; autoFocus: boolean; view: "chip" | "cerebro" | "atlas" };
 export type Highlight = { kind: "recalled" | "created" | "search" | "read" | "linked" | "flagged" | "joined"; at: number; score?: number; note?: string };
 /** A turn of the Aurora as it happens: where it goes and what it reaches (all from real events). */
 export type AgentTentacle = { id: string; kind: "scanned" | "recalled" | "created" | "used"; strength: number; order: number };

@@ -367,3 +367,74 @@ milhares de memórias, o Canvas 2D fica nítido e a 171 fps.
 - **Comandos de câmera:** continuam com a mesma medida (`distance`). A altura visível é 2·distance·tan(22,5°).
 - **Detalhe do relevo:** o seletor de qualidade virou o detalhe do relevo (fino, médio ou leve), que é o tamanho da
   grade da densidade.
+
+## O chip de memória — MemoryChip (24/10)
+
+A vista padrão do Mapa Vivo agora é um **chip de silício**. As outras vistas, "cérebro 3D" e "atlas 2D", continuam no seletor.
+
+- **Núcleos e células.** Cada núcleo é um grupo de memórias e cada memória é uma célula. Os núcleos crescem em bancos de 60 células.
+- **Barramentos.** Fios de cobre ligam cada núcleo ao núcleo de inferência, no centro do chip.
+- **Zoom.** Vai de 1× a 1200×, em seis níveis. Cada nível mostra uma camada real e esconde a anterior:
+
+| Nível | Zoom | O que mostra (dados reais) |
+|---|---|---|
+| 1 · CHIP | 0–2,4× | Núcleos com nome e contagem, barramentos, pacotes indo para a inferência. |
+| 2 · NÚCLEO | 2,4–8× | As células com o título de cada memória. Uma célula acende quando a memória é lembrada. |
+| 3 · MEMÓRIA | 8–32× | Os fragmentos (tags e as palavras que mais pesam), a data em que foi gravada, os usos e a força. |
+| 4 · LEITURA | 32–120× | Trilhas de cada fragmento até os seus bits: os sinais das primeiras 192 dimensões do embedding. Durante um recall ao vivo, aparece "lendo fragmento N" com o trecho. |
+| 5 · ASSOCIAÇÕES | 120–420× | Nuvens da memória e das vizinhas reais (vizinhas do atlas ou relações gravadas), com a similaridade. |
+| 6 · GRAVAÇÃO | 420×+ | Retícula hexagonal. Cada átomo carregado é uma dimensão positiva do embedding. |
+
+### Peças
+
+- **`frontend/src/livemap/chip.ts`** (puro, testado em `frontend/test/chip.test.mjs`). Contém:
+  - o contrato de eventos;
+  - os slots: posição estável por ordem de criação; o que é esquecido deixa um buraco vazio na sessão;
+  - o layout do chip e os níveis;
+  - os fragmentos, os bits e a força. A força combina os usos com a recência, em decaimento de meia-vida de 14 dias.
+- **`frontend/src/livemap/chipSources.ts`** traz duas fontes que falam o mesmo contrato:
+  - `auroraChipSource()`: a memória real;
+  - `mockChipSource(n)`: uma simulação sem backend. O botão "simular" liga a simulação; `?chipmock=5000` define o tamanho.
+- **`frontend/src/livemap/MemoryChip.tsx`.** Uso: `<MemoryChip source={…} onSwitchSource? inset? />`.
+  - O desenho é em Canvas 2D, em coordenadas de tela calculadas em dupla precisão, para não tremer a 1200×.
+  - Faz culling do que está fora da tela.
+  - As animações são sempre fade, sem piscar.
+  - A fila de eventos é limitada a 400. Numa rajada de mais de 40 eventos, eles são aplicados sem animação.
+- **Backend.** `app/memoryAtlas.js` → `signature()` gera a assinatura da memória (192 sinais do embedding em hex), e `/api/memories/graph` a manda em `atlas.points[].sig`. Uma memória sensível não manda a assinatura, e o chip não mostra o texto dela em nenhum nível.
+
+### Como os eventos da Aurora viram o contrato
+
+- **`created`**: o chip busca um snapshot novo, que traz a memória já com núcleo, vizinhas e assinatura, e então a célula é construída.
+- **`updated`** → `memory.updated`.
+- **`join` e `compact` da Zeladora** → `memory.updated` com `mergedFrom`, mais `memory.deleted` com motivo `merge`.
+- **`prune`** → `memory.deleted` com motivo `decay`.
+- **`archived` e `deleted`** que não vieram da Zeladora → `memory.deleted` com motivo `user`.
+- **`turn-start`** → `recall.started`.
+- **`scanned`**: cada candidato pontuado vira `memory.scanned`, um brilho fraco.
+- **`recalled`** → `memory.recalled`, na ordem do rank, seguido de `recall.finished`.
+- **`answered`** → `response.done`.
+- **`read` da Zeladora** → `keeper.read`.
+- **Reconexão**: depois de uma queda do canal, chega um snapshot inteiro para reconciliar.
+
+### Como ligar o chip a outro pipeline
+
+Escreva uma fonte que implemente `ChipSource`:
+
+- `snapshot()` devolve `{ memories, categories, recallsToday }`;
+- `subscribe(onEvent)` emite os eventos de `ChipEvent`;
+- `actions` é opcional e pode trazer `edit` e `forget`.
+
+No pipeline de recall, os eventos saem assim:
+
+1. `recall.started` antes da busca;
+2. `memory.recalled` para cada memória que entra no contexto;
+3. `recall.finished`;
+4. `response.done` com as memórias que a resposta usou.
+
+### Melhorias aplicadas sobre o conceito original
+
+- **Núcleos.** São os nódulos da Zeladora, agrupamentos semânticos estáveis, no lugar de k-means com k = 6. Sem atlas, os núcleos são os tipos de memória.
+- **Candidatos pontuados.** Os que a busca pontuou mas não usou também aparecem, com um brilho fraco. Assim dá para ver a diferença entre "considerou" e "usou".
+- **Zeladora.** Aparece como uma sonda clara passando pelas células que lê.
+- **Zoom fundo.** A partir de 24× o zoom é puxado para a célula em foco, porque as camadas fundas ficam em volta do meio dela.
+- **"Esquecer"** arquiva a memória, então dá para desfazer. Não apaga.

@@ -29,6 +29,20 @@ function normalize(v) {
   n = Math.sqrt(n) || 1;
   return Float32Array.from(v, (x) => x / n);
 }
+/**
+ * A memory's fingerprint: the signs of the first SIG_BITS values of its real embedding (1 where the value is
+ * positive), as hex. The Mapa Vivo's chip shows it as the memory's bits and its charge pattern.
+ */
+export const SIG_BITS = 192;
+export function signature(vector, bits = SIG_BITS) {
+  let hex = "";
+  for (let i = 0; i < bits; i += 4) {
+    let nibble = 0;
+    for (let b = 0; b < 4; b += 1) if ((vector[i + b] ?? 0) > 0) nibble |= 8 >> b;
+    hex += nibble.toString(16);
+  }
+  return hex;
+}
 const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i += 1) s += a[i] * b[i]; return s; };
 
 /** Top principal components by power iteration with deflation (no covariance matrix). */
@@ -198,7 +212,7 @@ export async function memoryAtlas({ env = process.env } = {}) {
   const memories = [
     ...embedded.map(({ row }, i) => ({
       id: row.id, position: round(points[i]), cluster: assign[i],
-      neighbors: neighbors[i],
+      neighbors: neighbors[i], sig: signature(embedded[i].vector),
       duplicates: neighbors[i].filter((n) => n.similarity >= DUPLICATE_MIN).map((n) => n.id),
       stats: { uses: row.uses || 0, helped: row.helped || 0, failed: row.failed || 0 },
     })),

@@ -99,3 +99,13 @@ test("recall probe shows what the chat would remember, without counting it as us
     assert.equal(entry.conversationTitle, "Jogo de teste");
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+test("signature: the signs of the first dimensions of the embedding, as hex (the chip's bits)", async () => {
+  const { signature, SIG_BITS } = await import("../app/memoryAtlas.js");
+  const v = Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0.5 : -0.5));
+  const sig = signature(v);
+  assert.equal(sig.length, SIG_BITS / 4);
+  // 1,0,0,1 | 0,0,1,0 | 0,1,0,0 ... -> 9, 2, 4
+  assert.equal(sig.slice(0, 3), "924");
+  assert.equal(signature([]), "0".repeat(SIG_BITS / 4));
+});

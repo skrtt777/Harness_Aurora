@@ -747,7 +747,7 @@ export type MemoryGraphSnapshot = {
   memories: GraphMemory[];
   relations: { from: string; to: string; type: string }[];
   /** nodes: the clusters are the Zeladora's nodes (stable across reloads; she plants, splits and folds them). */
-  atlas: { model: string; nodes?: boolean; clusters: { id: number; label: string; count: number; center: number[] }[]; points: { id: string; position: number[]; cluster: number; neighbors: { id: string; similarity: number }[] }[] } | null;
+  atlas: { model: string; nodes?: boolean; clusters: { id: number; label: string; count: number; center: number[] }[]; points: { id: string; position: number[]; cluster: number; neighbors: { id: string; similarity: number }[]; sig?: string }[] } | null;
   projects: { id: string; name: string }[];
   conversations: { id: string; title: string; projectId: string | null }[];
   recalls: { id: string; conversationId: string; conversationTitle: string; at: string; prompt: string; used: string[]; created: string[] }[];

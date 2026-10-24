@@ -10,6 +10,8 @@ import "./livemap.css";
 
 const AtlasMap = lazy(() => import("./AtlasMap"));
 const BrainMap = lazy(() => import("./BrainMap"));
+const MemoryChip = lazy(() => import("./MemoryChip"));
+import { auroraChipSource, mockChipSource } from "./chipSources";
 
 /**
  * Memórias / Mapa Vivo: the Aurora's memory as an atlas (one territory per section, the Zeladora's nodes; one
@@ -30,10 +32,10 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hou
 const fmtDate = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const prefersReduced = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 const loadSettings = (): MapSettings => {
-  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true, view: "cerebro" };
+  const base: MapSettings = { paused: false, quality: "alta", labels: true, reducedMotion: prefersReduced(), autoFocus: true, view: "chip" };
   try {
     const saved = JSON.parse(localStorage.getItem("aurora-livemap-settings") || "{}") as Partial<MapSettings>;
-    return { ...base, paused: saved.paused ?? base.paused, quality: saved.quality ?? base.quality, labels: saved.labels ?? base.labels, autoFocus: saved.autoFocus ?? base.autoFocus, view: saved.view === "atlas" ? "atlas" : "cerebro" };
+    return { ...base, paused: saved.paused ?? base.paused, quality: saved.quality ?? base.quality, labels: saved.labels ?? base.labels, autoFocus: saved.autoFocus ?? base.autoFocus, view: saved.view === "atlas" || saved.view === "cerebro" ? saved.view : "chip" };
   } catch { return base; }
 };
 
@@ -47,6 +49,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   const [filters, setFilters] = useState<Filters>({});
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<MapSettings>(loadSettings);
+  // The chip's source: the real memory, or a simulation speaking the same events.
+  const [chipMock, setChipMock] = useState(false);
+  const chipSource = useMemo(() => (chipMock ? mockChipSource(Number(new URLSearchParams(window.location.search).get("chipmock")) || 240) : auroraChipSource()), [chipMock]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [focusClusterId, setFocusClusterId] = useState<string | null>(null);
@@ -369,7 +374,9 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <button className="lm-btn" aria-pressed={settings.paused} onClick={() => setSettings((s) => ({ ...s, paused: !s.paused }))} title="Pausar o movimento (P)">{settings.paused ? "retomar" : "pausar"}</button>
           <button className="lm-btn" aria-pressed={settings.labels} onClick={() => setSettings((s) => ({ ...s, labels: !s.labels }))} title="Rótulos (L)">rótulos</button>
           <button className="lm-btn" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void stageRef.current?.requestFullscreen?.(); }} title="O mapa na tela inteira (Esc sai)">tela cheia</button>
-          <button className="lm-btn" aria-pressed={settings.view === "cerebro"} onClick={() => setSettings((s) => ({ ...s, view: s.view === "cerebro" ? "atlas" : "cerebro" }))} title="Trocar entre o cérebro 3D e o atlas 2D">{settings.view === "cerebro" ? "ver atlas 2D" : "ver cérebro 3D"}</button>
+          <select aria-label="Vista do mapa" value={settings.view} onChange={(e) => setSettings((s) => ({ ...s, view: e.target.value as MapSettings["view"] }))} title="Como a memória é desenhada">
+            <option value="chip">chip de memória</option><option value="cerebro">cérebro 3D</option><option value="atlas">atlas 2D</option>
+          </select>
           {settings.view === "atlas" && <select aria-label="Detalhe do relevo" value={settings.quality} onChange={(e) => setSettings((s) => ({ ...s, quality: e.target.value as Quality }))} title="O quanto o relevo e as costas são finos (mais detalhe custa mais para desenhar)">
             <option value="alta">relevo fino</option><option value="media">relevo médio</option><option value="baixa">relevo leve</option>
           </select>}
@@ -377,7 +384,7 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
       </div>
 
       <div className="lm-stage" ref={stageRef}>
-        <div className="lm-title" aria-live="polite" style={{ ["--c" as string]: turn && !turn.ended ? "#ff9a55" : titleCluster ? colorOf(titleCluster.id) : "#d7dde6" }}>
+        {settings.view !== "chip" && <div className="lm-title" aria-live="polite" style={{ ["--c" as string]: turn && !turn.ended ? "#ff9a55" : titleCluster ? colorOf(titleCluster.id) : "#d7dde6" }}>
         {turn && !turn.ended ? <>
           <h1>{String(STEPS.findIndex(([x]) => x === turn.phase) + 1).padStart(2, "0")} {STEPS.find(([x]) => x === turn.phase)![1].toUpperCase()}</h1>
           <p>{turn.phase === "busca" ? `avaliando ${turn.scanned.length} memórias` : turn.phase === "consulta" ? `${turn.recalled.length} memórias no contexto · respondendo` : turn.phase === "resposta" ? `usou ${turn.used.length} · criou ${turn.created.length}` : `“${turn.message.slice(0, 60)}”`}{turn.conversationId && turn.conversationId === dockConversation ? " · nesta conversa" : ""}</p>
@@ -388,20 +395,20 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
           <h1>00 MEMÓRIA DA AURORA</h1>
           <p>{graph.stats.memories} memórias · {layout.clouds.length} nódulos · {review.proven} comprovadas · {review.pending} em revisão</p>
         </>}
-        </div>
+        </div>}
 
         {graph.nodes.length === 0 ? (
           <div className="lm-state"><h2>{snap.memories.length ? "Nenhuma memória com esses filtros" : "Ainda não há memórias"}</h2><p>{snap.memories.length ? "Mude os filtros ou a busca." : "As memórias aparecem aqui assim que a Aurora guardar a primeira — em conversas, lições do professor ou importações."}</p></div>
         ) : (
           <Suspense fallback={<div className="lm-state"><p>Preparando o mapa…</p></div>}>
-            {settings.view === "cerebro" ? <BrainMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
+            {settings.view === "chip" ? <MemoryChip source={chipSource} onSwitchSource={() => setChipMock((m) => !m)} inset={dockOpen ? 372 : 0} /> : settings.view === "cerebro" ? <BrainMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
               readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} /> : <AtlasMap graph={graph} layout={layout} settings={settings} selectedId={selectedId} hoveredId={hoveredId} focusClusterId={focusClusterId} highlights={highlights} camera={camera} agent={agent} keeper={keeper} sections={sections}
               readSet={keeper?.enabled && keeper.running && keeper.phase === "andando" && keeper.readIds.length ? readSet : null} merges={merges} recalls={bushes} onUserMove={onUserMove}
               onHover={setHoveredId} onSelect={(id) => { setSelectedId(id); if (id) setFocusClusterId(nodeById.get(id)?.clusterId || null); }} onCluster={focusCluster} />}
           </Suspense>
         )}
-        {graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
+        {settings.view !== "chip" && graph.nodes.length > 0 && <ul className={`lm-legend ${dockOpen ? "with-dock" : ""}`} aria-label="Legenda">
           <li className="ok">comprovada</li>
           <li className="rev">em revisão</li>
           <li className="zeladora">zeladora · lendo</li>

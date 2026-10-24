@@ -19,6 +19,8 @@ export async function memoryGraphSnapshot({ env = process.env, limit = 5000 } = 
     ${has("uses") ? ", uses, helped, failed" : ""}${has("status") ? ", status" : ""}${has("sensitive") ? ", sensitive" : ""}
     FROM memories ${has("status") ? "WHERE status != 'archived'" : ""} ORDER BY created_at ASC LIMIT ?`).all(limit);
   const ids = new Set(rows.map((r) => r.id));
+  // A sensitive memory keeps its place on the map but shows nothing of itself (no text, no fingerprint).
+  const sensitive = new Set(rows.filter((r) => r.sensitive).map((r) => r.id));
   const relations = db.prepare("SELECT from_id, to_id, type FROM memory_relations").all()
     .filter((r) => ids.has(r.from_id) && ids.has(r.to_id) && r.from_id !== r.to_id)
     .map((r) => ({ from: r.from_id, to: r.to_id, type: r.type }));
@@ -40,7 +42,7 @@ export async function memoryGraphSnapshot({ env = process.env, limit = 5000 } = 
       clusters: atlas.clusters,
       // The sections are the Zeladora's nodes (stable): the map follows them as they are born and fold.
       nodes: Boolean(atlas.nodes),
-      points: atlas.memories.filter((m) => ids.has(m.id)).map((m) => ({ id: m.id, position: m.position, cluster: m.cluster, neighbors: m.neighbors })),
+      points: atlas.memories.filter((m) => ids.has(m.id)).map((m) => ({ id: m.id, position: m.position, cluster: m.cluster, neighbors: m.neighbors, ...(m.sig && !sensitive.has(m.id) ? { sig: m.sig } : {}) })),
     } : null,
     projects,
     conversations,

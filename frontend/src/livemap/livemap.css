@@ -366,3 +366,72 @@
 .lm-brain-cl span { display: block; margin-top: 2px; font: 400 9.5px/1.2 "JetBrains Mono", Consolas, monospace; letter-spacing: .08em; color: rgba(220,230,245,.55); }
 .lm-brain-node { position: absolute; left: 0; top: 0; max-width: 260px; padding: 2px 7px; border-left: 2px solid var(--c); background: rgba(3,5,10,.72); font: 400 11px/1.35 "Inter", system-ui, sans-serif; color: #eef3fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; box-shadow: 0 0 14px -4px var(--c); }
 .lm-stage:fullscreen { margin: 0; border: 0; width: 100vw; height: 100vh; }
+
+/* The memory chip (MemoryChip.tsx): a panel and the die. Black, JetBrains Mono, thin lines. */
+.mc { --gold: #E2B85C; --copper: #B8743E; --grid: #2F5A49; --ink: #d9e6df; --dim: #7f978b;
+  position: absolute; inset: 0; display: flex; background: #000; color: var(--ink); font: 12px/1.45 "JetBrains Mono", "Cascadia Mono", Consolas, monospace; }
+.mc button { font: inherit; color: inherit; background: none; border: 1px solid var(--grid); cursor: pointer; padding: 2px 8px; }
+.mc button:hover { border-color: var(--gold); color: var(--gold); }
+.mc-panel { width: 300px; flex: 0 0 300px; overflow-y: auto; border-right: 1px solid #16332a; background: #020806; padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.mc-panel header { display: flex; align-items: center; gap: 8px; }
+.mc-panel header b { color: var(--gold); letter-spacing: .14em; font-size: 12.5px; }
+.mc-live { font-size: 10px; letter-spacing: .1em; color: var(--dim); flex: 1; }
+.mc-live.on { color: #8DFF6A; }
+.mc-live.on::before { content: "● "; }
+.mc-panel header button { font-size: 10.5px; }
+.mc-counters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mc-counters div { border: 1px solid #16332a; padding: 6px; display: flex; flex-direction: column; }
+.mc-counters b { font-size: 18px; color: var(--gold); font-weight: 600; }
+.mc-counters span { font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.mc-counters .on b { color: #8DFF6A; }
+.mc-query { margin: -4px 0 0; color: var(--gold); font-size: 11px; }
+.mc-panel h4 { margin: 0 0 6px; font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); display: flex; justify-content: space-between; align-items: center; }
+.mc-occ { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mc-occ li { display: grid; grid-template-columns: 1fr 70px 52px; gap: 6px; align-items: center; font-size: 10.5px; }
+.mc-occ li span { color: var(--c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-occ li i { height: 5px; background: #0d1f18; display: block; }
+.mc-occ li em { display: block; height: 100%; background: var(--c); transition: width .6s; }
+.mc-occ li small { color: var(--dim); text-align: right; }
+.mc-used, .mc-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.mc-used li, .mc-links li { display: flex; gap: 8px; align-items: baseline; }
+.mc-used button, .mc-links button { border: 0; padding: 0; text-align: left; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-used small, .mc-links small { color: var(--gold); }
+.mc-empty { margin: 0; color: var(--dim); font-size: 11px; }
+.mc-card { border: 1px solid var(--c); padding: 8px 10px; background: #031009; }
+.mc-card h4 { color: var(--c); }
+.mc-x { border: 0 !important; padding: 0 4px !important; font-size: 14px !important; }
+.mc-title { margin: 0 0 4px; font-weight: 600; color: #fff; }
+.mc-text { margin: 0 0 6px; color: var(--ink); opacity: .85; font-size: 11px; }
+.mc-card dl { margin: 0 0 6px; display: grid; grid-template-columns: 76px 1fr; gap: 2px 8px; font-size: 11px; }
+.mc-card dt { color: var(--dim); } .mc-card dd { margin: 0; }
+.mc-card form { display: flex; gap: 6px; margin-bottom: 6px; }
+.mc-card input { flex: 1; min-width: 0; background: #000; color: #fff; border: 1px solid var(--gold); font: inherit; padding: 2px 6px; }
+.mc-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.mc-actions .danger { border-color: #ff8a7a; color: #ff8a7a; }
+.mc-feed-wrap { flex: 1; min-height: 120px; }
+.mc-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; }
+.mc-feed li { display: grid; grid-template-columns: 58px 12px 1fr; gap: 4px; animation: mc-in .5s ease-out; }
+.mc-feed time { color: var(--dim); } .mc-feed b { color: var(--c); } .mc-feed span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes mc-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.mc-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+.mc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.mc-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); pointer-events: none; }
+.mc-legend { position: absolute; top: 12px; left: 14px; max-width: min(520px, 70%); pointer-events: none; }
+.mc-legend h3 { margin: 0; font-size: 15px; letter-spacing: .12em; color: var(--gold); font-weight: 600; text-shadow: 0 0 8px #000; }
+.mc-legend p { margin: 2px 0 6px; font-size: 11.5px; color: var(--ink); text-shadow: 0 0 6px #000, 0 0 2px #000; }
+.mc-crumbs { pointer-events: auto; font-size: 11px; color: var(--dim); }
+.mc-crumbs button { border: 0; padding: 0; color: var(--ink); }
+.mc-ruler { position: absolute; right: 14px; top: 60px; bottom: 70px; width: 28px; }
+.mc-ruler button { position: absolute; left: 0; width: 10px; padding: 0; border: 1px solid var(--grid); background: #04100b; }
+.mc-ruler button.on { background: var(--gold); border-color: var(--gold); }
+.mc-ruler button span { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--dim); }
+.mc-ruler button.on span { color: var(--gold); }
+.mc-ruler i { position: absolute; left: -6px; width: 22px; height: 0; border-top: 1px solid #fff; pointer-events: none; transition: top .15s; }
+.mc-ruler em { position: absolute; right: 26px; top: -8px; font-style: normal; font-size: 10px; color: #fff; white-space: nowrap; }
+.mc-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 6px; }
+.mc-tools button { background: rgba(0,0,0,.8); min-width: 30px; }
+.mc-tools button.on { border-color: var(--gold); color: var(--gold); }
+.mc-narrow { flex-direction: column-reverse; }
+.mc-narrow .mc-panel { width: auto; flex: 0 0 auto; max-height: 42%; border-right: 0; border-top: 1px solid #16332a; }
+.mc-narrow .mc-stage { flex: 1 1 auto; min-height: 260px; }
+.mc-narrow .mc-legend p { display: none; }
