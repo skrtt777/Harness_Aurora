@@ -81,7 +81,7 @@ export const MORE_SCENARIOS = [
     ["reclamacao-comum", "qual a reclamacao q os clientes mais fazem", (t) => has(t.text, "sabor")],
     ["sem-acidente", "a quantos dias a gente ta sem acidente", (t) => /\b150\b/.test(t.text)],
     // The right answer is "there isn't one": no home-office policy in the documents.
-    ["home-office", "qual a politica de home office daqui? quantos dias posso ficar em casa", (t) => !/home office[^.\n]{0,60}(\d+ dias|permitid)/i.test(t.text) && /n[ãa]o (encontrei|h[áa]|consta|achei|tem|localizei)|n[ãa]o existe|nenhum(a)? (pol[ií]tica|documento)/i.test(t.text)],
+    ["home-office", "qual a politica de home office daqui? quantos dias posso ficar em casa", (t) => !/home office[^.\n]{0,60}(\d+ dias|permitid)/i.test(t.text) && /n[ãa]o (encontrei|h[áa]|consta|achei|tem|localizei)|n[ãa]o existe|n[ãa]o foi (localizad|encontrad)|nenhum(a)? (pol[ií]tica|documento)/i.test(t.text)],
   ].map(([id, message, ok]) => ({ id, level: "N4", group: "empresa", persona: "Carlos, analista", turns: [{ message, checks: [{ name: "resposta certa", ok }] }] })),
   // ---------- N5: gestor ----------
   { id: "email-cobranca", level: "N5", group: "empresa", persona: "Patrícia, gerente financeira", turns: [{ message: "escreve um email de cobrança educado pro cliente q mais deve com atraso acima de 30 dias, com o valor", checks: [
