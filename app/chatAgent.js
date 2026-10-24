@@ -604,7 +604,8 @@ export async function runChatAgent({
     }
     // Asked for a spreadsheet, it read the data and wrote the list into the answer instead
     // (orchestrated RH task, 05/10/2026): nothing claimed, nothing delivered.
-    if (!toolCalls.length && offered.length && !fileChecked && offered.some((t) => t.name === "write_document") && requestsFile(question)
+    // (With a service order, the Expedição below checks the delivery, and says more.)
+    if (!toolCalls.length && offered.length && !fileChecked && !ctx.order && offered.some((t) => t.name === "write_document") && requestsFile(question)
       && !steps.some((s) => (s.ok || s.denied) && (WRITE_TOOLS.has(s.tool) || s.tool === "move_file" || s.tool === "organize_folder" || s.tool === "make_folder"))
       && !/\bn[ãa]o (consegui|encontrei|achei|foi poss[ií]vel|existe|h[áa])\b/i.test(text)) {
       fileChecked = true;

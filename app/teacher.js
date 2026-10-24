@@ -36,8 +36,12 @@ const CLAIM = new RegExp([
 
 /** "Crie um novo documento…", "gere uma planilha…": the person asked for a file. */
 export function requestsFile(text) {
-  // With how people say it: "faz uma planilha", "monta um relatório", "me manda num word".
-  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca|preciso d[ea]|quero(?!\\s+saber)|queria(?!\\s+saber)|gostaria d[ea])\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+  // With how people say it: "faz uma planilha", "monta um relatório", "me manda num word". "Resume meus gastos
+  // numa planilha", "põe os dois numa planilha": the table came back in the chat, no file (ladder D08/D10, 24/10).
+  const t = String(text || "");
+  if (/\b(?:numa|num|em uma|em um|pra uma|pra um|para uma|para um)\s+(?:nova\s+)?(?:planilha|word|documento|doc|pdf|excel|arquivo|apresenta[çc][ãa]o|xlsx|docx)\b/i.test(t)
+    && !/\b(?:o que|qual|quanto|quantos|tem|est[áa]|t[áa])\b[^.?!\n]{0,20}\b(?:numa|num|em uma|em um)\s+(?:planilha|word|documento|pdf|arquivo)\b/i.test(t)) return true;
+  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca|p[õo]e|ponha|agrupa|agrupe|exporta|exporte|transforma|transforme|preciso d[ea]|quero(?!\\s+saber)|queria(?!\\s+saber)|gostaria d[ea])\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
 }
 
 /**
