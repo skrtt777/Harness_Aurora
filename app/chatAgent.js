@@ -299,7 +299,12 @@ export async function runChatAgent({
   if (onCheck) checks.push = (...items) => { for (const item of items) { Array.prototype.push.call(checks, item); try { onCheck(item?.check || "conferência"); } catch { /* the office is only a view */ } } return checks.length; };
   let factsChecked = false;
   // Everything the answer may rely on, kept whole (old tool results get compacted).
-  const evidence = [system, ...history.map((m) => m.content), input];
+  // Today (and yesterday / tomorrow) as numbers count too: the system says the date in words, and the
+  // facts guard sent back "hoje é 04/10/2026" as invented; the retry apologized and lost the answer
+  // (empresa logistica-1, regression 24/10).
+  const today = env.HARNESS_NOW ? new Date(env.HARNESS_NOW) : new Date();
+  const dates = [-1, 0, 1].map((d) => new Date(today.getTime() + d * 86_400_000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })).join(" ");
+  const evidence = [system, ...history.map((m) => m.content), input, dates];
   // What the documents (not the rules or the question) say: found up front, read, searched, or said earlier.
   const documents = [documentsText, ...history.map((m) => m.content)];
   let topicChecked = false;

@@ -89,3 +89,16 @@ test("an honest 'the company has no document on it' counts as not found", async 
   assert.match("Nenhuma referência a trabalho remoto foi encontrada.", NOT_FOUND);
   assert.doesNotMatch("O funcionário não possui férias vencidas.", NOT_FOUND);
 });
+
+test("today's date is no invention: 'hoje é 04/10/2026' passes the facts guard (empresa logistica-1)", async () => {
+  const { runChatAgent } = await import("../app/chatAgent.js");
+  const search = { name: "knowledge_search", description: "busca", parameters: { type: "object", properties: {} }, run: async () => ({ ok: true, summary: "Frota: Caminhão Mercedes Atego 1719 | revisão 16/10/2026" }) };
+  let calls = 0;
+  const out = await runChatAgent({
+    system: "Data de hoje: domingo, 4 de outubro de 2026.\nTrechos:\nFrota: Caminhão Mercedes Atego 1719 | revisão 16/10/2026", input: "Qual veículo está com a revisão atrasada?", tools: [search], grounded: true, checkFacts: true,
+    env: { ...process.env, HARNESS_NOW: "2026-10-04T12:00:00" },
+    callModel: async () => { calls += 1; return { ok: true, text: "Hoje é 04/10/2026; nenhum veículo está atrasado: a próxima revisão é em 16/10/2026." }; },
+  });
+  assert.equal(calls, 1, "answered once, not sent back");
+  assert.equal(out.checks?.length || 0, 0);
+});
