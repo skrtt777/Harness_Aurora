@@ -229,3 +229,9 @@ test("only asked to read or explain: changing a file asks first (a downloaded fi
   assert.equal((await decide(write, ctx("auto", undefined, { request: "le o arquivo e me fala do que se trata" }))).action, "ask");
   assert.equal((await decide(write, ctx("auto", undefined, { request: "corrija os erros do arquivo" }))).action, "allow");
 });
+
+test("under a request to delete, moving files away asks first (7 files 'deleted' by moving them, 24/10)", async () => {
+  const move = { kind: "write", paths: [join(workspace, "a.pdf"), join(workspace, "dest", "a.pdf")], summary: `Mover ${join(workspace, "a.pdf")} para ${join(workspace, "dest", "a.pdf")}` };
+  assert.equal((await decide(move, ctx("auto", undefined, { request: "apaga tudo q ta nos downloads, nao quero mais nada" }))).action, "ask");
+  assert.equal((await decide(move, ctx("auto", undefined, { request: "organize os downloads por tipo" }))).action, "allow");
+});

@@ -64,7 +64,8 @@ export const delegateTools = [
       if (!String(agent || "").trim()) return `Agentes: ${list.map((a) => `${a.name}${a.enabled ? "" : " (desligado)"} — ${a.mission.slice(0, 100)}`).join("; ")}`;
       const target = findAgent(list, agent);
       if (!target) return `Não há agente chamado "${agent}". Agentes: ${list.map((a) => a.name).join(", ")}.`;
-      if (!target.enabled) return `${target.name} está desligado. A pessoa liga em Agentes.`;
+      // Asked again and again (7 calls to switched-off agents, usage battery 2, 24/10): the way forward, said once.
+      if (!target.enabled) return `${target.name} está desligado (só a pessoa liga, na tela Agentes). Não peça de novo a agentes desligados: faça esta parte você mesma (com a ferramenta subagents para dividir o trabalho, se for grande) e diga à pessoa que os agentes estavam desligados.`;
       if (agents.isAgentRunning(target.id)) return `${target.name} já está trabalhando agora; tente daqui a pouco.`;
       const handleChatTurn = ctx.handleChatTurn || (await import("../chatTurn.js")).handleChatTurn;
       const run = await agents.runAgent(target.id, { request: String(request || "").trim() || target.trigger?.request || target.mission, trigger: "manual", handleChatTurn });

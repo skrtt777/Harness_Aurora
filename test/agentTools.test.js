@@ -508,3 +508,15 @@ test("a text filter with a typo uses the one value it clearly means, or lists th
   const other = await executeTool("read_file", { path: "chamados.csv", filter: "Situação=Cancelado" }, c);
   assert.match(other.result, /Nenhuma linha com "Situação=Cancelado"\. \(valores de Situação: Aberto, Resolvido\.?\)/);
 });
+
+test("a company path typed without accents is the file with them (Logistica/Posicao → Logística/Posição, 24/10)", async () => {
+  const company = join(root, "empresa-acentos");
+  mkdirSync(join(company, "Logística", "Estoque"), { recursive: true });
+  writeFileSync(join(company, "Logística", "Estoque", "Posição de Estoque.csv"), "Produto;Saldo;Mínimo\nFarinha 5kg;3;10\n");
+  const c = ctx(async () => false, { workspace: company, workspaceRoots: [company], knowledgeRoots: [company], allowedRoots: [root] });
+  const out = await executeTool("read_file", { path: join(company, "Logistica", "Estoque", "Posicao de Estoque.csv").replace(/\\/g, "/") }, c);
+  assert.equal(out.ok, true, out.result);
+  assert.match(out.result, /Farinha 5kg/);
+  const other = await executeTool("read_file", { path: join(company, "Logistica", "Estoque", "Posicao de Vendas.csv") }, c);
+  assert.equal(other.ok, false, "another name is still an error");
+});

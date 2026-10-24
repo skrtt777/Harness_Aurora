@@ -190,3 +190,11 @@ test("'quantos' answered with another number than the filter's total is sent bac
   assert.equal(filteredCountMismatch("Existem 19 chamados abertos.", q, null), null, "no filtered read");
   assert.equal(filteredCountMismatch("Em 2026 houve muitos chamados.", q, 18), null, "a year is not a count of the noun");
 });
+
+test("the count guard leaves a sum of two filtered reads alone (9 aguardando + 5 parcial = 14)", async () => {
+  const { filteredCountMismatch } = await import("../app/codeGuards.js");
+  const q = "quantos pedidos de compra estão em aberto?";
+  assert.equal(filteredCountMismatch("São 14 pedidos em aberto.", q, 5, [9, 5]), null);
+  assert.equal(filteredCountMismatch("São 30 pedidos em aberto.", q, 5, [5]), null, "far from the filter: another subset, not a miscount");
+  assert.deepEqual(filteredCountMismatch("São 6 pedidos em aberto.", q, 5, [5]), { said: [6], filtered: 5 });
+});

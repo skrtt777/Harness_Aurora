@@ -86,7 +86,7 @@ export function parsePlan(text, agents, request = null) {
  */
 export async function planRequest({ request, agents, ask = runLocal, env = process.env }) {
   const active = agents.filter((a) => a.enabled);
-  if (!active.length) throw httpError(409, "Crie ou ligue pelo menos um agente antes.");
+  if (!active.length) throw httpError(409, agents.length ? "Os agentes desta equipe estão desligados (só a pessoa liga, na tela Agentes). Faça o trabalho você mesma, com subagents se for grande, e diga que os agentes estavam desligados." : "Crie ou ligue pelo menos um agente antes.");
   const names = active.map((a) => a.name);
   const schema = { type: "object", properties: { tasks: { type: "array", items: { type: "object", properties: { agent: { type: "string", enum: names }, request: { type: "string" }, formato: { type: "string", enum: Object.keys(FORMATS) }, depende_de: { type: "array", items: { type: "string", enum: names } } }, required: ["agent", "request", "formato"] } } }, required: ["tasks"] };
   const answer = await ask(planPrompt(request, active), { ...env, LOCAL_OUTPUT_SCHEMA: JSON.stringify(schema) }).catch((error) => ({ ok: false, error: error.message }));

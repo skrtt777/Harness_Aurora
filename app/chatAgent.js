@@ -511,7 +511,7 @@ export async function runChatAgent({
       continue;
     }
     // "19 chamados" after a filter that counted 18: the tool's total wins.
-    const offCount = !toolCalls.length && !countChecked ? filteredCountMismatch(text, question, ctx.lastFilteredCount) : null;
+    const offCount = !toolCalls.length && !countChecked ? filteredCountMismatch(text, question, ctx.lastFilteredCount, ctx.filteredCounts || []) : null;
     if (offCount) {
       countChecked = true;
       checks.push({ check: "count_mismatch", said: offCount.said, filtered: offCount.filtered });

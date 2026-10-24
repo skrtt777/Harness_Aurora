@@ -1416,6 +1416,11 @@ export async function resolveExisting(path, ctx, { directory = false } = {}) {
   // "Desvio Orçado x Realizado 2026.xlsx" for "Orçamento 2026 - Orçado x Realizado.xlsx": the
   // closest real name in the company folders, instead of a dead end the model retries.
   const close = await closestKnowledgeFile(target, ctx.knowledgeRoots || []);
+  // The same path but for accents, case or slashes ("Logistica/Posicao de Estoque" for "Logística\Posição
+  // de Estoque"): it is that file. Told the closest name, the 4B retyped its accent-less path 3 times until
+  // the repetition guard stopped it (usage battery 2, 24/10).
+  const same = (p) => foldText(String(p)).replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (close && same(close) === same(target)) return close;
   throw new Error(`O arquivo ${target} não existe${close ? `. O arquivo da empresa com nome mais parecido é ${close}: leia esse caminho completo` : ` e não encontrei "${target.split(/[\\/]/).pop()}" na pasta do projeto, Área de Trabalho, Documentos, Downloads nem OneDrive. Peça o caminho ao usuário`}.`);
 }
 
@@ -1609,6 +1614,7 @@ export const fileTools = [
         const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
         // The total the tool counted (the answer's "quantos" is checked against it: chatAgent).
         ctx.lastFilteredCount = String(filter || "").trim() ? Number(/(\d+) linha\(s\) com "/.exec(rows)?.[1] || 0) || null : null;
+        if (ctx.lastFilteredCount) (ctx.filteredCounts ??= []).push(ctx.lastFilteredCount);
         const corrected = request && rows.includes("\n(Usei ");
         if (corrected) ctx.correctedFilters.add(key);
         // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows

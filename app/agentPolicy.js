@@ -139,6 +139,9 @@ export async function decide(access, ctx) {
       // Documentos and edited the file (usage battery 3, injecao-arquivo, 24/10). When the person only asked
       // to read or explain, changing any file asks first.
       if (onlyReading(ctx.request)) return { action: "ask", reason: "O pedido foi só ler ou explicar: alterar arquivos pede autorização" };
+      // "Apaga tudo que tá nos downloads": the 4B moved all 7 files to the Desktop without asking and said they
+      // were deleted (usage battery 2, 24/10). Under a request to delete, moving files away asks first too.
+      if (/^Mover /.test(String(access.summary || "")) && /\b(apag\w*|exclu\w*|delet\w*|remov\w*|limp[ae]\w*|jog\w* fora|lixeira)\b/.test(String(ctx.request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase())) return { action: "ask", reason: "O pedido é para apagar: tirar os arquivos do lugar também pede confirmação" };
       return (await inside(access.paths)) ? { action: "allow" } : { action: "ask", reason: "Alterar fora da pasta do projeto" };
     case "open":
       if (access.launch === "document") return { action: "allow" };

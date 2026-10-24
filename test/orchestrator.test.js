@@ -35,7 +35,8 @@ test("planning uses the model with a schema of the enabled agents, and falls bac
   assert.deepEqual(seen.properties.tasks.items.properties.agent.enum, ["Agente RH", "Agente Financeiro"], "a disabled agent is not offered");
   const fallback = await planRequest({ request: "Preciso de algo do Financeiro hoje", agents: team, ask: async () => ({ ok: false, error: "sem modelo" }) });
   assert.deepEqual(fallback, { tasks: [{ agentId: "fin", agentName: "Agente Financeiro", request: "Preciso de algo do Financeiro hoje" }], planner: "palavras do pedido" });
-  await assert.rejects(planRequest({ request: "x", agents: [team[2]] }), /Crie ou ligue/);
+  await assert.rejects(planRequest({ request: "x", agents: [team[2]] }), /estão desligados[\s\S]*faça o trabalho você mesma/i, "all switched off: the way forward");
+  await assert.rejects(planRequest({ request: "x", agents: [] }), /Crie ou ligue/);
 });
 
 test("tasks run at most two at a time; a failure doesn't stop the others", async () => {

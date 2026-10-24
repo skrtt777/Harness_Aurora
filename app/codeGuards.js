@@ -95,11 +95,14 @@ export function countMismatch(answer) {
  */
 const foldCount = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const COUNT_STOP = new Set(["quantos", "quantas", "ainda", "esta", "estao", "temos", "existem", "empresa", "desse", "deste", "dessa", "desta", "mais", "menos", "total"]);
-export function filteredCountMismatch(answer, question, filtered) {
+// Only a near miss (19 or 15 for 18) that is no total of the turn's filtered reads nor a sum of two of them:
+// "9 aguardando + 5 parcial = 14" over two reads is a right answer, not a miscount.
+export function filteredCountMismatch(answer, question, filtered, counts = []) {
   if (!filtered || filtered < 2 || !/\bquant[oa]s\b/i.test(foldCount(question))) return null;
+  const known = new Set([...counts, ...counts.flatMap((a, i) => counts.slice(i + 1).map((b) => a + b))]);
   const nouns = (foldCount(question).match(/[a-z]{4,}/g) || []).filter((w) => !COUNT_STOP.has(w)).map((w) => w.slice(0, 5));
   const said = [...foldCount(answer).replace(/\*/g, "").matchAll(/\b(\d{1,4})\s+([a-z]{4,})/g)].filter((m) => nouns.some((n) => m[2].startsWith(n))).map((m) => Number(m[1]));
-  if (!said.length || said.includes(filtered)) return null;
+  if (!said.length || said.includes(filtered) || said.some((n) => known.has(n)) || !said.some((n) => Math.abs(n - filtered) <= 3)) return null;
   return { said, filtered };
 }
 
