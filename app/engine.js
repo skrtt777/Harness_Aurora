@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { resolveCli } from "./cliRuntime.js";
 import { listApiEngines, runApiEngine } from "./apiEngines.js";
+import { runHermesAgent, runOpenClawAgent } from "./agentClis.js";
 import { buildMirror, censorDocuments, codeChanges, leaks, MIRROR_MANIFEST, MIRROR_SCRIPT, pseudonymize, restoreScript, unfake } from "./mirror.js";
 import { localNameFinder, logEgress, secretTerms } from "./blind.js";
 import { runClaudeAgent } from "./claude.js";
@@ -15,8 +16,9 @@ import { runCodexAgent } from "./codex.js";
 import { getSetting, setSetting } from "./store.js";
 import { detectSignals, requestsFile, WRITE_TOOLS } from "./teacher.js";
 
-export const ENGINES = { claude: { label: "Claude", run: runClaudeAgent }, codex: { label: "Codex", run: runCodexAgent } };
-const DEFAULT_ORDER = ["claude", "codex"];
+// Hermes and OpenClaw (app/agentClis.js) go after Claude Code and Codex, through the same mirror and marks.
+export const ENGINES = { claude: { label: "Claude", run: runClaudeAgent }, codex: { label: "Codex", run: runCodexAgent }, hermes: { label: "Hermes", run: runHermesAgent }, openclaw: { label: "OpenClaw", run: runOpenClawAgent } };
+const DEFAULT_ORDER = ["claude", "codex", "hermes", "openclaw"];
 
 // The engines set up with an API key (app/apiEngines.js) join the CLIs here, under their own ids ("api-…"):
 // everything that hands work to an engine (active help, escalation, agents, the Office) sees them all.

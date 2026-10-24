@@ -702,7 +702,7 @@ test("PUT /api/settings turns the strong engines on and off and shows each one's
   await withServer(async (api) => {
     const first = await api("/api/settings");
     assert.equal(first.body.escalationMode, "on");
-    assert.deepEqual(Object.keys(first.body.engines).sort(), ["claude", "codex"]);
+    assert.deepEqual(Object.keys(first.body.engines).sort(), ["claude", "codex", "hermes", "openclaw"]);
     assert.equal(typeof first.body.engines.claude.installed, "boolean");
 
     const off = await api("/api/settings", { method: "PUT", body: JSON.stringify({ escalationMode: "off" }) });

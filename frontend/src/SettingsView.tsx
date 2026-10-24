@@ -410,10 +410,10 @@ export default function SettingsView({
                 <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes de mandá-lo censurado." : settings.paidPrivacy === "censura" ? "Top secret: além da cópia das planilhas, os documentos vão como texto censurado (nomes, CPF, valores, datas e números viram marcas como [NOME 1]; os seus termos sigilosos viram [SIGILO 1]). A IA local ajuda a achar os nomes, e a resposta volta aqui com os valores reais." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>
                 <div className="row-control">{choice(settings.paidPrivacy, [["espelho", "Ficam aqui"], ["censura", "Censurados"], ["livre", "Podem sair"]] as const, (id) => void saveAgent({ paidPrivacy: id }), "Seus dados")}</div>
               </div>
-              {(["claude", "codex"] as const).map((id) => {
+              {Object.keys(settings.engines || { claude: 1, codex: 1 }).filter((id) => !id.startsWith("api-")).map((id) => {
                 const engine = settings.engines?.[id];
                 const state = !engine?.installed ? "Não instalado neste computador." : engine.limitedUntil ? `Sem limite de uso até ${new Date(engine.limitedUntil).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Disponível.";
-                return <div className="row" key={id}><div className="row-text"><div className="row-label">{id === "claude" ? "Claude" : "Codex"}</div><div className="row-desc">{state}</div></div></div>;
+                return <div className="row" key={id}><div className="row-text"><div className="row-label">{engine?.label || id}</div><div className="row-desc">{state}</div></div></div>;
               })}
             </div>
           </>}

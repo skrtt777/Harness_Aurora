@@ -312,7 +312,7 @@ export type Settings = {
   engineDailyLimit: number;
   engineUsedToday: number;
   /** Cada modelo forte: instalado e, se estiver sem limite de uso, até quando. */
-  engines: Record<"claude" | "codex", { installed: boolean; limitedUntil: number | null; reason: string | null }>;
+  engines: Record<string, { label?: string; installed: boolean; limitedUntil: number | null; reason: string | null }>;
 };
 export const getSettings = () => request<Settings>("/settings");
 export const updateSettings = (
@@ -552,7 +552,7 @@ export type TaskAgent = {
   /** Who does the work: the local Aurora, or Claude/Codex without seeing the data (a copy with fake values). */
   engine: AgentEngine;
 };
-export type AgentEngine = "local" | "claude" | "codex" | `api-${string}`;
+export type AgentEngine = "local" | "claude" | "codex" | "hermes" | "openclaw" | `api-${string}`;
 export type AgentRun = {
   id: string; agentId: string; conversationId: string | null; request: string; trigger: "manual" | "schedule" | "file" | "orquestrador"; status: "running" | "done" | "failed";
   startedAt: string; finishedAt: string | null; answer: string | null; files: string[]; steps: number | null; error: string | null;

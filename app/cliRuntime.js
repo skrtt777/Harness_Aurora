@@ -32,6 +32,8 @@ export async function executeCli(command, args, { signal, timeout, input, ...opt
 
 // Resolve native Windows executables or npm's JS entry point without shell:true
 // (a shell would interpret generated prompts as commands).
+// The script an npm-installed CLI runs (on Windows the .cmd shim cannot be spawned directly).
+const NPM_ENTRY = { codex: "@openai/codex/bin/codex.js", claude: "@anthropic-ai/claude-code/cli.js", openclaw: "openclaw/openclaw.mjs" };
 export function resolveCli(provider, env = process.env) {
   const configured = env[`${provider.toUpperCase()}_BIN`] || provider;
   const candidates = [];
@@ -40,14 +42,14 @@ export function resolveCli(provider, env = process.env) {
     if (!directory) continue;
     candidates.push(join(directory, process.platform === "win32" && !/\.exe$/i.test(configured) ? `${configured}.exe` : configured));
     if (process.platform === "win32" && configured === provider) {
-      candidates.push(join(directory, "node_modules", provider === "codex" ? "@openai/codex/bin/codex.js" : "@anthropic-ai/claude-code/cli.js"));
+      candidates.push(join(directory, "node_modules", NPM_ENTRY[provider] || NPM_ENTRY.claude));
     }
   }
   const found = candidates.find(existsSync);
   if (found?.endsWith(".js") || found?.endsWith(".mjs")) return { command: process.execPath, prefix: [found], installed: true, runAsNode: true };
   if (found && !/\.cmd$/i.test(found)) return { command: found, prefix: [], installed: true };
   if (/\.cmd$/i.test(configured)) {
-    const script = join(dirname(configured), "node_modules", provider === "codex" ? "@openai/codex/bin/codex.js" : "@anthropic-ai/claude-code/cli.js");
+    const script = join(dirname(configured), "node_modules", NPM_ENTRY[provider] || NPM_ENTRY.claude);
     if (existsSync(script)) return { command: process.execPath, prefix: [script], installed: true, runAsNode: true };
   }
   return { command: configured, prefix: [], installed: false };

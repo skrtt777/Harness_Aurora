@@ -18,7 +18,7 @@ import { personalFolders } from "./fileAccess.js";
 
 export const AGENT_KINDS = ["setor", "pessoal"];
 // Who does the agent's work (20/10): the local Aurora, or Claude/Codex — blind, through the mirror (app/engine.js).
-export const AGENT_ENGINES = ["local", "claude", "codex"];
+export const AGENT_ENGINES = ["local", "claude", "codex", "hermes", "openclaw"];
 // Plus any engine set up with an API key (app/apiEngines.js ids: "api-…").
 const validEngine = (engine) => AGENT_ENGINES.includes(engine) || /^api-[a-z0-9-]+$/.test(String(engine || ""));
 let recovered = false;

@@ -188,13 +188,13 @@ const CONTACT_DATA = /\bramal\b|e-?mail|telefone|@/i;
  * last request when this message only asks for help with it. The Aurora had answered that it had no such
  * integration (15/10), with the teacher a setting away.
  */
-const ASKS_TEACHER = /\b(?:us[ea]r?|utiliz[ea]r?|cham[ea]r?|pe[cç]a(?:\s+ajuda)?(?:\s+ao?)?|com a ajuda d[oa]|consult[ea]r?|pergunte(?:\s+ao?)?)\s+(?:o\s+|a\s+)?(claude|codex)\b/i;
+const ASKS_TEACHER = /\b(?:us[ea]r?|utiliz[ea]r?|cham[ea]r?|pe[cç]a(?:\s+ajuda)?(?:\s+ao?)?|com a ajuda d[oa]|consult[ea]r?|pergunte(?:\s+ao?)?)\s+(?:o\s+|a\s+)?(claude|codex|hermes|open\s?claw)\b/i;
 export function teacherAsked(text, history = []) {
   const m = String(text || "").match(ASKS_TEACHER);
   if (!m) return null;
   const rest = String(text).replace(m[0], "").replace(/\b(?:para|pra)\s+(?:te\s+|me\s+)?(?:auxiliar|ajudar|apoiar)\b|\b(?:n[ae]ss[ae]|nesta|esta|essa)\s+tarefa\b|\bnisso\b|\bcom isso\b|[.,!?]/gi, "").trim();
   const last = history.filter((h) => h.role === "user").at(-1)?.content;
-  const label = /claude/i.test(m[1]) ? "Claude" : "Codex";
+  const label = /claude/i.test(m[1]) ? "Claude" : /hermes/i.test(m[1]) ? "Hermes" : /claw/i.test(m[1]) ? "OpenClaw" : "Codex";
   return { provider: label.toLowerCase(), label, task: rest.length >= 12 || !last ? String(text) : `${last}\n\n(A pessoa pediu: "${String(text).trim()}". Faça esta tarefa de novo; a sua entrega vai ser revisada pelo ${label}.)` };
 }
 
@@ -809,7 +809,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           if (conversation.provider === "local" && !asked && toolContext.workspace && toolContext.mode !== "plan" && (agentEngine || ((!env.AGENT_RUN_TRIGGER || env.AGENT_RUN_TRIGGER === "manual") && (await helpMode(env)) === "ativa")) && await escalationOn(env)) {
             // The last answer was a strong engine's delivery: "agora em azul" goes back to it, with its script.
             const lastAnswer = [...history].reverse().find((m) => m.role === "assistant");
-            const followsEngine = /> Feito (com|pelo) o? ?(Claude|Codex)|> Feito pelo (Claude|Codex)/.test(String(lastAnswer?.content || ""));
+            const followsEngine = /> Feito (com|pelo) o? ?(Claude|Codex|Hermes|OpenClaw)|> Feito pelo (Claude|Codex|Hermes|OpenClaw)/.test(String(lastAnswer?.content || ""));
             // The company's documents found for this request stay with the local Aurora: the engine would work
             // without them. Her own version history is not the company's: it goes to the engine as a file.
             const localOnly = autoDocs.length > 0 || (hasKnowledge && asksAboutCompany(trimmed));
@@ -877,7 +877,7 @@ ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proa
             const why = asked ? "" : escalationReason({ request: trimmed, result: agent, history });
             if (asked || why) {
               const privacy = await privacyMode(env);
-              const allowed = toolContext.restrictedSources.size === 0 || isBlind(privacy) || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude/Codex) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
+              const allowed = toolContext.restrictedSources.size === 0 || isBlind(privacy) || await approveEngine({ tool: "engine", summary: `Enviar esta tarefa a um modelo forte (Claude, Codex, Hermes ou OpenClaw) para ele fazer`, detail: "Ela usa documentos internos que não estão liberados para IA paga." });
               if (allowed) {
                 const order = asked ? [asked.provider, ...Object.keys(ENGINES).filter((x) => x !== asked.provider)] : null;
                 const job = { task: asked ? asked.task : trimmed, reason: why, history, workspace: toolContext.workspace, order, env, signal: controller.signal, onStage: (stage) => setStage(conversationId, stage), approveRun: engineApproval, context: engineContext };
@@ -902,7 +902,8 @@ ${engineNote(escalated)}` };
           // teacher; its lessons become memories and the local model redoes.
           if (agent.ok && conversation.provider === "local" && !escalated?.ok && !proactive?.ok) {
             const contextMemories = relevant.filter((m) => agentContext.memoryIds.includes(m.id));
-            const teacherProvider = asked ? asked.provider : (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
+            // The review (teaching loop) is Claude's or Codex's: Hermes and OpenClaw only do the work.
+            const teacherProvider = asked && ["claude", "codex"].includes(asked.provider) ? asked.provider : (conversation.teacherProvider || await getSetting("default_teacher", "codex")) === "claude" ? "claude" : "codex";
             const approveTeacher = (request) => { setStage(conversationId, "Aguardando sua autorização…"); return requestApproval(conversationId, request, { timeoutMs: Number(env.AGENT_APPROVAL_TIMEOUT_MS) || undefined }).catch(() => false); };
             const loop = await runTeachingLoop({ asked: Boolean(asked), userMessage: asked ? asked.task : trimmed, history, first: agent, teacherProvider, conversation, workspace: toolContext.workspace, memoryIds: agentContext.memoryIds, memories: contextMemories, rerun: runAgent, onStage: (stage) => setStage(conversationId, stage), env, signal: controller.signal, needsConsent: () => toolContext.restrictedSources.size > 0, approve: approveTeacher });
             agent = loop.result;

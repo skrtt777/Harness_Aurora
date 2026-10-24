@@ -22,7 +22,7 @@ const KIND_LABEL: Record<OfficeActor["kind"], string> = { aurora: "Aurora (sess�
 /** How someone is called in the list and on hover: a session with its conversation ("Marina · Metas de outubro"). */
 const who = (a: OfficeActor) => ((a.kind === "aurora" || a.kind === "subagente") && a.task ? `${a.name} · ${a.task}` : a.name);
 /** The name on the floor, with the HR stars ("Cobrança ★2"). */
-const ENGINE: Record<string, string> = { claude: "Claude", codex: "Codex" };
+const ENGINE: Record<string, string> = { claude: "Claude", codex: "Codex", hermes: "Hermes", openclaw: "OpenClaw" };
 const tag = (a: OfficeActor) => `${a.name}${a.engine && ENGINE[a.engine] ? ` · ${ENGINE[a.engine]}` : ""}${a.stars ? ` ★${a.stars}` : ""}`;
 const BUSY = new Set(["trabalhando", "delegado", "pensando", "aguardando", "revisao", "refazendo", "conferindo", "chegando", "reuniao"]);
 

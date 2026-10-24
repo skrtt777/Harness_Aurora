@@ -286,7 +286,7 @@ function manifest(files, kept = []) {
 }
 
 // Capitalized words that are products, places or the calendar, not someone of the company.
-const NOT_NAMES = new Set(["aurora", "claude", "codex", "gemini", "chatgpt", "openai", "excel", "word", "powerpoint", "power", "bi", "python", "windows", "google", "microsoft", "brasil", "são", "paulo", "rio", "janeiro", "pdf", "csv", "lgpd", "sql", "dax", "outlook", "teams", "telegram", "whatsapp", "pix", "ltda", "s.a.", "me", "eu", "ok", ...MONTHS, "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]);
+const NOT_NAMES = new Set(["aurora", "claude", "codex", "hermes", "openclaw", "gemini", "chatgpt", "openai", "excel", "word", "powerpoint", "power", "bi", "python", "windows", "google", "microsoft", "brasil", "são", "paulo", "rio", "janeiro", "pdf", "csv", "lgpd", "sql", "dax", "outlook", "teams", "telegram", "whatsapp", "pix", "ltda", "s.a.", "me", "eu", "ok", ...MONTHS, "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]);
 // Two or more capitalized words in a row ("Maria Souza", "Acme Indústria"), with "da/de/do/dos/das" between
 // ("e" is not: "Maria da Silva e Acme Ltda" are two names).
 const NAME = /(?<![\p{L}\p{N}])\p{Lu}[\p{Ll}'’]+(?:[ \t]+(?:(?:da|de|do|dos|das)[ \t]+)?\p{Lu}[\p{Ll}'’]+)+(?![\p{L}\p{N}])/gu;

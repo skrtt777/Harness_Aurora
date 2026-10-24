@@ -244,7 +244,7 @@ function TeamRequest({ agents, onOpenConversation }: { agents: TaskAgent[]; onOp
 
 const EMPTY: NewTaskAgent = { name: '', kind: 'pessoal', mission: '', department: '', workDir: '', engine: 'local' };
 // Claude/Codex work blind: a copy of the folder with fake values; the Aurora runs their result here.
-const ENGINE_OPTIONS: [AgentEngine, string][] = [['local', 'Aurora local'], ['claude', 'Claude (sem ver seus dados)'], ['codex', 'Codex (sem ver seus dados)']];
+const ENGINE_OPTIONS: [AgentEngine, string][] = [['local', 'Aurora local'], ['claude', 'Claude (sem ver seus dados)'], ['codex', 'Codex (sem ver seus dados)'], ['hermes', 'Hermes (sem ver seus dados)'], ['openclaw', 'OpenClaw (sem ver seus dados)']];
 // The models set up by API key (Configurações → Modelos) join the list, fetched once per screen.
 let apiOptions: Promise<[AgentEngine, string][]> | null = null;
 function useEngineOptions(): [AgentEngine, string][] {
