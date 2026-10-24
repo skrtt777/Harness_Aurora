@@ -350,21 +350,11 @@
 .lm-title { z-index: 59; }
 /* the atlas (AtlasMap.tsx): a 2D canvas filling the stage, a night chart */
 .lm-stage { background: #05070a; border-color: #18202b; }
-.lm-atlas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .lm-atlas:active { cursor: grabbing; }
 .lm-hover { left: 214px; bottom: 22px; }
 .lm-legend .rev::before { content: "○"; }
 @media (max-width: 900px) { .lm-hover { left: 18px; bottom: 150px; } }
 
-/* The brain (BrainMap.tsx): a WebGL canvas with HTML names over it. */
-.lm-brain { position: absolute; inset: 0; overflow: hidden; background: #020308; }
-.lm-brain-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-.lm-brain-canvas:active { cursor: grabbing; }
-.lm-brain-labels { position: absolute; inset: 0; pointer-events: none; }
-.lm-brain-cl { position: absolute; left: 0; top: 0; text-align: center; white-space: nowrap; will-change: transform, opacity; transition: opacity .3s; }
-.lm-brain-cl b { display: block; font: 600 11px/1.2 "JetBrains Mono", Consolas, monospace; letter-spacing: .16em; color: var(--c); text-shadow: 0 0 12px var(--c), 0 0 2px #000; }
-.lm-brain-cl span { display: block; margin-top: 2px; font: 400 9.5px/1.2 "JetBrains Mono", Consolas, monospace; letter-spacing: .08em; color: rgba(220,230,245,.55); }
-.lm-brain-node { position: absolute; left: 0; top: 0; max-width: 260px; padding: 2px 7px; border-left: 2px solid var(--c); background: rgba(3,5,10,.72); font: 400 11px/1.35 "Inter", system-ui, sans-serif; color: #eef3fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; will-change: transform; box-shadow: 0 0 14px -4px var(--c); }
 .lm-stage:fullscreen { margin: 0; border: 0; width: 100vw; height: 100vh; }
 
 /* The memory chip (MemoryChip.tsx): a panel and the die. Black, JetBrains Mono, thin lines. */
@@ -416,7 +406,7 @@
 .mc-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; }
 .mc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
 .mc-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); pointer-events: none; }
-.mc-legend { position: absolute; top: 12px; left: 14px; max-width: min(520px, 70%); pointer-events: none; }
+.mc-legend { position: absolute; top: 10px; left: 12px; max-width: min(540px, 70%); pointer-events: none; padding: 6px 10px 6px; background: rgba(0,0,0,.72); border-left: 2px solid var(--gold); }
 .mc-legend h3 { margin: 0; font-size: 15px; letter-spacing: .12em; color: var(--gold); font-weight: 600; text-shadow: 0 0 8px #000; }
 .mc-legend p { margin: 2px 0 6px; font-size: 11.5px; color: var(--ink); text-shadow: 0 0 6px #000, 0 0 2px #000; }
 .mc-crumbs { pointer-events: auto; font-size: 11px; color: var(--dim); }
@@ -435,3 +425,8 @@
 .mc-narrow .mc-panel { width: auto; flex: 0 0 auto; max-height: 42%; border-right: 0; border-top: 1px solid #16332a; }
 .mc-narrow .mc-stage { flex: 1 1 auto; min-height: 260px; }
 .mc-narrow .mc-legend p { display: none; }
+.mc-tip { position: absolute; z-index: 5; pointer-events: none; max-width: 340px; padding: 6px 9px; background: rgba(0,0,0,.92); border: 1px solid var(--c); box-shadow: 0 0 18px -6px var(--c); display: flex; flex-direction: column; gap: 2px; }
+.mc-tip b { color: #fff; font-weight: 600; font-size: 12px; }
+.mc-tip span { color: var(--c); font-size: 10.5px; }
+.mc-tip small { color: var(--dim); font-size: 9.5px; }
+.lm-stage:fullscreen .mc-panel { max-height: 100vh; }

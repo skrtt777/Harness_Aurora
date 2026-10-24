@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BANK, BANK_H, BANK_W, BITS, CELL_H, CELL_W, COPPER, slotRect, GOLD, GRID, LEVELS, SILICON, ZOOM_MAX, ZOOM_MIN,
   along, assignSlots, bitsOf, chunkAround, layerAlpha, layoutChip, levelAt, strengthOf,
@@ -41,8 +41,22 @@ type Ui = {
   occupancy: { id: string; label: string; color: string; n: number; cap: number }[]; follow: boolean; diving: boolean; ready: boolean;
 };
 
-/** inset: pixels on the right covered by something else (a chat beside it): the die stays clear of them. */
-export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { source: ChipSource; onSwitchSource?: () => void; inset?: number }) {
+/** Where the page around the chip sends it: to a memory, or to a nucleus (with a new key each time). */
+export type ChipCommand = { kind: "memory" | "nucleus"; id: string; key: number } | null;
+type Props = {
+  source: ChipSource;
+  onSwitchSource?: () => void;
+  /** Pixels on the right covered by something else (a chat beside it): the die stays clear of them. */
+  inset?: number;
+  command?: ChipCommand;
+  /** Memories a search found: they are ringed, the rest dim. */
+  highlight?: string[];
+  /** More actions for the memory in focus (open its conversation, call the Zeladora…). */
+  extraActions?: (id: string) => ReactNode;
+  onSelect?: (id: string | null) => void;
+};
+
+export default function MemoryChip({ source, onSwitchSource, inset = 0, command = null, highlight = [], extraActions, onSelect }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ui, setUi] = useState<Ui>({ live: false, z: 1, level: 0, crumbs: ["Chip"], focus: null, memories: 0, recallsToday: 0, recall: null, used: [], feed: [], occupancy: [], follow: false, diving: false, ready: false });
@@ -50,6 +64,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmForget, setConfirmForget] = useState(false);
+  const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
   const E = useRef({
     mems: new Map<string, ChipMemory>(), cats: [] as ChipCategory[], slots: null as Map<string, (string | null)[]> | null, L: null as ChipLayout | null,
     bits: new Map<string, Uint8Array>(), fx: new Map<string, Fx>(), ghosts: [] as Ghost[], packets: [] as Packet[], traces: [] as Trace[],
@@ -57,8 +72,14 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
     recall: null as Recall | null, recallsToday: 0, used: [] as { id: string; score: number }[], feed: [] as FeedItem[], queue: [] as ChipEvent[],
     live: false, focus: null as string | null, selected: null as string | null, dirty: true, uiAt: 0, drag: null as null | { x: number; y: number; cx: number; cy: number; moved: boolean },
     pointers: new Map<number, [number, number]>(), pinch: null as null | { d: number }, textW: new Map<string, string>(),
+    /** The search's memories (ringed; the rest dim), the cell under the mouse, the Zeladora's probe gliding between cells. */
+    highlight: new Set<string>(), hover: null as string | null, mouse: null as [number, number] | null,
+    probe: null as null | { x: number; y: number; to: string; at: number; label: string },
   });
   E.current.selected = selected;
+  E.current.highlight = new Set(highlight);
+  const onSelectRef = useRef(onSelect); onSelectRef.current = onSelect;
+  useEffect(() => { onSelectRef.current?.(selected); }, [selected]);
   // ---------- the state: a snapshot, the events ----------
   const rebuild = useCallback(() => {
     const e = E.current;
@@ -74,9 +95,14 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
   const applySnapshot = useCallback((s: ChipSnapshot, animate: boolean) => {
     const e = E.current, now = performance.now();
     const before = new Set(e.mems.keys());
+    // Other nuclei (another mode, a fresh grouping): the slots start over instead of leaving holes everywhere.
+    const regrouped = e.cats.length > 0 && e.cats.map((c) => c.id).join("|") !== s.categories.map((c) => c.id).join("|");
+    if (regrouped) e.slots = null;
     e.mems = new Map(s.memories.map((m) => [m.id, m])); e.cats = s.categories; e.bits.clear();
     e.recallsToday = Math.max(e.recallsToday, s.recallsToday);
     rebuild();
+    // A new die: the whole of it in view again.
+    if (regrouped && e.L) { const b = e.L.bounds; flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2 - 42 / e.kFit, 1, 900); }
     if (animate) for (const m of s.memories) if (!before.has(m.id)) built(m, now);
   }, [rebuild]);
 
@@ -92,7 +118,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
   const process = (ev: ChipEvent, burst: boolean) => {
     const e = E.current, now = performance.now();
     switch (ev.type) {
-      case "snapshot": applySnapshot(ev.snapshot, true); break;
+      case "snapshot": applySnapshot(ev.snapshot, !ev.quiet); break;
       case "memory.created": {
         if (e.mems.has(ev.memory.id)) break;
         if (!e.cats.some((c) => c.id === ev.memory.category)) e.cats = [...e.cats, { id: ev.memory.category, label: ev.memory.category }];
@@ -156,7 +182,13 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
         feed("✓", `respondeu usando ${ev.memoriesUsed.length} memória${ev.memoriesUsed.length === 1 ? "" : "s"}${ev.tokensUsed ? ` · ${ev.tokensUsed} tokens` : ""}`, "#8DFF6A");
         break;
       }
-      case "keeper.read": { const fx = e.fx.get(ev.id) || {}; fx.probeAt = now; e.fx.set(ev.id, fx); break; }
+      case "keeper.read": {
+        const fx = e.fx.get(ev.id) || {}; fx.probeAt = now; e.fx.set(ev.id, fx);
+        // Her probe glides from the cell she read before to this one.
+        const c = e.L?.cell.get(ev.id);
+        if (c) e.probe = { x: e.probe ? e.probe.x : c.x + c.w / 2, y: e.probe ? e.probe.y : c.y - 30, to: ev.id, at: now, label: e.mems.get(ev.id)?.text || "" };
+        break;
+      }
     }
     e.dirty = true;
   };
@@ -228,6 +260,49 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
     e.diving = true;
   };
 
+  /** Up one level, around what is in view (from the chip itself: the selection is let go). */
+  const ascend = () => {
+    const e = E.current, z = e.cam.k / e.kFit, lv = levelAt(z);
+    if (lv === 0) { setSelected(null); return; }
+    if (lv === 1) { goLevel(0); return; }
+    const L = LEVELS[lv - 1];
+    flyTo(e.cam.x, e.cam.y, Math.sqrt(L.from * L.to), 800);
+  };
+
+  // Commands from the page around (a memory from the chat or the search, a nucleus from its tab).
+  useEffect(() => {
+    const e = E.current; if (!command || !e.L) return;
+    interacted();
+    if (command.kind === "memory") {
+      const c = e.L.cell.get(command.id);
+      if (c) { setSelected(command.id); flyTo(c.x + c.w / 2, c.y + c.h / 2, 12, 1100); }
+    } else {
+      const n = e.L.nuclei.find((x) => x.id === command.id);
+      if (n) flyTo(n.x + n.w / 2, n.y + n.h / 2, clamp((Math.min(e.W / n.w, e.H / n.h) * 0.8) / e.kFit, 1, 8), 1100);
+    }
+  }, [command?.key]);
+
+  // Keyboard: Enter goes down a level, Esc up, + / − zoom, arrows move.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const e = E.current;
+      if (ev.key === "Enter") { interacted(); descend(e.cam.x, e.cam.y); }
+      else if (ev.key === "Escape") { interacted(); ascend(); }
+      else if (ev.key === "+" || ev.key === "=") { interacted(); zoomAt(e.W / 2, e.H / 2, 1.6); }
+      else if (ev.key === "-") { interacted(); zoomAt(e.W / 2, e.H / 2, 1 / 1.6); }
+      else if (ev.key.startsWith("Arrow")) {
+        ev.preventDefault(); interacted();
+        const d = 90 / e.cam.k;
+        if (ev.key === "ArrowLeft") e.cam.x -= d; if (ev.key === "ArrowRight") e.cam.x += d;
+        if (ev.key === "ArrowUp") e.cam.y -= d; if (ev.key === "ArrowDown") e.cam.y += d;
+      } else return;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ---------- the source ----------
   useEffect(() => {
     const e = E.current;
@@ -268,7 +343,8 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
       const [x, y] = local(ev); e.drag = { x, y, cx: e.cam.x, cy: e.cam.y, moved: false };
     };
     const onMove = (ev: PointerEvent) => {
-      if (!e.pointers.has(ev.pointerId)) return;
+      if (!e.pointers.has(ev.pointerId)) { e.mouse = local(ev); return; }
+      e.mouse = null;
       e.pointers.set(ev.pointerId, local(ev));
       if (e.pinch && e.pointers.size === 2) {
         const [a, b] = [...e.pointers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -288,7 +364,10 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("pointerdown", onDown); canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp); canvas.addEventListener("pointercancel", onUp);
+    const onLeave = () => { e.mouse = null; };
+    canvas.addEventListener("pointerleave", onLeave);
     return () => {
+      canvas.removeEventListener("pointerleave", onLeave);
       ro.disconnect(); canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("pointercancel", onUp);
@@ -310,6 +389,10 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
         e.cam.x = f.x0 + (f.x1 - f.x0) * up; e.cam.y = f.y0 + (f.y1 - f.y0) * up; e.cam.k = Math.exp(f.l0 + (f.l1 - f.l0) * uz);
         if (u >= 1) { e.fly = f.then ? { ...f.then, t0: now } : null; if (!e.fly) e.diving = false; }
       }
+      // The cell under the mouse (its name in a tip, its links drawn).
+      const hv = e.mouse && e.L ? cellNear(e.cam.x + (e.mouse[0] - e.W / 2) / e.cam.k, e.cam.y + (e.mouse[1] - e.H / 2) / e.cam.k, 0.5) : null;
+      if (hv !== e.hover) { e.hover = hv; setTip(hv && e.mouse ? { id: hv, x: e.mouse[0], y: e.mouse[1] } : null); }
+      else if (hv && e.mouse) { const m = e.mouse; setTip((t) => (t && (Math.abs(t.x - m[0]) > 2 || Math.abs(t.y - m[1]) > 2) ? { id: hv, x: m[0], y: m[1] } : t)); }
       draw(ctx, now);
       // The panel: a few times a second.
       if (now - e.uiAt > 220) { e.uiAt = now; pushUi(); }
@@ -446,6 +529,45 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
       }
     }
 
+    // Jumper wires: the real links of the memory selected or under the mouse, cell to cell (dashed: a recorded
+    // relation; solid: similar in meaning, brighter when more similar).
+    const wireA = Math.max(a[0], a[1], a[2] * 0.8);
+    if (wireA > 0.02) for (const id of [e.selected, e.hover]) {
+      const m = id ? e.mems.get(id) : null, c0 = id ? L.cell.get(id) : null;
+      if (!m || !c0) continue;
+      const x0 = c0.x + c0.w / 2, y0 = c0.y + c0.h / 2;
+      for (const l of m.links) {
+        const c1 = L.cell.get(l.id); if (!c1) continue;
+        const x1 = c1.x + c1.w / 2, y1 = c1.y + c1.h / 2, len = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const mx = (x0 + x1) / 2 - ((y1 - y0) / len) * len * 0.18, my = (y0 + y1) / 2 + ((x1 - x0) / len) * len * 0.18;
+        ctx.strokeStyle = hex(l.kind === "relation" ? "#ffffff" : GOLD, wireA * (l.kind === "relation" ? 0.75 : 0.35 + 0.6 * l.score));
+        ctx.lineWidth = 1.4; ctx.setLineDash(l.kind === "relation" ? [4, 4] : []);
+        ctx.beginPath(); ctx.moveTo(X(x0), Y(y0)); ctx.quadraticCurveTo(X(mx), Y(my), X(x1), Y(y1)); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = hex(GOLD, wireA); ctx.beginPath(); ctx.arc(X(x1), Y(y1), 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // The Zeladora's probe: it glides to the cell she reads and stays a while after.
+    if (e.probe) {
+      const p = e.probe, c = L.cell.get(p.to), age = now - p.at;
+      if (!c || age > 7000) e.probe = null;
+      else {
+        p.x += (c.x + c.w / 2 - p.x) * 0.12; p.y += (c.y + c.h / 2 - p.y) * 0.12;
+        const f = age < 5000 ? 1 : 1 - (age - 5000) / 2000, sx = X(p.x), sy = Y(p.y), r = 11 + Math.sin(now / 260) * 1.5;
+        ctx.strokeStyle = hex(KEEPER, 0.9 * f); ctx.lineWidth = 1.3;
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+        for (let q = 0; q < 4; q += 1) { const an = q * Math.PI / 2 + now / 900; ctx.beginPath(); ctx.moveTo(sx + Math.cos(an) * (r + 3), sy + Math.sin(an) * (r + 3)); ctx.lineTo(sx + Math.cos(an) * (r + 9), sy + Math.sin(an) * (r + 9)); ctx.stroke(); }
+        if (a[0] + a[1] > 0.3) {
+          const label = `zeladora · lê «${p.label.length > 34 ? `${p.label.slice(0, 33)}…` : p.label}»`;
+          ctx.font = `400 11px ${MONO}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          const tw = ctx.measureText(label).width + 12, lx = sx + r + 14 + tw > W - 40 ? sx - r - 14 - tw : sx + r + 14;
+          ctx.fillStyle = `rgba(0,0,0,${0.85 * f})`; ctx.fillRect(lx, sy - 9, tw, 18);
+          ctx.strokeStyle = hex(KEEPER, 0.5 * f); ctx.strokeRect(lx + 0.5, sy - 8.5, tw - 1, 17);
+          ctx.fillStyle = hex(KEEPER, f); ctx.fillText(label, lx + 6, sy);
+        }
+      }
+    }
+
     // Deep layers of the cell in focus.
     const fid = z >= 60 ? cellNear(camX, camY, 4) : null;
     const fcell = fid ? L.cell.get(fid) : null, fmem = fid ? e.mems.get(fid) : null;
@@ -513,7 +635,10 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
       const scan = fx.scan !== undefined && fx.scanAt !== undefined ? fx.scan * (1 - clamp((now - fx.scanAt) / 5000, 0, 1)) * 0.35 : 0;
       const glow = Math.max(lit, scan);
       if (glow > 0.01) {
+        // A real glow around what is being recalled (only the lit cells pay for the blur).
+        ctx.shadowColor = GOLD; ctx.shadowBlur = 6 + 18 * glow;
         ctx.fillStyle = hex(GOLD, 0.65 * glow); ctx.fillRect(x, y, w, h);
+        ctx.shadowBlur = 0;
         ctx.strokeStyle = hex(GOLD, Math.min(1, glow * 1.3)); ctx.lineWidth = 1.5; ctx.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3);
         if (lit > 0.05) { ctx.strokeStyle = hex(GOLD, 0.25 * lit); ctx.lineWidth = 1; ctx.strokeRect(x - 5, y - 5, w + 10, h + 10); }
       }
@@ -523,6 +648,12 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
         if (f > 0) { ctx.strokeStyle = hex(KEEPER, 0.9 * f); ctx.lineWidth = 1.2; const p = 4 + 3 * (1 - f); ctx.strokeRect(x - p, y - p, w + p * 2, h + p * 2); }
       }
     }
+    // A search: what it found is ringed in blue, the rest steps back.
+    if (e.highlight.size) {
+      if (e.highlight.has(id)) { ctx.strokeStyle = "#45D6FF"; ctx.lineWidth = 1.5; ctx.shadowColor = "#45D6FF"; ctx.shadowBlur = 10; ctx.strokeRect(x - 2, y - 2, w + 4, h + 4); ctx.shadowBlur = 0; }
+      else { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(x, y, w, h); }
+    }
+    if (e.hover === id && e.selected !== id) { ctx.strokeStyle = hex("#ffffff", 0.7); ctx.lineWidth = 1; ctx.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3); }
     if (e.selected === id) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5; ctx.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5); }
 
     // Level 2: the short text in the cell.
@@ -773,6 +904,7 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
                   : <button onClick={() => setConfirmForget(true)}>esquecer</button>)}
               </div>
             )}
+            {extraActions && <div className="mc-actions">{extraActions(cm.id)}</div>}
           </section>
         )}
         <section className="mc-feed-wrap">
@@ -784,6 +916,17 @@ export default function MemoryChip({ source, onSwitchSource, inset = 0 }: { sour
       <div className="mc-stage" style={{ marginRight: narrow ? 0 : inset }}>
         <canvas ref={canvasRef} className="mc-canvas" aria-label="Chip de memória: cada célula é uma memória gravada" />
         {!ui.ready && <div className="mc-loading">lendo as memórias…</div>}
+        {tip && ui.level <= 1 && (() => {
+          const m = E.current.mems.get(tip.id), c = E.current.L?.cell.get(tip.id), n = c && E.current.L ? E.current.L.nuclei[c.n] : null;
+          if (!m || !n) return null;
+          return (
+            <div className="mc-tip" style={{ left: tip.x + 14, top: tip.y + 14, ["--c" as string]: n.color }} role="status">
+              <b>{m.text}</b>
+              <span>{n.label} · {m.uses} uso{m.uses === 1 ? "" : "s"} · força {Math.round(strengthOf(m) * 100)}% · {m.links.length} vizinha{m.links.length === 1 ? "" : "s"}</span>
+              <small>clique para descer · Enter / Esc sobe e desce</small>
+            </div>
+          );
+        })()}
         <div className="mc-legend">
           <h3>NÍVEL {ui.level + 1} DE 6 · {lv.name}</h3>
           <p>{lv.say}</p>

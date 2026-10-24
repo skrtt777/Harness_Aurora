@@ -1,39 +1,47 @@
 // The MemoryChip's sources (chip.ts has the contract): the Aurora's real memory, and a simulation that speaks the
 // same events (to see the chip work without a backend or a model running).
 import { getMemoryGraph, setMemoryStatus, subscribeMemoryEvents, updateMemory, type MemoryGraphSnapshot, type MemoryLiveEvent } from "../api";
+import { buildMemoryGraph, type Filters, type MemoryGraph, type ViewMode } from "./adapter";
 import { fragmentsOf, type ChipEvent, type ChipLink, type ChipMemory, type ChipSnapshot, type ChipSource } from "./chip";
 
 const day = (t: number) => new Date(t).toDateString();
 
-/** The Aurora's snapshot as the chip's: nuclei are the Zeladora's nodes (or the atlas' groups, or the kinds). */
-export function toChipSnapshot(s: MemoryGraphSnapshot, now = Date.now()): ChipSnapshot {
+/** The nuclei in the order every part of the Mapa Vivo shows them (biggest first): their colours follow it. */
+export function clusterOrder(graph: Pick<MemoryGraph, "clusters">) {
+  return [...graph.clusters].sort((a, b) => b.nodeIds.length - a.nodeIds.length || (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * The Aurora's snapshot as the chip's, for the Mapa Vivo's mode and filters: the nuclei are its groups (the
+ * Zeladora's nodes in "visão geral", folders or conversations in the other modes), the memories the ones the
+ * filters let through.
+ */
+export function toChipSnapshot(s: MemoryGraphSnapshot, view: { mode: ViewMode; filters: Filters } = { mode: "geral", filters: {} }, now = Date.now()): ChipSnapshot {
+  const graph = buildMemoryGraph(s, { mode: view.mode, filters: view.filters, now });
   const point = new Map((s.atlas?.points || []).map((p) => [p.id, p]));
   const lastUsed = new Map<string, number>();
   for (const r of s.recalls) for (const id of r.used) lastUsed.set(id, Math.max(lastUsed.get(id) || 0, Date.parse(r.at)));
-  const byAtlas = Boolean(s.atlas?.clusters.length);
-  const categories = byAtlas
-    ? s.atlas!.clusters.map((c) => ({ id: String(c.id), label: c.label }))
-    : [...new Set(s.memories.map((m) => m.kind))].map((k) => ({ id: `k:${k}`, label: k }));
-  const known = new Set(categories.map((c) => c.id));
+  const visible = new Set(graph.nodes.map((n) => n.id));
   const relations = new Map<string, ChipLink[]>();
   for (const r of s.relations) for (const [a, b] of [[r.from, r.to], [r.to, r.from]]) {
     const list = relations.get(a) || []; list.push({ id: b, score: 1, kind: "relation" }); relations.set(a, list);
   }
-  const memories: ChipMemory[] = s.memories.map((m) => {
+  const memories: ChipMemory[] = graph.nodes.map(({ memory: m, clusterId }) => {
     const p = point.get(m.id);
-    let category = byAtlas ? String(p?.cluster ?? -1) : `k:${m.kind}`;
-    if (!known.has(category)) { categories.push({ id: category, label: category === "-1" ? "sem embedding" : category }); known.add(category); }
     const links = [...(p?.neighbors || []).map((n) => ({ id: n.id, score: n.similarity, kind: "similar" as const })), ...(relations.get(m.id) || [])]
-      .filter((l, i, all) => all.findIndex((x) => x.id === l.id) === i).slice(0, 5);
+      .filter((l, i, all) => visible.has(l.id) && all.findIndex((x) => x.id === l.id) === i).slice(0, 5);
     return {
-      id: m.id, category, createdAt: Date.parse(m.createdAt) || 0, uses: m.uses, lastUsedAt: lastUsed.get(m.id) ?? null, links,
+      id: m.id, category: clusterId, createdAt: Date.parse(m.createdAt) || 0, uses: m.uses, lastUsedAt: lastUsed.get(m.id) ?? null, links,
       // A sensitive memory keeps its place and shows nothing of itself.
       text: m.sensitive ? "memória privada" : m.title, snippet: m.sensitive ? null : m.snippet,
       sig: m.sensitive ? null : p?.sig ?? null, sensitive: m.sensitive,
       entities: m.sensitive ? [] : fragmentsOf({ text: m.title, snippet: m.snippet, tags: m.tags }),
     };
   });
-  return { memories, categories, recallsToday: s.recalls.filter((r) => day(Date.parse(r.at)) === day(now)).length };
+  return {
+    memories, categories: clusterOrder(graph).map((c) => ({ id: c.id, label: c.label })),
+    recallsToday: s.recalls.filter((r) => day(Date.parse(r.at)) === day(now)).length,
+  };
 }
 
 /**
@@ -44,10 +52,15 @@ export function toChipSnapshot(s: MemoryGraphSnapshot, now = Date.now()): ChipSn
  *   turn-start → recall.started; scanned → memory.scanned; recalled → memory.recalled (by rank) + recall.finished;
  *   answered → response.done; her read → keeper.read. A reconnection brings a whole snapshot (reconciliation).
  */
-export function auroraChipSource(): ChipSource {
+export function auroraChipSource(opts: { load?: () => Promise<MemoryGraphSnapshot>; view?: () => { mode: ViewMode; filters: Filters } } = {}): ChipSource {
+  const load = opts.load || getMemoryGraph;
+  const shape = (s: MemoryGraphSnapshot) => toChipSnapshot(s, opts.view?.());
+  let resync: (() => void) | null = null;
   return {
     label: "ao vivo", mock: false,
-    snapshot: () => getMemoryGraph().then((s) => toChipSnapshot(s)),
+    snapshot: () => load().then(shape),
+    // The mode or the filters changed: the whole state again, with no "written" animations.
+    resync: () => resync?.(),
     actions: {
       edit: async (id, text) => { await updateMemory(id, { title: text }); },
       forget: async (id) => { await setMemoryStatus(id, "archived"); },
@@ -58,8 +71,9 @@ export function auroraChipSource(): ChipSource {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const refresh = () => {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => { getMemoryGraph().then((s) => onEvent({ type: "snapshot", snapshot: toChipSnapshot(s) })).catch(() => {}); }, 700);
+        timer = setTimeout(() => { load().then((s) => onEvent({ type: "snapshot", snapshot: shape(s) })).catch(() => {}); }, 700);
       };
+      resync = () => { load().then((s) => onEvent({ type: "snapshot", snapshot: shape(s), quiet: true })).catch(() => {}); };
       const forget = (id: string | undefined, reason: "user" | "decay" | "merge") => { if (!id || gone.has(id)) return; gone.add(id); onEvent({ type: "memory.deleted", id, reason }); };
       const on = (e: MemoryLiveEvent) => {
         switch (e.type) {
@@ -97,7 +111,7 @@ export function auroraChipSource(): ChipSource {
         if (live && !wasLive) refresh();
         wasLive = live;
       });
-      return () => { stop(); if (timer) clearTimeout(timer); };
+      return () => { stop(); resync = null; if (timer) clearTimeout(timer); };
     },
   };
 }

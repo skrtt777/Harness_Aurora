@@ -27,7 +27,7 @@ export type ChipEvent =
   /** The Zeladora (the memory's keeper) reading a memory. */
   | { type: "keeper.read"; id: string }
   /** The whole state again (after a reconnection, or when a new memory needs its nucleus and fingerprint). */
-  | { type: "snapshot"; snapshot: ChipSnapshot };
+  | { type: "snapshot"; snapshot: ChipSnapshot; quiet?: boolean };
 export interface ChipSource {
   /** "ao vivo" or "simulação": shown on the chip. */
   label: string;
@@ -35,6 +35,8 @@ export interface ChipSource {
   snapshot(): Promise<ChipSnapshot>;
   subscribe(onEvent: (e: ChipEvent) => void, onState?: (live: boolean) => void): () => void;
   actions?: { edit?: (id: string, text: string) => Promise<void>; forget?: (id: string) => Promise<void> };
+  /** Send the whole state again now (a "snapshot" event, quiet): the view around the chip changed. */
+  resync?: () => void;
 }
 
 // ---------- colours ----------

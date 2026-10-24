@@ -438,3 +438,25 @@ No pipeline de recall, os eventos saem assim:
 - **Zeladora.** Aparece como uma sonda clara passando pelas células que lê.
 - **Zoom fundo.** A partir de 24× o zoom é puxado para a célula em foco, porque as camadas fundas ficam em volta do meio dela.
 - **"Esquecer"** arquiva a memória, então dá para desfazer. Não apaga.
+
+### O chip como única vista (24/10, à noite)
+
+O cérebro 3D e o atlas 2D saíram (`BrainMap.tsx`, `AtlasMap.tsx`, `atlas.ts`, `clouds.ts`, `types.ts` e `layout.ts`, junto com as dependências d3).
+
+O resto da tela agora comanda o chip:
+
+- **Modos.** "Visão geral", "por pasta / projeto" e "por conversa" reagrupam os núcleos. A fonte do chip usa `buildMemoryGraph` com o modo e os filtros da página, e o reagrupamento é silencioso: não gera animação de "gravou".
+- **Filtros.** Pasta, conversa, período, relevância e categorias valem também para as células.
+- **Busca.** O que ela encontra ganha um anel azul e o resto escurece. Enter leva até o melhor resultado.
+- **Chat, abas de nódulos e painel "nódulos".** Levam o chip até a memória ou o núcleo (`command`).
+- **Cartão da memória em foco.** Ganhou as ações da Aurora: abrir a conversa de origem, ver na Memória e chamar a Zeladora.
+- **Cores.** Instrumentos e chip usam a mesma ordem de núcleos (`clusterOrder`) e a mesma paleta (`categoryColor`).
+
+Novidades no chip:
+
+- **Dica ao passar o mouse**: título, núcleo, usos, força e número de vizinhas.
+- **Fios de ligação** da memória selecionada ou sob o mouse até as vizinhas reais. Tracejado indica relação gravada; contínuo indica parecida em sentido, mais forte quanto mais parecida.
+- **Sonda da Zeladora** deslizando de célula em célula, com a etiqueta "zeladora · lê «…»".
+- **Brilho real** (blur) nas células sendo lembradas.
+- **Teclado**: Enter desce um nível, Esc sobe, + e − aproximam e afastam, as setas movem.
+- **Mudança de modo**: ao trocar o modo, o chip volta à vista inteira.
