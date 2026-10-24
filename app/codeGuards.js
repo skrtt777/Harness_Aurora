@@ -89,6 +89,21 @@ export function countMismatch(answer) {
 }
 
 /**
+ * "Quantos chamados ainda estão abertos?": the filtered read said "18 linha(s)" and the answer said "19
+ * chamados" (empresa ti-3, 24/10). A number said next to the question's own noun that differs from the
+ * tool's total: { said, filtered }.
+ */
+const foldCount = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const COUNT_STOP = new Set(["quantos", "quantas", "ainda", "esta", "estao", "temos", "existem", "empresa", "desse", "deste", "dessa", "desta", "mais", "menos", "total"]);
+export function filteredCountMismatch(answer, question, filtered) {
+  if (!filtered || filtered < 2 || !/\bquant[oa]s\b/i.test(foldCount(question))) return null;
+  const nouns = (foldCount(question).match(/[a-z]{4,}/g) || []).filter((w) => !COUNT_STOP.has(w)).map((w) => w.slice(0, 5));
+  const said = [...foldCount(answer).replace(/\*/g, "").matchAll(/\b(\d{1,4})\s+([a-z]{4,})/g)].filter((m) => nouns.some((n) => m[2].startsWith(n))).map((m) => Number(m[1]));
+  if (!said.length || said.includes(filtered)) return null;
+  return { said, filtered };
+}
+
+/**
  * "Liste os departamentos do maior para o menor": a read of 8 rows answered with a table of 2 and a
  * filter nobody applied (13/10). The rows of the answer's list, when the request asks for all of them.
  */

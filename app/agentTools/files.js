@@ -1601,6 +1601,8 @@ export const fileTools = [
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
         const today = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
         const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
+        // The total the tool counted (the answer's "quantos" is checked against it: chatAgent).
+        ctx.lastFilteredCount = String(filter || "").trim() ? Number(/(\d+) linha\(s\) com "/.exec(rows)?.[1] || 0) || null : null;
         const corrected = request && rows.includes("\n(Usei ");
         if (corrected) ctx.correctedFilters.add(key);
         // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows
@@ -1634,6 +1636,7 @@ export const fileTools = [
         if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
         return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
       }
+      ctx.lastFilteredCount = null;
       const start = Math.max(1, Number(offset) || 1);
       const count = Math.min(Math.max(1, Number(limit) || 400), 2000);
       const sheet = /\.(xlsx|csv|tsv)$/i.test(file);

@@ -1,5 +1,5 @@
 import { BASE_TOOLS } from "./toolRouter.js";
-import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, shortList, orderMismatch } from "./codeGuards.js";
+import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
 const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
@@ -508,6 +508,14 @@ export async function runChatAgent({
       listChecked = true;
       checks.push({ check: "short_list", ...short });
       messages.push({ role: "assistant", content: text }, { role: "user", content: `O pedido é a lista inteira e a leitura trouxe ${short.readRows} linhas, mas sua resposta mostra ${short.listed}. Nenhum filtro foi pedido. Responda de novo com as ${short.readRows} linhas, na ordem pedida, sem comentar filtros.` });
+      continue;
+    }
+    // "19 chamados" after a filter that counted 18: the tool's total wins.
+    const offCount = !toolCalls.length && !countChecked ? filteredCountMismatch(text, question, ctx.lastFilteredCount) : null;
+    if (offCount) {
+      countChecked = true;
+      checks.push({ check: "count_mismatch", said: offCount.said, filtered: offCount.filtered });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Sua resposta diz ${offCount.said.join(" e ")}, mas a última leitura com filtro trouxe exatamente ${offCount.filtered} linha(s). Se a pergunta é sobre essas linhas, o número certo é ${offCount.filtered}; se é sobre só uma parte delas, leia de novo com o filtro dessa parte e use o total que a ferramenta der. Responda de novo, direto, sem narrar a revisão.` });
       continue;
     }
     // "7 pessoas" over a list of 4: the count is redone against the list (and the data).

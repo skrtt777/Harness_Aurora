@@ -180,3 +180,13 @@ test("the dispatch check knows a presentation (it crashed on .pptx)", async () =
   const out = dispatchCheck(order, { answer: "Pronto", steps: [] });
   assert.ok(out.missing.some((m) => /apresentação PowerPoint/.test(m)));
 });
+
+test("'quantos' answered with another number than the filter's total is sent back (19 vs 18, empresa ti-3)", async () => {
+  const { filteredCountMismatch } = await import("../app/codeGuards.js");
+  const q = "Quantos chamados ainda estão abertos de setembro?";
+  assert.deepEqual(filteredCountMismatch("Existem **19 chamados ainda abertos** de setembro.", q, 18), { said: [19], filtered: 18 });
+  assert.equal(filteredCountMismatch("São 18 chamados abertos.", q, 18), null);
+  assert.equal(filteredCountMismatch("Existem 19 chamados abertos.", "liste os chamados abertos", 18), null, "not a counting question");
+  assert.equal(filteredCountMismatch("Existem 19 chamados abertos.", q, null), null, "no filtered read");
+  assert.equal(filteredCountMismatch("Em 2026 houve muitos chamados.", q, 18), null, "a year is not a count of the noun");
+});
