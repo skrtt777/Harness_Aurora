@@ -6,7 +6,7 @@ import { deleteApiEngine, listApiEngines, saveApiEngine, testApiEngine, type Api
  * to the Claude Code and Codex CLIs. They work like the others — the active help, the agents, the Office —
  * and, with "Seus dados: ficam aqui", only on a copy with fake values. The key stays on this computer.
  */
-export default function ModelsPanel() {
+export default function ModelsPanel({ onChanged }: { onChanged?: () => void } = {}) {
   const [engines, setEngines] = useState<ApiEngine[] | null>(null);
   const [presets, setPresets] = useState<Record<string, ApiEnginePreset>>({});
   const [status, setStatus] = useState<Record<string, EngineState>>({});
@@ -22,7 +22,8 @@ export default function ModelsPanel() {
   const add = () => {
     setBusy(true); setError("");
     saveApiEngine({ preset: draft.preset, label: draft.label || preset?.label, model: draft.model || preset?.model, baseUrl: draft.baseUrl || preset?.baseUrl, apiKey: draft.apiKey })
-      .then(() => { setDraft({ preset: draft.preset, label: "", model: "", baseUrl: "", apiKey: "" }); return load(); })
+      // Added, it is tried at once: the person sees "Funcionando" (or why not) without another click.
+      .then((saved) => { setDraft({ preset: draft.preset, label: "", model: "", baseUrl: "", apiKey: "" }); const id = (saved as { id?: string } | null)?.id; if (id) test(id); onChanged?.(); return load(); })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
   };
   const test = (id: string) => {
@@ -30,14 +31,10 @@ export default function ModelsPanel() {
     testApiEngine(id).then((r) => setTests((t) => ({ ...t, [id]: r.ok ? `Funcionando (${Math.round(r.ms / 1000)} s)` : `Não funcionou: ${r.error}` })))
       .catch((e: Error) => setTests((t) => ({ ...t, [id]: `Não funcionou: ${e.message}` })));
   };
-  const cli = Object.entries(status).filter(([, s]) => !s.api);
 
   return <div className="section" aria-label="Modelos">
-    <h3 className="section-title">Modelos fortes</h3>
-    <p className="section-desc">Além da IA local, a Aurora trabalha com o Claude Code e o Codex (assinatura) e com qualquer modelo por chave de API. Com "Seus dados: ficam aqui" (Professor), todos trabalham só numa cópia com valores falsos. A chave fica neste computador.</p>
-    {cli.map(([id, s]) => <div className="row" key={id}>
-      <div className="row-text"><div className="row-label">{s.label}</div><div className="row-desc">Pela assinatura (CLI): {s.installed ? (s.limitedUntil ? `sem limite de uso até ${new Date(s.limitedUntil).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "disponível") : "não instalado neste computador"}.</div></div>
-    </div>)}
+    <h3 className="section-title">Colar uma chave de API</h3>
+    <p className="section-desc">O jeito mais fácil de ligar um modelo forte: escolha o provedor, cole a chave e clique em Adicionar (a Aurora testa na hora). A chave fica só neste computador, e com "Seus dados: ficam aqui" (Professor) o modelo trabalha numa cópia com valores falsos.</p>
     {engines === null && !error && <p className="muted">Carregando…</p>}
     {(engines || []).map((e) => <div className="row" key={e.id}>
       <div className="row-text">

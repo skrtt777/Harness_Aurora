@@ -61,3 +61,22 @@ test("a provider failure printed as the answer is a failure (connection, credits
   assert.equal(providerFailure("Gemini HTTP 400 (INVALID_ARGUMENT): API key not valid.").status, 401);
   assert.equal(providerFailure("Gravei aurora_tarefa.py com o gráfico de barras."), null);
 });
+
+test("each engine is tried for real and said in plain words; one that failed is skipped for a while", async () => {
+  const { probeEngine, plainReason, escalate } = await import("../app/engine.js");
+  let calls = 0;
+  ENGINES.semcredito = { label: "SemCrédito", run: async () => { calls += 1; return { ok: false, status: 429, error: "billing exhausted (rate limit)" }; } };
+  ENGINES.funciona = { label: "Funciona", run: async () => ({ ok: true, text: "OK" }) };
+  const bad = await probeEngine("semcredito");
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /sem créditos ou no limite/);
+  assert.equal((await probeEngine("funciona")).ok, true);
+  assert.match(plainReason("Hermes", { status: 503, error: "Hermes não encontrado." }), /não está instalado/);
+  assert.match(plainReason("OpenClaw", { error: "No API key found for provider anthropic (401)" }), /precisa de uma conta/);
+  calls = 0;
+  const work = mkdtempSync(join(tmpdir(), "esc-"));
+  const out = await escalate({ task: "x", workspace: work, order: ["semcredito", "funciona"], privacy: "livre", env: { ...process.env, AURORA_ESCALATION: "on", SEMCREDITO_BIN: hermesBin, FUNCIONA_BIN: hermesBin } });
+  assert.equal(calls, 0, "the engine that failed its test is not waited on");
+  assert.ok(out.tried?.some((t) => /SemCrédito: .*sem créditos/.test(t)) || out.ok, JSON.stringify(out));
+  delete ENGINES.semcredito; delete ENGINES.funciona;
+});

@@ -35,6 +35,7 @@ import WhatsappPanel from './WhatsappPanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
 import ModelsPanel from './ModelsPanel';
+import EngineHealth from './EngineHealth';
 import TopSecretPanel from './TopSecretPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { codex: "Codex", claude: "Claude", local: "IA local" };
@@ -232,6 +233,7 @@ export default function SettingsView({
     try { const saved = localStorage.getItem("aurora-settings-section") as SectionId | null; return saved && SECTIONS.some((s) => s.id === saved) ? saved : "general"; } catch { return "general"; }
   });
   const [auroraBg, setAuroraBg] = useState(auroraBackdropOn);
+  const [enginesVersion, setEnginesVersion] = useState(0);
   const openSection = (id: SectionId) => { setSection(id); try { localStorage.setItem("aurora-settings-section", id); } catch { /* private mode */ } };
   useEffect(() => { if (section === "local" && !hardware) void getLocalHardware().then(setHardware).catch(() => {}); }, [section, hardware]);
 
@@ -373,7 +375,8 @@ export default function SettingsView({
               <h2 className="page-title">Modelos</h2>
               <p className="page-desc">Os motores que a Aurora usa além da IA local: assinaturas (Claude Code, Codex) e qualquer modelo por chave de API.</p>
             </header>
-            <ModelsPanel />
+            <EngineHealth key={enginesVersion} />
+            <ModelsPanel onChanged={() => setEnginesVersion((v) => v + 1)} />
           </>}
 
           {section === "teacher" && <>
@@ -410,11 +413,7 @@ export default function SettingsView({
                 <div className="row-text"><div className="row-label">Seus dados</div><div className="row-desc">{settings.paidPrivacy === "espelho" ? "Não saem do computador: o modelo forte vê só uma cópia das planilhas com valores falsos e escreve um script, que a Aurora roda aqui nos dados reais. Se a tarefa precisar ler um documento, ela pergunta antes de mandá-lo censurado." : settings.paidPrivacy === "censura" ? "Top secret: além da cópia das planilhas, os documentos vão como texto censurado (nomes, CPF, valores, datas e números viram marcas como [NOME 1]; os seus termos sigilosos viram [SIGILO 1]). A IA local ajuda a achar os nomes, e a resposta volta aqui com os valores reais." : "O modelo forte lê os arquivos reais da pasta do projeto (eles vão para o servidor do Claude ou do Codex)."}</div></div>
                 <div className="row-control">{choice(settings.paidPrivacy, [["espelho", "Ficam aqui"], ["censura", "Censurados"], ["livre", "Podem sair"]] as const, (id) => void saveAgent({ paidPrivacy: id }), "Seus dados")}</div>
               </div>
-              {Object.keys(settings.engines || { claude: 1, codex: 1 }).filter((id) => !id.startsWith("api-")).map((id) => {
-                const engine = settings.engines?.[id];
-                const state = !engine?.installed ? "Não instalado neste computador." : engine.limitedUntil ? `Sem limite de uso até ${new Date(engine.limitedUntil).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Disponível.";
-                return <div className="row" key={id}><div className="row-text"><div className="row-label">{engine?.label || id}</div><div className="row-desc">{state}</div></div></div>;
-              })}
+              <EngineHealth compact />
             </div>
           </>}
 

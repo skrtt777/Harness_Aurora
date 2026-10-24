@@ -61,7 +61,7 @@ import { listSkills, readSkill, importSkill, enableSkill, hermesCatalogue, impor
 import { createWorkflow, listWorkflows, getWorkflow, runWorkflow, reviewWorkflow, cancelWorkflow, isWorkflowActive, acceptanceHash, teachWorkflow, recheckWorkflow } from "./workflows.js";
 import { searchSkillCatalog, syncSkillCatalog, importCatalogSkill } from "./skillCatalog.js";
 import { API_PRESETS, deleteApiEngine, listApiEngines, publicEngine, runApiEngine, saveApiEngine } from "./apiEngines.js";
-import { engineStatus, refreshApiEngines } from "./engine.js";
+import { engineStatus, probeEngine, probeStaleEngines, refreshApiEngines } from "./engine.js";
 import { listEgress, secretTerms } from "./blind.js";
 import { memoryGraphSnapshot } from "./memoryGraph.js";
 import { modelSpeedState } from "./modelSpeed.js";
@@ -255,7 +255,14 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
 
       // ---------- Engines by API key (app/apiEngines.js) ----------
       // The keys stay in the local database; the screen only sees "…1234".
-      if (method === "GET" && pathname === "/api/engines") {
+      // Does each strong engine really answer? One (id), or the ones not tested today (stale): a tiny task each.
+    if (method === "POST" && pathname === "/api/engines/probe") {
+      const body = await readJson(request);
+      if (body.id) await probeEngine(String(body.id));
+      else await probeStaleEngines();
+      return sendJson(response, 200, { status: await engineStatus() });
+    }
+    if (method === "GET" && pathname === "/api/engines") {
         return sendJson(response, 200, { engines: (await listApiEngines()).map(publicEngine), presets: API_PRESETS, status: await engineStatus() });
       }
       if (method === "POST" && pathname === "/api/engines") {

@@ -67,14 +67,63 @@ export async function markLimited(engine, until, reason = "") {
   await setSetting("engine_limits", JSON.stringify(limits));
 }
 
-/** Each strong engine now: installed, and whether (and until when) it is out of its limit. */
+/** Each strong engine now: installed, whether (and until when) it is out of its limit, and its last test. */
 export async function engineStatus({ env = process.env, now = Date.now() } = {}) {
   await refreshApiEngines();
   const limits = await readLimits();
+  const probes = await readProbes();
   return Object.fromEntries(Object.keys(ENGINES).map((id) => {
     const limit = limits[id] && limits[id].until > now ? limits[id] : null;
-    return [id, { label: ENGINES[id].label, api: Boolean(ENGINES[id].api), installed: ENGINES[id].api ? ENGINES[id].configured : resolveCli(id, env).installed, limitedUntil: limit?.until || null, reason: limit?.reason || null }];
+    return [id, { label: ENGINES[id].label, api: Boolean(ENGINES[id].api), installed: ENGINES[id].api ? ENGINES[id].configured : resolveCli(id, env).installed, limitedUntil: limit?.until || null, reason: limit?.reason || null, probe: probes[id] || null }];
   }));
+}
+
+// ---------------- Does each engine really work? (for people who never configure anything) ----------------
+// Installed is not working: Hermes pointed at a proxy that was off, OpenClaw had no model key (24/10). Each
+// engine is tried with a tiny task; the answer is kept and said in plain words, and an engine whose last test
+// failed is skipped for a while, so a task never waits on one that cannot answer.
+const PROBE_KEY = "engine_probes";
+export const PROBE_FRESH_MS = 24 * 60 * 60 * 1000;
+const PROBE_SKIP_MS = 6 * 60 * 60 * 1000;
+async function readProbes() { try { return JSON.parse((await getSetting(PROBE_KEY)) || "{}") || {}; } catch { return {}; } }
+
+/** What to tell a person about an engine that did not answer: what happened and what to do, in one sentence. */
+export function plainReason(label, result = {}) {
+  const e = String(result.error || "");
+  if (result.status === 503 && /não encontrado|ENOENT/i.test(e)) return `O ${label} não está instalado neste computador.`;
+  if (/login|log in|not logged|auth|401|recusad|chave/i.test(e)) return `O ${label} precisa de uma conta: abra o ${label} uma vez e entre na sua conta (ou confira a chave).`;
+  if (result.status === 429 || OUT_OF_LIMIT.test(e) || /crédit/i.test(e)) return `O ${label} está sem créditos ou no limite de uso agora.`;
+  if (/provedor|provider|conex|connection/i.test(e)) return `O ${label} está instalado, mas o modelo dele não responde: abra o ${label} e escolha um modelo que funcione.`;
+  if (/demorou|timeout|killed/i.test(e)) return `O ${label} demorou demais para responder.`;
+  return `O ${label} não respondeu (${e.slice(0, 120) || "sem detalhe"}).`;
+}
+
+/** One engine tried for real with a tiny task (a temporary folder, nothing of the person's). */
+export async function probeEngine(id, { env = process.env, now = Date.now(), timeoutMs = 120_000 } = {}) {
+  await refreshApiEngines();
+  const engine = ENGINES[id];
+  if (!engine) return null;
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const cwd = mkdtempSync(join(tmpdir(), "aurora-teste-motor-"));
+  let result;
+  try { result = await engine.run("Isto é só um teste de conexão. Responda apenas com a palavra OK.", { cwd, env, timeoutMs }); }
+  catch (error) { result = { ok: false, error: error.message }; }
+  finally { try { rmSync(cwd, { recursive: true, force: true }); } catch { /* best effort */ } }
+  const ok = Boolean(result?.ok && String(result.text || "").trim());
+  const probe = { ok, at: now, reason: ok ? null : plainReason(engine.label, result) };
+  const probes = await readProbes();
+  probes[id] = probe;
+  await setSetting(PROBE_KEY, JSON.stringify(probes));
+  return probe;
+}
+
+/** The installed engines whose last test is older than a day (or never ran), tested now, one after another. */
+export async function probeStaleEngines({ env = process.env, now = Date.now() } = {}) {
+  const status = await engineStatus({ env, now });
+  const due = Object.entries(status).filter(([, s]) => s.installed && (!s.probe || now - s.probe.at > PROBE_FRESH_MS)).map(([id]) => id);
+  for (const id of due) await probeEngine(id, { env, now });
+  return due;
 }
 
 /**
@@ -375,6 +424,8 @@ export async function escalate({ task, reason = "", history = [], workspace, ord
   for (const id of order.filter((x) => ENGINES[x])) {
     const s = status[id];
     if (!run && !s.installed) { tried.push(`${ENGINES[id].label}: não instalado`); continue; }
+    // Its last test failed a short while ago: not waited on (unless it is the only one asked for).
+    if (!run && order.length > 1 && s.probe && !s.probe.ok && now() - s.probe.at < PROBE_SKIP_MS) { tried.push(`${ENGINES[id].label}: ${s.probe.reason}`); continue; }
     if (s.limitedUntil) { limited.push({ id, until: s.limitedUntil }); continue; }
     const budget = await engineBudget();
     if (budget.usedToday >= budget.dailyLimit) return { ok: false, tried, limited, budget: true };

@@ -2485,3 +2485,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-welcome .starter-prompts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; margin-inline: auto; }
 .chat-welcome .starter-prompts button { justify-content: space-between; }
 @media (max-width: 560px) { .chat-welcome .starter-prompts { grid-template-columns: 1fr; } }
+
+/* Who helps the Aurora (EngineHealth.tsx): each strong engine, working or what to do. */
+.engine-health { border: 1px solid var(--border, #2a2f37); border-radius: 10px; padding: 12px 14px; margin: 10px 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.engine-health-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.engine-health-head span { flex: 1; color: var(--muted, #8b95a3); font-size: 13px; }
+.engine-health ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.engine-health li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.engine-health li span { flex: 1; }
+.engine-health li i { font-style: normal; width: 16px; text-align: center; }
+.engine-health li.ok i { color: #4cd38a; } .engine-health li.bad i { color: #ff7a6b; } .engine-health li.off { opacity: .6; }
+.engine-health-tip { margin: 0; padding: 8px 10px; border-radius: 8px; background: rgba(255, 200, 80, .08); font-size: 13px; line-height: 1.45; }
+.engine-health.compact { margin: 6px 0 0; }
