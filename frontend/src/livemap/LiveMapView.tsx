@@ -48,7 +48,8 @@ export default function LiveMapView({ onOpenConversation, onOpenMemory }: Props)
   useEffect(() => { try { localStorage.setItem("aurora-livemap-panels", panelOpen ? "open" : "closed"); } catch { /* private mode */ } }, [panelOpen]);
   const [turn, setTurn] = useState<Turn | null>(null);
   const [keeper, setKeeper] = useState<KeeperView | null>(null);
-  const [dockOpen, setDockOpen] = useState(true);
+  // On a phone the chat starts closed (it floats over the chip when opened).
+  const [dockOpen, setDockOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 900);
   const [, setDockConversation] = useState<string | null>(null);
   const refreshTimer = useRef<number | null>(null);
 

@@ -471,3 +471,20 @@
 .mc-cmp-bits { width: 100%; display: block; background: #020806; }
 .mc-cmp-note { margin: 6px 0 0; font-size: 10.5px; color: var(--ink); }
 .mc-narrow .mc-timeline { right: 14px; }
+
+/* Phone / narrow windows: the page scrolls, the chip keeps a real height, the chat floats when opened. */
+@media (max-width: 900px) {
+  .livemap { overflow-y: auto; overflow-x: hidden; height: auto; min-height: 100%; }
+  .lm-stage { flex: none; height: 88vh; min-height: 560px; }
+  .lm-dock { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; height: 55vh; z-index: 40; }
+  .mc-tools { left: 10px; right: 10px; bottom: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .mc-tools button { padding: 2px 6px; }
+  .mc-timeline { left: 10px; right: 10px; bottom: 74px; }
+  .mc-tl-when { min-width: 0; }
+  .mc-ruler { top: 92px; bottom: 118px; right: 8px; }
+  .mc-legend { max-width: calc(100% - 60px); }
+  .mc-legend p { display: none; }
+  .mc-heat-legend { right: 10px; bottom: 112px; }
+  .mc-compare { left: 8px; right: 8px; width: auto; bottom: 110px; }
+  .mc-past { right: 10px; top: auto; bottom: 112px; font-size: 10px; }
+}
