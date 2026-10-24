@@ -693,7 +693,7 @@ export const reviewHr = () => request<HrSnapshot>("/hr/review", { method: "POST"
 export const rehireAgent = (agentId: string) => request<HrSnapshot>("/hr/rehire", { method: "POST", body: JSON.stringify({ agentId }) });
 
 // ---------- Engines by API key (app/apiEngines.js) ----------
-export type ApiEnginePreset = { kind: "anthropic" | "openai"; label: string; baseUrl?: string; model?: string };
+export type ApiEnginePreset = { kind: "anthropic" | "openai"; label: string; baseUrl?: string; model?: string; models?: string[] };
 export type ApiEngine = { id: string; label: string; kind: "anthropic" | "openai"; baseUrl: string; model: string; hasKey: boolean; keyHint: string };
 export type EngineState = { label: string; api: boolean; installed: boolean; limitedUntil: number | null; reason: string | null };
 export const listApiEngines = () => request<{ engines: ApiEngine[]; presets: Record<string, ApiEnginePreset>; status: Record<string, EngineState> }>("/engines");

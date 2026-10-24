@@ -52,8 +52,9 @@ export default function ModelsPanel() {
     </div>)}
     <div className="model-new" aria-label="Novo modelo">
       <label>Provedor <select value={draft.preset} onChange={(ev) => setDraft({ ...draft, preset: ev.target.value })}>{Object.entries(presets).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
-      <label>Modelo <input value={draft.model} onChange={(ev) => setDraft({ ...draft, model: ev.target.value })} placeholder={preset?.model || (draft.preset === "openrouter" ? "anthropic/claude-sonnet-5.5" : "nome do modelo")} /></label>
-      {preset?.kind === "openai" && <label>Endereço <input value={draft.baseUrl} onChange={(ev) => setDraft({ ...draft, baseUrl: ev.target.value })} placeholder={preset?.baseUrl || "https://…/v1"} /></label>}
+      <label>Modelo <input list="api-model-options" value={draft.model} onChange={(ev) => setDraft({ ...draft, model: ev.target.value })} placeholder={preset?.model || (draft.preset === "openrouter" ? "anthropic/claude-sonnet-5.5" : "nome do modelo")} /></label>
+      <datalist id="api-model-options">{(preset?.models || []).map((m) => <option key={m} value={m} />)}</datalist>
+          {preset?.kind === "openai" && <label>Endereço <input value={draft.baseUrl} onChange={(ev) => setDraft({ ...draft, baseUrl: ev.target.value })} placeholder={preset?.baseUrl || "https://…/v1"} /></label>}
       <label>Chave da API <input type="password" autoComplete="off" value={draft.apiKey} onChange={(ev) => setDraft({ ...draft, apiKey: ev.target.value })} placeholder={draft.preset === "custom" ? "opcional para endpoint local" : "sk-…"} /></label>
       <label>Nome <input value={draft.label} onChange={(ev) => setDraft({ ...draft, label: ev.target.value })} placeholder={preset?.label || "Meu modelo"} /></label>
       <button className="btn btn-primary btn-sm" disabled={busy} onClick={add}>Adicionar</button>

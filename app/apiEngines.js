@@ -11,7 +11,8 @@ import { getSetting, setSetting } from "./store.js";
 export const API_KINDS = ["anthropic", "openai"];
 // Ready-made providers; "openai" kind with a base URL covers the rest.
 export const API_PRESETS = {
-  anthropic: { kind: "anthropic", label: "Claude (API)", model: "claude-opus-5-5" },
+  // models: the current Claude family (the strongest first; Haiku is the cheapest and fastest).
+  anthropic: { kind: "anthropic", label: "Claude (API)", model: "claude-opus-5-5", models: ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5"] },
   openai: { kind: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1" },
   openrouter: { kind: "openai", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
   gemini: { kind: "openai", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai" },
@@ -154,7 +155,7 @@ async function runOpenAiCompatible(engine, prompt, { cwd, signal, env, fetchImpl
   const tools = TOOLS.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
   const messages = [{ role: "system", content: SYSTEM }, { role: "user", content: prompt }];
   let text = "";
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0 };
   let usedTools = false, nudged = false;
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     if (signal?.aborted) return { ok: false, error: "cancelado" };
@@ -168,6 +169,8 @@ async function runOpenAiCompatible(engine, prompt, { cwd, signal, env, fetchImpl
     if (!response.ok) return { ok: false, status: response.status, error: `HTTP ${response.status}: ${String(body?.error?.message || body?.error || response.statusText).slice(0, 300)}${response.status === 429 ? " (rate limit)" : ""}` };
     usage.input += body.usage?.prompt_tokens || 0;
     usage.output += body.usage?.completion_tokens || 0;
+    // OpenAI (and compatible providers) cache long prompts by themselves: what came from the cache is counted.
+    usage.cacheRead += body.usage?.prompt_tokens_details?.cached_tokens || 0;
     const message = body.choices?.[0]?.message;
     if (!message) return { ok: false, error: "resposta sem mensagem" };
     if (typeof message.content === "string" && message.content.trim()) text = message.content.trim();
