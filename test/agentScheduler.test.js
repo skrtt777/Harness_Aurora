@@ -127,3 +127,34 @@ test("an agent created without a folder gets one of its own under Documentos\Aur
   const dir = agents.defaultAgentFolder("Resumo: da manhã?", { USERPROFILE: home });
   assert.match(dir, /Aurora[\\/]Agentes[\\/]Resumo da manhã$/);
 });
+
+test("heartbeat: quiet hours (across midnight) and the HEARTBEAT.md checklist read on every run", async () => {
+  const { inQuietHours, readChecklist } = await import("../app/agentScheduler.js");
+  const night = { type: "schedule", everyMinutes: 30, quietFrom: "22:00", quietTo: "07:00" };
+  assert.equal(inQuietHours(night, at(23, 30)), true);
+  assert.equal(inQuietHours(night, at(6, 59)), true);
+  assert.equal(inQuietHours(night, at(7, 0)), false);
+  assert.equal(scheduleDue(night, null, at(2, 0)), false, "no run in the quiet hours");
+  assert.equal(scheduleDue(night, null, at(9, 0)), true);
+  assert.equal(inQuietHours({ quietFrom: "12:00", quietTo: "13:00" }, at(12, 30)), true, "a window inside the day");
+
+  const file = join(temp, "HEARTBEAT.md");
+  writeFileSync(file, "# O que conferir\n<!-- exemplo -->\n\n");
+  assert.equal(readChecklist(file), "", "only a title and comments: nothing to check");
+  writeFileSync(file, "# Conferir\n- boletos novos na pasta Financeiro\n- e-mails do banco\n");
+  assert.equal(readChecklist(file), "- boletos novos na pasta Financeiro\n- e-mails do banco");
+  assert.equal(readChecklist(join(temp, "nao-existe.md")), null);
+
+  // In the tick: an empty checklist skips the run; a filled one goes into the request.
+  const runs = [];
+  const deps = (checklist) => ({
+    listAgents: async () => [{ id: "hb", enabled: true, mission: "Verifique.", trigger: { type: "schedule", everyMinutes: 30, quiet: true, checklist } }],
+    runAgent: async (id, opts) => { runs.push(opts.request); return { status: "done", answer: "OK" }; },
+    isAgentRunning: () => false, lastRunStart: async () => null, runsToday: async () => 0, announcedToday: async () => [], now: () => at(10, 0),
+  });
+  writeFileSync(file, "<!-- nada por enquanto -->\n");
+  assert.deepEqual(await schedulerTick(deps(file)), []);
+  writeFileSync(file, "- boletos novos\n");
+  assert.deepEqual(await schedulerTick(deps(file)), ["hb"]);
+  assert.match(runs[0], /O que conferir agora[\s\S]*- boletos novos/);
+});

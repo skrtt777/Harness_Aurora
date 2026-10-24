@@ -26,7 +26,7 @@ export function describeTrigger(trigger: AgentTrigger): string {
 const when = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 
-type TriggerDraft = { type: 'manual' | 'at' | 'every' | 'file'; at: string; weekdays: number[]; everyMinutes: number; folder: string; pattern: string; request: string; quiet: boolean };
+type TriggerDraft = { type: 'manual' | 'at' | 'every' | 'file'; at: string; weekdays: number[]; everyMinutes: number; folder: string; pattern: string; request: string; quiet: boolean; quietFrom: string; quietTo: string; checklist: string };
 const draftOf = (t: AgentTrigger): TriggerDraft => ({
   type: t.type === 'schedule' ? (t.everyMinutes ? 'every' : 'at') : t.type,
   at: t.type === 'schedule' && t.at ? t.at : '08:00',
@@ -36,10 +36,13 @@ const draftOf = (t: AgentTrigger): TriggerDraft => ({
   pattern: t.type === 'file' ? t.pattern || '*' : '*',
   request: t.type !== 'manual' ? t.request || '' : '',
   quiet: t.type !== 'manual' ? Boolean(t.quiet) : false,
+  quietFrom: t.type === 'schedule' && t.quietFrom ? t.quietFrom : '',
+  quietTo: t.type === 'schedule' && t.quietTo ? t.quietTo : '',
+  checklist: t.type === 'schedule' && t.checklist ? t.checklist : '',
 });
 const triggerOf = (d: TriggerDraft): AgentTrigger =>
   d.type === 'at' ? { type: 'schedule', at: d.at, weekdays: d.weekdays, request: d.request, quiet: d.quiet }
-    : d.type === 'every' ? { type: 'schedule', everyMinutes: d.everyMinutes, request: d.request, quiet: d.quiet }
+    : d.type === 'every' ? { type: 'schedule', everyMinutes: d.everyMinutes, request: d.request, quiet: d.quiet, ...(d.quietFrom && d.quietTo ? { quietFrom: d.quietFrom, quietTo: d.quietTo } : {}), ...(d.checklist.trim() ? { checklist: d.checklist.trim() } : {}) }
       : d.type === 'file' ? { type: 'file', folder: d.folder, pattern: d.pattern, request: d.request, quiet: d.quiet }
         : { type: 'manual' };
 
@@ -57,7 +60,15 @@ function TriggerEditor({ value, onChange }: { value: TriggerDraft; onChange: (d:
       <label>Horário <input type="time" value={value.at} onChange={(e) => set({ at: e.target.value })} /></label>
       <span className="agent-weekdays" role="group" aria-label="Dias">{WEEKDAYS.map((d, i) => <label key={d}><input type="checkbox" checked={value.weekdays.includes(i)} onChange={(e) => set({ weekdays: e.target.checked ? [...value.weekdays, i].sort() : value.weekdays.filter((x) => x !== i) })} />{d}</label>)}</span>
     </div>}
-    {value.type === 'every' && <label>A cada <input type="number" min={5} max={10080} value={value.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })} /> minutos</label>}
+    {value.type === 'every' && <>
+      <label>A cada <input type="number" min={5} max={10080} value={value.everyMinutes} onChange={(e) => set({ everyMinutes: Number(e.target.value) })} /> minutos</label>
+      <div className="agent-trigger-row">
+        <label>Não trabalhar das <input type="time" value={value.quietFrom} onChange={(e) => set({ quietFrom: e.target.value })} /></label>
+        <label>às <input type="time" value={value.quietTo} onChange={(e) => set({ quietTo: e.target.value })} /></label>
+      </div>
+      <label className="grow">Lista do que conferir (HEARTBEAT.md, opcional) <input value={value.checklist} onChange={(e) => set({ checklist: e.target.value })} placeholder="C:\Users\voce\Documentos\HEARTBEAT.md" /></label>
+      <small>O arquivo é lido a cada rodada: edite-o para mudar o que ele confere. Vazio (ou só comentários), ele não roda.</small>
+    </>}
     {value.type === 'file' && <div className="agent-trigger-row">
       <label className="grow">Pasta que ele vigia <input value={value.folder} onChange={(e) => set({ folder: e.target.value })} placeholder="C:\Users\voce\Notas a lançar" /></label>
       <button type="button" onClick={() => void pickFolder().then((f) => f && set({ folder: f }))}>Escolher…</button>

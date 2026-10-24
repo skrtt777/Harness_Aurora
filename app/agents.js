@@ -97,7 +97,15 @@ function cleanTrigger(trigger) {
   if (t.type === "schedule") {
     // "every N minutes" or "at HH:MM on these weekdays (0 = Sunday)".
     const every = Number(t.everyMinutes);
-    if (every) return { type: "schedule", everyMinutes: Math.max(5, Math.min(7 * 24 * 60, Math.round(every))), request: String(t.request || "").slice(0, 2000), ...quiet };
+    if (every) {
+      // OpenClaw's heartbeat, the Aurora's way: no runs in the quiet hours (e.g. 22:00–07:00), and an editable
+      // checklist file (HEARTBEAT.md) read on every run; an empty one means nothing to check.
+      const hhmm = (v) => (/^\d{2}:\d{2}$/.test(String(v || "")) ? String(v) : null);
+      const quietHours = hhmm(t.quietFrom) && hhmm(t.quietTo) && t.quietFrom !== t.quietTo ? { quietFrom: t.quietFrom, quietTo: t.quietTo } : {};
+      if (t.checklist && !isAbsolute(String(t.checklist))) throw httpError(400, "Informe o caminho completo do HEARTBEAT.md.");
+      const checklist = t.checklist ? { checklist: String(t.checklist).slice(0, 500) } : {};
+      return { type: "schedule", everyMinutes: Math.max(5, Math.min(7 * 24 * 60, Math.round(every))), request: String(t.request || "").slice(0, 2000), ...quiet, ...quietHours, ...checklist };
+    }
     if (!/^\d{2}:\d{2}$/.test(String(t.at || ""))) throw httpError(400, "Informe o horário como HH:MM.");
     const days = Array.isArray(t.weekdays) ? [...new Set(t.weekdays.map(Number).filter((d) => d >= 0 && d <= 6))] : [1, 2, 3, 4, 5];
     return { type: "schedule", at: t.at, weekdays: days, request: String(t.request || "").slice(0, 2000), ...quiet };

@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getDb } from "./db.js";
 
@@ -19,7 +19,7 @@ const localDay = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${
 export function scheduleDue(trigger, lastStart, now = new Date()) {
   if (trigger?.type !== "schedule") return false;
   const last = lastStart ? new Date(lastStart) : null;
-  if (trigger.everyMinutes) return !last || now - last >= trigger.everyMinutes * 60_000;
+  if (trigger.everyMinutes) return !inQuietHours(trigger, now) && (!last || now - last >= trigger.everyMinutes * 60_000);
   const [h, m] = String(trigger.at || "").split(":").map(Number);
   if (!Number.isInteger(h) || !Number.isInteger(m)) return false;
   if (!(trigger.weekdays || [1, 2, 3, 4, 5]).includes(now.getDay())) return false;
@@ -27,6 +27,28 @@ export function scheduleDue(trigger, lastStart, now = new Date()) {
   at.setHours(h, m, 0, 0);
   // Due from HH:MM on, once a day: a run that started after today's HH:MM already counted.
   return now >= at && !(last && last >= at);
+}
+
+/** Inside the trigger's quiet hours (quietFrom–quietTo, local time; may cross midnight, e.g. 22:00–07:00)? */
+export function inQuietHours(trigger, now = new Date()) {
+  const mins = (v) => { const m = /^(\d{2}):(\d{2})$/.exec(String(v || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  const from = mins(trigger?.quietFrom), to = mins(trigger?.quietTo);
+  if (from === null || to === null || from === to) return false;
+  const t = now.getHours() * 60 + now.getMinutes();
+  return from < to ? t >= from && t < to : t >= from || t < to;
+}
+
+/**
+ * The heartbeat's checklist (OpenClaw's HEARTBEAT.md): the file is read on every run, so the person edits what
+ * to check without opening the app. Comments (<!-- -->, lines starting with #) and blank lines don't count: a
+ * file with nothing else means nothing to check (no run). null: no checklist set, or unreadable.
+ */
+export function readChecklist(path) {
+  if (!path) return null;
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch { return null; }
+  const body = text.replace(/<!--[\s\S]*?-->/g, "").split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l)).join("\n").trim();
+  return body.slice(0, 4000);
 }
 
 /** "*.pdf", "nota*", "*" → a test for file names (case-insensitive). */
@@ -107,7 +129,15 @@ export async function schedulerTick({ listAgents, runAgent, isAgentRunning, last
     if (!agent.enabled || !["schedule", "file"].includes(trigger.type) || isAgentRunning(agent.id)) continue;
     if ((await runsToday(agent.id)) >= DAILY_LIMIT) continue;
     let request = null;
-    if (trigger.type === "schedule" && scheduleDue(trigger, await lastRunStart(agent.id, "schedule"), now())) request = trigger.request || agent.mission;
+    if (trigger.type === "schedule" && scheduleDue(trigger, await lastRunStart(agent.id, "schedule"), now())) {
+      request = trigger.request || agent.mission;
+      if (trigger.checklist) {
+        const list = readChecklist(trigger.checklist);
+        // An empty checklist: nothing to check this time (no run, no model call).
+        if (list === "") continue;
+        if (list) request = `${request}\n\nO que conferir agora (arquivo ${trigger.checklist}, a pessoa edita):\n${list}`;
+      }
+    }
     if (trigger.type === "file") {
       const files = await newFilesFor(agent);
       // One run per arrival batch, naming the files: the agent treats them together.

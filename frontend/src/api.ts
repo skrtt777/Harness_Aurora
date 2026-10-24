@@ -544,7 +544,7 @@ export const reviewEngineKnowledge=(id:string,accepted:boolean)=>request('/engin
 // ---------- Task agents (app/agents.js, app/agentScheduler.js) ----------
 export type AgentTrigger =
   | { type: "manual" }
-  | { type: "schedule"; everyMinutes?: number; at?: string; weekdays?: number[]; request?: string; quiet?: boolean }
+  | { type: "schedule"; everyMinutes?: number; at?: string; weekdays?: number[]; request?: string; quiet?: boolean; quietFrom?: string; quietTo?: string; checklist?: string }
   | { type: "file"; folder: string; pattern?: string; request?: string; quiet?: boolean };
 export type TaskAgent = {
   id: string; name: string; kind: "setor" | "pessoal"; mission: string; department: string | null; workDir: string;
