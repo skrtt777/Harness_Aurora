@@ -8,6 +8,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LADDER_LEVELS } from "../app/usageScenarios5.js";
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 const runs = Math.max(1, Number(arg("runs", 1)) || 1);
@@ -36,8 +37,10 @@ setInterval(() => {}, 60_000);
 
 const { USAGE_TODAY, writePersonalFixtures } = await import("../app/usageScenarios.js");
 const { allUsageScenariosWithPoor: allUsageScenarios } = await import("../app/usageScenarios4.js");
+const { ladderScenarios } = await import("../app/usageScenarios5.js");
 const battery = arg("bateria");
-const USAGE_SCENARIOS = (await allUsageScenarios()).filter((s) => !battery || String(s.battery) === battery);
+// Battery 5 (the 800-step ladder) only when asked for: it takes hours.
+const USAGE_SCENARIOS = [...(await allUsageScenarios()), ...(battery === "5" ? ladderScenarios() : [])].filter((s) => !battery || String(s.battery) === battery);
 process.env.HARNESS_NOW ||= USAGE_TODAY;
 const store = await import("../app/store.js");
 const agents = await import("../app/agents.js");
@@ -51,7 +54,10 @@ if (group === "empresa") {
 const model = await resolveLocalModel(process.env);
 const levels = arg("nivel")?.split(",");
 const only = arg("only")?.split(",");
-const chosen = USAGE_SCENARIOS.filter((s) => s.group === group && (!levels || levels.includes(s.level)) && (!only || only.includes(s.id)));
+// --amostra N: the first N of each level (a quick look at the whole ladder).
+const perLevel = Number(arg("amostra", 0)) || 0;
+const seenPerLevel = {};
+const chosen = USAGE_SCENARIOS.filter((s) => s.group === group && (!levels || levels.includes(s.level)) && (!only || only.includes(s.id))).filter((s) => !perLevel || (seenPerLevel[s.level] = (seenPerLevel[s.level] || 0) + 1) <= perLevel);
 console.log(`grupo ${group}, modelo ${model}, ${chosen.length} cenário(s), ${runs} rodada(s)`);
 
 const results = [];
@@ -82,13 +88,15 @@ for (let run = 1; run <= runs; run += 1) {
       console.log(`- "${spec.message}" (${((Date.now() - started) / 1000).toFixed(1)} s) ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" | ")}`);
     }
     results.push({ id: scenario.id, level: scenario.level, group, run, turns: turns.map(({ stepsRaw, ...t }) => ({ ...t, detail: stepsRaw.map((s) => ({ tool: s.tool, ok: s.ok, args: JSON.stringify(s.args || {}).slice(0, 200), result: String(s.summary || "").slice(0, 200) })) })) });
+    // Long runs (the ladder): the report so far is kept every 20 scenarios.
+    if (results.length % 20 === 0) writeReport(label, results, model, { quiet: true });
   }
 }
 writeReport(label, results, model);
 process.exit(0);
 
-function writeReport(name, list, modelName) {
-  const { LEVELS } = { LEVELS: { N1: "Pessoa comum — conversa", N2: "Pessoa comum — os próprios arquivos", N3: "Pessoa comum — vários passos, vago ou impossível", N4: "Funcionário — perguntas do dia a dia", N5: "Funcionário — entregas e agentes" } };
+function writeReport(name, list, modelName, { quiet = false } = {}) {
+  const LEVELS = { N1: "Pessoa comum — conversa", N2: "Pessoa comum — os próprios arquivos", N3: "Pessoa comum — vários passos, vago ou impossível", N4: "Funcionário — perguntas do dia a dia", N5: "Funcionário — entregas e agentes", ...LADDER_LEVELS };
   const all = list.flatMap((r) => r.turns.flatMap((t) => t.checks));
   const rows = Object.entries(LEVELS).map(([lvl, title]) => {
     const scen = list.filter((r) => r.level === lvl);
@@ -103,6 +111,7 @@ function writeReport(name, list, modelName) {
     ...list.flatMap((r) => r.turns.filter((t) => t.checks.some((c) => !c.ok)).map((t) => `- **${r.level} ${r.id}** (rodada ${r.run}) "${t.message}": ${t.checks.filter((c) => !c.ok).map((c) => c.name).join("; ")} — passos: ${t.steps.join(", ") || "nenhum"} — resposta: ${String(t.text).slice(0, 220).replace(/\n/g, " ")}`))].join("\n");
   writeFileSync(`reports/uso/${name}.json`, JSON.stringify({ label: name, model: modelName, date: new Date().toISOString(), results: list }, null, 2));
   writeFileSync(`reports/uso/${name}.md`, md);
+  if (quiet) return;
   console.log(`\nNota: ${passed}/${all.length} (${all.length ? Math.round((passed / all.length) * 1000) / 10 : 0}%)`);
   for (const r of rows) console.log(`  ${r.lvl} ${r.title}: ${r.passed}/${r.total}, ${r.perfect}/${r.scenarios} cenários perfeitos`);
 }
