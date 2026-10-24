@@ -1052,10 +1052,16 @@ export function likelyCopies(files) {
 const COMPOSE = /\b(escrev|redij|mensagem|msg|texto|carta|legenda|poema|recado|parab[eé]ns|felicita|convite|bilhete|desculp|aviso|comunicado|e-?mail|respond|resposta|agradec|post\b)/;
 const SAVE_ASKED = /\b(salv|arquivo|documento|imprim|pdf|word|docx|planilha|excel|guard|baix|anex|relat[oó]rio|proposta|curr[ií]culo|contrato|apresenta[cç][aã]o|of[ií]cio|ata\b|slides?\b|roteiro)/;
 const CODE_ASKED = /\b(script|c[oó]digo|programa|fun[cç][aã]o|site|p[aá]gina|html|python|javascript|\.py|\.js|app)\b/;
+// A plain question ("O que a diretoria decidiu na última reunião?") is answered in the chat: the 4B saved
+// the answer as Diretoria/Decisões_15-09-2026.docx and replied only with its path (empresa diretoria-2, 24/10).
+// ("onde está?" is about a file already made: its path is the answer, not a text; it stays out.)
+const QUESTION = /^\s*(o que|qual|quais|quando|quem|como|quanto|quantos|quantas|por que|porque|existe|existem|tem|ha|a empresa)\b[^?]*\?\s*$/;
+const DO_VERB = /\b(fa[cç]a|faz|crie|cria|gere|gera|monte|monta|prepare|prepara|organize|mova|copie|apague|envie|mande|abra)\b/;
 export function onlyTextAsked(request, env = {}) {
   if (env?.AGENT_RUN_TRIGGER) return false;
   const text = foldText(request);
-  return COMPOSE.test(text) && !SAVE_ASKED.test(text) && !CODE_ASKED.test(text);
+  if (SAVE_ASKED.test(text) || CODE_ASKED.test(text)) return false;
+  return COMPOSE.test(text) || (QUESTION.test(text) && !DO_VERB.test(text));
 }
 const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
 

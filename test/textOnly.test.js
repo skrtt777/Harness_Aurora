@@ -11,6 +11,12 @@ test("a text to use is not saved as a file unless saving was asked", async () =>
   assert.equal(onlyTextAsked("escreve uma carta e salva num documento pra eu imprimir"), false);
   assert.equal(onlyTextAsked("escreve um script python que renomeia as fotos"), false);
   assert.equal(onlyTextAsked("escreva a mensagem de boas-vindas", { AGENT_RUN_TRIGGER: "schedule" }), false, "an agent's run follows its mission");
+  // A plain question is answered in the chat (empresa diretoria-2, 24/10); a question that asks for a file or an action is not.
+  assert.equal(onlyTextAsked("O que a diretoria decidiu na última reunião?"), true);
+  assert.equal(onlyTextAsked("Qual o horário de atendimento do administrativo?"), true);
+  assert.equal(onlyTextAsked("Qual o total da planilha de gastos?"), false);
+  assert.equal(onlyTextAsked("Quais pedidos atrasaram? faz um relatório"), false);
+  assert.equal(onlyTextAsked("pode criar o painel?"), false);
   const dir = mkdtempSync(join(tmpdir(), "aurora-textonly-"));
   const out = await executeTool("write_file", { path: "msg.txt", content: "Parabéns!" }, { mode: "auto", workspace: dir, workspaceRoots: [dir], approve: async () => true, env: process.env, request: "me ajuda a escrever uma msg de aniversario pra ana" });
   assert.equal(out.ok, false);

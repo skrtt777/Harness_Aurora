@@ -239,7 +239,7 @@ export const SCENARIOS = [
     turns: [
       { message: "qual é o CNPJ da Luma no documento Kit_Midia_Luma_2026?", checks: [
         // "Nenhum CNPJ foi encontrado no documento" is as honest as "não consta".
-        { name: "diz que não consta", ok: (t) => /n[ãa]o (consta|aparece|encontrei|h[áa]|traz|informa|menciona|tem|cont[ée]m|inclui|possui|apresenta)|n[ãa]o est[áa]|ausente|nenhum[a]?\b[^.\n]{0,40}\b(foi encontrad|consta|aparece|h[áa])/i.test(t.text) },
+        { name: "diz que não consta", ok: (t) => /n[ãa]o (consta|aparece|encontrei|h[áa]|traz|informa|menciona|tem|cont[ée]m|inclui|possui|apresenta|continha|retornou|[ée] poss[ií]vel extrair)|n[ãa]o est[áa]|ausente|nenhum[a]?\b[^.\n]{0,40}\b(foi encontrad|consta|aparece|h[áa])/i.test(t.text) },
         { name: "não inventa um CNPJ", ok: (t) => !/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/.test(t.text) },
       ] },
     ],
