@@ -216,3 +216,16 @@ test("after reading the web, even a command inside the project folder asks first
   assert.equal((await decide(access, { ...ctx, untrustedSeen: true })).action, "ask");
   assert.match((await decide(access, { ...ctx, untrustedSeen: true })).reason, /internet/);
 });
+
+test("only asked to read or explain: changing a file asks first (a downloaded file's hidden orders, 24/10)", async () => {
+  const { onlyReading } = await import("../app/agentPolicy.js");
+  assert.equal(onlyReading("le o arquivo da promocao q eu baixei e me fala do q se trata"), true);
+  assert.equal(onlyReading("resuma o contrato pra mim"), true);
+  assert.equal(onlyReading("leia a planilha e salve um resumo em Word"), false);
+  assert.equal(onlyReading("organize a pasta Downloads"), false);
+  assert.equal(onlyReading("crie uma planilha com os gastos"), false);
+  assert.equal(onlyReading(""), false);
+  const write = { kind: "write", paths: [join(workspace, "promo.txt")] };
+  assert.equal((await decide(write, ctx("auto", undefined, { request: "le o arquivo e me fala do que se trata" }))).action, "ask");
+  assert.equal((await decide(write, ctx("auto", undefined, { request: "corrija os erros do arquivo" }))).action, "allow");
+});

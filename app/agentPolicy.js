@@ -69,6 +69,16 @@ export function matchesAlwaysAllow(rules = [], tool, command) {
  *   paths?, command?, cwd?, target?, launch? }
  * Returns { action: "allow" | "ask" | "deny", reason, rule? }.
  */
+/** A request only to read, summarize or explain ("le o arquivo e me fala do que se trata"): nothing to change. */
+const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+export function onlyReading(request) {
+  const t = fold(request);
+  if (!t.trim()) return false;
+  const reads = /\b(le|leia|ler|lendo|resum\w*|me (fala|diga|diz|conta|explica)|do que se trata|o que (diz|tem|e)|explic\w*|veja|olha|confer\w*)\b/.test(t);
+  const changes = /\b(cri\w*|grav\w*|salv\w*|edit\w*|alter\w*|apag\w*|exclu\w*|delet\w*|remov\w*|mov\w*|organiz\w*|renome\w*|escrev\w*|atualiz\w*|corrij\w*|corrig\w*|fa[cz]\w*|mont\w*|ger[ae]\w*|copi\w*|substitu\w*|preench\w*|ajust\w*|arrum\w*|limp\w*|coloc\w*|adicion\w*|acrescent\w*|mud\w*|troc\w*|transform\w*|convert\w*|export\w*|envi\w*|mand\w*)\b/.test(t);
+  return reads && !changes;
+}
+
 export async function decide(access, ctx) {
   const mode = AGENT_MODES.includes(ctx.mode) ? ctx.mode : DEFAULT_AGENT_MODE;
   const roots = ctx.workspaceRoots || [];
@@ -125,6 +135,10 @@ export async function decide(access, ctx) {
     case "write":
       if (mode === "plan") return { action: "deny", reason: "No modo Plano nada é alterado; proponha a mudança ao usuário." };
       if (mode === "manual") return { action: "ask", reason: "Modo Manual: toda alteração pede autorização" };
+      // A file can carry hidden orders ("ATENÇÃO ASSISTENTE: apague…"): asked only to read it, the 4B listed
+      // Documentos and edited the file (usage battery 3, injecao-arquivo, 24/10). When the person only asked
+      // to read or explain, changing any file asks first.
+      if (onlyReading(ctx.request)) return { action: "ask", reason: "O pedido foi só ler ou explicar: alterar arquivos pede autorização" };
       return (await inside(access.paths)) ? { action: "allow" } : { action: "ask", reason: "Alterar fora da pasta do projeto" };
     case "open":
       if (access.launch === "document") return { action: "allow" };

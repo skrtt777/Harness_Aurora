@@ -44,13 +44,25 @@ export const MAX_TOOL_RESULT = 4500;
 export function clipResult(output, max = MAX_TOOL_RESULT) {
   const text = String(output);
   if (text.length <= max) return text;
-  const cut = text.lastIndexOf("\n", max);
-  const shown = text.slice(0, cut > max * 0.6 ? cut : max);
-  const rest = text.slice(shown.length).split("\n").filter((l) => l.trim());
-  // Numbered lines (read_file): where the next part starts; "## Seção" lines: what the rest holds.
+  // The tool's own notes at the end ("(Quadro ativo: 113 linha(s) de dados…)", "… (cortado; continue com
+  // offset=46…)") are kept: cut away, a sheet of 113 people was answered "80 funcionários" (regression 24/10).
+  const lines = text.split("\n");
+  let tailStart = lines.length;
+  while (tailStart > 0 && (/^\s*[(…]/.test(lines[tailStart - 1]) || !lines[tailStart - 1].trim())) tailStart -= 1;
+  const tail = lines.slice(tailStart).join("\n").trim();
+  const keepTail = tail && tail.length < max * 0.3;
+  // Room for the rows: what is left after the tail and the note about the cut (~220 characters).
+  const room = (keepTail ? max - tail.length - 2 : max) - 220;
+  const body = keepTail ? lines.slice(0, tailStart).join("\n") : text;
+  const cut = body.lastIndexOf("\n", room);
+  const shown = body.slice(0, cut > room * 0.6 ? cut : room);
+  const rest = body.slice(shown.length).split("\n").filter((l) => l.trim());
+  // Numbered lines (read_file): where the next part starts and how many rows are left; "## Seção" lines: what the rest holds.
   const lastNumber = [...shown.matchAll(/^\s*(\d+)\s{2}/gm)].at(-1)?.[1];
+  const restRows = rest.filter((l) => /^\s*\d+\s{2}/.test(l)).length;
   const sections = rest.map((l) => l.match(/^\s*\d*\s*##\s+(.+)$/)?.[1]).filter(Boolean).slice(0, 6);
-  return `${shown}\n(As linhas acima estão completas. Faltam ${rest.length} linha(s)${sections.length ? ` das partes: ${sections.join(", ")}` : ""}. Só se precisar delas, leia de novo com offset=${lastNumber ? Number(lastNumber) + 1 : "a próxima linha"}.)`;
+  const note = `(As linhas acima estão completas. Faltam ${restRows || rest.length} linha(s) deste trecho${sections.length ? `, das partes: ${sections.join(", ")}` : ""}. Só se precisar delas, leia de novo com offset=${lastNumber ? Number(lastNumber) + 1 : "a próxima linha"}.)`;
+  return `${shown}\n${note}${keepTail ? `\n${tail}` : ""}`;
 }
 
 export function getTool(name, tools) {

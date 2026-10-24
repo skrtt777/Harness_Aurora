@@ -60,8 +60,14 @@ test("a file name Windows accepts (a > in the name failed with ENOENT); long res
   lines.splice(150, 0, "  151  ## Orçado mensal");
   const clipped = clipResult(lines.join("\n"), 3000);
   assert.doesNotMatch(clipped, /cortado/);
-  assert.match(clipped, /\| texto\n\(As linhas acima estão completas\. Faltam \d+ linha\(s\) das partes: Orçado mensal\. Só se precisar delas, leia de novo com offset=\d+\.\)$/);
+  assert.match(clipped, /\| texto\n\(As linhas acima estão completas\. Faltam \d+ linha\(s\) deste trecho, das partes: Orçado mensal\. Só se precisar delas, leia de novo com offset=\d+\.\)$/);
   assert.equal(clipResult("curto"), "curto");
+  // The tool's own notes at the end survive the cut (the count of a 113-row sheet, regression 24/10).
+  const sheet = [...Array.from({ length: 120 }, (_, i) => `${String(i + 1).padStart(5)}  pessoa ${i + 1} | Produção | Operador`), "… (cortado; continue com offset=121)", "", "(Quadro ativo: 113 linha(s) de dados, sem contar o cabeçalho nem a linha de total.)"].join("\n");
+  const kept = clipResult(sheet, 3000);
+  assert.ok(kept.length <= 3100);
+  assert.match(kept, /113 linha\(s\) de dados/);
+  assert.match(kept, /Faltam \d{2,} linha\(s\) deste trecho/, "the rows left, not the notes");
 });
 
 test("a read repeated with the delivery still to write keeps the tools to write (not a forced text answer)", async () => {
