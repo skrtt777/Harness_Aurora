@@ -6,6 +6,7 @@ import { readdir } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 import { extractText } from "../docText.js";
 import { expandPath, namedFolder, resolveExisting } from "./files.js";
+import { decodeBoleto, digitLines } from "../boletoLine.js";
 
 const READABLE = new Set([".pdf", ".docx", ".txt", ".md", ".html", ".htm"]);
 const STATEMENT = /extrato|movimenta/i;
@@ -16,14 +17,17 @@ const pad = (n) => String(n).padStart(2, "0");
 const money = (s) => Number(String(s).replace(/\./g, "").replace(",", "."));
 
 /** What a bill says: who, how much, when. Null when it is not a bill (no amount, or neither due date nor bill words). */
-export function parseBill(text, file = "") {
+export function parseBill(text, file = "", now = Date.now()) {
   const t = String(text || "");
   const amount = t.match(/(?:valor(?:\s+(?:a\s+pagar|total|do\s+documento|cobrado))?|total\s+a\s+pagar|total)\s*:?\s*R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i) || t.match(/R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/);
   const due = t.match(/venc\w*\s*(?:em|:)?\s*:?\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
-  if (!amount || (!due && !/boleto|fatura|conta de|vencimento/i.test(t + " " + file))) return null;
+  // The digit line carries both, whatever the layout: what the printed text lacks comes from it.
+  const line = digitLines(t).map((d) => decodeBoleto(d, now)).find(Boolean);
+  if (!amount && !line?.value) return null;
+  if (!due && !line?.due && !/boleto|fatura|conta de|vencimento/i.test(t + " " + file)) return null;
   const head = t.split(/\r?\n/).map((l) => l.replace(/^#+\s*/, "").trim()).find((l) => l.length > 2) || basename(file);
   const year = due?.[3] ? (due[3].length === 2 ? 2000 + Number(due[3]) : Number(due[3])) : null;
-  return { name: head.slice(0, 70), value: money(amount[1]), due: due ? { day: Number(due[1]), month: Number(due[2]), year } : null };
+  return { name: head.slice(0, 70), value: amount ? money(amount[1]) : line.value, due: due ? { day: Number(due[1]), month: Number(due[2]), year } : line?.due || null };
 }
 
 /** "12", "12/10", "12/10/2026", "2026-10-12" → a date (a bare day is in the bills' own month). */
@@ -77,7 +81,7 @@ export const billTools = [
       for (const file of await filesIn(dir)) {
         const text = await extractText(file).catch(() => "");
         if (STATEMENT.test(basename(file))) { statements.push(...String(text).split(/\r?\n/)); continue; }
-        const bill = parseBill(text, file);
+        const bill = parseBill(text, file, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW).getTime() : Date.now());
         if (bill) bills.push({ ...bill, file: relative(dir, file) || basename(file) });
         else if (/boleto|fatura|conta/i.test(basename(file))) skipped.push(basename(file));
       }

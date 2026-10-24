@@ -46,7 +46,13 @@ export const calcTools = [
     stage: () => "Calculando…",
     describe: () => ({ kind: "read", paths: [] }),
     async run({ expressao, numeros, operacao }, ctx = {}) {
-      if (numeros) {
+      // Ten calls in a row for one answer ran out the steps (regression 24/10): after four, answer.
+      ctx.calcCalls = (ctx.calcCalls || 0) + 1;
+      if (ctx.calcCalls > 4) throw new Error("Você já fez 4 contas neste pedido: responda agora com o resultado que já tem (uma única expressão, ex.: \"1932,10 - 230,45 - 540\", resolve de uma vez).");
+      // An expression typed in numeros ("1932,10 - 230,45 - 540"): read as a list it summed the wrong things and
+      // the model called again ten times (regression 24/10). It is an expression.
+      if (numeros && !expressao && /\d\s*[-+*/x×÷]\s*\d|\d\s*%/.test(String(numeros).replace(/"/g, "")) && !/^\s*-?\d/.test(String(numeros).replace(/"/g, "").split(/[;,]\s+/)[1] || "x")) expressao = String(numeros).replace(/"/g, "").replace(/;/g, " ");
+      if (numeros && !expressao) {
         let list = numberList(numeros);
         // "8,7,6,3,9" (the spaces dropped) for "tirei 8,7, 6,3, 9": the person's own list, when its digits match.
         if (list.length < 2 && /\d,\d+,\d/.test(numeros)) {

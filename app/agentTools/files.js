@@ -692,6 +692,9 @@ export function categoryCounts(lines, request) {
  */
 export function rankedGroupAsk(text) {
   const t = foldText(text);
+  // Only for amounts that add up per group (spent, sold, owed); "qual área está mais acima do orçamento" is a
+  // deviation per row (regression 24/10: grouped, the answer took the wrong area).
+  if (!/\b(gast\w*|pes(ou|aram)|vend\w*|compr\w*|dev\w*|cust\w*|fatur\w*|receb\w*|pag\w*|dinheiro|chamados?)\b/.test(t)) return [];
   const out = [...t.matchAll(/\b(?:qual|que|em que|em qual|de que|de qual|com que|com qual|quais)\s+(categoria|setor|cliente|fornecedor|area|produto|departamento|tipo|loja|vendedor|filial|regiao|centro de custo)s?\b[^.?!]{0,40}\b(?:mais|menos|maior|menor|pesou|pesaram)\b/g)];
   if (!out.length && /\bonde\s+(?:eu\s+|q\s+|que\s+)?(?:mais|menos)\s+gast|\bcom o que\s+(?:eu\s+)?(?:mais|menos)\s+gast|\bmaior parte do (?:meu )?dinheiro/.test(t)) out.push(["", "categoria"]);
   return out;

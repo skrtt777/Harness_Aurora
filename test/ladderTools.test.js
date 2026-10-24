@@ -64,6 +64,10 @@ test("bills_table: every bill at once, in due order, with the total and a due fi
   assert.match(until, /Total: R\$ 318,55/);
   assert.match(until, /NÃO ponha estas.*Colégio Saber/);
   assert.equal(parseBill("Recibo de faxina, R$ 80,00"), null);
+  // Only the digit line (no "Valor:"/"Vencimento:"): value and due date from it, the 2025 factor reset included.
+  const fromLine = parseBill("BANCO X\nPagador: Marta\n23793.38128 60000.000003 00000.000400 1 16050000023045", "boleto.pdf", Date.UTC(2026, 9, 4));
+  assert.equal(fromLine.value, 230.45);
+  assert.deepEqual(fromLine.due, { day: 20, month: 10, year: 2026 });
   assert.equal(parseDay("12", { month: 10, year: 2026 }).getDate(), 12);
 });
 
