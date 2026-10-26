@@ -9,6 +9,9 @@ import { executeTool } from "../app/agentTools/index.js";
 test("a text to use is not saved as a file unless saving was asked", async () => {
   assert.equal(onlyTextAsked("me ajuda a escrever uma msg de aniversario pra minha sobrinha"), true);
   assert.equal(onlyTextAsked("escreve uma carta e salva num documento pra eu imprimir"), false);
+  // "traduz pro ingles: …" went to a Desktop .txt in 2 runs of 3 (A/B 26/10).
+  assert.equal(onlyTextAsked("traduz pro ingles: bom dia, td bem com vc? chego as 3 da tarde"), true);
+  assert.equal(onlyTextAsked("traduz esse contrato e salva em word"), false);
   assert.equal(onlyTextAsked("escreve um script python que renomeia as fotos"), false);
   assert.equal(onlyTextAsked("escreva a mensagem de boas-vindas", { AGENT_RUN_TRIGGER: "schedule" }), false, "an agent's run follows its mission");
   // A plain question is answered in the chat (empresa diretoria-2, 24/10); a question that asks for a file or an action is not.
