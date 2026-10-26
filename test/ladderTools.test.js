@@ -103,3 +103,10 @@ test("guards: the other end of a sorted read, a month typed wrong, the person's 
   assert.equal(unreadPersonalData("Você possui alguma conta de condomínio que eu possa consultar?", "qual o valor do condominio de setembro?"), "asked");
   assert.equal(monthTypoNote("junto de outro arquivo"), "");
 });
+
+test("a piped header keeps the rows written without the end pipes", () => {
+  const md = "# Pedidos\n\n| Pedido | Fornecedor | Valor |\n---|---|---|\nPC-900 | Agro Sertão | 4.323,36\nPC-901 | Moinho Sul | 980,00\n\nFonte: planilha";
+  const tables = parseBlocks(md, { sheet: true }).filter((b) => b.type === "table");
+  assert.equal(tables.length, 1);
+  assert.deepEqual(tables[0].rows, [["Pedido", "Fornecedor", "Valor"], ["PC-900", "Agro Sertão", "4.323,36"], ["PC-901", "Moinho Sul", "980,00"]]);
+});

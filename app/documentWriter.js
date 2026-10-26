@@ -90,8 +90,11 @@ export function parseBlocks(markdown, { sheet = false } = {}) {
       continue;
     }
     if (isTableLine(line)) {
+      // After a piped header, rows written without the end pipes ("PC-900 | Agro | …") stay in the table:
+      // cut off, the header was "only a header" and the small model rewrote it 12 times (A/B 24/10).
+      const loose = (l) => l.includes("|") && !/^\s*#/.test(l) && cells(l).length >= 2;
       const rows = [];
-      for (; i < lines.length && isTableLine(lines[i]); i += 1) if (!isSeparator(lines[i])) rows.push(cells(lines[i]));
+      for (; i < lines.length && (isTableLine(lines[i]) || (rows.length && loose(lines[i]))); i += 1) if (!isSeparator(lines[i])) rows.push(cells(lines[i]));
       i -= 1;
       blocks.push({ type: "table", rows, title: lastHeading });
       continue;
