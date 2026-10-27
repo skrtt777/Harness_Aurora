@@ -204,7 +204,8 @@ test("the user's folders are real paths, accents included (Área de Trabalho)", 
   const folders = await knownFolders();
   for (const key of ["desktop", "documents", "downloads"]) {
     assert.doesNotMatch(folders[key], /�/, `${key}: ${folders[key]}`);
-    assert.ok(existsSync(folders[key]), `${key} exists: ${folders[key]}`);
+    // Downloads can be missing on a real machine (the person deleted it); only its spelling matters
+    if (key !== "downloads") assert.ok(existsSync(folders[key]), `${key} exists: ${folders[key]}`);
   }
 });
 
