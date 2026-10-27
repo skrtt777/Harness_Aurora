@@ -21,6 +21,10 @@ export type Conversation = {
   updatedAt: string;
 };
 
+/** The comprovante (app/proof.js): where each number of an answer came from. */
+export type ProofSource = { tool: string; file: string; name: string; sheet: string | null; cell: string | null; column: string | null; header: string[] | null; row: string[] | null; line: number | null; text: string };
+export type ProofClaim = { raw: string; start: number; end: number; kind: 'dinheiro' | 'percentual' | 'data' | 'numero'; status: 'fonte' | 'conta' | 'pedido' | 'sem-prova'; source?: ProofSource; formula?: string; of?: string; others?: number };
+export type Proof = { version: number; claims: ProofClaim[]; proven: number; total: number; seal: 'comprovado' | 'parcial' | 'sem-prova'; sources: string[] };
 export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
 export type TeacherReview = { reason: "errors" | "actions" | null; ms?: number; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
@@ -38,7 +42,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; proof?: Proof | null; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };

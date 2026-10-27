@@ -11,6 +11,17 @@ import { runCodex } from "./codex.js";
 import { runLocalChat } from "./local.js";
 import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
 import { AGENT_TOOLS, executeTool, stageFor, toolCatalogue, toolSchemas } from "./agentTools/index.js";
+import { proveAnswer } from "./proof.js";
+
+// The comprovante never stops an answer: a proof that fails to compute is just left out.
+const proofOf = (answer, sources, asked) => { try { return proveAnswer(answer, { sources, asked }); } catch { return null; } };
+// The numbers to send back: only in an answer that already proves some (an answer from data, not a caption
+// with "100% natural"), never a date, at most six.
+export const unprovenNumbers = (proof) => {
+  if (!proof || proof.proven < 1) return null;
+  const missing = proof.claims.filter((c) => c.status === "sem-prova" && c.kind !== "data").map((c) => c.raw);
+  return missing.length ? [...new Set(missing)].slice(0, 6) : null;
+};
 
 export const DEFAULT_MAX_STEPS = 15;
 const REPEAT_LIMIT = 3;
@@ -313,12 +324,15 @@ export async function runChatAgent({
   let citationChecked = false;
   let inventionChecked = false;
   let unreadChecked = false;
+  let proofChecked = false;
   let groundingNudged = false;
   // Answers sent back by a guard, with what triggered it (telemetry and the battery).
   const checks = [];
   // Each guard that fires is also told (the Sede's Conferência shows it as it happens).
   if (onCheck) checks.push = (...items) => { for (const item of items) { Array.prototype.push.call(checks, item); try { onCheck(item?.check || "conferência"); } catch { /* the office is only a view */ } } return checks.length; };
   let factsChecked = false;
+  // Earlier reads of this conversation count as sources too (a follow-up answers from them).
+  const proofSources = history.filter((m) => m.role === "tool" && m.content).map((m) => ({ tool: String(m.tool_name || ""), args: {}, result: String(m.content) }));
   // Everything the answer may rely on, kept whole (old tool results get compacted).
   // Today (and yesterday / tomorrow) as numbers count too: the system says the date in words, and the
   // facts guard sent back "hoje é 04/10/2026" as invented; the retry apologized and lost the answer
@@ -531,6 +545,16 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: unread === "invented" ? "Você deu valores sem ler nenhum arquivo: eles não estão no pedido e nenhuma ferramenta os trouxe. Procure os dados da pessoa (search_files com uma palavra do pedido; contas e boletos: bills_table), leia e faça a conta com calculate. Só depois responda, com os números lidos." : "Antes de pedir à pessoa, procure nos arquivos dela: search_files com uma palavra do pedido (ex.: o nome da planilha ou do assunto) e leia o que achar. Pergunte só se não houver nada." });
       continue;
     }
+    // The comprovante (app/proof.js): an answer built on the data read, with numbers that are in nothing
+    // read and come from no calculation on them ("128 funcionários" counted by eye, "R$ 320,45" for luz 230
+    // + água 90; usage battery 27/10). Sent back once, naming them.
+    const unproven = !toolCalls.length && !proofChecked && env.AURORA_PROOF_GATE !== "off" ? unprovenNumbers(proofOf(text, proofSources, [input, ...history.filter((m) => m.role === "user").map((m) => m.content)])) : null;
+    if (unproven) {
+      proofChecked = true;
+      checks.push({ check: "unproven_numbers", items: unproven });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: `Confira estes números da sua resposta: ${unproven.join(", ")}. Eles não aparecem em nada que você leu e não saem de uma conta com os números lidos. Para contar ou somar linhas, leia de novo com filter (a ferramenta dá o total exato); para uma conta, use calculate com os números lidos. Se um número não tem fonte, tire-o ou diga que é estimativa. Depois responda de novo, completa, como se fosse a primeira vez: não comente esta conferência nem diga que corrigiu.` });
+      continue;
+    }
     // The tool found the cheapest, the answer named the most expensive: the tool's row.
     const wrongEnd = !toolCalls.length && !orderChecked ? extremeMismatch(text, ctx.readyExtreme) : null;
     if (wrongEnd) {
@@ -653,7 +677,8 @@ export async function runChatAgent({
         }
       }
       messages.push({ role: "assistant", content: final });
-      return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}) };
+      const proof = proofOf(final, proofSources, [input, ...history.filter((m) => m.role === "user").map((m) => m.content)]);
+      return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}), ...(proof ? { proof } : {}) };
     }
 
     // One call per assistant message (some chat templates refuse several in one).
@@ -722,6 +747,8 @@ export async function runChatAgent({
       if (fromWeb) ctx.untrustedSeen = true;
       messages.push({ role: "tool", tool_name: call.name, content: (fromWeb ? `${WEB_NOTE}\n` : "") + outcome.result + searchNote });
       if (outcome.ok) { evidence.push(outcome.result); if (GROUNDING_TOOLS.has(call.name)) documents.push(outcome.result); }
+      // What the comprovante (app/proof.js) checks the answer's numbers against: each result whole, with its call.
+      if (outcome.ok) proofSources.push({ tool: call.name, args: call.arguments || {}, result: String(outcome.result) });
       // A text for the person (a desculpa, a convite) it tried to save in a file, refused: what it wrote
       // is the delivery. Answered with it instead of having it written again (~200 tokens, 2 runs in 4).
       const textOnly = !outcome.ok && ["write_file", "write_document"].includes(call.name) && /A pessoa pediu só o texto/.test(outcome.result) ? String(call.arguments?.content ?? call.arguments?.text ?? "").trim() : "";

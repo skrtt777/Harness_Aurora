@@ -7,6 +7,7 @@ import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
 import DeliveredFiles from './DeliveredFiles';
+import { ProofSeal } from './Proof';
 import AuroraCurtains from './AuroraCurtains';
 import { adjustOptions } from './adjustOptions';
 
@@ -174,19 +175,20 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
   const parts = [];
   let offset = 0;
   for (const artifact of artifacts) {
-    if (artifact.start > offset) parts.push(<Markdown key={`text-${offset}`}>{message.content.slice(offset, artifact.start)}</Markdown>);
+    if (artifact.start > offset) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof}>{message.content.slice(offset, artifact.start)}</Markdown>);
     parts.push(<button className="artifact-card" key={artifact.id} onClick={() => onOpen(artifact.id)}>
       <span className="file-symbol">◇</span><span><strong>{artifact.name}</strong><small>{artifact.previewable ? 'Abrir visualização' : 'Abrir arquivo'}</small></span><span aria-hidden="true">↗</span>
     </button>);
     offset = artifact.end;
   }
-  if (offset < message.content.length) parts.push(<Markdown key={`text-${offset}`}>{message.content.slice(offset)}</Markdown>);
+  if (offset < message.content.length) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof}>{message.content.slice(offset)}</Markdown>);
   return <article className={`chat-message ${isUser ? 'user' : 'assistant'} ${message.provider === 'Sistema' ? 'system' : ''}`} aria-label={isUser ? 'Você' : 'Aurora'}>
     {!isUser && <div className="chat-avatar" aria-hidden="true"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="" width="1254" height="1254" draggable={false} /></div>}
     <div className="chat-bubble-wrap">
       {!isUser && (message.execution?.toolSteps?.length ?? 0) > 0 && <details className="agent-actions"><summary>{message.execution!.toolSteps!.length} {message.execution!.toolSteps!.length === 1 ? 'ação executada' : 'ações executadas'}</summary><StepList steps={message.execution!.toolSteps!} /></details>}
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
+      {!isUser && message.execution?.proof && <ProofSeal proof={message.execution.proof} />}
       {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} />}
       {!isUser && onPick && (() => {
         const options = adjustOptions(message.content);

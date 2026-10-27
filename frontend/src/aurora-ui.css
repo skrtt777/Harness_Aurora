@@ -508,3 +508,94 @@
     background: none;
   }
 }
+
+/* ---------- Comprovante: every number of an answer and where it came from (Proof.tsx) ---------- */
+.aurora-markdown mark.proof-mark {
+  position: relative;
+  padding: 0 1px;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: help;
+  outline: none;
+}
+.aurora-markdown mark.proof-mark.fonte,
+.aurora-markdown mark.proof-mark.conta { text-decoration-color: var(--green); }
+.aurora-markdown mark.proof-mark.conta { text-decoration-style: dotted; }
+.aurora-markdown mark.proof-mark.sem-prova { text-decoration-color: var(--yellow); text-decoration-style: wavy; }
+.aurora-markdown mark.proof-mark:is(:hover, :focus-visible) { background: var(--fill-soft); }
+.aurora-markdown mark.proof-mark .proof-card {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: none;
+  width: max-content;
+  max-width: min(440px, 80vw);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--stroke-2);
+  color: var(--text-1);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  text-decoration: none;
+  white-space: normal;
+  cursor: auto;
+}
+.aurora-markdown mark.proof-mark:is(:hover, :focus-visible, :focus-within) .proof-card { display: block; }
+.proof-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.proof-badge.fonte, .proof-badge.conta { background: var(--green-soft); color: var(--green); }
+.proof-badge.sem-prova { background: var(--yellow-soft); color: var(--yellow); }
+.proof-badge.pedido { background: var(--fill-soft); color: var(--text-2); }
+.proof-file { margin: 6px 0 4px; color: var(--text-2); font-family: var(--font-mono); font-size: 11.5px; }
+.proof-where, .proof-line, .proof-more { margin: 6px 0 0; color: var(--text-2); }
+.proof-line { font-family: var(--font-mono); font-size: 11.5px; }
+.proof-table { display: grid; gap: 0; margin-top: 4px; overflow-x: auto; font-family: var(--font-mono); font-size: 11.5px; }
+.proof-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(64px, auto); }
+.proof-row > span { padding: 3px 8px; border-bottom: 1px solid var(--stroke-3); white-space: nowrap; }
+.proof-row.head > span { color: var(--text-3); }
+.proof-row > span.lit { border-radius: 4px; background: var(--green-soft); color: var(--text-1); box-shadow: inset 0 0 0 1.5px var(--green); font-weight: 600; }
+.proof-seal { align-self: flex-start; max-width: 100%; margin-top: 6px; }
+.proof-seal-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px 3px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-soft);
+  box-shadow: inset 0 0 0 1px var(--stroke-3);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.proof-seal-head strong { color: var(--text-1); font-weight: 600; }
+.proof-seal-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+.proof-seal.comprovado .proof-seal-icon { background: var(--green); color: var(--base); }
+.proof-seal:not(.comprovado) .proof-seal-icon { background: var(--yellow); color: var(--base); }
+.proof-list { display: grid; gap: 10px; margin: 8px 0 0; padding: 10px 12px; border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: inset 0 0 0 1px var(--stroke-3); list-style: none; font-size: var(--fs-xs); }
+.proof-list li > strong { font-family: var(--font-mono); }
+.proof-list li > div { margin-top: 2px; }
+.proof-open { margin-top: 8px; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--fill-soft); box-shadow: inset 0 0 0 1px var(--stroke-2); color: var(--text-1); font: inherit; font-size: 11.5px; cursor: pointer; }
+.proof-open:hover { background: var(--fill-hover); }
