@@ -23,8 +23,12 @@ export type Conversation = {
 
 /** The comprovante (app/proof.js): where each number of an answer came from. */
 export type ProofSource = { tool: string; file: string; name: string; sheet: string | null; cell: string | null; column: string | null; header: string[] | null; row: string[] | null; line: number | null; text: string };
-export type ProofClaim = { raw: string; start: number; end: number; kind: 'dinheiro' | 'percentual' | 'data' | 'numero'; status: 'fonte' | 'conta' | 'pedido' | 'sem-prova'; source?: ProofSource; formula?: string; of?: string; others?: number };
+export type ProofClaim = { raw: string; start: number; end: number; kind: 'dinheiro' | 'percentual' | 'data' | 'numero'; status: 'fonte' | 'conta' | 'pedido' | 'sem-prova'; source?: ProofSource; formula?: string; of?: string; read?: Record<string, unknown>; others?: number };
 export type Proof = { version: number; claims: ProofClaim[]; proven: number; total: number; seal: 'comprovado' | 'parcial' | 'sem-prova'; sources: string[] };
+/** A resposta viva (app/proofLive.js): each proven number checked again against its file, after the answer. */
+export type LiveClaim = { i: number; raw: string; kind: ProofClaim['kind']; status: 'confere' | 'mudou' | 'sumiu' | 'mantido' | 'sem-prova'; now?: string; where?: string; why?: string; file?: string; formula?: string };
+export type LiveCheck = { version: number; checkedAt: string; verdict: 'vale' | 'mudou'; changed: number; checked: number; files: { name: string; path: string; missing: boolean; changed: boolean; modifiedAt: string | null }[]; claims: LiveClaim[] };
+export type StaleAnswer = { conversationId: string; title: string; messageId: string; answeredAt: string | null; files: string[]; changed: number; summary: string };
 export type AgentStep = { tool: string; args: Record<string, unknown>; ok?: boolean; summary?: string; stage?: string; status?: "running" | "done" | "failed"; ms?: number };
 export type TeacherReview = { reason: "errors" | "actions" | null; ms?: number; teacher: string; verdict?: "ok" | "fix"; problems?: string[]; lessonIds?: string[]; skillId?: string; redo?: "ok" | "com_erros" | "falhou"; skipped?: string; error?: string; signals?: string[] };
 export type PendingApproval = { id: string; tool: string; summary: string; detail?: string; rule?: string | null; expiresAt?: string };
@@ -42,7 +46,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; proof?: Proof | null; documentProofs?: { file: string; proof: Proof }[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; proof?: Proof | null; documentProofs?: { file: string; proof: Proof }[]; live?: LiveCheck | null; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };
@@ -163,6 +167,8 @@ export const createConversation = (data: {
   provider?: string;
   teacherProvider?: string;
 }) => request<Conversation>("/conversations", { method: "POST", body: JSON.stringify(data) });
+export const recheckProofs = (id: string) => request<{ live: Record<string, LiveCheck> }>(`/conversations/${id}/proof-recheck`, { method: "POST" }).then((r) => r.live);
+export const getStaleAnswers = () => request<{ stale: StaleAnswer[] }>("/proof/stale").then((r) => r.stale);
 export const getConversation = (id: string) => request<ConversationWithMessages>(`/conversations/${id}`);
 export const updateConversation = (id: string, patch: { title?: string; projectId?: string | null; archived?: boolean }) =>
   request<Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -623,8 +629,13 @@ export const saveMcp = (servers: McpServer[]) => request<{ servers: McpServer[];
 /** The desktop app asks to open a conversation (a click on an authorization notification). */
 export function onOpenConversationRequest(callback: (id: string) => void): () => void {
   const harness = (window as unknown as { harness?: { onOpenConversation?: (cb: (id: string) => void) => () => void } }).harness;
-  return harness?.onOpenConversation?.(callback) ?? (() => {});
+  const stopDesktop = harness?.onOpenConversation?.(callback) ?? (() => {});
+  // Inside the page too (the home's "Respostas que mudaram").
+  const onEvent = (event: Event) => callback(String((event as CustomEvent).detail));
+  window.addEventListener('aurora:open-conversation', onEvent);
+  return () => { stopDesktop(); window.removeEventListener('aurora:open-conversation', onEvent); };
 }
+export const requestOpenConversation = (id: string) => window.dispatchEvent(new CustomEvent('aurora:open-conversation', { detail: id }));
 
 /** The video card the local model uses (name, memory in GB), or null when it runs on the processor. */
 export type GpuInfo = { name: string; memoryGb: number | null; freeGb: number | null } | null;

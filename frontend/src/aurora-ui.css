@@ -527,6 +527,22 @@
 .aurora-markdown mark.proof-mark.conta { text-decoration-style: dotted; }
 .aurora-markdown mark.proof-mark.sem-prova { text-decoration-color: var(--yellow); text-decoration-style: wavy; }
 .aurora-markdown mark.proof-mark:is(:hover, :focus-visible) { background: var(--fill-soft); }
+/* A resposta viva: the file changed after the answer — the old number struck, the new one beside it. */
+.aurora-markdown mark.proof-mark:is(.mudou, .sumiu) { text-decoration: none; }
+.aurora-markdown mark.proof-mark:is(.mudou, .sumiu) > s { color: var(--text-3); text-decoration-color: var(--red); text-decoration-thickness: 1.5px; }
+.aurora-markdown .proof-now { margin-left: 4px; padding: 0 5px; border-radius: 4px; background: var(--red-soft); color: var(--red); font-weight: 600; animation: proof-now-in 600ms ease-out; }
+@keyframes proof-now-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .aurora-markdown .proof-now { animation: none; } }
+.proof-badge.mudou { background: var(--red-soft); color: var(--red); }
+.proof-live { align-self: flex-start; max-width: 100%; margin: 6px 0 0; padding: 8px 12px; border-radius: var(--radius-lg); font-size: var(--fs-xs); }
+.proof-live.vale { padding: 4px 10px; background: var(--green-soft); color: var(--text-2); }
+.proof-live.vale > span { color: var(--green); font-weight: 700; }
+.proof-live.mudou { background: var(--red-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent); color: var(--text-1); }
+.proof-live.mudou p { margin: 0; }
+.proof-live.mudou strong { font-weight: 600; }
+.proof-live.mudou ul { margin: 6px 0 0; padding-left: 18px; font-family: var(--font-mono); }
+.proof-live.mudou s { color: var(--text-3); }
+.proof-live.mudou small { color: var(--text-2); font-family: var(--font-sans, inherit); }
 .aurora-markdown mark.proof-mark .proof-card {
   position: absolute;
   left: 0;

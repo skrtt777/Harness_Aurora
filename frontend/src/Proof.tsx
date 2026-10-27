@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { canOpenFiles, openDeliveredFile, type Proof, type ProofClaim } from './api';
+import { canOpenFiles, openDeliveredFile, type LiveCheck, type LiveClaim, type Proof, type ProofClaim } from './api';
 
 /**
  * The comprovante on screen (app/proof.js computes it): each number of an answer is marked where it is
@@ -60,15 +60,44 @@ function Where({ claim }: { claim: ProofClaim }) {
   </>;
 }
 
-/** One marked number: its status as a thin underline, the card on hover or focus. */
-export function ProofMark({ claim, children }: { claim: ProofClaim; children: React.ReactNode }) {
-  return <mark className={`proof-mark ${claim.status}`} tabIndex={0} aria-label={`${claim.raw}: ${LABEL[claim.status]}`}>
-    {children}
+/** What the file says now, when it changed after the answer (the resposta viva). */
+function LiveNote({ live }: { live: LiveClaim }) {
+  if (live.status === 'mudou') return <p className="proof-where">Depois desta resposta, {live.where ? `${live.file ? `${live.file} › ` : ''}${live.where}` : live.file || 'o arquivo'} passou a dizer <strong>{live.now}</strong>{live.formula ? ` (${live.formula})` : ''}.</p>;
+  return <p className="proof-where"><strong>Não confere mais:</strong> {live.why}.</p>;
+}
+
+const stale = (live?: LiveClaim) => live && (live.status === 'mudou' || live.status === 'sumiu') ? live : undefined;
+
+/** One marked number: its status as a thin underline, the card on hover or focus; struck with the new value when its file changed. */
+export function ProofMark({ claim, live, children }: { claim: ProofClaim; live?: LiveClaim; children: React.ReactNode }) {
+  const changed = stale(live);
+  return <mark className={`proof-mark ${changed ? changed.status : claim.status}`} tabIndex={0} aria-label={`${claim.raw}: ${changed ? (changed.status === 'mudou' ? `mudou, agora ${changed.now}` : 'não confere mais') : LABEL[claim.status]}`}>
+    {changed ? <s>{children}</s> : children}
+    {changed?.status === 'mudou' && <span className="proof-now">{changed.now}</span>}
     <span className="proof-card" role="tooltip">
-      <span className={`proof-badge ${claim.status}`}>{LABEL[claim.status]}</span>
+      {changed ? <span className="proof-badge mudou">{changed.status === 'mudou' ? 'Mudou' : 'Não confere mais'}</span> : <span className={`proof-badge ${claim.status}`}>{LABEL[claim.status]}</span>}
+      {changed && <LiveNote live={changed} />}
+      {changed && <p className="proof-more">Na hora da resposta:</p>}
       <Where claim={claim} />
     </span>
   </mark>;
+}
+
+/**
+ * The resposta viva under an answer: its files changed after it, and the numbers that changed with them.
+ * "Refazer com os dados novos" asks the same again.
+ */
+export function LiveBanner({ live, onAsk }: { live: LiveCheck; onAsk?: (text: string) => void }) {
+  const files = live.files.filter((f) => f.changed || f.missing);
+  if (!files.length) return null;
+  const names = files.map((f) => f.name).join(', ');
+  if (live.verdict === 'vale') return <p className="proof-live vale"><span aria-hidden="true">✓</span> {names} mudou depois desta resposta; os {live.checked} números dela continuam iguais.</p>;
+  const items = live.claims.filter((c) => c.status === 'mudou' || c.status === 'sumiu');
+  return <div className="proof-live mudou" role="status">
+    <p><strong>{files.some((f) => f.missing) && files.every((f) => f.missing) ? `${names} não está mais onde estava` : `${names} mudou depois desta resposta`}</strong> · {live.changed === 1 ? '1 número não vale mais' : `${live.changed} números não valem mais`}</p>
+    <ul>{items.slice(0, 6).map((c) => <li key={c.i}><s>{c.raw}</s> {c.status === 'mudou' ? <>→ <strong>{c.now}</strong>{c.where ? <small> ({c.where})</small> : null}</> : <small>{c.why}</small>}</li>)}</ul>
+    {onAsk && <button type="button" className="proof-open" onClick={() => onAsk(`Os dados de ${names} mudaram depois da sua resposta. Leia de novo e refaça a resposta com os números atuais.`)}>Refazer com os dados novos</button>}
+  </div>;
 }
 
 
@@ -89,14 +118,14 @@ function download(content: string, filename: string) {
 }
 
 /** The seal under an answer: "Comprovado · 6 de 6 números", the list of every number when opened. */
-export function ProofSeal({ proof }: { proof: Proof }) {
+export function ProofSeal({ proof, outdated = false }: { proof: Proof; outdated?: boolean }) {
   const [open, setOpen] = useState(false);
   const shown = proof.claims.filter((c) => c.status !== 'pedido');
   const missing = proof.total - proof.proven;
   return <div className={`proof-seal ${proof.seal}`}>
     <button className="proof-seal-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
       <span className="proof-seal-icon" aria-hidden="true">{proof.seal === 'comprovado' ? '✓' : '!'}</span>
-      <strong>{proof.seal === 'comprovado' ? 'Comprovado' : missing === proof.total ? 'Números sem fonte' : `${missing} número${missing === 1 ? '' : 's'} sem fonte`}</strong>
+      <strong>{proof.seal === 'comprovado' ? (outdated ? 'Comprovado na hora da resposta' : 'Comprovado') : missing === proof.total ? 'Números sem fonte' : `${missing} número${missing === 1 ? '' : 's'} sem fonte`}</strong>
       <span>{proof.proven} de {proof.total} número{proof.total === 1 ? '' : 's'} com prova{proof.sources.length ? ` · ${proof.sources.slice(0, 3).join(', ')}${proof.sources.length > 3 ? '…' : ''}` : ''}</span>
     </button>
     {open && <ol className="proof-list">{shown.map((c, i) => <li key={i} className={c.status}>

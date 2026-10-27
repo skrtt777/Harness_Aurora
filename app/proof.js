@@ -9,7 +9,7 @@
  * cite a file; this one points at the cell, and says plainly which numbers have no source.
  */
 
-export const PROOF_VERSION = 1;
+export const PROOF_VERSION = 2;
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
@@ -141,7 +141,7 @@ export function columnsOf(source) {
 }
 
 // Equal as written: the answer may round (R$ 1.234,56 → R$ 1.235, 38.190.000 → 38,19 milhões, 66,67% → 67%).
-function matches(claim, value) {
+export function matches(claim, value) {
   if (value === null || !Number.isFinite(value)) return false;
   if (claim.kind === "data") return claim.value === value;
   if (Math.abs(claim.value - value) < 1e-9) return true;
@@ -165,7 +165,9 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
   const usable = sources.filter((s) => s && s.result && !/^(memory_save|write_document|write_file|edit_file|move_file|make_folder)$/.test(s.tool || ""));
   if (!claims.length || !usable.length) return null;
   const facts = usable.flatMap(factsOf);
-  const tables = usable.flatMap((s) => columnsOf(s).map((t) => ({ ...t, tool: s.tool, file: s.args?.path || "" })));
+  // The read a table came from (its filter, sort, offset): the resposta viva (app/proofLive.js) runs it again.
+  const readOf = (s) => (s.tool === "read_file" && s.args?.path ? Object.fromEntries(["path", "filter", "sort", "offset", "limit"].filter((k) => s.args[k] !== undefined).map((k) => [k, s.args[k]])) : null);
+  const tables = usable.flatMap((s) => columnsOf(s).map((t) => ({ ...t, tool: s.tool, file: s.args?.path || "", read: readOf(s) })));
   const askedClaims = asked.flatMap((t) => claimsOf(t));
   // Small counts in the request are operands, never claims: "para 2 pessoas", "em 3x", "4 parcelas".
   const counts = [...new Set(asked.flatMap((t) => [...String(t).matchAll(/(?<![\d.,])(\d{1,2})\s*(?:x(?![a-zà-ú])|vezes|pessoas?|parcelas?|meses|amigos|cotas|partes|dias|semanas)/gi)].map((m) => Number(m[1]))).filter((n) => n >= 2 && n <= 60))]
@@ -194,16 +196,16 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
     const claim = r.claim;
     let found = null;
     for (const t of tables) {
-      if (claim.kind !== "percentual" && claim.kind !== "data" && matches(claim, t.count)) { found = { formula: `${t.count} linhas da tabela`, of: baseName(t.file) }; break; }
+      if (claim.kind !== "percentual" && claim.kind !== "data" && matches(claim, t.count)) { found = { formula: `${t.count} linhas da tabela`, of: baseName(t.file), read: t.read }; break; }
       for (const c of t.columns) {
         const sum = c.values.reduce((a, v) => a + v, 0);
-        if (matches(claim, sum)) { found = { formula: `soma de ${c.name} (${c.values.length} linhas)`, of: baseName(t.file) }; break; }
-        if (matches(claim, sum / c.values.length)) { found = { formula: `média de ${c.name} (${c.values.length} linhas)`, of: baseName(t.file) }; break; }
+        if (matches(claim, sum)) { found = { formula: `soma de ${c.name} (${c.values.length} linhas)`, of: baseName(t.file), read: t.read }; break; }
+        if (matches(claim, sum / c.values.length)) { found = { formula: `média de ${c.name} (${c.values.length} linhas)`, of: baseName(t.file), read: t.read }; break; }
       }
       if (found) break;
       for (const row of t.rows) {
         for (let x = 0; x < row.nums.length && !found; x += 1) for (let y = x + 1; y < row.nums.length; y += 1) {
-          if (matches(claim, row.nums[x].v * row.nums[y].v)) { found = { formula: `${row.nums[x].raw} × ${row.nums[y].raw} (${row.label}: ${row.nums[x].name} × ${row.nums[y].name})`, of: baseName(t.file) }; break; }
+          if (matches(claim, row.nums[x].v * row.nums[y].v)) { found = { formula: `${row.nums[x].raw} × ${row.nums[y].raw} (${row.label}: ${row.nums[x].name} × ${row.nums[y].name})`, of: baseName(t.file), read: t.read }; break; }
         }
         if (found) break;
       }
@@ -234,7 +236,7 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
         for (const [v, formula] of ops) if (matches(claim, v)) { found = { formula: `${formula} = ${claim.kind === "percentual" ? `${pct(v)}%` : pct(v)}` }; break search; }
       }
     }
-    if (found) { r.status = "conta"; r.formula = found.formula; if (found.of) r.of = found.of; proven.push(claim); changed = true; }
+    if (found) { r.status = "conta"; r.formula = found.formula; if (found.of) r.of = found.of; if (found.read) r.read = found.read; proven.push(claim); changed = true; }
   }
   }
   for (const r of result) {

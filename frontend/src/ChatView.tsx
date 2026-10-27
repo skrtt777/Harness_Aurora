@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HomeToday from './HomeToday';
-import { droppedFilePath, getArtifacts, getProviders, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
+import { droppedFilePath, getArtifacts, recheckProofs, type LiveCheck, getProviders, getSettings, undoMessageMoves, updateSettings, warmLocalModel, type AgentMode, type AgentStep, type Artifact, type ChatMessage, type ConversationWithMessages, type PendingTurn, type PlanItem, type Project, type TeacherReview } from './api';
 import LocalSetupPanel from './LocalSetupPanel';
 import WorkflowPanel from './WorkflowPanel';
 import ArtifactPanel from './ArtifactPanel';
 import Markdown from './Markdown';
 import Icon from './Icon';
 import DeliveredFiles from './DeliveredFiles';
-import { ProofSeal } from './Proof';
+import { LiveBanner, ProofSeal } from './Proof';
 import AuroraCurtains from './AuroraCurtains';
 import { adjustOptions } from './adjustOptions';
 
@@ -161,8 +161,10 @@ function UndoChatMoves({ message }: { message: ChatMessage }) {
   return <p className="chat-undo-moves">{done ? <small>{done}</small> : <><small>{text}</small> <button type="button" className="btn btn-text btn-sm" onClick={undo}>Desfazer</button></>}</p>;
 }
 
-function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect, onPick }: {
+function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCorrect, onPick, live, onAsk }: {
   message: ChatMessage; artifacts: Artifact[]; onOpen: (id: string) => void;
+  /** The resposta viva: its numbers checked again against their files (app/proofLive.js). */
+  live?: LiveCheck | null; onAsk?: (text: string) => void;
   correctable: boolean; teacher: string; onCorrect: Props['onCorrect'];
   /** Only on the last answer: picks one of its "Quer ajustar?" options. */
   onPick?: (text: string) => void;
@@ -175,20 +177,21 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
   const parts = [];
   let offset = 0;
   for (const artifact of artifacts) {
-    if (artifact.start > offset) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof}>{message.content.slice(offset, artifact.start)}</Markdown>);
+    if (artifact.start > offset) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof} live={isUser ? null : live}>{message.content.slice(offset, artifact.start)}</Markdown>);
     parts.push(<button className="artifact-card" key={artifact.id} onClick={() => onOpen(artifact.id)}>
       <span className="file-symbol">◇</span><span><strong>{artifact.name}</strong><small>{artifact.previewable ? 'Abrir visualização' : 'Abrir arquivo'}</small></span><span aria-hidden="true">↗</span>
     </button>);
     offset = artifact.end;
   }
-  if (offset < message.content.length) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof}>{message.content.slice(offset)}</Markdown>);
+  if (offset < message.content.length) parts.push(<Markdown key={`text-${offset}`} proof={isUser ? null : message.execution?.proof} live={isUser ? null : live}>{message.content.slice(offset)}</Markdown>);
   return <article className={`chat-message ${isUser ? 'user' : 'assistant'} ${message.provider === 'Sistema' ? 'system' : ''}`} aria-label={isUser ? 'Você' : 'Aurora'}>
     {!isUser && <div className="chat-avatar" aria-hidden="true"><img className="aurora-symbol" src="/brand/aurora-symbol.png" alt="" width="1254" height="1254" draggable={false} /></div>}
     <div className="chat-bubble-wrap">
       {!isUser && (message.execution?.toolSteps?.length ?? 0) > 0 && <details className="agent-actions"><summary>{message.execution!.toolSteps!.length} {message.execution!.toolSteps!.length === 1 ? 'ação executada' : 'ações executadas'}</summary><StepList steps={message.execution!.toolSteps!} /></details>}
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
-      {!isUser && message.execution?.proof && <ProofSeal proof={message.execution.proof} />}
+      {!isUser && live && <LiveBanner live={live} onAsk={onAsk} />}
+      {!isUser && message.execution?.proof && <ProofSeal proof={message.execution.proof} outdated={live?.verdict === 'mudou'} />}
       {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} proofs={message.execution?.documentProofs || []} />}
       {!isUser && onPick && (() => {
         const options = adjustOptions(message.content);
@@ -240,6 +243,19 @@ export default function ChatView({ conversation, project, loading, sending, pend
   const [teachers, setTeachers] = useState<Record<string, boolean> | null>(null);
   useEffect(() => { void getProviders().then((list) => setTeachers(Object.fromEntries(list.map((p) => [p.id, p.configured])))).catch(() => {}); }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The resposta viva: the answers' numbers checked again against their files when the conversation opens,
+  // after each answer and when the window comes back (the sheet was edited in Excel meanwhile).
+  const [live, setLive] = useState<Record<string, LiveCheck>>({});
+  const proofCount = conversation?.messages.filter((m) => m.execution?.proof).length ?? 0;
+  useEffect(() => {
+    const id = conversation?.id;
+    if (!id || !proofCount || sending) return;
+    let gone = false;
+    const check = () => { void recheckProofs(id).then((r) => { if (!gone) setLive(r); }).catch(() => {}); };
+    check();
+    window.addEventListener('focus', check);
+    return () => { gone = true; window.removeEventListener('focus', check); };
+  }, [conversation?.id, proofCount, sending]);
   const [fileError, setFileError] = useState('');
   const [dropping, setDropping] = useState(false);
   const [dropNote, setDropNote] = useState('');
@@ -334,7 +350,7 @@ export default function ChatView({ conversation, project, loading, sending, pend
       <div className="chat-messages" ref={scrollRef}>
         {!conversation.messages.length ? <div className="chat-welcome"><HomeToday />
           <div className="starter-prompts">{STARTERS.map(([label, hint, text]) => <button key={label} onClick={() => { setDraft(text); textareaRef.current?.focus(); }}><strong>{label}</strong><small>{hint}</small></button>)}</div>
-        </div> : conversation.messages.map((message, index) => <MessageBubble key={message.id} message={message} onPick={!sending && index === conversation.messages.length - 1 && message.role !== 'user' ? text => { void onSend(text); } : undefined} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
+        </div> : conversation.messages.map((message, index) => <MessageBubble key={message.id} message={message} onPick={!sending && index === conversation.messages.length - 1 && message.role !== 'user' ? text => { void onSend(text); } : undefined} live={live[message.id] ?? message.execution?.live} onAsk={sending ? undefined : text => { void onSend(text); }} artifacts={artifacts.filter(file => file.messageId === message.id)} onOpen={openFile} teacher={conversation.teacherProvider === 'claude' ? 'Claude' : 'Codex'}
           correctable={!sending && teachers?.[conversation.teacherProvider === 'claude' ? 'claude' : 'codex'] !== false && conversation.provider === 'local' && message.provider?.startsWith('Local') === true && !conversation.messages.some(m => m.correctionOf === message.id)} onCorrect={onCorrect} />)}
         {sending && <div className="chat-message assistant pending" role="status" aria-label={/valid|test|verific|corrig/i.test(pendingStage || '') ? 'Aurora está conferindo a resposta' : 'Aurora está preparando a resposta'}><div className="chat-avatar" aria-hidden="true"><picture><source media="(prefers-reduced-motion: reduce)" srcSet="/brand/aurora-symbol.png" /><img className="aurora-symbol" src="/brand/aurora-thinking.gif" alt="" width="560" height="560" draggable={false} /></picture></div><div className="pending-response">
           {/* What the Recepção understood (app/serviceOrder.js), before the steps. */}

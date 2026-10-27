@@ -29,6 +29,7 @@ import { buildProviderConfig, parseCodexOutput } from "./codex.js";
 import { buildProviderConfig as buildClaudeProviderConfig } from "./claude.js";
 import { buildProviderConfig as buildLocalProviderConfig, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import { CURATED_MODELS, getLocalStatus, runOllamaSetup, setLocalModel } from "./ollamaSetup.js";
+import { recheckConversation, staleAnswers } from "./proofWatch.js";
 import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting, setSetting } from "./store.js";
 import { correctLocalAnswer } from "./correction.js";
 import { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl } from "./community.js";
@@ -796,6 +797,13 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
           return removed ? sendJson(response, 200, { ok: true }) : sendJson(response, 404, { error: "Conversa não encontrada." });
         }
       }
+      // A resposta viva (app/proofWatch.js): the answers' numbers checked again against their files.
+      match = pathname.match(/^\/api\/conversations\/([^/]+)\/proof-recheck$/);
+      if (match && method === "POST") {
+        const live = await recheckConversation(match[1]);
+        return live ? sendJson(response, 200, { live }) : sendJson(response, 404, { error: "Conversa não encontrada." });
+      }
+      if (method === "GET" && pathname === "/api/proof/stale") return sendJson(response, 200, { stale: await staleAnswers() });
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (match) {
         if (method !== "POST") throw httpError(405, "Use POST para enviar mensagens.");
