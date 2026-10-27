@@ -105,3 +105,18 @@ test("the proof in one line for the phone", async () => {
   assert.match(proofSummary(bad), /^⚠ Sem fonte: R\$ 5\.062,50 \(confira antes de usar\)\. 1 de 2 com prova/);
   assert.equal(proofSummary(null), "");
 });
+
+test("a share of the person's own total: 'para 2 pessoas', 'em 2x'", () => {
+  const calc = { tool: "calculate", args: {}, result: "media de 1 número(s) (443,47) = 443,47" };
+  assert.equal(proveAnswer("Cada um paga R$ 221,74.", { sources: [calc], asked: ["a conta do restaurante deu r$ 443,47 para 2 pessoas, quanto cada um paga"] }).seal, "comprovado");
+  assert.equal(proveAnswer("Cada parcela fica em R$ 1.795,00.", { sources: [calc], asked: ["uma geladeira de r$ 3590 em 2x sem juros"] }).seal, "comprovado");
+  assert.equal(proveAnswer("Cada parcela fica em R$ 1.800,00.", { sources: [calc], asked: ["uma geladeira de r$ 3590 em 2x sem juros"] }).seal, "sem-prova");
+});
+
+test("a later turn sums what an earlier answer proved; a flagged number never becomes a source", async () => {
+  const { priorProofSources } = await import("../app/proof.js");
+  const first = proveAnswer("Luz R$ 287,41 e gás R$ 76,07; o cartão R$ 999,99.", { sources: [{ tool: "bills_table", args: { path: "Downloads" }, result: "Conta | Valor\nLuz | R$ 287,41\nGás | R$ 76,07" }] });
+  const sources = priorProofSources([{ role: "assistant", execution: { proof: first } }]);
+  assert.equal(proveAnswer("Luz R$ 287,41 + gás R$ 76,07 + taxa R$ 10,00 = R$ 373,48.", { sources, asked: ["e a taxa de 10,00?"] }).seal, "comprovado");
+  assert.equal(proveAnswer("O cartão é R$ 999,99.", { sources }).seal, "sem-prova");
+});

@@ -25,7 +25,7 @@ Nenhum modelo participa. O código lê as mesmas saídas de ferramenta que o mod
 Uma resposta feita a partir de dados pode ter número que não está em nada lido e não sai de conta nenhuma. Nesse caso, ela volta **uma vez** ao modelo, com esses números nomeados. O modelo então relê com `filter`, faz a conta com `calculate`, ou tira o número.
 
 - A conferência só vale para respostas que já provam algum número. Uma legenda com "100% natural" não volta.
-- Para desligar: `AURORA_PROOF_GATE=off`.
+- Desligada por padrão; para ligar: `AURORA_PROOF_GATE=on`. Medida em 27/10, ela disparou em 2 de 60 cenários da escada e não mudou nenhuma nota além do ruído do modelo: baterias 2/3/4 com 89,1/100/90,5% desligada e 87/100/89,7% ligada; escada 87,7% desligada e 84,4% ligada. Nos cenários que mudaram, ela não tinha disparado. O selo já mostra à pessoa o número sem fonte.
 
 Casos reais que motivaram a conferência (bateria de uso, 27/10):
 
@@ -55,3 +55,20 @@ Casos reais que motivaram a conferência (bateria de uso, 27/10):
   - `test/proof.test.js`;
   - `scripts/smoke/proof-shot.mjs`, que tira capturas de tela com um banco temporário;
   - `scripts/proof-report.mjs`, que mede o comprovante sobre os bancos de uma bateria.
+
+## Precisão medida (escada, 60 cenários com a resposta conhecida, 27/10)
+
+Medida com `scripts/proof-accuracy.mjs`, que junta o relatório de uso às provas gravadas.
+
+| | Selo "Comprovado" | Selo com aviso |
+|---|---|---|
+| Respostas certas (35) | 35 | 0 (nenhum aviso à toa) |
+| Respostas erradas (2) | 1 | 1 ("R$ 247,51" para roupas em setembro, que eram R$ 427) |
+
+- **Antes das correções da noite**, a mesma medida dava 3 avisos à toa em 33 respostas certas. As causas eram:
+  - divisão pelo número de pessoas ou parcelas do pedido ("2 pessoas", "2x");
+  - total pedido num turno seguinte ("e quanto dá tudo junto?").
+- **Agora:**
+  - as contagens pequenas do pedido entram como divisores;
+  - o que uma resposta anterior provou vale como fonte no turno seguinte (`priorProofSources`), mas nunca um número que tinha ficado sem fonte.
+- **O que o selo não pega:** a resposta que diz só números verdadeiros e deixa de fora o que foi pedido. O comprovante prova o que foi dito, não se a resposta está completa.

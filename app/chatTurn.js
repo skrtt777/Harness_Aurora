@@ -1,6 +1,7 @@
 // One chat turn: memories and context, files the person names, company documents,
 // the tool agent (copies, guards, teacher) and the plain-chat fallback. Split out of
 // server.js, which keeps the HTTP server and the routes.
+import { priorProofSources } from "./proof.js";
 import { emitMemoryEvent } from "./memoryEvents.js";
 import { briefBlock, withAdjustOptions } from "./briefs.js";
 import { clockObservation, discountObservation, distressObservation, followUpMath, mathObservation, weekdayObservation } from "./runtimeFacts.js";
@@ -676,6 +677,8 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
         // (browser, web, apps, files, commands) and loops until done.
         if (agentOn) {
           const toolContext = await chatAgentToolContext({ conversation, project });
+          // What earlier answers of this conversation proved: "e quanto dá tudo junto?" sums values read two turns ago.
+          toolContext.priorProofSources = priorProofSources(history);
           // A team task reads what the tasks it depends on delivered (orchestrator.js), read only.
           try { const extra = JSON.parse(env.AGENT_EXTRA_READ_ROOTS || "[]"); if (Array.isArray(extra) && extra.length) toolContext.knowledgeRoots = [...(toolContext.knowledgeRoots || []), ...extra.filter((p) => typeof p === "string")]; } catch { /* malformed: ignored */ }
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };

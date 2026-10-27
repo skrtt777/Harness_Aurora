@@ -34,7 +34,7 @@ const dateValue = (raw) => { const m = DATE.exec(raw); return m ? Date.UTC(Numbe
 const NUM = String.raw`\d[\d.,]*\d|\d`;
 // A scale after the number: "38,19 milhões", "R$ 5,84 mi", "38,19M", "5k" (case matters: 50m is metres).
 const SCALE_RE = String.raw`(?:\s?(?:M|mi|bi|k|K|B)|\s(?:mil|milh[õo]es|milh[ãa]o|bilh[õo]es|bilh[ãa]o))(?!\p{L})`;
-const CLAIM = new RegExp(String.raw`R\$\s?(?:${NUM})(?:${SCALE_RE})?|(?<![\p{L}\d.,:/])(?:${NUM})\s?%|(?<![\p{L}\d/])\d{1,2}\/\d{1,2}\/\d{4}(?![\d/])|(?<![\p{L}\d.,:/])(?:${NUM})(?:${SCALE_RE}|(?![\p{L}\d/]|:\d|\s?%))`, "gu");
+const CLAIM = new RegExp(String.raw`[Rr]\$\s?(?:${NUM})(?:${SCALE_RE})?|(?<![\p{L}\d.,:/])(?:${NUM})\s?%|(?<![\p{L}\d/])\d{1,2}\/\d{1,2}\/\d{4}(?![\d/])|(?<![\p{L}\d.,:/])(?:${NUM})(?:${SCALE_RE}|(?![\p{L}\d/]|:\d|\s?%))`, "gu");
 const MONTH_AFTER = /^\s+de\s+(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/i;
 
 /**
@@ -167,6 +167,9 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
   const facts = usable.flatMap(factsOf);
   const tables = usable.flatMap((s) => columnsOf(s).map((t) => ({ ...t, tool: s.tool, file: s.args?.path || "" })));
   const askedClaims = asked.flatMap((t) => claimsOf(t));
+  // Small counts in the request are operands, never claims: "para 2 pessoas", "em 3x", "4 parcelas".
+  const counts = [...new Set(asked.flatMap((t) => [...String(t).matchAll(/(?<![\d.,])(\d{1,2})\s*(?:x(?![a-zà-ú])|vezes|pessoas?|parcelas?|meses|amigos|cotas|partes|dias|semanas)/gi)].map((m) => Number(m[1]))).filter((n) => n >= 2 && n <= 60))]
+    .map((n) => ({ value: n, raw: String(n), kind: "numero" }));
   const proven = [];
   const result = claims.map((claim) => {
     const base = { raw: claim.raw, start: claim.start, end: claim.end, kind: claim.kind };
@@ -220,8 +223,8 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
         if (found) break;
       }
     }
-    if (!found && proven.length >= 2 && proven.length <= 20) {
-      const values = proven.filter((p) => p.kind !== "data");
+    const values = [...new Set([...proven, ...askedClaims].filter((p) => p.kind !== "data")), ...counts];
+    if (!found && values.length >= 2 && values.length <= 24) {
       search: for (const a of values) for (const b of values) {
         if (a === b) continue;
         const ops = [[a.value + b.value, `${a.raw} + ${b.raw}`], [a.value - b.value, `${a.raw} − ${b.raw}`], [a.value * b.value, `${a.raw} × ${b.raw}`]];
@@ -262,4 +265,21 @@ export function proofSummary(proof) {
   if (proof.seal === "comprovado") return `✓ Comprovado: ${proof.proven} de ${proof.total} número${proof.total === 1 ? "" : "s"}${from}.`;
   const missing = [...new Set(proof.claims.filter((c) => c.status === "sem-prova").map((c) => c.raw))];
   return `⚠ Sem fonte: ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? "…" : ""} (confira antes de usar). ${proof.proven} de ${proof.total} com prova${from}.`;
+}
+
+/**
+ * What the last answers of a conversation proved, as sources for the next turn: a cell comes back as its
+ * header and row (with the same file and tab), a line as its line, a calculation as its result. Only
+ * what was proven: a number the proof had flagged never becomes a source.
+ */
+export function priorProofSources(messages = [], keep = 6) {
+  const out = [];
+  for (const m of messages.filter((x) => x.role === "assistant" && x.execution?.proof).slice(-keep)) {
+    for (const c of m.execution.proof.claims || []) {
+      const s = c.source;
+      if (c.status === "fonte" && s) out.push({ tool: s.tool || "anterior", args: { path: s.file }, result: s.header && s.row ? `${s.sheet ? `## ${s.sheet}\n` : ""}${s.header.join(" | ")}\n${s.row.join(" | ")}` : String(s.text || c.raw) });
+      else if (c.status === "conta") out.push({ tool: "anterior", args: { path: c.of || "" }, result: `${c.formula || ""} = ${c.raw}` });
+    }
+  }
+  return out;
 }

@@ -332,7 +332,7 @@ export async function runChatAgent({
   if (onCheck) checks.push = (...items) => { for (const item of items) { Array.prototype.push.call(checks, item); try { onCheck(item?.check || "conferência"); } catch { /* the office is only a view */ } } return checks.length; };
   let factsChecked = false;
   // Earlier reads of this conversation count as sources too (a follow-up answers from them).
-  const proofSources = history.filter((m) => m.role === "tool" && m.content).map((m) => ({ tool: String(m.tool_name || ""), args: {}, result: String(m.content) }));
+  const proofSources = [...history.filter((m) => m.role === "tool" && m.content).map((m) => ({ tool: String(m.tool_name || ""), args: {}, result: String(m.content) })), ...(toolContext.priorProofSources || [])];
   // Everything the answer may rely on, kept whole (old tool results get compacted).
   // Today (and yesterday / tomorrow) as numbers count too: the system says the date in words, and the
   // facts guard sent back "hoje é 04/10/2026" as invented; the retry apologized and lost the answer
@@ -547,8 +547,9 @@ export async function runChatAgent({
     }
     // The comprovante (app/proof.js): an answer built on the data read, with numbers that are in nothing
     // read and come from no calculation on them ("128 funcionários" counted by eye, "R$ 320,45" for luz 230
-    // + água 90; usage battery 27/10). Sent back once, naming them.
-    const unproven = !toolCalls.length && !proofChecked && env.AURORA_PROOF_GATE !== "off" ? unprovenNumbers(proofOf(text, proofSources, [input, ...history.filter((m) => m.role === "user").map((m) => m.content)])) : null;
+    // + água 90; usage battery 27/10). Sent back once, naming them. Off by default: on the usage batteries
+    // and the ladder (27/10) it fired in 2 of 60 scenarios and moved no score; the seal already shows them.
+    const unproven = !toolCalls.length && !proofChecked && env.AURORA_PROOF_GATE === "on" ? unprovenNumbers(proofOf(text, proofSources, [input, ...history.filter((m) => m.role === "user").map((m) => m.content)])) : null;
     if (unproven) {
       proofChecked = true;
       checks.push({ check: "unproven_numbers", items: unproven });
