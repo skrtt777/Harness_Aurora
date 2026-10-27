@@ -892,7 +892,8 @@ ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proa
                 if (escalated.needsContent && !controller.signal.aborted && await approveEngine({ tool: "engine", summary: `Enviar os documentos ao ${ENGINES[escalated.engine]?.label || "modelo forte"} censurados, só desta vez`, detail: `Para esta tarefa ele precisa ler os documentos${escalated.why ? ` (${escalated.why.slice(0, 160)})` : ""}. Eles vão como texto censurado: nomes, CPF, valores, datas e números viram marcas como [NOME 1], e voltam aqui com os reais. Sem a sua autorização, nada sai.` })) {
                   escalated = await escalate({ ...job, privacy: "censura" });
                 }
-                if (escalated.ok) agent = { ...agent, ok: true, error: undefined, unsupported: false, text: `${escalated.text}
+                // The local attempt's comprovante was about the local text: gone with it.
+                if (escalated.ok) agent = { ...agent, ok: true, error: undefined, unsupported: false, proof: undefined, documentProofs: undefined, text: `${escalated.text}
 
 ${engineNote(escalated, { reason: why })}`, steps: [...(agent.steps || []), ...escalated.steps] };
                 else if (!escalated.cancelled && agent.ok) agent = { ...agent, text: `${agent.text}
