@@ -77,6 +77,12 @@ await page.locator(".proof-seal-head").click();
 await page.mouse.move(5, 5);
 await page.waitForTimeout(400);
 await page.screenshot({ path: join(out, "4_comprovante.png"), fullPage: true });
+// "Baixar comprovante": the CSV for Excel, one line per number.
+const [file] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Baixar comprovante/ }).click()]);
+const csvPath = join(out, "comprovante.csv");
+await file.saveAs(csvPath);
+const { readFileSync } = await import("node:fs");
+console.log(readFileSync(csvPath, "utf8").split("\r\n").slice(0, 4).join("\n"));
 console.log(JSON.stringify({ out, marks: count, seal: proof.seal, proven: proof.proven, total: proof.total, problems }, null, 1));
 await browser.close();
 server.close();

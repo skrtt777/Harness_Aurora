@@ -71,6 +71,23 @@ export function ProofMark({ claim, children }: { claim: ProofClaim; children: Re
   </mark>;
 }
 
+
+/** The comprovante as a CSV for Excel (";" and a BOM, as Excel in Portuguese opens it): one line per number. */
+export function proofCsv(proof: Proof): string {
+  const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = proof.claims.map((c) => [c.raw, LABEL[c.status], c.source?.file || c.of || '', c.source?.sheet || '', c.source?.cell || (c.source?.line ? `linha ${c.source.line}` : ''), c.source?.column || '', c.source?.row ? c.source.row.join(' | ') : c.source?.text || '', c.formula || '']);
+  return '﻿' + [['Número', 'Situação', 'Arquivo', 'Aba', 'Célula', 'Coluna', 'Na fonte', 'Conta'], ...rows].map((r) => r.map(q).join(';')).join('\r\n');
+}
+
+function download(content: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** The seal under an answer: "Comprovado · 6 de 6 números", the list of every number when opened. */
 export function ProofSeal({ proof }: { proof: Proof }) {
   const [open, setOpen] = useState(false);
@@ -85,6 +102,6 @@ export function ProofSeal({ proof }: { proof: Proof }) {
     {open && <ol className="proof-list">{shown.map((c, i) => <li key={i} className={c.status}>
       <span className={`proof-badge ${c.status}`}>{LABEL[c.status]}</span><strong>{c.raw}</strong>
       <div><Where claim={c} /></div>
-    </li>)}</ol>}
+    </li>)}<li className="proof-actions"><button type="button" className="proof-open" onClick={() => download(proofCsv(proof), `comprovante-${new Date().toISOString().slice(0, 10)}.csv`)}>Baixar comprovante (.csv)</button></li></ol>}
   </div>;
 }
