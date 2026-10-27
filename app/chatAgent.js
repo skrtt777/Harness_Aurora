@@ -693,6 +693,10 @@ export async function runChatAgent({
         offered = [];
         forced = "repeat";
         forcedNote = "Você repetiu a mesma ação sem progresso.";
+      } else if (/^(memory_search|knowledge_search)$/.test(call.name) && steps.filter((s) => s.tool === call.name).length >= 5) {
+        // Each search worded differently escapes the repeat check: "qual o melhor celular ate 1500" ran
+        // 14 memory_search and ended in "não conseguiu concluir" (regression 26/10).
+        outcome = { ok: false, result: `ERRO: você já fez ${call.name} 5 vezes neste pedido: o que procura não está lá. Responda agora com o que já sabe (e diga o que não encontrou), sem buscar de novo.`, ms: 0 };
       } else {
         const stage = stageFor(call.name, call.arguments, tools);
         onStage(stage);

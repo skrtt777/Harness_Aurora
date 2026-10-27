@@ -49,7 +49,11 @@ const { resolveLocalModel } = await import("../app/ollamaSetup.js");
 await store.setSetting("teacher_mode", "off");
 if (group === "empresa") {
   // The copied database has agents from other evaluations: only the three sector agents stay on.
-  for (const a of await agents.listAgents()) await agents.updateAgent(a.id, { enabled: ["Agente RH", "Agente Financeiro", "Agente Controladoria"].includes(a.name) });
+  // A copy of a database without them (the person deleted them, 26/10) gets them: "pede pra equipe" needs them.
+  const sector = { "Agente RH": "RH", "Agente Financeiro": "Financeiro", "Agente Controladoria": "Controladoria" };
+  const have = new Set((await agents.listAgents()).map((a) => a.name));
+  for (const [name, department] of Object.entries(sector)) if (!have.has(name)) await agents.createAgent({ name, kind: "setor", mission: agents.SECTOR_TEMPLATES[department], department, workDir: join(base, "agentes", department) });
+  for (const a of await agents.listAgents()) await agents.updateAgent(a.id, { enabled: Object.hasOwn(sector, a.name) });
 }
 const model = await resolveLocalModel(process.env);
 const levels = arg("nivel")?.split(",");
