@@ -96,3 +96,12 @@ test("a glued scale (38,19M, 5k) and a discount in % are read and proven", () =>
   const proof = proveAnswer("Farinha: R$ 395,00; café: R$ 598,00; total R$ 993,00, ou R$ 963,21 com 3% de desconto.", { sources: [sheet], asked: ["monta uma proposta com 3% de desconto"] });
   assert.equal(proof.seal, "comprovado", JSON.stringify(proof.claims.map((c) => [c.raw, c.status])));
 });
+
+test("the proof in one line for the phone", async () => {
+  const { proofSummary } = await import("../app/proof.js");
+  const ok = proveAnswer("Bruno vendeu R$ 101.250,00.", { sources: [SALES] });
+  assert.equal(proofSummary(ok), "✓ Comprovado: 1 de 1 número, de vendas_2026.xlsx.");
+  const bad = proveAnswer("Bruno vendeu R$ 101.250,00 e ganhou R$ 5.062,50.", { sources: [SALES] });
+  assert.match(proofSummary(bad), /^⚠ Sem fonte: R\$ 5\.062,50 \(confira antes de usar\)\. 1 de 2 com prova/);
+  assert.equal(proofSummary(null), "");
+});

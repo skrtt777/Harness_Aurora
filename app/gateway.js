@@ -2,6 +2,7 @@
 // (Telegram, WhatsApp…) is a door into the same Aurora. One phone conversation for all of them — started on
 // Telegram, it goes on in WhatsApp — and the answer, the files and the questions that need a yes go back
 // through the channel the person used last. Each channel only knows how to receive and send its messages.
+import { proofSummary } from "./proof.js";
 import { createConversation, getConversationWithMessages, getSetting, setSetting } from "./store.js";
 
 // The phone conversation's id keeps its historical key (it began as Telegram's).
@@ -67,7 +68,11 @@ export function incoming({ channel, text, handleChatTurn, env = process.env, typ
     const id = await phoneConversation();
     await typing?.().catch?.(() => {});
     const turn = await handleChatTurn({ conversationId: id, message: text, env });
-    const answer = turn?.message?.content || turn?.error || "Não consegui responder agora.";
+    // The comprovante in one line under the answer (no hover on a phone).
+    const proof = proofSummary(turn?.message?.execution?.proof);
+    const answer = `${turn?.message?.content || turn?.error || "Não consegui responder agora."}${proof && turn?.message?.content ? `
+
+${proof}` : ""}`;
     await sendToPhone(answer, { channel });
     for (const file of deliveredFiles(turn?.message?.execution).slice(0, 5)) await sendFileToPhone(file, { channel });
     return turn;

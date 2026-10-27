@@ -251,3 +251,15 @@ export function proveAnswer(answer, { sources = [], asked = [] } = {}) {
     sources: [...new Set(result.map((r) => r.source?.name || r.of).filter(Boolean))].slice(0, 12),
   };
 }
+
+/**
+ * The proof in one line, for a channel with no hover (WhatsApp, Telegram): "✓ Comprovado: 6 de 6
+ * números, de Vendas.xlsx" or "⚠ Sem fonte: R$ 5.062,50 (confira antes de usar)".
+ */
+export function proofSummary(proof) {
+  if (!proof?.total) return "";
+  const from = proof.sources.length ? `, de ${proof.sources.slice(0, 2).join(" e ")}${proof.sources.length > 2 ? "…" : ""}` : "";
+  if (proof.seal === "comprovado") return `✓ Comprovado: ${proof.proven} de ${proof.total} número${proof.total === 1 ? "" : "s"}${from}.`;
+  const missing = [...new Set(proof.claims.filter((c) => c.status === "sem-prova").map((c) => c.raw))];
+  return `⚠ Sem fonte: ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? "…" : ""} (confira antes de usar). ${proof.proven} de ${proof.total} com prova${from}.`;
+}
