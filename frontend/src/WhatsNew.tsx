@@ -8,6 +8,16 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.54': {
+    title: 'O chip de memória, modelos fortes mais fáceis e uma Aurora mais certeira',
+    items: [
+      ['Chip de memória', 'Em Memória → Mapa Vivo, sua memória vira um chip: cada célula é uma memória de verdade. Dê zoom de 1× a 1200×, veja a linha do tempo, o calor de uso, compare duas memórias e traga de volta as esquecidas no Arquivo.'],
+      ['Modelos fortes mais fáceis', 'Hermes e OpenClaw também podem ajudar, sempre sem ver seus dados. A Aurora testa cada motor sozinha e diz em palavras simples o que falta. O Claude ficou mais barato com o cache de prompt.'],
+      ['Contas, boletos e pastas', 'Ela confere boletos com o extrato, faz contas exatas, divide por pessoa, cria pastas e move arquivos por tipo, e procura dentro dos arquivos quando o nome não bate.'],
+      ['Mais segura', 'Um arquivo com ordens escondidas não muda nada. Apagar, mesmo que seja movendo arquivos, pede confirmação, e o salário de um colega fica restrito também em trechos de planilha.'],
+      ['Skills e outros harness', 'Use as skills do Claude Code, do Codex e do OpenClaw, e traga as memórias do Hermes e do OpenClaw em Memória → De outro harness. Os agentes periódicos ganharam horário de silêncio.'],
+    ],
+  },
   '0.1.53': {
     title: 'O Mapa Vivo, a Zeladora e o WhatsApp funcionando',
     items: [
