@@ -984,6 +984,7 @@ ${engineNote(escalated)}` };
     if (result.checks?.length) result.execution = { ...(result.execution || {}), checks: result.checks };
     // The comprovante (app/proof.js): where each number of the answer came from.
     if (result.proof) result.execution = { ...(result.execution || {}), proof: result.proof };
+    if (result.documentProofs?.length) result.execution = { ...(result.execution || {}), documentProofs: result.documentProofs };
     // The Conferência teaches: what a guard held back becomes a lesson for the next request of that kind.
     if (result.checks?.length && conversation.provider === "local" && env.AURORA_CONFERENCE_LESSONS !== "off") rememberConference(result.checks, { request: trimmed, projectId: conversation.projectId || null, conversationId, env }).catch(() => {});
     if (controller.signal.aborted) result = { ...result, ok: false, status: 499, error: "Mensagem cancelada." };

@@ -18,6 +18,8 @@ Nenhum modelo participa. O código lê as mesmas saídas de ferramenta que o mod
   - Verde pontilhado: calculado.
   - Amarelo ondulado: sem fonte.
 - **Ao passar o mouse:** abre o cartão da fonte, com a linha da planilha e a célula acesa. No app instalado há o botão "Abrir a planilha (célula D3)".
+- **Nos arquivos entregues:** um relatório, uma proposta ou uma planilha que a Aurora gravou no turno tem o próprio selo ("✓ 7 de 7 números comprovados"). Os números do documento são provados contra as mesmas fontes (`documentProofs`); código e páginas ficam de fora.
+- **No celular (WhatsApp):** uma linha embaixo da resposta: "✓ Comprovado: 6 de 6 números, de Vendas.xlsx" ou "⚠ Sem fonte: R$ 5.062,50 (confira antes de usar)".
 - **Embaixo da resposta:** o selo diz "Comprovado · 6 de 6 números com prova" ou "1 número sem fonte". Aberto, ele vira o comprovante inteiro, número por número.
 
 ## A conferência

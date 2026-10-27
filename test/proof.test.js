@@ -120,3 +120,18 @@ test("a later turn sums what an earlier answer proved; a flagged number never be
   assert.equal(proveAnswer("Luz R$ 287,41 + gás R$ 76,07 + taxa R$ 10,00 = R$ 373,48.", { sources, asked: ["e a taxa de 10,00?"] }).seal, "comprovado");
   assert.equal(proveAnswer("O cartão é R$ 999,99.", { sources }).seal, "sem-prova");
 });
+
+test("a delivered document gets its own comprovante; code is left out", async () => {
+  const { documentProofs } = await import("../app/proof.js");
+  const steps = [
+    { tool: "write_document", ok: true, summary: "Criei C:\Docs\metas.docx (DOCX, 900 bytes).", args: { path: "metas.docx", content: "# Metas\n\n| Vendedor | Vendido |\n|---|---|\n| Bruno | R$ 101.250,00 |\n| Carla | R$ 87.000,00 |\n\nTotal: R$ 188.250,00. Bônus: R$ 9.999,00." } },
+    { tool: "write_file", ok: true, summary: "Salvei C:\code\soma.py.", args: { path: "soma.py", content: "print(101250 + 87000)" } },
+    { tool: "write_document", ok: false, summary: "ERRO", args: { path: "x.docx", content: "R$ 1,00" } },
+  ];
+  const docs = documentProofs(steps, { sources: [SALES] });
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].file, "C:\Docs\metas.docx");
+  assert.equal(docs[0].proof.total, 4);
+  assert.equal(docs[0].proof.proven, 3);
+  assert.deepEqual(docs[0].proof.claims.filter((c) => c.status === "sem-prova").map((c) => c.raw), ["R$ 9.999,00"]);
+});

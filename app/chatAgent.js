@@ -11,7 +11,7 @@ import { runCodex } from "./codex.js";
 import { runLocalChat } from "./local.js";
 import { localCallRecord, summarizeLocalCalls } from "./localTelemetry.js";
 import { AGENT_TOOLS, executeTool, stageFor, toolCatalogue, toolSchemas } from "./agentTools/index.js";
-import { proveAnswer } from "./proof.js";
+import { documentProofs, proveAnswer } from "./proof.js";
 
 // The comprovante never stops an answer: a proof that fails to compute is just left out.
 const proofOf = (answer, sources, asked) => { try { return proveAnswer(answer, { sources, asked }); } catch { return null; } };
@@ -678,8 +678,12 @@ export async function runChatAgent({
         }
       }
       messages.push({ role: "assistant", content: final });
-      const proof = proofOf(final, proofSources, [input, ...history.filter((m) => m.role === "user").map((m) => m.content)]);
-      return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}), ...(proof ? { proof } : {}) };
+      const asked = [input, ...history.filter((m) => m.role === "user").map((m) => m.content)];
+      const proof = proofOf(final, proofSources, asked);
+      // The documents it delivered get their own comprovante (a report's numbers, not only the chat's).
+      let documents = [];
+      try { documents = documentProofs(steps, { sources: proofSources, asked }); } catch { /* never stops an answer */ }
+      return { ok: true, status: 200, text: final, steps, calls, forced, messages, truncated: result.truncated, threadId: result.threadId || null, ...(checks.length ? { checks } : {}), ...(proof ? { proof } : {}), ...(documents.length ? { documentProofs: documents } : {}) };
     }
 
     // One call per assistant message (some chat templates refuse several in one).

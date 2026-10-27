@@ -42,7 +42,7 @@ export type ChatMessage = {
   memoryAccess: string[];
   memoryCreated: string[];
   createdAt: string;
-  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; proof?: Proof | null; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
+  execution?: { context?: { skills?: UsedSkill[] } | null; toolSteps?: AgentStep[]; proof?: Proof | null; documentProofs?: { file: string; proof: Proof }[]; review?: TeacherReview | null; moves?: { from: string; to: string }[]; edits?: { file: string }[]; movesUndoneAt?: string } | null;
 };
 
 export type ConversationWithMessages = Conversation & { messages: ChatMessage[] };

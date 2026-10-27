@@ -599,3 +599,9 @@
 .proof-list li > div { margin-top: 2px; }
 .proof-open { margin-top: 8px; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--fill-soft); box-shadow: inset 0 0 0 1px var(--stroke-2); color: var(--text-1); font: inherit; font-size: 11.5px; cursor: pointer; }
 .proof-open:hover { background: var(--fill-hover); }
+.document-seal { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 2px 9px 2px 3px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; cursor: help; }
+.document-seal > span { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; font-size: 10px; font-weight: 700; color: var(--base); }
+.document-seal.comprovado { background: var(--green-soft); color: var(--green); }
+.document-seal.comprovado > span { background: var(--green); }
+.document-seal:not(.comprovado) { background: var(--yellow-soft); color: var(--yellow); }
+.document-seal:not(.comprovado) > span { background: var(--yellow); }

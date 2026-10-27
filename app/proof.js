@@ -283,3 +283,29 @@ export function priorProofSources(messages = [], keep = 6) {
   }
   return out;
 }
+
+const DOC_TOOLS = new Set(["write_document", "write_file", "edit_file"]);
+const DOC_FILE = /\.(docx|xlsx|xlsm|csv|tsv|pptx|pdf|md|txt)$/i;
+
+/**
+ * The comprovante of each document the turn wrote (a report, a proposal, a sheet): its content proven
+ * against the same sources as the answer. Code and pages are left out (their numbers are not claims).
+ * Writes to the same file add up ("append"); the file is the one the tool says it wrote.
+ */
+export function documentProofs(steps = [], { sources = [], asked = [] } = {}) {
+  const byFile = new Map();
+  for (const s of steps) {
+    if (!s?.ok || !DOC_TOOLS.has(s.tool)) continue;
+    const content = s.args?.content ?? s.args?.text ?? s.args?.new_text ?? s.args?.replace;
+    if (typeof content !== "string" || !content.trim()) continue;
+    const file = /^(?:Criei|Salvei|Editei) (.+?)(?: \(|\.$|$)/.exec(s.summary || "")?.[1] || String(s.args?.path || "");
+    if (!DOC_FILE.test(file)) continue;
+    byFile.set(file, s.args?.append ? `${byFile.get(file) || ""}\n${content}` : content);
+  }
+  const out = [];
+  for (const [file, content] of byFile) {
+    const proof = proveAnswer(content, { sources, asked });
+    if (proof) out.push({ file, proof });
+  }
+  return out;
+}

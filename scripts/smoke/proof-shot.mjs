@@ -15,7 +15,7 @@ process.env.EMBEDDINGS_ENABLED = "false";
 
 const store = await import("../../app/store.js");
 const { createServer } = await import("../../app/server.js");
-const { proveAnswer } = await import("../../app/proof.js");
+const { proveAnswer, documentProofs } = await import("../../app/proof.js");
 
 const sheet = {
   tool: "read_file",
@@ -39,7 +39,17 @@ const proof = proveAnswer(answer, { sources: [sheet], asked: ["quem bateu a meta
 
 const conv = await store.createConversation({ provider: "local", title: "Metas de outubro" });
 await store.addMessage({ conversationId: conv.id, role: "user", content: "quem bateu a meta de vendas em outubro?", provider: "local" });
-await store.addMessage({ conversationId: conv.id, role: "assistant", content: answer, provider: "local", execution: { toolSteps: [{ tool: "read_file", args: sheet.args, ok: true, summary: "Leu Vendas Outubro 2026.xlsx" }], proof } });
+const reportText = [
+  "# Metas de outubro", "",
+  "| Vendedor | Vendido | % da meta |", "|---|---|---|",
+  "| Bruno Lima | R$ 101.250,00 | 112,5% |",
+  "| Ana Souza | R$ 98.400,00 | 82% |",
+  "| Carla Dias | R$ 87.000,00 | 58% |", "",
+  "Total: R$ 286.650,00.",
+].join("\n");
+const report = { tool: "write_document", ok: true, summary: "Criei C:\\Users\\voce\\Documents\\Metas de outubro.docx (DOCX, 14 KB).", args: { path: "Metas de outubro.docx", content: reportText } };
+const steps = [{ tool: "read_file", args: sheet.args, ok: true, summary: "Leu Vendas Outubro 2026.xlsx" }, report];
+await store.addMessage({ conversationId: conv.id, role: "assistant", content: answer, provider: "local", execution: { toolSteps: steps, proof, documentProofs: documentProofs(steps, { sources: [sheet] }) } });
 
 const server = createServer({ allowDev: false, centralSync: false, agentScheduler: false, warmLocal: false });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));

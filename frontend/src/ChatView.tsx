@@ -189,7 +189,7 @@ function MessageBubble({ message, artifacts, onOpen, correctable, teacher, onCor
       {!isUser && message.execution?.review && <ReviewNote review={message.execution.review} />}
       <div className="chat-content">{isUser ? message.content : parts}</div>
       {!isUser && message.execution?.proof && <ProofSeal proof={message.execution.proof} />}
-      {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} />}
+      {!isUser && <DeliveredFiles steps={message.execution?.toolSteps || []} proofs={message.execution?.documentProofs || []} />}
       {!isUser && onPick && (() => {
         const options = adjustOptions(message.content);
         return options.length > 0 && <div className="adjust-options" role="group" aria-label="Ajustes sugeridos">
