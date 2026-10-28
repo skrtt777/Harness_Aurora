@@ -61,12 +61,17 @@ exports.run = async function run() {
     return { doc, editor };
   }
 
-  // 1. /explicar with a selection.
-  await scenario("/explicar um trecho selecionado", async () => {
+  // What git sees changed in the folder (to prove a read-only request changed nothing).
+  const gitState = () => runs("git", ["status", "--porcelain", "--untracked-files=all"], folder).out.trim();
+
+  // 1. /explicar with a selection, and nothing in the folder changes.
+  await scenario("/explicar um trecho selecionado (sem mudar nada)", async () => {
     await open("vendas.js", new vscode.Selection(1, 0, 6, 1));
+    const before = gitState();
     const r = await ask("/explicar");
     const text = r.answer?.content || r.error || "";
-    return { ok: /reduce|soma|total|vendedor/i.test(text) && r.sent?.lines === "2-7", detail: `${r.sent?.file}:${r.sent?.lines} → ${text.replace(/\s+/g, " ").slice(0, 260)}` };
+    const after = gitState();
+    return { ok: /reduce|soma|total|vendedor/i.test(text) && r.sent?.lines === "2-7" && after === before, detail: `${r.sent?.file}:${r.sent?.lines}${after !== before ? ` · MUDOU: ${after}` : ""} → ${text.replace(/\s+/g, " ").slice(0, 220)}` };
   });
 
   // 2. /corrigir with the Problems panel (VS Code's own JavaScript checker finds the error).
@@ -106,11 +111,37 @@ exports.run = async function run() {
   });
 
   // 5. /revisar a change with a bug (off by one) in a git repository.
-  await scenario("/revisar acha o bug da mudança", async () => {
+  await scenario("/revisar acha o bug da mudança (sem mudar nada)", async () => {
     fs.writeFileSync(at("paginas.js"), fs.readFileSync(at("paginas.js"), "utf8").replace("i < itens.length", "i <= itens.length"));
+    const before = gitState();
     const r = await ask("/revisar");
     const text = r.answer?.content || r.error || "";
-    return { ok: /<=|i <= |fora|limite|undefined|índice|indice|off.by|última|ultima/i.test(text), detail: text.replace(/\s+/g, " ").slice(0, 300) };
+    const after = gitState();
+    return { ok: /<=|i <= |fora|limite|undefined|índice|indice|off.by|última|ultima/i.test(text) && after === before, detail: `${after !== before ? `MUDOU: ${after} · ` : ""}${text.replace(/\s+/g, " ").slice(0, 280)}` };
+  });
+
+  // 5b. A Python error in the terminal, fixed by "Corrigir com a Aurora".
+  await scenario("erro de Python no terminal → Corrigir com a Aurora", async () => {
+    const term = vscode.window.createTerminal({ name: "py", cwd: folder });
+    term.show();
+    await until(() => term.shellIntegration, 20000);
+    if (!term.shellIntegration) return { ok: false, detail: "sem shell integration" };
+    term.shellIntegration.executeCommand("python notas.py");
+    const failure = await until(() => { const f = api.terminal.lastFailure(); return f && /notas\.py/.test(f.command) ? f : null; }, 20000);
+    if (!failure) return { ok: false, detail: "a falha não foi vista" };
+    seen.length = 0;
+    await vscode.commands.executeCommand("aurora.fixTerminal");
+    const run = runs("python", [at("notas.py")], folder);
+    return { ok: run.ok, detail: `${/ZeroDivision/.test(failure.output) ? "ZeroDivisionError visto" : "saída sem o erro"} · python notas.py ${run.ok ? `ok: ${run.out.trim().slice(0, 80)}` : `falhou: ${run.out.slice(-160)}`}` };
+  });
+
+  // 5c. A free request: a new function and its test, run.
+  await scenario("pedido livre: função nova com teste, e roda", async () => {
+    const r = await ask("crie desconto.js com a função descontar(preco, pct) que devolve o preço com pct% de desconto, arredondado em 2 casas, exportada com module.exports; crie desconto.test.js com node:test e rode os testes");
+    const exists = fs.existsSync(at("desconto.js")) && fs.existsSync(at("desconto.test.js"));
+    const test = exists ? runs("node", ["--test", at("desconto.test.js")], folder) : { ok: false, out: "arquivos não criados" };
+    const fn = exists ? runs("node", ["-e", `const { descontar } = require(${JSON.stringify(at("desconto.js"))}); if (descontar(100, 10) !== 90 || descontar(19.99, 15) !== 16.99) { console.error(descontar(100, 10), descontar(19.99, 15)); process.exit(1); }`], folder) : { ok: false, out: "" };
+    return { ok: exists && test.ok && fn.ok, detail: `arquivos ${exists ? "criados" : "faltando"} · node --test ${test.ok ? "passou" : `falhou: ${test.out.slice(-140)}`} · descontar ${fn.ok ? "certo" : `errado: ${fn.out.slice(-80)}`} · passos: ${(r.answer?.steps || []).map((s) => s.tool).join(",")}` };
   });
 
   // 6. Ctrl+I four times, accepted, and the code still runs.

@@ -57,7 +57,8 @@ function problemsOf(uri = null) {
 
 /** git diff of the working tree (staged and not), for /revisar. */
 function gitDiff(cwd) {
-  return new Promise((done) => execFile("git", ["diff", "HEAD", "--no-color", "--unified=3"], { cwd, windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: 15000 }, (error, stdout) => done(error ? "" : String(stdout))));
+  // --no-prefix: "calc.js", not "a/calc.js" and "b/calc.js", which a small model took for folders to write to.
+  return new Promise((done) => execFile("git", ["diff", "HEAD", "--no-color", "--no-prefix", "--unified=3"],{ cwd, windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: 15000 }, (error, stdout) => done(error ? "" : String(stdout))));
 }
 
 /**

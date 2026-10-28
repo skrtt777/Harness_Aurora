@@ -10,9 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { EDITS, COMPLETIONS } from "./code-bench-cases.mjs";
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
+// --casos-arquivo holdout: the held-out cases (code-bench-holdout.mjs), never used to tune the pipeline.
+const { EDITS, COMPLETIONS } = await import(arg("casos-arquivo") === "holdout" ? "./code-bench-holdout.mjs" : "./code-bench-cases.mjs");
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "aurora-code-bench-")), "harness.db");
 process.env.LLAMA_SERVER_PORT ||= "18193";
 const require = createRequire(import.meta.url);

@@ -201,3 +201,13 @@ test("Ctrl+I: lines copied from after the selection are cut, a new inner block i
   const inner = await editCode({ instruction: "só se positivo", selection: "  total += x;", before: "for (const x of xs) {\n", after: "}\n" }, { run: run("```js\n  if (x > 0) {\n    total += x;\n  }\n```") });
   assert.equal(inner.code, "  if (x > 0) {\n    total += x;\n  }");
 });
+
+test("Editor de código: a name nothing declares is caught without running the code", async () => {
+  const { undefinedNames, newUndefined } = await import("../app/codeAssist.js");
+  assert.deepEqual(await undefinedNames("const fs = require('fs');\nfunction a(v) { return [fs, process.env, console, v, total]; }\nmodule.exports = { a };"), ["total"]);
+  assert.match(await newUndefined("javascript", "function f(v) { const t = {}; return t; }", "function f(v) { const t = {}; t[vendedor] = v.valor; return t; }"), /"vendedor"/);
+  // A name already undefined before (declared in another file) is not the change's fault.
+  assert.equal(await newUndefined("javascript", "function f() { return helper(); }", "function f() { return helper() + 1; }"), null);
+  assert.equal(await newUndefined("python", "a", "b"), null);
+  assert.equal(await undefinedNames("function ("), null);
+});

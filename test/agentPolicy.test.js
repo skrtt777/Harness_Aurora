@@ -242,3 +242,10 @@ test("under a request to delete, moving files away asks first (7 files 'deleted'
   assert.equal((await decide(move, ctx("auto", undefined, { request: "apaga tudo q ta nos downloads, nao quero mais nada" }))).action, "ask");
   assert.equal((await decide(move, ctx("auto", undefined, { request: "organize os downloads por tipo" }))).action, "allow");
 });
+
+test("a request only to read is not offered the tools that only write (VS Code /revisar, 27/10)", async () => {
+  const src = (await import("node:fs")).readFileSync(new URL("../app/chatTurn.js", import.meta.url), "utf8");
+  assert.match(src, /const readOnlyTurn = onlyReading\(trimmed\)/);
+  assert.match(src, /filter\(\(t\) => !readOnlyTurn \|\| !ONLY_WRITE\.has\(t\.name\)\)/);
+  for (const name of ["write_file", "edit_file", "write_document", "move_file"]) assert.match(src, new RegExp(`"${name}"`));
+});

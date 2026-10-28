@@ -47,6 +47,7 @@ const files = {
   "dados.py": "def media_por_grupo(linhas):\n    grupos = {}\n    for grupo, valor in linhas:\n        grupos.setdefault(grupo, []).append(valor)\n    return {g: sum(v) / len(v) for g, v in grupos.items()}\n",
   "busca.js": "function buscarUsuario(id) {\n  return fetch('https://api.exemplo.com/usuarios/' + id)\n    .then((r) => r.json())\n    .then((u) => u.nome)\n    .catch((e) => {\n      console.error(e);\n    });\n}\n\nmodule.exports = { buscarUsuario };\n",
   "config.js": "module.exports = {\n  porta: 3000,\n  host: 'localhost',\n};\n",
+  "notas.py": "def media(notas):\n    return sum(notas) / len(notas)\n\n\nif __name__ == '__main__':\n    print('media da turma:', media([]))\n",
   "package.json": JSON.stringify({ name: "loja", version: "1.0.0", private: true, scripts: { test: "node --test" } }, null, 2) + "\n",
 };
 for (const [name, text] of Object.entries(files)) writeFileSync(join(folder, name), text);

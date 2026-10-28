@@ -23,7 +23,9 @@ import { serviceOrder, orderBlock } from "./serviceOrder.js";
 import { rememberConference } from "./conferenceLessons.js";
 import { auroraHistoryBlock } from "./auroraHistory.js";
 import { CHAT_ONLY, ENGINES, isBlind, refreshApiEngines, engineNote, engineStatus, escalate, escalationOn, escalationReason, engineBudget, hasCode, hasTables, helpMode, privacyMode, proactiveFit } from "./engine.js";
-import { AGENT_MODES, DEFAULT_AGENT_MODE } from "./agentPolicy.js";
+import { AGENT_MODES, DEFAULT_AGENT_MODE, onlyReading } from "./agentPolicy.js";
+// The tools that only write (a request only to read does not get them).
+const ONLY_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "create_site", "create_api"]);
 import { runChatAgent } from "./chatAgent.js";
 import { WHERE_IS, requestsFile } from "./teacher.js";
 import { runTeachingLoop, teacherSettings } from "./teachingLoop.js";
@@ -689,6 +691,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           // Not when the request is divided among subagents (planilhas + Power BI): they have their own plan, and the order on top made the run go round (A/B 13/10: 2,75 of 5 with it, 4,0 without).
           toolContext.order = env.AURORA_RECEPCAO === "off" || multiPart(trimmed) ? null : serviceOrder(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")) });
           setOrder(conversationId, toolContext.order);
+          // Only to read, explain or review ("/revisar", "/explicar", "le e me fala"): the tools that only write
+          // are not even offered (27/10: asked to review a diff, the 4B wrote b\calc.js and said it fixed it).
+          const readOnlyTurn = onlyReading(trimmed);
           const codeTurn = isCodeRequest([...history.filter((m) => m.role === "user").slice(-2).map((m) => String(m.content || "")), trimmed].join("\n"), { title: conversation.title });
           // What the person said in this conversation (the rules of made-up data live in earlier messages).
           toolContext.conversationText = [...history.filter((m) => m.role === "user").slice(-6).map((m) => String(m.content || "")), trimmed].join("\n");
@@ -772,7 +777,7 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
             // The person's MCP extensions join the built-in tools (an agent with its own list gets the ones it names).
             ...(toolContext.agentTools
               ? { tools: [...AGENT_TOOLS, ...extensionTools].filter((t) => toolContext.agentTools.includes(t.name) || t.name === "update_plan") }
-              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools], ...(env.AURORA_TOOL_ROUTER === "off" ? {} : { offer: routeTools(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")), extra: [...(codeTurn ? CODE_TOOL_NAMES : []), ...(legalTurn ? ["web_search", "web_fetch", "learn"] : []), ...extensionTools.map((t) => t.name), ...(multiPart(trimmed) ? ["subagents"] : [])] }) }) }),
+              : { tools: [...toolsFor(AGENT_TOOLS, codeTurn), ...extensionTools].filter((t) => !readOnlyTurn || !ONLY_WRITE.has(t.name)),...(env.AURORA_TOOL_ROUTER === "off" ? {} : { offer: routeTools(trimmed, { history: history.filter((m) => m.role === "user").map((m) => String(m.content || "")), extra: [...(codeTurn ? CODE_TOOL_NAMES : []), ...(legalTurn ? ["web_search", "web_fetch", "learn"] : []), ...extensionTools.map((t) => t.name), ...(multiPart(trimmed) ? ["subagents"] : [])] }) }) }),
             onStage: (stage) => setStage(conversationId, stage),
             onStep: (step) => pushTurnStep(conversationId, step),
             onCheck: (check) => setCheck(conversationId, check),

@@ -6,6 +6,9 @@ import { resolveLocalModel } from "./ollamaSetup.js";
 import { llamaServerInfo } from "./llamaServer.js";
 import { keepAlive, runLocal } from "./local.js";
 import { CODE_MODEL, codeServerInfo, ensureCodeServer } from "./codeModel.js";
+import { parse } from "acorn";
+import { analyze } from "eslint-scope";
+import globals from "globals";
 
 // Qwen's fill-in-the-middle tokens (qwen2.5-coder, qwen3, qwen3.5); other models read them as text.
 const FIM = { prefix: "<|fim_prefix|>", suffix: "<|fim_suffix|>", middle: "<|fim_middle|>", stop: ["<|fim_pad|>", "<|endoftext|>", "<|im_end|>", "<|fim_prefix|>", "<|file_sep|>", "<|repo_name|>"] };
@@ -136,7 +139,11 @@ export async function completeCode({ prefix = "", suffix = "", language = "", fi
     if (!text) continue;
     const problem = await check(language, `${before}${text}${after}`, file);
     const endLine = startLine + text.split("\n").length;
-    if (!problem || (problem.line && (problem.line < startLine - 1 || problem.line > endLine + 1))) return { text, ms: Date.now() - started, engine: r.engine, model: r.model, language };
+    const compiles = !problem || (problem.line && (problem.line < startLine - 1 || problem.line > endLine + 1));
+    // A name nothing declares ("total[vendedor]" where only v.vendedor exists): the next try. Only judged
+    // when the file without the suggestion parses, so a name the person is still writing is not blamed.
+    if (compiles && !problem && (await undefinedNames(`${before}${after}`)) !== null && (await newUndefined(language, `${before}${after}`, `${before}${text}${after}`))) continue;
+    if (compiles) return { text, ms: Date.now() - started, engine: r.engine, model: r.model, language };
     if (signal?.aborted) break;
   }
   return { text: "", ms: Date.now() - started, engine: last?.engine, model: last?.model, language };
@@ -158,8 +165,11 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
   const lang = String(language || "").trim();
   const name = String(file || "").replace(/\\/g, "/").split("/").pop();
   const sel = String(selection);
+  const plan = process.env.CODE_EDIT_PLAN !== "off";
   return [
-    "Você edita código dentro do editor. Responda SÓ com o código, num único bloco ```, sem explicação. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe.",
+    plan
+      ? "Você edita código dentro do editor. Responda assim: primeiro, em até 3 linhas curtas (sem código), o que precisa mudar para atender o pedido inteiro, inclusive cada caso que ele cita (vazio, nulo, tipos, pontuação, maiúsculas…); depois, o código num único bloco ```. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe."
+      : "Você edita código dentro do editor. Responda SÓ com o código, num único bloco ```, sem explicação. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe.",
     sel.trim()
       ? `Reescreva o trecho selecionado conforme o pedido. Devolva o trecho inteiro já mudado (não só a parte nova), com a mesma indentação, e nada do que vem antes ou depois dele.`
       : `Escreva o código que vai no lugar do cursor (marcado como <CURSOR>), conforme o pedido, com a indentação do lugar.`,
@@ -179,7 +189,8 @@ export async function editCode({ instruction = "", selection = "", before = "", 
   const lines = sel.split("\n").length;
   const opts = { ...env, LOCAL_TEMPERATURE: "0", LOCAL_MAX_OUTPUT_TOKENS: String(Math.min(4096, Math.max(512, lines * 40))) };
   // The file as it was: when it already does not compile, the answer is not judged by it.
-  const judged = (await check(language, `${before}${sel}${sel && after ? "\n" : ""}${after}`, file)) === null;
+  const original = `${before}${sel}${sel && after ? "\n" : ""}${after}`;
+  const judged = (await check(language, original, file)) === null;
   const same = (a, b) => String(a).replace(/\s+/g, " ").trim() === String(b).replace(/\s+/g, " ").trim();
   const started = Date.now();
   let result = null, problem = "";
@@ -189,7 +200,9 @@ export async function editCode({ instruction = "", selection = "", before = "", 
     const code = cleanEdit(r.text, { selection: sel, before, after, language });
     result = { code, model: r.metrics?.model || null, attempts: attempt + 1 };
     // The snippet back as it was ("troque o for por reduce" answered with the same for): not done.
-    problem = sel.trim() && same(code, sel) ? "você devolveu o trecho igual, sem aplicar o pedido" : judged ? await check(language, `${before}${code}${after ? "\n" : ""}${after}`, file) : null;
+    const whole = `${before}${code}${after ? "\n" : ""}${after}`;
+    problem = sel.trim() && same(code, sel) ? "você devolveu o trecho igual, sem aplicar o pedido"
+      : judged ? (await check(language, whole, file)) || (await newUndefined(language, original, whole)) : null;
     if (!problem) break;
     result.problem = problem;
   }
@@ -199,7 +212,8 @@ export async function editCode({ instruction = "", selection = "", before = "", 
     const r = await run(reviewPrompt({ instruction: ask, code: result.code, language, selection: sel }), opts, signal);
     if (r.ok && /```/.test(r.text) && !/^\s*OK\b/i.test(r.text)) {
       const fixed = cleanEdit(r.text, { selection: sel, before, after, language });
-      const bad = !fixed.trim() || same(fixed, result.code) || (sel.trim() && same(fixed, sel)) || (judged && (await check(language, `${before}${fixed}${after ? "\n" : ""}${after}`, file)));
+      const wholeFixed = `${before}${fixed}${after ? "\n" : ""}${after}`;
+      const bad = !fixed.trim() || same(fixed, result.code) || (sel.trim() && same(fixed, sel)) || (judged && ((await check(language, wholeFixed, file)) || (await newUndefined(language, original, wholeFixed))));
       if (!bad) { result.code = fixed; result.reviewed = true; }
     }
   }
@@ -279,6 +293,31 @@ let pythonOk = null;
  */
 export async function checkSyntax(language, text, file = "") {
   return (await syntaxProblem(language, text, file))?.message || null;
+}
+
+/**
+ * Names the JavaScript reads but nothing declares (no running: the scope analysis of eslint-scope, as
+ * app/jsSandbox.js does, with Node's and the browser's globals). null when the code does not parse.
+ */
+export async function undefinedNames(code) {
+  try {
+    let ast, sourceType = "module";
+    try { ast = parse(code, { ecmaVersion: "latest", sourceType, allowHashBang: true, ranges: true }); }
+    catch { sourceType = "script"; ast = parse(code, { ecmaVersion: "latest", sourceType, allowHashBang: true, allowReturnOutsideFunction: true, ranges: true }); }
+    const known = new Set([...Object.keys(globals.node), ...Object.keys(globals.browser), ...Object.keys(globals.es2025), ...Object.keys(globals.commonjs || {}), "require", "module", "exports", "__dirname", "__filename", "arguments"]);
+    const scope = analyze(ast, { ecmaVersion: 2024, sourceType, nodejsScope: sourceType === "script" });
+    return [...new Set(scope.globalScope.through.map((r) => r.identifier.name).filter((n) => !known.has(n)))];
+  } catch { return null; }
+}
+
+/** The new names a change leaves undefined (code after against code before), as a problem, or null. */
+export async function newUndefined(language, beforeText, afterText) {
+  if (!/^(javascript|javascriptreact)$/i.test(String(language || ""))) return null;
+  const now = await undefinedNames(afterText);
+  if (!now?.length) return null;
+  const was = new Set((await undefinedNames(beforeText)) || []);
+  const added = now.filter((n) => !was.has(n));
+  return added.length ? `usa ${added.map((n) => `"${n}"`).join(", ")}, que não existe no arquivo` : null;
 }
 
 /** The syntax error of the code: { message, line } (line 1-based, null when unknown), or null. */
