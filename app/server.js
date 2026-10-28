@@ -32,6 +32,7 @@ import { CURATED_MODELS, getLocalStatus, runOllamaSetup, setLocalModel } from ".
 import { recheckConversation, staleAnswers } from "./proofWatch.js";
 import { completeCode, editCode } from "./codeAssist.js";
 import { vscodeStatus, installInEditor, bundledVsix } from "./vscodeExtension.js";
+import { codeModelStatus, setCodeModelDir, setCodeModelEnabled, startCodeModelDownload, cancelCodeModelDownload } from "./codeModel.js";
 import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting, setSetting } from "./store.js";
 import { correctLocalAnswer } from "./correction.js";
 import { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl } from "./community.js";
@@ -808,6 +809,20 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
       if (method === "GET" && pathname === "/api/proof/stale") return sendJson(response, 200, { stale: await staleAnswers() });
       // Settings → Editor de código (app/vscodeExtension.js): the extension's version in each editor, install/update.
       if (method === "GET" && pathname === "/api/vscode") return sendJson(response, 200, await vscodeStatus());
+      // The code model of the gray suggestion (app/codeModel.js): status, download, folder, on/off.
+      if (pathname === "/api/code/model") {
+        if (method === "GET") return sendJson(response, 200, await codeModelStatus());
+        if (method === "PATCH") {
+          const body = await readJson(request);
+          try {
+            if (body.dir !== undefined) await setCodeModelDir(String(body.dir));
+            if (body.enabled !== undefined) await setCodeModelEnabled(body.enabled === true);
+            return sendJson(response, 200, await codeModelStatus());
+          } catch (error) { return sendJson(response, error.status || 500, { error: error.message }); }
+        }
+      }
+      if (method === "POST" && pathname === "/api/code/model/download") return sendJson(response, 200, await startCodeModelDownload());
+      if (method === "POST" && pathname === "/api/code/model/cancel") { cancelCodeModelDownload(); return sendJson(response, 200, await codeModelStatus()); }
       if (method === "GET" && pathname === "/api/vscode/vsix") {
         const vsix = bundledVsix();
         if (!vsix) return sendJson(response, 404, { error: "Esta instalação não trouxe a extensão do VS Code." });

@@ -1109,3 +1109,7 @@ button.map-node:hover { background: var(--fill-hover); }
 @media (max-width: 600px) { .app-shell .vscode-editor { flex-direction: column; align-items: stretch; } }
 .app-shell .vscode-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
 .app-shell .vscode-download { margin: 0; }
+.app-shell .code-model > div:first-child { min-width: 0; }
+.app-shell .code-model-progress { position: relative; height: 18px; border-radius: 9px; background: var(--bg-sunken, rgba(127,127,127,.15)); overflow: hidden; margin-top: 6px; }
+.app-shell .code-model-progress > span { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: .35; transition: width .4s ease; }
+.app-shell .code-model-progress > small { position: relative; padding: 0 8px; line-height: 18px; }

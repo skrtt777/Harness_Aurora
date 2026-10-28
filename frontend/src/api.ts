@@ -732,6 +732,12 @@ export const testWhatsapp = () => request<{ sent: boolean; error?: string }>("/w
 /** The Aurora in the code editor (app/vscodeExtension.js): the bundled extension and each editor found. */
 export type VscodeStatus = { id: string; vsix: { version: string | null } | null; editors: { id: string; name: string; installed: string | null; update: boolean }[] };
 export const getVscode = () => request<VscodeStatus>("/vscode");
+/** The code model of the gray suggestion (app/codeModel.js). */
+export type CodeModelStatus = { name: string; license: string; bytes: number; dir: string; path: string | null; installed: boolean; enabled: boolean; running: boolean; download: { received: number; total: number; error: string | null; done: boolean } | null };
+export const getCodeModel = () => request<CodeModelStatus>("/code/model");
+export const setCodeModel = (patch: { dir?: string; enabled?: boolean }) => request<CodeModelStatus>("/code/model", { method: "PATCH", body: JSON.stringify(patch) });
+export const downloadCodeModel = () => request<CodeModelStatus>("/code/model/download", { method: "POST" });
+export const cancelCodeModel = () => request<CodeModelStatus>("/code/model/cancel", { method: "POST" });
 /** The bundled .vsix saved where the person chooses (to install by hand or on another PC). */
 export async function downloadVsix(version: string | null) {
   const response = await fetch("/api/vscode/vsix", { headers: { "x-harness-token": await sessionToken() } });

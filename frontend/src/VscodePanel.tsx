@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { downloadVsix, getVscode, installVscode, openExternalUrl, type VscodeStatus } from './api';
+import CodeModelPanel from './CodeModelPanel';
 
 /**
  * Settings → Editor de código: the Aurora extension that comes with the Harness, and each editor found
@@ -45,6 +46,7 @@ export default function VscodePanel() {
         {e.installed && !e.update && <button className="btn btn-ghost" disabled={busy !== null} onClick={() => install(e.id)} title="Instala de novo a mesma versão">{busy === e.id ? 'Instalando…' : 'Reinstalar'}</button>}
       </div>)}
     </div>}
+    <CodeModelPanel />
     {status.vsix && <p className="section-desc vscode-download">
       Outro editor ou outro computador? <button type="button" className="link-button" onClick={() => { setError(''); downloadVsix(version ?? null).then(() => setNote(`Extensão ${version} baixada. No editor: Extensões (Ctrl+Shift+X) → ⋯ → "Instalar do VSIX…" e escolha o arquivo.`)).catch((e: Error) => setError(e.message)); }}>Baixar a extensão (.vsix {version})</button>
     </p>}
