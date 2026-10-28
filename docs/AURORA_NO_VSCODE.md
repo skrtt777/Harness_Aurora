@@ -121,3 +121,42 @@ O Ctrl+I do Padrão (o 4B do chat) não aguenta as tarefas difíceis da 3ª vali
 **O perfil Forte na prática.** Com o modelo carregado, o Ctrl+I leva cerca de 2 s. A primeira carga vem do disco. Num HD mecânico, com 32 GB de RAM e o modelo do chat aberto, ela levou alguns minutos. Por isso o Ctrl+I nunca espera o modelo forte: enquanto ele carrega, quem responde é o modelo do chat. Num SSD, a carga leva cerca de 35 s.
 
 **Regressão do Harness** (por causa da mudança no `chatTurn.js`): a Empresa caiu de 98% para 92% na pasta principal. Um A/B limpo, 8 rodadas em worktrees, deu 96,4% para o código anterior e 95,6% para o atual: é ruído do modelo. A regressão completa será refeita antes do lançamento.
+
+## Torneio de modelos para o Ctrl+I (28/10)
+
+**Pergunta:** algum modelo menor que o Qwen3-Coder 30B-A3B (17,7 GB) dá conta do Ctrl+I do perfil Forte? `scripts/code-tournament.mjs` roda `code-bench.mjs` (só Ctrl+I) com cada GGUF no lugar do modelo forte. As sugestões ficam fora, porque continuam no coder de 1,5B.
+
+**Primeira rodada.** Validações 2 e 3, duas rodadas cada, 64 edições:
+
+| Modelo | Tamanho | Licença | Ctrl+I certo | Tempo |
+|---|---|---|---|---|
+| Qwen3-Coder 30B-A3B (Q4, o atual) | 17,7 GB | Apache 2.0 | **64/64 (100%)** | 1,3 s |
+| Qwen3-Coder 30B-A3B Q2 (UD-Q2_K_XL) | 11,8 GB | Apache 2.0 | 61/64 (95,3%) | 1,2 s |
+| Qwen3-Coder 30B-A3B IQ2 (UD-IQ2_M) | 10,8 GB | Apache 2.0 | 59/64 (92,2%) | 1,5 s |
+| Qwen3-Coder 30B-A3B Q3 (UD-Q3_K_XL) | 13,8 GB | Apache 2.0 | 57/64 (89,1%) | 1,2 s |
+| Seed-Coder 8B Q4 (ByteDance) | 5,1 GB | MIT | 57/64 (89,1%) | 3,7 s |
+| Qwen2.5-Coder 14B | 9,0 GB | Apache 2.0 | 56/64 (87,5%) | 2,7 s |
+| ornith 9B | 5,6 GB | ? | 54/64 (84,4%) | 2,8 s |
+| Seed-Coder 8B Q8 | 8,8 GB | MIT | 53/64 (82,8%) | 7,7 s |
+| ministral-3 8B | 6,0 GB | Apache 2.0 | 53/64 (82,8%) | 3,3 s |
+| qwen3.5 9B / granite4.1 8B / Qwen2.5-Coder 7B | 4,7–5,6 GB | Apache 2.0 | 52/64 (81,3%) | 1,0–6,3 s |
+| qwen3.8-distill 9B | 5,8 GB | ? | 51/64 (79,7%) | 2,1 s |
+| NextCoder 7B (Microsoft) | 4,8 GB | MIT | 48/64 (75%) | 1,6 s |
+| Padrão (qwen3.5 4B do chat) | 3,3 GB | Apache 2.0 | 41/64 (64,1%) | 2,5 s |
+| ministral-3 14B | 9,1 GB | Apache 2.0 | 15/64 | 20 s (não cabe na placa) |
+| lfm2.5 8B-A1B | 5,2 GB | LFM Open | 4/64 | — |
+
+**Validação dos finalistas.** Os quatro conjuntos, três rodadas cada, 228 edições:
+
+| Modelo | Ajuste | 1ª | 2ª | 3ª | Total |
+|---|---|---|---|---|---|
+| 30B-A3B Q4 (17,7 GB) | 72/72 | 59/60 | 48/48 | 48/48 | **227/228 (99,6%)** |
+| 30B-A3B Q2 (11,8 GB) | 72/72 | 57/60 | 48/48 | 44/48 | 221/228 (96,9%) |
+| 30B-A3B Q3 (13,8 GB) | 72/72 | 57/60 | 47/48 | 39/48 | 215/228 (94,3%) |
+
+**Leitura:**
+- Nenhum modelo denso de 7 a 14B passou de 89%. O que dá conta é a mistura de especialistas do 30B-A3B.
+- Quantizar esse mesmo modelo em 2 bits custa cerca de 3 pontos: o Q2 perde sempre no mesmo lugar, a 3ª validação. Em troca, ocupa 6 GB a menos.
+- O Q3 ficou abaixo do Q2. As quantizações "UD" da unsloth não são monotônicas neste teste.
+- O Q4 continua sendo o modelo do perfil Forte. O Q2 é a opção para quem tem pouca memória.
+- O Seed-Coder 8B Q4 é o melhor modelo pequeno, mas é lento por ser denso.

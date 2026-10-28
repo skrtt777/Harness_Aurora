@@ -10,7 +10,11 @@ const OLLAMA = "F:/Modelos_Aurora/ollama/blobs/";
 const GGUF = "F:/Modelos_Aurora/gguf/";
 export const CANDIDATES = [
   { name: "padrao (qwen3.5 4B do chat)", path: null, size: 3.3, license: "Apache-2.0" },
-  { name: "Qwen3-Coder 30B-A3B", path: `${GGUF}qwen3-coder-30b-a3b/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf`, size: 17.7, license: "Apache-2.0" },
+  { name: "Qwen3-Coder 30B-A3B Q4 (UD-Q4_K_XL)", path: `${GGUF}qwen3-coder-30b-a3b/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf`, size: 17.7, license: "Apache-2.0" },
+  { name: "Qwen3-Coder 30B-A3B Q3 (UD-Q3_K_XL)", path: `${GGUF}candidatos/Qwen3-Coder-30B-A3B-Instruct-UD-Q3_K_XL.gguf`, size: 13.8, license: "Apache-2.0" },
+  { name: "Qwen3-Coder 30B-A3B Q2 (UD-Q2_K_XL)", path: `${GGUF}candidatos/Qwen3-Coder-30B-A3B-Instruct-UD-Q2_K_XL.gguf`, size: 11.8, license: "Apache-2.0" },
+  { name: "Qwen3-Coder 30B-A3B IQ2 (UD-IQ2_M)", path: `${GGUF}candidatos/Qwen3-Coder-30B-A3B-Instruct-UD-IQ2_M.gguf`, size: 10.8, license: "Apache-2.0" },
+  { name: "Seed-Coder 8B Q8 (ByteDance)", path: `${GGUF}candidatos/Seed-Coder-8B-Instruct-Q8_0.gguf`, size: 8.8, license: "MIT" },
   { name: "Qwen2.5-Coder 14B", path: `${GGUF}candidatos/qwen2.5-coder-14b-instruct-q4_k_m.gguf`, size: 9.0, license: "Apache-2.0" },
   { name: "Qwen2.5-Coder 7B", path: `${GGUF}candidatos/qwen2.5-coder-7b-instruct-q4_k_m.gguf`, size: 4.7, license: "Apache-2.0" },
   { name: "NextCoder 7B (Microsoft)", path: `${GGUF}candidatos/NextCoder-7B-q4_k_m.gguf`, size: 4.8, license: "MIT" },
