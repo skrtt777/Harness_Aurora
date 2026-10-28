@@ -8,6 +8,15 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.56': {
+    title: 'A Aurora no VS Code',
+    items: [
+      ['Instale com um clique', 'Em Configurações → Editor de código, a Aurora se instala no VS Code (ou no Cursor e no Windsurf). Também dá para baixar a extensão e levar para outro computador.'],
+      ['Painel próprio', 'O ✦ na barra lateral do VS Code abre o chat da Aurora, sem precisar do Copilot: a resposta aparece enquanto ela escreve, com o comprovante dos números e os arquivos que ela mudou.'],
+      ['Ctrl+I no código', 'Selecione um trecho, aperte Ctrl+I e diga o que mudar. A mudança aparece no próprio arquivo e você aceita ou recusa cada parte.'],
+      ['Autocompletar e terminal', 'Sugestões em cinza enquanto você digita, do modelo local (Tab aceita). Se um comando falhar no terminal, "Corrigir com a Aurora" aparece na barra de status.'],
+    ],
+  },
   '0.1.55': {
     title: 'O comprovante e a resposta viva',
     items: [

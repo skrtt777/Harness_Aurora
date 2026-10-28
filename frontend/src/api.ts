@@ -732,6 +732,17 @@ export const testWhatsapp = () => request<{ sent: boolean; error?: string }>("/w
 /** The Aurora in the code editor (app/vscodeExtension.js): the bundled extension and each editor found. */
 export type VscodeStatus = { id: string; vsix: { version: string | null } | null; editors: { id: string; name: string; installed: string | null; update: boolean }[] };
 export const getVscode = () => request<VscodeStatus>("/vscode");
+/** The bundled .vsix saved where the person chooses (to install by hand or on another PC). */
+export async function downloadVsix(version: string | null) {
+  const response = await fetch("/api/vscode/vsix", { headers: { "x-harness-token": await sessionToken() } });
+  if (!response.ok) throw new Error(`Falha ao baixar a extensão (${response.status}).`);
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `aurora-harness-${version || "vscode"}.vsix`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 export const installVscode = (editor: string) => request<{ ok: boolean; editor: string; version: string; message: string }>("/vscode/install", { method: "POST", body: JSON.stringify({ editor }) });
 
 // ---------- Top secret (app/blind.js): secret terms and what went out to a paid AI ----------

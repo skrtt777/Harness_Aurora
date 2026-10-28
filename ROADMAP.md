@@ -70,6 +70,11 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.56 (27/10): a Aurora no VS Code, baixada pelo Harness** (`docs/AURORA_NO_VSCODE.md`).
+  - Extensão 0.3: painel próprio (sem Copilot) com resposta ao vivo, comprovante e resposta viva; Ctrl+I com revisão por trecho no arquivo; autocompletar FIM no modelo já carregado (11/12, ~0,4 s); o comando que falhou no terminal como contexto; abre o Harness sozinho.
+  - Configurações → Editor de código: instala/atualiza no VS Code, Cursor ou Windsurf com um clique, ou baixa o .vsix; o .vsix vai dentro do instalador.
+  - VS Code de teste ponta a ponta: 15/15.
+
 - **0.1.55 (27/10): o comprovante e a resposta viva** (`docs/COMPROVANTE.md`, `docs/RESPOSTA_VIVA.md`).
   - **O comprovante**: cada número de uma resposta é ligado à célula, à conta ou ao pedido de onde veio, sem modelo; o que não tem fonte é marcado. Selo na resposta, cartão ao passar o mouse, linha no celular, também nos documentos entregues, e "Baixar comprovante" em CSV.
   - **A resposta viva**: quando a planilha muda depois da resposta, o número antigo fica riscado com o novo ao lado, as contas que dependem dele são refeitas e há o botão "Refazer com os dados novos"; a tela inicial mostra "Respostas que mudaram". Medição em 295 respostas reais: 0 alarmes falsos em 992 números, 271 de 301 células mudadas pegas com o valor certo.

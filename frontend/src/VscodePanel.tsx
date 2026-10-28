@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getVscode, installVscode, type VscodeStatus } from './api';
+import { downloadVsix, getVscode, installVscode, openExternalUrl, type VscodeStatus } from './api';
 
 /**
  * Settings → Editor de código: the Aurora extension that comes with the Harness, and each editor found
@@ -28,7 +28,13 @@ export default function VscodePanel() {
       <li><b>Erro no terminal</b>: "Corrigir com a Aurora" aparece na barra de status.</li>
     </ul>
     {!status.vsix && <p className="section-desc">Esta instalação não trouxe a extensão. Atualize o Harness para a versão mais nova.</p>}
-    {status.vsix && !status.editors.length && <p className="section-desc">Não encontrei o VS Code, o Cursor nem o Windsurf neste computador. Instale um deles e volte aqui.</p>}
+    {status.vsix && !status.editors.length && <div className="vscode-editor">
+      <div><strong>Nenhum editor encontrado</strong><small>Instale o VS Code (gratuito) e volte aqui para instalar a Aurora nele com um clique.</small></div>
+      <div className="vscode-actions">
+        <button className="btn btn-primary" onClick={() => void openExternalUrl('https://code.visualstudio.com/download')}>Baixar o VS Code</button>
+        <button className="btn btn-ghost" onClick={() => void refresh()}>Procurar de novo</button>
+      </div>
+    </div>}
     {status.vsix && status.editors.length > 0 && <div className="vscode-editors">
       {status.editors.map((e) => <div className="vscode-editor" key={e.id}>
         <div>
@@ -39,6 +45,9 @@ export default function VscodePanel() {
         {e.installed && !e.update && <button className="btn btn-ghost" disabled={busy !== null} onClick={() => install(e.id)} title="Instala de novo a mesma versão">{busy === e.id ? 'Instalando…' : 'Reinstalar'}</button>}
       </div>)}
     </div>}
+    {status.vsix && <p className="section-desc vscode-download">
+      Outro editor ou outro computador? <button type="button" className="link-button" onClick={() => { setError(''); downloadVsix(version ?? null).then(() => setNote(`Extensão ${version} baixada. No editor: Extensões (Ctrl+Shift+X) → ⋯ → "Instalar do VSIX…" e escolha o arquivo.`)).catch((e: Error) => setError(e.message)); }}>Baixar a extensão (.vsix {version})</button>
+    </p>}
     {note && <p className="settings-saved" role="status">{note}</p>}
     {error && <p className="settings-error" role="alert">{error}</p>}
   </div>;

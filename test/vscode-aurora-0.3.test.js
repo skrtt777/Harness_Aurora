@@ -144,3 +144,23 @@ test("Ctrl+I: the snippet back as code only, without the lines around it", async
   await assert.rejects(editCode({ instruction: "x" }, { run: async () => ({ ok: false, error: "sem modelo" }) }), /sem modelo/);
   assert.equal(codeOf("<think>hm</think>```py\nprint(1)\n```"), "print(1)");
 });
+
+test("Editor de código: the bundled .vsix, the version an editor has, and when it is old", async () => {
+  const { bundledVsix, installedVersion, older, vscodeStatus } = await import("../app/vscodeExtension.js");
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const out = join(mkdtempSync(join(tmpdir(), "aurora-vsix-")), "a.vsix");
+  execFileSync(process.execPath, ["scripts/pack-vscode.mjs", "--out", out]);
+  const pkg = JSON.parse((await import("node:fs")).readFileSync("vscode/aurora/package.json", "utf8"));
+  assert.deepEqual(bundledVsix({ AURORA_VSIX: out }), { path: out, version: pkg.version });
+  assert.equal(installedVersion("ms-python.python@2026.1.0\nharness-aurora.aurora-harness@0.2.1\n"), "0.2.1");
+  assert.equal(installedVersion("ms-python.python@2026.1.0\n"), null);
+  assert.ok(older("0.2.1", "0.3.0") && older("0.3.0", "0.10.0") && !older("0.3.0", "0.3.0") && !older("1.0.0", "0.9.9"));
+  // No editor CLI on this fake PC: nothing listed, nothing run.
+  const ran = [];
+  const s = await vscodeStatus({ env: { AURORA_VSIX: out, LOCALAPPDATA: join(tmpdir(), "nada"), ProgramFiles: join(tmpdir(), "nada") }, run: async (...a) => { ran.push(a); return { ok: true, stdout: "" }; } });
+  assert.deepEqual(s.editors, []);
+  assert.equal(ran.length, 0);
+});

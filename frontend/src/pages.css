@@ -1107,3 +1107,5 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .vscode-editor > div { display: grid; gap: 2px; }
 .app-shell .vscode-editor small { color: var(--text-3); }
 @media (max-width: 600px) { .app-shell .vscode-editor { flex-direction: column; align-items: stretch; } }
+.app-shell .vscode-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
+.app-shell .vscode-download { margin: 0; }
