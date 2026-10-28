@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 // --casos-arquivo holdout: the held-out cases (code-bench-holdout.mjs), never used to tune the pipeline.
-const SETS = { holdout: "./code-bench-holdout.mjs", holdout2: "./code-bench-holdout2.mjs" };
+const SETS = { holdout: "./code-bench-holdout.mjs", holdout2: "./code-bench-holdout2.mjs", holdout3: "./code-bench-holdout3.mjs" };
 const { EDITS, COMPLETIONS } = await import(SETS[arg("casos-arquivo")] || "./code-bench-cases.mjs");
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "aurora-code-bench-")), "harness.db");
 process.env.LLAMA_SERVER_PORT ||= "18193";

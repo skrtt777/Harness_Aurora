@@ -147,7 +147,7 @@ export async function completeCode({ prefix = "", suffix = "", language = "", fi
     const compiles = !problem || (problem.line && (problem.line < startLine - 1 || problem.line > endLine + 1));
     // A name nothing declares ("total[vendedor]" where only v.vendedor exists): the next try. Only judged
     // when the file without the suggestion parses, so a name the person is still writing is not blamed.
-    if (compiles && !problem && (await undefinedNames(`${before}${after}`)) !== null && (await newUndefined(language, `${before}${after}`, `${before}${text}${after}`))) continue;
+    if (compiles && !problem && (await newUndefined(language, `${before}${after}`, `${before}${text}${after}`))) continue;
     if (compiles) return { text, ms: Date.now() - started, engine: r.engine, model: r.model, language };
     if (signal?.aborted) break;
   }
@@ -174,8 +174,8 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
   const hints = process.env.CODE_HINTS === "off" ? [] : hintsFor(`${instruction}\n${sel.slice(0, 2000)}`, lang);
   return [
     plan
-      ? "Você edita código dentro do editor. Responda assim: primeiro, em até 3 linhas curtas (sem código), o que precisa mudar para atender o pedido inteiro, inclusive cada caso que ele cita (vazio, nulo, tipos, pontuação, maiúsculas…); depois, o código num único bloco ```. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe."
-      : "Você edita código dentro do editor. Responda SÓ com o código, num único bloco ```, sem explicação. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe.",
+      ? "Você edita código dentro do editor. Responda assim: primeiro, em até 3 linhas curtas (sem código), o que precisa mudar para atender o pedido inteiro, inclusive cada caso que ele cita (vazio, nulo, tipos, pontuação, maiúsculas…); depois, o código num único bloco ```. Não acrescente nada que não foi pedido (exports, exemplos de uso, testes): o resto do arquivo já existe. Se o código novo usar um módulo que o arquivo ainda não importa, importe-o dentro do trecho."
+      : "Você edita código dentro do editor. Responda SÓ com o código, num único bloco ```, sem explicação. Não acrescente nada que não foi pedido (exports, exemplos de uso, testes): o resto do arquivo já existe. Se o código novo usar um módulo que o arquivo ainda não importa, importe-o dentro do trecho.",
     sel.trim()
       ? `Reescreva o trecho selecionado conforme o pedido. Devolva o trecho inteiro já mudado (não só a parte nova), com a mesma indentação, e nada do que vem antes ou depois dele.`
       : `Escreva o código que vai no lugar do cursor (marcado como <CURSOR>), conforme o pedido, com a indentação do lugar.`,
@@ -325,12 +325,49 @@ export async function undefinedNames(code) {
   } catch { return null; }
 }
 
+// Python's names read but never bound (imports, defs, arguments, assignments, comprehensions, except …
+// as, builtins): the code is only parsed (ast), never run. Prints a JSON list, or nothing when it does not parse.
+const PY_UNDEFINED = [
+  "import ast, builtins, json, sys",
+  "try:",
+  "    tree = ast.parse(sys.stdin.read())",
+  "except SyntaxError:",
+  "    sys.exit(0)",
+  "bound, read = set(dir(builtins)) | {'__file__', '__name__'}, set()",
+  "for n in ast.walk(tree):",
+  "    if isinstance(n, ast.Name):",
+  "        (read if isinstance(n.ctx, ast.Load) else bound).add(n.id)",
+  "    elif isinstance(n, (ast.Import, ast.ImportFrom)):",
+  "        bound.update((a.asname or a.name).split('.')[0] for a in n.names)",
+  "    elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):",
+  "        bound.add(n.name)",
+  "    elif isinstance(n, ast.arg):",
+  "        bound.add(n.arg)",
+  "    elif isinstance(n, ast.ExceptHandler) and n.name:",
+  "        bound.add(n.name)",
+  "    elif isinstance(n, (ast.Global, ast.Nonlocal)):",
+  "        bound.update(n.names)",
+  "print(json.dumps(sorted(read - bound)))",
+].join("\n");
+export async function pythonUndefined(code) {
+  const { execFile } = await import("node:child_process");
+  pythonOk ??= await new Promise((done) => execFile("python", ["--version"], { timeout: 5000, windowsHide: true }, (error, out, err) => done(!error && /Python 3/.test(`${out}${err}`))));
+  if (!pythonOk) return null;
+  const out = await new Promise((done) => { const child = execFile("python", ["-c", PY_UNDEFINED], { timeout: 8000, windowsHide: true }, (error, stdout) => done(error ? "" : String(stdout))); child.stdin?.end(code); });
+  try { return out.trim() ? JSON.parse(out) : null; } catch { return null; }
+}
+
 /** The new names a change leaves undefined (code after against code before), as a problem, or null. */
 export async function newUndefined(language, beforeText, afterText) {
-  if (!/^(javascript|javascriptreact)$/i.test(String(language || ""))) return null;
-  const now = await undefinedNames(afterText);
+  const python = /^python$/i.test(String(language || ""));
+  if (!python && !/^(javascript|javascriptreact)$/i.test(String(language || ""))) return null;
+  const names = python ? pythonUndefined : undefinedNames;
+  const now = await names(afterText);
   if (!now?.length) return null;
-  const was = new Set((await undefinedNames(beforeText)) || []);
+  // The code before that does not parse (a line half written) gives nothing to compare with: not judged.
+  const before = await names(beforeText);
+  if (before === null) return null;
+  const was = new Set(before);
   const added = now.filter((n) => !was.has(n));
   return added.length ? `usa ${added.map((n) => `"${n}"`).join(", ")}, que não existe no arquivo` : null;
 }

@@ -208,7 +208,7 @@ test("Editor de código: a name nothing declares is caught without running the c
   assert.match(await newUndefined("javascript", "function f(v) { const t = {}; return t; }", "function f(v) { const t = {}; t[vendedor] = v.valor; return t; }"), /"vendedor"/);
   // A name already undefined before (declared in another file) is not the change's fault.
   assert.equal(await newUndefined("javascript", "function f() { return helper(); }", "function f() { return helper() + 1; }"), null);
-  assert.equal(await newUndefined("python", "a", "b"), null);
+  assert.equal(await newUndefined("go", "a", "b"), null, "languages without an analysis are not judged");
   assert.equal(await undefinedNames("function ("), null);
 });
 
@@ -222,4 +222,16 @@ test("Editor de código: Brazilian idioms go along when the request speaks of th
   const { editPrompt } = await import("../app/codeAssist.js");
   assert.match(editPrompt({ instruction: "calcule a idade", language: "javascript", selection: "function idade() {}" }), /Dicas que funcionam aqui:\n- Idade em anos completos/);
   assert.doesNotMatch(editPrompt({ instruction: "some", language: "javascript", selection: "x" }), /Dicas/);
+});
+
+test("Editor de código: Python names used without import are caught (parsed, never run)", async () => {
+  const { pythonUndefined, newUndefined, editPrompt } = await import("../app/codeAssist.js");
+  const names = await pythonUndefined("def ler(c):\n    with open(c) as f:\n        return list(csv.DictReader(f))\n");
+  if (names === null) return; // no Python on this machine: nothing to check
+  assert.deepEqual(names, ["csv"]);
+  assert.match(await newUndefined("python", "def f(c):\n    return c\n", "def f(c):\n    return datetime.date.today()\n"), /"datetime"/);
+  assert.equal(await newUndefined("python", "import re\n", "import re\nx = [y for y in re.findall('a', 'b') if y]\n"), null);
+  assert.equal(await newUndefined("python", "def f(:", "def f():\n    return csv\n"), null, "the code before does not parse: not judged");
+  // The model may import what the new code needs (28/10: obeying "no imports", the 30B left csv undefined).
+  assert.match(editPrompt({ instruction: "leia o csv", selection: "def f(): pass", language: "python" }), /importe-o dentro do trecho/);
 });
