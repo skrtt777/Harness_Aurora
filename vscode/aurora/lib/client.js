@@ -54,6 +54,14 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
     },
     newConversation: ({ projectId = null, title = "VS Code", provider = "local" } = {}) => call("/conversations", { method: "POST", body: { ...(projectId ? { projectId } : {}), title: String(title).slice(0, 80), provider } }),
     conversation: (id) => call(`/conversations/${encodeURIComponent(id)}`),
+    /** The conversations of a project (the panel's history), the most recent first. */
+    conversations: (projectId = null) => call(`/conversations${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`).then((r) => r.conversations || []),
+    /** A resposta viva: the answers' numbers checked again against their files ({ messageId: check }). */
+    recheck: (id) => call(`/conversations/${encodeURIComponent(id)}/proof-recheck`, { method: "POST", body: {}, timeoutMs: 60000 }).then((r) => r.live || {}).catch(() => ({})),
+    /** The gray suggestion at the cursor (fill-in-the-middle on the local model): { text, ms }. */
+    complete: (body, { signal } = {}) => call("/code/complete", { method: "POST", body, signal, timeoutMs: 10000 }),
+    /** Ctrl+I: the snippet rewritten as asked: { code }. */
+    edit: (body, { signal } = {}) => call("/code/edit", { method: "POST", body, signal, timeoutMs: 5 * 60 * 1000 }),
     approve: (id, approvalId, approved) => call(`/conversations/${encodeURIComponent(id)}/approval`, { method: "POST", body: { id: approvalId, approved } }),
     cancel: (id) => call(`/conversations/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} }).catch(() => null),
     /** Takes back what one answer changed: edited files restored, created files removed. */
@@ -84,7 +92,7 @@ function createClient({ base = "http://127.0.0.1:8787", fetchImpl = globalThis.f
       const message_ = result.message || {};
       const steps = message_.execution?.toolSteps || [];
       const changes = changesOf(message_.execution);
-      return { content: String(message_.content || result.error || ""), steps, files: [...new Set([...changes.map((c) => c.file), ...filesIn(message_.content, steps)])], messageId: message_.id || null, changes };
+      return { content: String(message_.content || result.error || ""), steps, files: [...new Set([...changes.map((c) => c.file), ...filesIn(message_.content, steps)])], messageId: message_.id || null, changes, proof: message_.execution?.proof || null, message: message_ };
     },
   };
 }
@@ -137,7 +145,7 @@ function stepLine(step) {
  * The message the Aurora gets: the person's words, then what VS Code shows them (the open file, the
  * selected code, the files they attached), so "explica isso" or "corrige essa função" have a subject.
  */
-function composeMessage(prompt, { file = null, selection = "", language = "", references = [], problems = [], diff = "", selectionRange = null } = {}) {
+function composeMessage(prompt, { file = null, selection = "", language = "", references = [], problems = [], diff = "", selectionRange = null, terminal = null } = {}) {
   const parts = [String(prompt || "").trim()];
   const context = [];
   if (file) context.push(`Arquivo aberto no VS Code: ${file}${selectionRange ? ` (seleção nas linhas ${selectionRange})` : ""}`);
@@ -147,6 +155,7 @@ function composeMessage(prompt, { file = null, selection = "", language = "", re
     else if (r.path) context.push(`Arquivo citado: ${r.path}`);
   }
   if (problems.length) context.push(`Problemas do VS Code (painel Problemas):\n${problemsText(problems)}`);
+  if (terminal?.command) context.push(`Último comando no terminal do VS Code (falhou, código ${terminal.exitCode ?? "?"}${terminal.cwd ? `, em ${terminal.cwd}` : ""}): \`${String(terminal.command).slice(0, 300)}\`\nSaída (o fim):\n\`\`\`\n${String(terminal.output || "").slice(-4000)}\n\`\`\``);
   if (diff) context.push(`Mudanças ainda não commitadas (git diff):\n\`\`\`diff\n${String(diff).slice(0, 12000)}\n\`\`\``);
   if (context.length) parts.push(`\n\n[Contexto do VS Code]\n${context.join("\n\n")}`);
   return parts.join("");

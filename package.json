@@ -18,12 +18,13 @@
     "electron:start": "electron .",
     "electron:dev": "concurrently -k -n backend,frontend,electron \"npm:start\" \"npm:frontend:dev\" \"npm:electron:wait\"",
     "electron:wait": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
-    "dist": "npm run frontend:build && electron-builder --publish never",
+    "dist": "npm run frontend:build && node scripts/pack-vscode.mjs && electron-builder --publish never",
     "prepare": "node scripts/install-git-hooks.mjs",
     "battery": "node scripts/conversation-battery.mjs",
     "agents:eval": "node scripts/agent-tasks.mjs",
     "uso": "node scripts/usage-tests.mjs",
-    "regressao": "node scripts/regression.mjs"
+    "regressao": "node scripts/regression.mjs",
+    "vscode:pack": "node scripts/pack-vscode.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -62,6 +63,12 @@
         "provider": "github",
         "owner": "skrtt777",
         "repo": "Harness_Aurora"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "vscode/dist/aurora-harness.vsix",
+        "to": "vscode/aurora-harness.vsix"
       }
     ]
   },

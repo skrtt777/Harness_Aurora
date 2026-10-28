@@ -32,6 +32,7 @@ import { auroraBackdropOn, setAuroraBackdrop } from './auroraBackdrop';
 import ProfilePanel from './ProfilePanel';
 import PhonePanel from './PhonePanel';
 import WhatsappPanel from './WhatsappPanel';
+import VscodePanel from './VscodePanel';
 import BriefsPanel from './BriefsPanel';
 import PrivacyPanel from './PrivacyPanel';
 import ModelsPanel from './ModelsPanel';
@@ -46,6 +47,7 @@ const SECTIONS = [
   { id: "briefs", label: "Briefings" },
   { id: "privacy", label: "Privacidade" },
   { id: "phone", label: "Celular" },
+  { id: "editor", label: "Editor de código" },
   { id: "teacher", label: "Professor" },
   { id: "models", label: "Modelos" },
   { id: "local", label: "IA local" },
@@ -486,6 +488,13 @@ export default function SettingsView({
             </header>
             <div className="section"><h3 className="section-title">WhatsApp</h3><WhatsappPanel /></div>
             <div className="section"><h3 className="section-title">Telegram</h3><PhonePanel /></div>
+          </>}
+          {section === "editor" && <>
+            <header className="page-header">
+              <h2 className="page-title">Editor de código</h2>
+              <p className="page-desc">A Aurora dentro do VS Code (e do Cursor ou do Windsurf), com a pasta aberta como projeto: o mesmo modelo local, as memórias e as ferramentas daqui. Nada sai do computador. O Harness precisa estar aberto; se estiver fechado, a extensão o abre.</p>
+            </header>
+            <div className="section"><VscodePanel /></div>
           </>}
 
           {section === "knowledge" && <>

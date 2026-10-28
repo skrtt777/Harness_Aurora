@@ -1098,3 +1098,12 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .settings-page .model-new input, .app-shell .settings-page .model-new select { min-width: 160px; }
 .app-shell .settings-page .whatsapp-qr { display: block; margin: 8px 0; image-rendering: pixelated; background: #fff; padding: 6px; border-radius: 8px; }
 .app-shell .settings-page .egress-text { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: 12px; background: var(--surface-2, rgba(127,127,127,.08)); padding: 8px; border-radius: 6px; margin: 6px 0; }
+
+/* ---------- Editor de código (the VS Code extension) ---------- */
+.app-shell .vscode-panel { display: grid; gap: var(--gap-3); }
+.app-shell .vscode-features { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
+.app-shell .vscode-editors { display: grid; gap: var(--gap-2); }
+.app-shell .vscode-editor { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3); padding: 12px 16px; border-radius: var(--radius-md, 10px); border: 1px solid var(--stroke-2); background: var(--bg-surface); }
+.app-shell .vscode-editor > div { display: grid; gap: 2px; }
+.app-shell .vscode-editor small { color: var(--text-3); }
+@media (max-width: 600px) { .app-shell .vscode-editor { flex-direction: column; align-items: stretch; } }

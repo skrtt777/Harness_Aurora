@@ -1,16 +1,23 @@
 {
   "name": "aurora-harness",
   "displayName": "Aurora (Harness)",
-  "description": "A Aurora do seu PC no chat do VS Code: @aurora conversa com o Harness Aurora local, com a pasta aberta como projeto, os erros do painel Problemas, diferenças e desfazer.",
-  "version": "0.2.1",
+  "description": "A Aurora do seu PC no VS Code: painel próprio de chat, Ctrl+I para editar o código com aceitar e recusar, autocompletar com o modelo local e o terminal como contexto. Tudo pelo Harness Aurora deste computador; nada sai do PC.",
+  "version": "0.3.0",
   "publisher": "harness-aurora",
   "license": "UNLICENSED",
   "private": true,
+  "icon": "media/aurora.png",
   "engines": { "vscode": "^1.95.0" },
-  "categories": ["AI", "Chat"],
+  "categories": ["AI", "Chat", "Programming Languages"],
   "main": "./extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [{ "id": "aurora", "title": "Aurora", "icon": "media/aurora-bar.svg" }]
+    },
+    "views": {
+      "aurora": [{ "type": "webview", "id": "aurora.panel", "name": "Chat", "icon": "media/aurora-bar.svg" }]
+    },
     "chatParticipants": [
       {
         "id": "aurora.chat",
@@ -20,7 +27,7 @@
         "isSticky": true,
         "commands": [
           { "name": "explicar", "description": "Explica o trecho selecionado ou o arquivo aberto" },
-          { "name": "corrigir", "description": "Corrige os erros do painel Problemas (ou o trecho selecionado)" },
+          { "name": "corrigir", "description": "Corrige os erros do painel Problemas e do terminal (ou o trecho selecionado)" },
           { "name": "testes", "description": "Escreve e roda testes para o arquivo aberto" },
           { "name": "revisar", "description": "Revisa as mudanças ainda não commitadas (git diff)" },
           { "name": "nova", "description": "Começa uma conversa nova com a Aurora" }
@@ -29,15 +36,21 @@
     ],
     "commands": [
       { "command": "aurora.openChat", "title": "Aurora: Conversar", "icon": "$(sparkle)" },
+      { "command": "aurora.inlineEdit", "title": "Aurora: Editar aqui (Ctrl+I)" },
       { "command": "aurora.explain", "title": "Aurora: Explicar este código" },
       { "command": "aurora.fix", "title": "Aurora: Corrigir os problemas" },
+      { "command": "aurora.fixTerminal", "title": "Aurora: Corrigir o erro do terminal" },
       { "command": "aurora.tests", "title": "Aurora: Escrever testes" },
       { "command": "aurora.review", "title": "Aurora: Revisar minhas mudanças" },
       { "command": "aurora.newConversation", "title": "Aurora: Nova conversa" },
-      { "command": "aurora.openHarness", "title": "Aurora: Abrir o Harness" }
+      { "command": "aurora.toggleAutocomplete", "title": "Aurora: Ligar/desligar o autocompletar" },
+      { "command": "aurora.openHarness", "title": "Aurora: Abrir o Harness" },
+      { "command": "aurora.review.acceptAll", "title": "Aurora: Aceitar todas as mudanças" },
+      { "command": "aurora.review.rejectAll", "title": "Aurora: Recusar todas as mudanças" }
     ],
     "menus": {
       "editor/context": [
+        { "command": "aurora.inlineEdit", "group": "aurora@0" },
         { "command": "aurora.explain", "group": "aurora@1", "when": "editorHasSelection" },
         { "command": "aurora.fix", "group": "aurora@2" },
         { "command": "aurora.tests", "group": "aurora@3" }
@@ -46,20 +59,31 @@
         { "command": "aurora.review", "group": "navigation" }
       ],
       "commandPalette": [
-        { "command": "aurora.openChat" }, { "command": "aurora.explain" }, { "command": "aurora.fix" }, { "command": "aurora.tests" }, { "command": "aurora.review" }
+        { "command": "aurora.review.acceptAll", "when": "aurora.reviewing" },
+        { "command": "aurora.review.rejectAll", "when": "aurora.reviewing" }
       ]
     },
     "keybindings": [
-      { "command": "aurora.openChat", "key": "ctrl+alt+a", "mac": "cmd+alt+a" }
+      { "command": "aurora.openChat", "key": "ctrl+alt+a", "mac": "cmd+alt+a" },
+      { "command": "aurora.inlineEdit", "key": "ctrl+i", "mac": "cmd+i", "when": "editorTextFocus && !editorReadonly && config.aurora.ctrlI" },
+      { "command": "aurora.review.acceptAll", "key": "ctrl+enter", "mac": "cmd+enter", "when": "editorTextFocus && aurora.reviewing" },
+      { "command": "aurora.review.rejectAll", "key": "ctrl+shift+backspace", "mac": "cmd+shift+backspace", "when": "editorTextFocus && aurora.reviewing" }
     ],
     "configuration": {
       "title": "Aurora",
       "properties": {
         "aurora.harnessUrl": { "type": "string", "default": "http://127.0.0.1:8787", "description": "Endereço do Harness Aurora neste computador (só endereços locais)." },
-        "aurora.provider": { "type": "string", "enum": ["local", "codex", "claude"], "default": "local", "description": "Quem responde nas conversas novas: o modelo local da Aurora (padrão) ou um professor." },
+        "aurora.provider": { "type": "string", "enum": ["local", "codex", "claude"], "enumDescriptions": ["O modelo local da Aurora (nada sai do PC)", "Codex", "Claude"], "default": "local", "description": "Quem responde nas conversas novas." },
+        "aurora.chatLocation": { "type": "string", "enum": ["panel", "copilot"], "enumDescriptions": ["O painel da Aurora (✦ na barra lateral)", "O chat do VS Code com @aurora (precisa do Copilot Chat)"], "default": "panel", "description": "Onde os comandos da Aurora abrem a conversa." },
+        "aurora.autocomplete": { "type": "boolean", "default": true, "description": "Sugestões em cinza enquanto você digita, feitas pelo modelo local (Tab aceita)." },
+        "aurora.autocompleteDelayMs": { "type": "number", "default": 350, "minimum": 100, "maximum": 2000, "description": "Quanto tempo depois de parar de digitar a Aurora sugere (ms)." },
+        "aurora.autocompleteText": { "type": "boolean", "default": false, "description": "Sugerir também em texto e Markdown (não só em código)." },
+        "aurora.ctrlI": { "type": "boolean", "default": true, "description": "Ctrl+I no editor abre a edição da Aurora (desligue para manter o Ctrl+I de outra extensão)." },
+        "aurora.autoStartHarness": { "type": "boolean", "default": true, "description": "Abrir o Harness Aurora sozinho quando ele estiver fechado e você pedir algo." },
+        "aurora.startHarnessWithVsCode": { "type": "boolean", "default": false, "description": "Abrir o Harness Aurora junto com o VS Code." },
         "aurora.useWorkspaceProject": { "type": "boolean", "default": true, "description": "Usar a pasta aberta no VS Code como pasta do projeto no Harness (a Aurora lê e grava nela)." },
         "aurora.openChangedFiles": { "type": "boolean", "default": true, "description": "Abrir o primeiro arquivo que a Aurora mudou (com as diferenças) quando ela termina." },
-        "aurora.harnessPath": { "type": "string", "default": "", "description": "Caminho do Harness Aurora.exe (para o botão Abrir o Harness)." }
+        "aurora.harnessPath": { "type": "string", "default": "", "description": "Caminho do Harness Aurora.exe (quando não está no lugar de sempre)." }
       }
     }
   }

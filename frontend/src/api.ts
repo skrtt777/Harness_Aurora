@@ -729,6 +729,10 @@ export const getWhatsapp = () => request<WhatsappStatus>("/whatsapp");
 export const enableWhatsapp = (own = false) => request<WhatsappStatus>("/whatsapp", { method: "PUT", body: JSON.stringify({ own }) });
 export const disableWhatsapp = () => request<WhatsappStatus>("/whatsapp", { method: "DELETE" });
 export const testWhatsapp = () => request<{ sent: boolean; error?: string }>("/whatsapp/test", { method: "POST" });
+/** The Aurora in the code editor (app/vscodeExtension.js): the bundled extension and each editor found. */
+export type VscodeStatus = { id: string; vsix: { version: string | null } | null; editors: { id: string; name: string; installed: string | null; update: boolean }[] };
+export const getVscode = () => request<VscodeStatus>("/vscode");
+export const installVscode = (editor: string) => request<{ ok: boolean; editor: string; version: string; message: string }>("/vscode/install", { method: "POST", body: JSON.stringify({ editor }) });
 
 // ---------- Top secret (app/blind.js): secret terms and what went out to a paid AI ----------
 export type EgressItem = { at: string; engine: string; kind: string; privacy: string; chars: number; text: string; files: string[] };

@@ -30,6 +30,8 @@ import { buildProviderConfig as buildClaudeProviderConfig } from "./claude.js";
 import { buildProviderConfig as buildLocalProviderConfig, LOCAL_SETTINGS_DEFAULTS, LOCAL_CONTEXT_TOKENS_RANGE, LOCAL_MAX_FIX_ATTEMPTS_RANGE } from "./local.js";
 import { CURATED_MODELS, getLocalStatus, runOllamaSetup, setLocalModel } from "./ollamaSetup.js";
 import { recheckConversation, staleAnswers } from "./proofWatch.js";
+import { completeCode, editCode } from "./codeAssist.js";
+import { vscodeStatus, installInEditor } from "./vscodeExtension.js";
 import { createConversation, createMemory, createProject, createRelation, deleteConversation, deleteMemory, deleteProject, getConversation, getConversationWithMessages, getMessage, addMessage, listConversations, searchConversations, duplicateConversation, listMemories, listMessages, listProjects, countMemories, getSavingsStats, updateConversation, updateMemory, setMemoryStatus, updateProject, getProject, getSetting, setSetting } from "./store.js";
 import { correctLocalAnswer } from "./correction.js";
 import { fetchCommunityManifest, fetchCommunityBundle, resolveCommunityManifestUrl } from "./community.js";
@@ -804,6 +806,25 @@ export function createServer({ allowDev = !process.versions.electron, centralSyn
         return live ? sendJson(response, 200, { live }) : sendJson(response, 404, { error: "Conversa não encontrada." });
       }
       if (method === "GET" && pathname === "/api/proof/stale") return sendJson(response, 200, { stale: await staleAnswers() });
+      // Settings → Editor de código (app/vscodeExtension.js): the extension's version in each editor, install/update.
+      if (method === "GET" && pathname === "/api/vscode") return sendJson(response, 200, await vscodeStatus());
+      if (method === "POST" && pathname === "/api/vscode/install") {
+        const body = await readJson(request);
+        try { return sendJson(response, 200, await installInEditor(String(body.editor || ""))); } catch (error) { return sendJson(response, error.status || 500, { error: error.message }); }
+      }
+      // The Aurora inside the code editor (app/codeAssist.js): the gray suggestion and Ctrl+I.
+      if (method === "POST" && (pathname === "/api/code/complete" || pathname === "/api/code/edit")) {
+        const body = await readJson(request);
+        const abort = new AbortController();
+        response.on("close", () => { if (!response.writableEnded) abort.abort(); });
+        try {
+          if (pathname === "/api/code/complete") return sendJson(response, 200, await completeCode(body, { signal: abort.signal }));
+          return sendJson(response, 200, await editCode(body, { signal: abort.signal }));
+        } catch (error) {
+          if (abort.signal.aborted) return response.writableEnded ? undefined : sendJson(response, 499, { error: "Cancelado." });
+          return sendJson(response, error.status || 502, { error: error.message });
+        }
+      }
       match = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (match) {
         if (method !== "POST") throw httpError(405, "Use POST para enviar mensagens.");

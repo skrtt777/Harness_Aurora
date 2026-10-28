@@ -29,3 +29,4 @@ release-*/
 
 # VS Code extension package (built with vsce)
 vscode/*.vsix
+vscode/dist/
