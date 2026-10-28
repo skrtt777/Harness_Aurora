@@ -60,30 +60,42 @@ export async function runClaudeAgent(prompt, { cwd, env = process.env, signal, t
  * same stdin-close safeguard) so both providers are interchangeable from
  * the caller's point of view.
  */
+// One text turn may take minutes: a big prompt (the agent's rules, a document) on a slow connection. At
+// 120 s every request of a Power BI at work was killed and looked cancelled (28/10).
+export const CLAUDE_TIMEOUT_MS = 300_000;
+
 export async function runClaude(prompt, env = process.env, signal) {
   if(env.HARNESS_PLATFORM==='quest')return remoteTeacher('claude',prompt,env,signal);
-  try {
-    const args = ["-p", "--output-format", "json", "--no-session-persistence"];
+  const timeoutMs = Number(env.CLAUDE_TIMEOUT_MS || CLAUDE_TIMEOUT_MS);
+  // Text only: the Harness runs the tools (app/chatAgent.js), so Claude Code's own are off (--tools ""),
+  // or it walks the Harness folder on its own and spends the time. An old CLI without --tools: once without.
+  const attempt = async (noTools) => {
+    const args = ["-p", "--output-format", "json", "--no-session-persistence", ...(noTools ? ["--tools", ""] : [])];
     if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);
     const cli = resolveCli("claude", env);
-    const result = await executeCli(cli.command, [...cli.prefix, ...args], {
+    return executeCli(cli.command, [...cli.prefix, ...args], {
       cwd: env.CLAUDE_CWD || process.cwd(),
       windowsHide: true,
       signal,
       env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
       input: prompt,
-      timeout: Number(env.CLAUDE_TIMEOUT_MS || 120_000),
+      timeout: timeoutMs,
     });
+  };
+  try {
+    const result = await attempt(true).catch((error) => (/unknown option|--tools/i.test(String(error.stderr || "")) ? attempt(false) : Promise.reject(error)));
     const parsed = parseClaudeOutput(result.stdout);
     if (!parsed.text.trim()) throw new Error("Claude retornou uma resposta vazia ou um erro.");
     return { ok: true, status: 200, ...parsed };
   } catch (error) {
     const detail = error.code === "ENOENT"
       ? "Claude Code CLI não encontrado. Instale o Claude Code e confirme que o comando claude está no PATH."
-      : error.killed
-        ? "O Claude Code CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
-        : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
+      : signal?.aborted
+        ? "Mensagem cancelada."
+        : error.killed
+          ? `O Claude não respondeu em ${Math.round(timeoutMs / 60_000)} minutos e foi interrompido (não foi você que cancelou). Tente de novo; se repetir, a conexão com o Claude pode estar lenta.`
+          : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }
 }

@@ -42,7 +42,11 @@ export function cellValue(text) {
 const COMPARE = { ">": (a, b) => a > b, ">=": (a, b) => a >= b, "<": (a, b) => a < b, "<=": (a, b) => a <= b };
 
 // Columns that hold codes, not quantities: never summed.
-const ID_COLUMN = /matr[ií]cula|c[óo]digo|^n[º°o.]|n[uú]mero|chamado|pedido|t[ií]tulo|documento|cpf|cnpj|^ano$|^id$|telefone|ramal|cep/i;
+const ID_WORDS = /matr[ií]cula|c[óo]digo|^n[º°o.]|n[uú]mero|chamado|pedido|t[ií]tulo|documento|cpf|cnpj|^ano$|^id$|telefone|ramal|cep/i;
+// Keys of a Power BI model too ("AccountSeq", "ProductID", "Cliente_Key"): adding them up means nothing.
+// Case matters here, or "Paid" and "Valid" would be keys.
+const KEY_NAME = /[a-z](?:Seq|ID|Id|Key|SK)$|[_ ](?:[Ii][Dd]|[Kk]ey|KEY|[Ss]eq|SEQ|SK)$/;
+const ID_COLUMN = { test: (name) => ID_WORDS.test(name) || KEY_NAME.test(String(name).trim()) };
 const brNumber = (n) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
 
 /**
@@ -1494,6 +1498,13 @@ export async function resolveExisting(path, ctx, { directory = false } = {}) {
   }
   const found = await findFilesByName(target, personalFolders(ctx), { limit: 3, signal: ctx.signal });
   if (found.length) return found[0];
+  // A table of a .pbix read before ("Regional Sales Sample - Opportunities.csv"), by its name alone:
+  // the 4B model miscopied the long path of the Harness folder (28/10).
+  if (/\.csv$/i.test(target)) {
+    const { pbixCacheDir } = await import("../pbixModel.js");
+    const [table] = await findFilesByName(target, [pbixCacheDir(ctx.env || process.env)], { limit: 1, signal: ctx.signal });
+    if (table) return table;
+  }
   // "Desvio Orçado x Realizado 2026.xlsx" for "Orçamento 2026 - Orçado x Realizado.xlsx": the
   // closest real name in the company folders, instead of a dead end the model retries.
   const close = await closestKnowledgeFile(target, ctx.knowledgeRoots || []);
@@ -1729,7 +1740,7 @@ export const fileTools = [
       if (/\.(accdb|mdb)$/i.test(file)) throw new Error(`${basename(file)} é um banco do Access: use access_db (action=tables para ver as tabelas, action=query com um SELECT).`);
       const office = EXTRACTED.has(extname(file).toLowerCase());
       if (!office && (await stat(file)).size > 5_000_000) throw new Error("Arquivo grande demais (mais de 5 MB).");
-      let lines = (office ? await extractText(file) : await readFile(file, "utf8")).split(/\r?\n/);
+      let lines = (office ? await extractText(file, { pbixData: true, signal: ctx.signal }) : await readFile(file, "utf8")).split(/\r?\n/);
       if (/\.(xlsx|xlsm)$/i.test(file)) lines = redactRestricted(lines, ctx.request, ctx.env);
       ctx.onFileRead?.(file);
       (ctx.readFiles ??= new Set()).add(file.toLowerCase());
@@ -1776,7 +1787,11 @@ export const fileTools = [
         (ctx.readSheets ??= new Set()).add(file.toLowerCase());
         ctx.lineKeys = lineKeysOf(rows);
         if (ctx.lastTable && requestsFile(ctx.request)) found += ROWS_TIP;
-        return found.length > READ_CHUNK ? `${found.slice(0, READ_CHUNK)}\n… (resultado grande: use um filtro mais específico ou combine condições com ";")` : found;
+        if (found.length <= READ_CHUNK) return found;
+        // Thousands of rows (a .pbix table, 28/10): the count and the sums came after the rows and were
+        // cut away, and the model answered it had no numbers. They go first.
+        const summary = found.split(/\r?\n/).filter((l) => /^Soma das \d+ linhas acima:|^\d+ linha\(s\) com "|^\((ATENÇÃO|Usei) /.test(l)).map((l) => l.replace(/^Soma das (\d+) linhas acima:/, "Soma das $1 linhas:"));
+        return `${summary.length ? `RESUMO de todas as linhas que batem (use estes números; a lista abaixo foi cortada):\n${summary.join("\n")}\n\n` : ""}${found.slice(0, READ_CHUNK)}\n… (lista cortada${summary.length ? ": a contagem e as somas estão no RESUMO acima" : ": use um filtro mais específico ou combine condições com \";\""})`;
       }
       ctx.lastFilteredCount = null;
       const start = Math.max(1, Number(offset) || 1);

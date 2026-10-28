@@ -102,9 +102,12 @@ export function pickBrief(request, briefs = loadBriefs()) {
   // A question about data ("quantos seguidores ela tem no TikTok?") is not a request to make a post.
   const makes = /\b(faz|faca|fazer|cria|crie|criar|escrev|redij|monta|monte|montar|prepar|elabor|gera|gere|gerar|manda|mande|preciso|quero|queria|gostaria|me ajuda|ajuda a|ajude|responde|responda|sugere|sugira|indica|indique|recomenda|ideia|melhor|vale a pena|comprar)/;
   if (!makes.test(text) && (/\?\s*$/.test(text) || /^\s*(quant|qual|quais|onde|quando|quem|cade)\b/.test(text))) return null;
+  // Reading a .pbix that exists is not building one: "leia o Regional Sales.pbix e me diga a receita"
+  // got the build briefing, and the agent went to build/connect instead of reading it (28/10).
+  const readsPbix = /\.pbix\b/.test(text) && !/\b(monta|monte|montar|cria|crie|criar|faz|faca|fazer|gera|gere|gerar|construa|construir|refaca|refazer)\b/.test(text);
   let best = null, bestScore = 0;
   for (const brief of briefs) {
-    if (hits(text, brief.avoid).length) continue;
+    if (hits(text, brief.avoid).length || (readsPbix && brief.name === "powerbi")) continue;
     const score = hits(text, brief.triggers).reduce((n, w) => n + 1 + w.split(" ").length, 0);
     if (score > bestScore) { best = brief; bestScore = score; }
   }

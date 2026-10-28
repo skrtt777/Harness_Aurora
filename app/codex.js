@@ -82,6 +82,9 @@ export async function runCodexAgent(prompt, { cwd, env = process.env, signal, ti
   }
 }
 
+// One text turn may take minutes (see app/claude.js): 120 s killed the Power BI requests at work (28/10).
+export const CODEX_TIMEOUT_MS = 300_000;
+
 /**
  * Runs one ephemeral Codex CLI turn and returns its final agent message.
  * Shared by chat responses and by the memory extractor, so both paths use
@@ -100,7 +103,7 @@ export async function runCodex(prompt, env = process.env, signal) {
       env: { ...process.env, ...env, ...(cli.runAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       maxBuffer: 8 * 1024 * 1024,
       input: prompt,
-      timeout: Number(env.CODEX_TIMEOUT_MS || 120_000),
+      timeout: Number(env.CODEX_TIMEOUT_MS || CODEX_TIMEOUT_MS),
     });
     const parsed = parseCodexOutput(result.stdout);
     if (!parsed.text.trim() || extractCodexError(result.stdout)) throw new Error(extractCodexError(result.stdout) || "Codex retornou uma resposta vazia ou inválida.");
@@ -111,8 +114,10 @@ export async function runCodex(prompt, env = process.env, signal) {
       ? "Codex CLI não encontrado. Instale o Codex e confirme que o comando codex está no PATH."
       : jsonError
         ? jsonError
+        : signal?.aborted
+          ? "Mensagem cancelada."
         : error.killed
-          ? "O Codex CLI demorou demais para responder e foi interrompido. Isso é comum na primeira execução (ex.: o Windows pode levar um tempo verificando o programa na primeira vez) — tente enviar a mensagem de novo."
+          ? `O Codex não respondeu em ${Math.round(Number(env.CODEX_TIMEOUT_MS || CODEX_TIMEOUT_MS) / 60_000)} minutos e foi interrompido (não foi você que cancelou). Tente de novo; se repetir, a conexão com o Codex pode estar lenta.`
           : error.stderr?.trim() || error.message || "Falha ao executar o Codex CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }

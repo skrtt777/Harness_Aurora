@@ -68,3 +68,10 @@ test("the person creates, edits, turns off and deletes briefings in the app's da
   assert.throws(() => deleteBrief("convite", env), /Só dá para apagar/);
   assert.equal(deleteBrief("cardapio-loja", env), null);
 });
+
+test("reading a .pbix that exists does not get the briefing that builds one", () => {
+  assert.equal(pickBrief("Leia o arquivo Regional Sales Sample.pbix e me diga a receita ganha"), null);
+  assert.equal(pickBrief("analise o painel.pbix"), null);
+  assert.equal(pickBrief("refaça o Vendas.pbix com tema escuro")?.name, "powerbi");
+  assert.equal(pickBrief("monte um power bi com a planilha vendas.xlsx")?.name, "powerbi");
+});

@@ -53,6 +53,7 @@ import { ATTACH_TEXT_EXTENSIONS, extractText, isDocument } from "./docText.js";
 import { BROWSER_BACKENDS, currentBrowserPage } from "./browserBackend.js";
 import { compactContext, rules, agentRules, codeRules, areaRules, topicRules } from "./economy.js";
 import { findReusableWorkflow } from "./workflows.js";
+import { filesNamedIn } from "./namedFiles.js";
 
 // A spreadsheet up to this size goes whole into the context when the automatic search finds it.
 const FULL_SHEET_CHARS = 12000;
@@ -202,7 +203,7 @@ export function teacherAsked(text, history = []) {
 }
 
 const ATTACH_CHARS = 5000;
-const OPENS_WITH = { ".pbix": "Power BI: powerbi action=open com o caminho (aí as tabelas e medidas podem ser consultadas)", ".pbip": "Power BI: powerbi action=open com o caminho", ".xls": "Excel: open com o caminho (formato antigo, sem leitura direta)", ".doc": "Word: open com o caminho (formato antigo, sem leitura direta)", ".ppt": "PowerPoint: open com o caminho (formato antigo, sem leitura direta)" };
+const OPENS_WITH = { ".pbix": "read_file com o caminho lê o modelo sem o Power BI (tabelas com os dados em CSV, medidas, páginas); powerbi action=open só para mudar o relatório no Power BI Desktop",".pbip": "Power BI: powerbi action=open com o caminho", ".xls": "Excel: open com o caminho (formato antigo, sem leitura direta)", ".doc": "Word: open com o caminho (formato antigo, sem leitura direta)", ".ppt": "PowerPoint: open com o caminho (formato antigo, sem leitura direta)" };
 /** What the Aurora knows of an attached file it cannot read as text: what it is, where, and how to use it. */
 async function fileCard(path, problem = "") {
   const info = await stat(path).catch(() => null);
@@ -407,7 +408,8 @@ export async function mentionedFiles(text, ctx, history = []) {
     const read = (last?.execution?.toolSteps || []).filter((s) => s.ok && s.tool === "read_file" && /\.(xlsx|xlsm|csv|tsv)$/i.test(String(s.args?.path || ""))).map((s) => String(s.args.path));
     if (read.length) earlier = [...new Set([read.at(-1), ...earlier])];
   }
-  const current = fileMentions(text);
+  // The project folder's files named in full, spaces and all ("o Regional Sales Sample.pbix"), first.
+  const current = [...(ctx.workspace ? await filesNamedIn(text, [ctx.workspace]) : []), ...fileMentions(text)];
   // "Minha planilha de gastos", "meu currículo", "o relatório final": a file described, not named.
   // The model searched for "mercado" (a word inside the sheet) and gave up (usage tests, 06/10).
   if (!current.length) current.push(...(await describedFiles(text, ctx)));
@@ -423,9 +425,11 @@ export async function mentionedFiles(text, ctx, history = []) {
       // Any other format (a .zip, a video, an old .xls) is no longer dropped in silence: the Aurora
       // learns what was attached and where, and can open it or move it (15/10: a .pbix vanished).
       const readable = isDocument(path) || ATTACH_TEXT_EXTENSIONS.has(extname(path).toLowerCase());
-      let body = readable ? await extractText(path).catch((e) => fileCard(path, e.message)) : await fileCard(path);
+      let body = readable ? await extractText(path, { pbixData: true }).catch((e) => fileCard(path, e.message)) : await fileCard(path);
       if (!body?.trim()) body = await fileCard(path, "nenhum texto encontrado");
-      files.push({ path, text: body.length > ATTACH_CHARS ? `${body.slice(0, ATTACH_CHARS)}\n… (continua; leia o restante com read_file e offset)` : body });
+      // A .pbix's model is the list of its tables and where their data is: room for it.
+      const room = /\.pbix$/i.test(path) ? 3 * ATTACH_CHARS : ATTACH_CHARS;
+      files.push({ path, text: body.length > room ? `${body.slice(0, room)}\n… (continua; leia o restante com read_file e offset)` : body });
     } catch { /* not a file the person has */ }
   }
   return files;

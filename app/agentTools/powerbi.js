@@ -3,7 +3,9 @@
 // undone if it fails). The engine is app/powerbi.js; the design, app/powerbiDesign.js.
 import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelNames, pbiRequest, rememberModel } from "../powerbi.js";
+import { REFRESH_MINUTES, buildReport, connectReport, connectedReport, modelNames, openReports, pbiRequest, rememberModel } from "../powerbi.js";
+import { extractText } from "../docText.js";
+import { filesNamedIn } from "../namedFiles.js";
 import { desktopRequest } from "../desktop.js";
 import { askedStyle, groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
@@ -221,6 +223,15 @@ export const powerBiTools = [
           r.plan.summary,
           `Diga à pessoa o plano: as páginas (${r.plan.plan.paginas.map((p) => p.nome).join(", ")}) e o que cada uma responde.`,
         ].join("\n") + NEXT;
+      }
+      // No Power BI Desktop open (a PC at work without it, 28/10): reading the .pbix the person named
+      // answers instead of a dead end the agent walked around for a minute.
+      if (["connect", "model", "query"].includes(action) && !connectedReport(conversation) && !(await openReports().catch(() => [])).length) {
+        const [pbix] = await filesNamedIn(ctx.request, [ctx.workspace, ...(ctx.workspaceRoots || [])], { exts: [".pbix"], limit: 1 });
+        if (!pbix) throw new Error("Não há nenhum Power BI Desktop aberto. Para ler um .pbix sem o Power BI, use read_file com o caminho do arquivo; para mudar um relatório, abra-o no Power BI Desktop.");
+        const text = await extractText(pbix, { pbixData: true, signal: ctx.signal });
+        (ctx.readFiles ??= new Set()).add(pbix.toLowerCase());
+        return `O Power BI Desktop não está aberto: li o arquivo ${pbix} direto.\n${text.slice(0, 15000)}${text.length > 15000 ? `\n… (continua: read_file "${pbix}" com offset)` : ""}`;
       }
       if (action === "connect") {
         const c = await connectReport(conversation, args.window);

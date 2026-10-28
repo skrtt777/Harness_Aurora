@@ -152,16 +152,68 @@ export function pptxText(buffer) {
 /** The UTF-16 JSON inside Power BI files (Report/Layout, DataModelSchema), with or without a BOM. */
 const utf16Json = (buffer) => JSON.parse((buffer[0] === 0xff && buffer[1] === 0xfe ? buffer.subarray(2) : buffer).toString("utf16le").replace(/^﻿/, ""));
 
+/** A field of a visual: Tabela[Coluna] or Tabela[Medida]; an aggregation or anything else by its queryRef. */
+function pbiField(projection) {
+  const f = projection?.field || {};
+  const named = f.Column || f.Measure || f.Aggregation?.Expression?.Column || f.HierarchyLevel?.Expression?.Hierarchy;
+  const entity = named?.Expression?.SourceRef?.Entity;
+  const property = named?.Property || f.HierarchyLevel?.Level;
+  const agg = f.Aggregation ? ["Soma", "Média", "Contagem", "Mínimo", "Máximo", "Contagem distinta"][f.Aggregation.Function] : null;
+  if (entity && property) return `${agg ? `${agg} de ` : ""}${entity}[${property}]`;
+  return projection?.nativeQueryRef || projection?.queryRef || null;
+}
+const literal = (v) => (typeof v === "string" ? v.replace(/^'|'$/g, "") : null);
+
 /**
- * What a Power BI file says without opening Power BI: the report's pages and their visuals
- * (Report/Layout) and, in a .pbit, the model's tables, columns, measures with their DAX and the
- * relationships (DataModelSchema). A .pbix keeps the model compressed in a binary DataModel, so
- * its tables and measures need the file opened in Power BI Desktop (the powerbi tool).
+ * The report in the enhanced format (PBIR, the default of Power BI Desktop since 2025): one page.json
+ * per page and one visual.json per visual under Report/definition. The old reader only knew
+ * Report/Layout and saw no page at all in these files (28/10).
  */
-export function pbiText(buffer) {
+function pbirPages(zip) {
+  const read = (name) => JSON.parse(zip.get(name)().toString("utf8").replace(/^﻿/, ""));
+  const names = [...zip.keys()];
+  const order = zip.has("Report/definition/pages/pages.json") ? read("Report/definition/pages/pages.json").pageOrder || [] : [];
+  const pages = [...new Set(names.map((n) => /^Report\/definition\/pages\/([^/]+)\/page\.json$/.exec(n)?.[1]).filter(Boolean))]
+    .sort((a, b) => (order.indexOf(a) + 1 || 1e9) - (order.indexOf(b) + 1 || 1e9));
+  return pages.map((id) => {
+    const page = read(`Report/definition/pages/${id}/page.json`);
+    const visuals = names.filter((n) => n.startsWith(`Report/definition/pages/${id}/visuals/`) && n.endsWith("/visual.json")).map((n) => {
+      try {
+        const v = read(n).visual || {};
+        const title = literal(v.visualContainerObjects?.title?.[0]?.properties?.text?.expr?.Literal?.Value);
+        const fields = Object.values(v.query?.queryState || {}).flatMap((role) => (role.projections || []).map(pbiField)).filter(Boolean);
+        return { type: v.visualType, title, fields: [...new Set(fields)] };
+      } catch { return null; }
+    }).filter((v) => v?.type);
+    return { name: page.displayName || page.name || id, visuals };
+  });
+}
+/** The legacy report (Report/Layout): pages, visuals, titles and the fields each one shows. */
+function layoutPages(zip) {
+  return (utf16Json(zip.get("Report/Layout")()).sections || []).map((s) => ({
+    name: s.displayName || s.name,
+    visuals: (s.visualContainers || []).map((v) => {
+      try {
+        const single = JSON.parse(v.config || "{}").singleVisual || {};
+        const title = literal(single.vcObjects?.title?.[0]?.properties?.text?.expr?.Literal?.Value);
+        const fields = (single.prototypeQuery?.Select || []).map((s_) => s_.NativeReferenceName || s_.Name).filter(Boolean);
+        return single.visualType ? { type: single.visualType, title, fields: [...new Set(fields)] } : null;
+      } catch { return null; }
+    }).filter(Boolean),
+  }));
+}
+
+/**
+ * What a Power BI file says without opening Power BI: the report's pages and their visuals with the
+ * fields they show (Report/Layout, or Report/definition in the enhanced format) and the model: in a
+ * .pbit its tables, columns, measures with their DAX and the relationships (DataModelSchema); in a
+ * .pbix it is compressed in a binary DataModel, read by app/pbixModel.js when `model` is given.
+ */
+export function pbiText(buffer, model = null, modelText = null) {
   const zip = readZip(buffer);
   const out = [];
-  if (zip.has("DataModelSchema")) {
+  if (model && modelText) out.push(modelText(model));
+  else if (zip.has("DataModelSchema")) {
     const model = utf16Json(zip.get("DataModelSchema")()).model || {};
     const tables = (model.tables || []).filter((t) => !/^(DateTableTemplate|LocalDateTable)_/.test(t.name));
     out.push(`## Modelo de dados (${tables.length} tabelas)`);
@@ -175,18 +227,13 @@ export function pbiText(buffer) {
   } else {
     out.push("O modelo de dados (tabelas e medidas) de um .pbix fica compactado: para consultá-lo, abra o arquivo no Power BI Desktop com a ferramenta powerbi (action=open).");
   }
-  if (zip.has("Report/Layout")) {
-    const sections = utf16Json(zip.get("Report/Layout")()).sections || [];
-    out.push(`## Relatório (${sections.length} páginas)`);
-    for (const s of sections) {
-      const visuals = (s.visualContainers || []).map((v) => {
-        try {
-          const single = JSON.parse(v.config || "{}").singleVisual || {};
-          const title = single.vcObjects?.title?.[0]?.properties?.text?.expr?.Literal?.Value?.replace(/^'|'$/g, "");
-          return title ? `${single.visualType} "${title}"` : single.visualType;
-        } catch { return null; }
-      }).filter(Boolean);
-      out.push(`### ${s.displayName || s.name}${visuals.length ? `\nVisuais: ${visuals.join(", ")}` : ""}`);
+  const pages = zip.has("Report/Layout") ? layoutPages(zip) : [...zip.keys()].some((n) => n.startsWith("Report/definition/pages/")) ? pbirPages(zip) : [];
+  if (pages.length) {
+    out.push(`## Relatório (${pages.length} páginas)`);
+    for (const p of pages) {
+      // The decoration (shapes, logos, labels, page buttons) says nothing about the data.
+      const visuals = p.visuals.filter((v) => !/^(shape|image|textbox|actionButton|basicShape|pageNavigator|bookmarkNavigator)$/i.test(v.type));
+      out.push(`### ${p.name}${visuals.length ? `\n${visuals.map((v) => `- ${v.type}${v.title ? ` "${v.title}"` : ""}${v.fields.length ? `: ${v.fields.join(", ")}` : ""}`).join("\n")}` : ""}`);
     }
   }
   return out.join("\n");
@@ -263,7 +310,7 @@ export function isDocument(path) {
  * Text of any supported document; throws for unsupported or oversized files.
  * `ocr` (image Buffer → text) reads scans and images; `false` turns it off.
  */
-export async function extractText(path, { ocr = defaultOcr, signal } = {}) {
+export async function extractText(path, { ocr = defaultOcr, signal, pbixData = false } = {}) {
   const ext = extname(path).toLowerCase();
   if (!DOC_EXTENSIONS.has(ext) && !ATTACH_TEXT_EXTENSIONS.has(ext)) throw new Error(`Formato ${ext || "sem extensão"} não suportado.`);
   // A .pbix carries its data: only the report's layout is unpacked, so a bigger file is fine.
@@ -273,7 +320,17 @@ export async function extractText(path, { ocr = defaultOcr, signal } = {}) {
   let text;
   if (ext === ".docx") text = docxText(buffer);
   else if (ext === ".xlsx" || ext === ".xlsm") text = xlsxText(buffer);
-  else if (ext === ".pbix" || ext === ".pbit") text = pbiText(buffer);
+  else if (ext === ".pbix" || ext === ".pbit") {
+    // A .pbix's model (tables with data, measures) unpacked without Power BI: only where someone asked
+    // to read it (read_file, an attached file), never while indexing folders (it may install Python).
+    let model = null, why = "";
+    if (pbixData && ext === ".pbix") {
+      const reader = await import("./pbixModel.js");
+      model = await reader.pbixModel(path, { signal }).catch((error) => { why = String(error.stderr || error.message || "").trim().split(/\r?\n/).pop(); return null; });
+      text = pbiText(buffer, model, reader.pbixModelText);
+    } else text = pbiText(buffer);
+    if (pbixData && ext === ".pbix" && !model && why) text += `\n(Não consegui ler os dados do modelo sem o Power BI: ${why.slice(0, 200)}.)`;
+  }
   else if (ext === ".pptx") text = pptxText(buffer);
   else if (ext === ".pdf") text = await pdfText(buffer, { ocr: ocr || undefined, signal });
   else if (IMAGE_EXTENSIONS.has(ext)) {

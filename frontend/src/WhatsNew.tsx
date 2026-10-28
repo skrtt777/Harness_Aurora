@@ -8,6 +8,14 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.57': {
+    title: 'Power BI lido de verdade e modelos pagos sem cair',
+    items: [
+      ['Qualquer .pbix, sem o Power BI', 'A Aurora lê o arquivo direto: as tabelas com todos os dados, as medidas com o DAX, as relações e as páginas do relatório (inclusive no formato novo do Power BI). Não precisa ter o Power BI Desktop aberto, nem instalado. Na primeira vez ela prepara o leitor (cerca de 15 segundos).'],
+      ['Números do BI com prova', 'Receita, quantidades e totais por categoria saem das tabelas do arquivo, contados pela ferramenta, nunca de cabeça.'],
+      ['Claude e Codex sem cancelar', 'Pedidos grandes não são mais interrompidos aos 2 minutos: agora eles têm até 5 minutos por etapa. Se mesmo assim demorar demais, a mensagem diz que foi o tempo, não você.'],
+    ],
+  },
   '0.1.56': {
     title: 'A Aurora no VS Code',
     items: [
