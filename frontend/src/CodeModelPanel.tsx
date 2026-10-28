@@ -53,7 +53,7 @@ export default function CodeModelPanel() {
       </label>
       <label className={status.profile === 'forte' ? 'on' : ''}>
         <input type="radio" name="code-profile" checked={status.profile === 'forte'} disabled={!strong.installed} onChange={() => act(() => setCodeModel({ profile: 'forte' }))} />
-        <span><b>Forte</b><small>{strong.installed ? 'Qwen3-Coder 30B-A3B no Ctrl+I e nas sugestões: código mais certo. Usa a placa de vídeo no que couber e a RAM no resto.' : 'Baixe o modelo forte abaixo para escolher.'}</small></span>
+        <span><b>Forte</b><small>{strong.installed ? 'Qwen3-Coder 30B-A3B no Ctrl+I: código mais certo (as sugestões continuam no coder pequeno, que é mais rápido). Usa a placa de vídeo no que couber e a RAM no resto.' : 'Baixe o modelo forte abaixo para escolher.'}</small></span>
       </label>
     </div>
     {row('fim', fim, 'Autocompletar mais preciso', 'Sugestões em cinza mais certas e mais rápidas no perfil Padrão (medido: 77% → 87% de acerto, 0,5 s → 0,13 s).',

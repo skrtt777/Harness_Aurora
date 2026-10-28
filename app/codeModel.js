@@ -3,7 +3,9 @@
 //   the gray suggestion, with the prompt cache reused from one keystroke to the next (--cache-reuse, as
 //   llama.vscode does). Measured on 27/10 (scripts/code-bench.mjs): 77% → 87% right, 475 → 132 ms.
 // - "strong": Qwen3-Coder-30B-A3B Instruct (Apache 2.0, 17.7 GB; a mixture of experts with 3B active per
-//   token), for Ctrl+I and the gray suggestion when the person picks the "Forte" profile. --fit puts in
+//   token), for Ctrl+I when the person picks the "Forte" profile (suggestions stay on the small coder,
+//   which matched it there and is faster). AURORA_STRONG_CODE_MODEL may point to another GGUF to compare
+//   candidates (scripts/code-bench.mjs). --fit puts in
 //   the video card what fits and leaves the rest of the experts in RAM (the idea of colibri, 28/10).
 // The profile (settings code_model_profile) is "padrao" by default: the small coder for suggestions and
 // the chat model for Ctrl+I. A model not downloaded, or one that does not start, falls back to that.
@@ -61,17 +63,20 @@ let idle = null;
 
 /**
  * Which model answers a role now: "fim" (the gray suggestion) or "edit" (Ctrl+I). { model, path } or
- * null (the chat model answers). The "forte" profile uses the strong model for both; "padrao" the small
- * coder for "fim" and nothing for "edit".
+ * null (the chat model answers). "fim" is always the small coder; "edit" is the strong model in the
+ * "forte" profile and nothing (the chat model) in "padrao".
  */
 export async function modelFor(role, env = process.env) {
   if (env.AURORA_CODE_MODEL === "off") return null;
   const s = await settings(env);
-  if (s.profile === "forte") {
+  // The strong model only for Ctrl+I: in the gray suggestion the 1.5B coder matched it (28/10: 93–100%
+  // against 88–98%) and answers faster (130 against 190 ms), so suggestions stay on the small one.
+  if (role === "edit") {
+    if (s.profile !== "forte") return null;
     const path = codeModelPath(env, s.dir, CODE_MODELS.strong);
-    if (path) return { model: CODE_MODELS.strong, path };
+    return path ? { model: CODE_MODELS.strong, path } : null;
   }
-  if (role !== "fim" || (!s.enabled && !env.AURORA_CODE_MODEL)) return null;
+  if (!s.enabled && !env.AURORA_CODE_MODEL) return null;
   const path = codeModelPath(env, s.dir, CODE_MODELS.fim);
   return path ? { model: CODE_MODELS.fim, path } : null;
 }
@@ -137,7 +142,7 @@ export function codeServerInfo(id = "fim") {
 export async function runOnCodeModel(baseUrl, prompt, { temperature = 0, maxTokens = 2048, signal } = {}) {
   const started = Date.now();
   try {
-    const r = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature, max_tokens: maxTokens, cache_prompt: true }) });
+    const r = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature, max_tokens: maxTokens, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: d.error?.message || `Modelo de código: HTTP ${r.status}` };
     return { ok: true, text: String(d.choices?.[0]?.message?.content || ""), metrics: { wallMs: Date.now() - started, model: CODE_MODELS.strong.name } };
