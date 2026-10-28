@@ -28,7 +28,7 @@ export const CODE_MODELS = {
   strong: {
     id: "strong", file: "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
     url: "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
-    sha256: "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533", bytes: 17670000000,
+    sha256: "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533", bytes: 17665334432,
     license: "Apache-2.0", name: "Qwen3-Coder 30B-A3B", env: "AURORA_STRONG_CODE_MODEL", port: 18183,
     // --fit: as many layers and experts on the card as fit with 1.5 GB to spare; the rest in RAM.
     args: ["--jinja", "-np", "2", "-c", "32768", "-fa", "on", "--cache-reuse", "256", "--fit", "on", "--fit-target", "1536"], gpuArgs: [],
