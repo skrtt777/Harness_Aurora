@@ -28,7 +28,9 @@ const only = arg("so", "");
 const ids = arg("casos", "") ? new Set(arg("casos").split(",")) : null;
 const times = Number(arg("vezes", 1));
 const model = await resolveLocalModel();
-const server = await ensureLlamaServer({ model, contextTokens: 16384 }).catch(() => null);
+// The chat model's llama-server only when Ctrl+I uses it (the "forte" profile does not: 5 GB less, 28/10 the run
+// with both was stopped for want of memory on a 32 GB PC).
+const server = process.env.AURORA_CODE_PROFILE === "forte" ? null : await ensureLlamaServer({ model, contextTokens: 16384 }).catch(() => null);
 // The code model of the gray suggestion (app/codeModel.js), when AURORA_CODE_MODEL points to it.
 // AURORA_CODE_PROFILE=forte with AURORA_STRONG_CODE_MODEL: the 30B-A3B coder for both.
 const { ensureCodeServer, stopCodeServer, modelFor } = await import("../app/codeModel.js");
