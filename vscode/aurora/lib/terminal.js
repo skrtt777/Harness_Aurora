@@ -42,11 +42,13 @@ function watchTerminal(context) {
   return {
     onDidChange: changed.event,
     runs: () => runs.slice(),
-    /** The last command, when it failed in the last 15 minutes and nothing ran well after it. */
+    /** The last command, when it failed in the last 15 minutes, nothing ran after it and it was not sent yet. */
     lastFailure() {
       const last = runs.at(-1);
-      return last && typeof last.exitCode === "number" && last.exitCode !== 0 && Date.now() - last.at < FRESH_MS ? last : null;
+      return last && !last.sent && typeof last.exitCode === "number" && last.exitCode !== 0 && Date.now() - last.at < FRESH_MS ? last : null;
     },
+    /** The failure went with a message: it does not go again (a later /revisar is not about it). */
+    consume() { const last = runs.at(-1); if (last) { last.sent = true; changed.fire(last); } },
     /** For tests: a run as if the terminal had finished it. */
     record(run) { runs.push({ at: Date.now(), output: "", cwd: "", ...run }); changed.fire(runs.at(-1)); },
   };

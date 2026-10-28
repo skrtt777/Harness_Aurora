@@ -106,9 +106,19 @@ test("autocompletar: what the model wrote, as the editor inserts it", () => {
   // Seen in VS Code: the cursor after "return 0;": the suggestion goes on the next line, not glued.
   assert.equal(cleanCompletion("\n  const total = numeros.reduce((t, n) => t + n, 0);", { prefix: "  if (!numeros.length) return 0;", suffix: "\n  const total = \n" }), "\n  const total = numeros.reduce((t, n) => t + n, 0);");
   assert.equal(cleanCompletion(" // fim", { prefix: "  return 0;", suffix: "\n}" }), "");
+  // Seen in the usage scenarios: the suggestion ran past the function ("def main():") and closed the caller's block.
+  assert.equal(cleanCompletion("return n * fatorial(n - 1)\ndef main():\n    print(fatorial(5))", { prefix: "def fatorial(n):\n    if n <= 1:\n        return 1\n    ", suffix: "\n" }), "return n * fatorial(n - 1)");
+  assert.equal(cleanCompletion("res.end('ok');\n});\nconsole.log('rodando');", { prefix: "http.createServer((req, res) => {\n  res.writeHead(200);\n  ", suffix: "\n}).listen(3000);\n" }), "res.end('ok');");
   // A first line that opens a block goes on; the closing line that already follows does not repeat.
-  assert.equal(cleanCompletion("() => {\n  res.json({ ok: true });\n});", { prefix: "app.get('/saude', ", suffix: "\n\napp.listen(3000);\n" }), "() => {\n  res.json({ ok: true });\n});");
-  assert.equal(cleanCompletion("for (const n of lista) {\n    total += n;\n  }", { prefix: "  ", suffix: "\n  }\n  return total;\n}" }), "for (const n of lista) {\n    total += n;");
+  assert.equal(cleanCompletion("() => {\n  res.json({ ok: true });\n});", { prefix: "app.get('/saude', ", suffix: "\n\napp.listen(3000);\n", target: -1 }), "() => {\n  res.json({ ok: true });\n});");
+  assert.equal(cleanCompletion("for (const n of lista) {\n    total += n;\n  }", { prefix: "  ", suffix: "\n  }\n  return total;\n}" }), "for (const n of lista) {\n    total += n;\n  }");
+  // Its own block closed, the extra "}" that the code below already has is not.
+  assert.equal(cleanCompletion("if (x > m) {\n      m = x;\n    }\n  }\n}\n", { prefix: "function maior(v) {\n  let m = v[0];\n  for (const x of v) {\n    ", suffix: "\n  }\n  return m;\n}\n", language: "javascript" }), "if (x > m) {\n      m = x;\n    }");
+  // Text after the cursor: ")" of the model's own call kept, the ");" already there not repeated.
+  assert.equal(cleanCompletion(" setTimeout(resolve, ms));", { prefix: "const esperar = (ms) => new Promise((resolve) =>", suffix: ");\n" }), " setTimeout(resolve, ms)");
+  assert.equal(cleanCompletion(" nome, email\n", { prefix: "  return { ", suffix: " };\n}\n" }), " nome, email");
+  // Cut by the token limit: only the half line goes.
+  assert.equal(cleanCompletion("x for x in xs if x % 2 == 0]\n    # return [x for", { prefix: "def pares(xs):\n    return [", suffix: "]\n", truncated: true, language: "python" }), "x for x in xs if x % 2 == 0");
 });
 
 test("autocompletar: the fill-in-the-middle prompt and the line limits", async () => {
@@ -118,9 +128,9 @@ test("autocompletar: the fill-in-the-middle prompt and the line limits", async (
   assert.equal(r.text, "a + b;");
   assert.ok(seen[0].prompt.startsWith("<|fim_prefix|><|file_sep|>src/s.js\nfunction s(a, b) {"));
   assert.ok(seen[0].prompt.endsWith("<|fim_suffix|>\n}\n<|fim_middle|>"));
-  assert.equal(seen[0].opts.maxTokens, 96, "nothing after the cursor on the line: several lines");
+  assert.equal(seen[0].opts.maxTokens, 128, "nothing after the cursor on the line: several lines");
   await completeCode({ prefix: "foo(", suffix: ")\n", file: "" }, { generate });
-  assert.equal(seen[1].opts.maxTokens, 40, "text after the cursor: one line");
+  assert.equal(seen[1].opts.maxTokens, 48, "text after the cursor: one line");
   assert.deepEqual(await completeCode({ prefix: "   ", suffix: "" }, { generate }), { text: "", ms: 0 });
   assert.equal(seen.length, 2, "an empty file is not sent");
 });
@@ -132,14 +142,14 @@ test("Ctrl+I: the snippet back as code only, without the lines around it", async
   const r = await editCode({ instruction: "trate lista vazia", selection: "function soma(lista) {\n  return lista.reduce((a, b) => a + b);\n}", before: "// util\n", after: "\nmodule.exports = { soma };\n", language: "javascript", file: "util.js" }, { run });
   assert.equal(r.code, "function soma(lista) {\n  if (!lista.length) return 0;\n  return lista.reduce((a, b) => a + b, 0);\n}");
   assert.match(answers[0].prompt, /Pedido: trate lista vazia/);
-  assert.equal(answers[0].env.LOCAL_TEMPERATURE, "0.2");
+  assert.equal(answers[0].env.LOCAL_TEMPERATURE, "0");
   // Indentation of the selection kept when the model lost it.
   answers.reply = "```\nreturn x * 2;\n```";
   assert.equal((await editCode({ instruction: "dobre", selection: "    return x;", before: "", after: "" }, { run })).code, "    return x * 2;");
   // Nothing selected: the code for the cursor (the prompt says so).
   answers.reply = "const ok = true;";
   assert.equal((await editCode({ instruction: "uma constante", before: "a\n", after: "b\n" }, { run })).code, "const ok = true;");
-  assert.match(answers.at(-1).prompt, /<CURSOR>/);
+  assert.match(answers.find((a) => a.prompt.includes("Pedido: uma constante")).prompt, /<CURSOR>/);
   await assert.rejects(editCode({ instruction: "  " }, { run }), /Diga o que mudar/);
   await assert.rejects(editCode({ instruction: "x" }, { run: async () => ({ ok: false, error: "sem modelo" }) }), /sem modelo/);
   assert.equal(codeOf("<think>hm</think>```py\nprint(1)\n```"), "print(1)");
@@ -163,4 +173,31 @@ test("Editor de código: the bundled .vsix, the version an editor has, and when 
   const s = await vscodeStatus({ env: { AURORA_VSIX: out, LOCALAPPDATA: join(tmpdir(), "nada"), ProgramFiles: join(tmpdir(), "nada") }, run: async (...a) => { ran.push(a); return { ok: true, stdout: "" }; } });
   assert.deepEqual(s.editors, []);
   assert.equal(ran.length, 0);
+});
+
+test("Ctrl+I: the selection widened to whole blocks before it goes to the model", () => {
+  const { widenToBlock, balanceOf } = require("../vscode/aurora/lib/blocks.js");
+  const js = ["// total", "function total(vendas) {", "  const t = {};", "  for (const v of vendas) {", "    t[v.n] = (t[v.n] || 0) + v.valor;", "  }", "  return t;", "}", "", "module.exports = { total };"];
+  // Lines 1-6 (without the function's "}"): the closing line comes too.
+  assert.deepEqual(widenToBlock(js, 1, 7), [1, 8]);
+  // A balanced selection stays as it is.
+  assert.deepEqual(widenToBlock(js, 3, 6), [3, 6]);
+  // Only the inside of the loop and its "}": the "for" line above comes too.
+  assert.deepEqual(widenToBlock(js, 4, 6), [3, 6]);
+  // Brackets inside strings and comments do not count.
+  assert.equal(balanceOf("const s = '{'; // }"), 0);
+  assert.equal(balanceOf("if (x) {"), 1);
+  const py = ["def media(xs):", "    if not xs:", "        return 0", "    return sum(xs) / len(xs)", "", "", "def outra():", "    pass"];
+  assert.deepEqual(widenToBlock(py, 0, 2, { language: "python" }), [0, 4]);
+  assert.deepEqual(widenToBlock(py, 3, 4, { language: "python" }), [3, 4]);
+});
+
+test("Ctrl+I: lines copied from after the selection are cut, a new inner block is kept", async () => {
+  const run = (reply) => async () => ({ ok: true, text: reply, metrics: {} });
+  const sel = "function total(vendas) {\n  return vendas.reduce((s, v) => s + v.valor, 0);\n}";
+  const after = "\nfunction outra() {}\n\nmodule.exports = { total };\n";
+  const r = await editCode({ instruction: "ignore sem valor", selection: sel, before: "", after }, { run: run("```js\nfunction total(vendas) {\n  return vendas.filter((v) => v.valor).reduce((s, v) => s + v.valor, 0);\n}\n\nmodule.exports = { total };\n```") });
+  assert.equal(r.code, "function total(vendas) {\n  return vendas.filter((v) => v.valor).reduce((s, v) => s + v.valor, 0);\n}");
+  const inner = await editCode({ instruction: "só se positivo", selection: "  total += x;", before: "for (const x of xs) {\n", after: "}\n" }, { run: run("```js\n  if (x > 0) {\n    total += x;\n  }\n```") });
+  assert.equal(inner.code, "  if (x > 0) {\n    total += x;\n  }");
 });

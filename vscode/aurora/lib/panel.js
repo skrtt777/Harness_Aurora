@@ -150,6 +150,7 @@ class AuroraPanel {
     try {
       this.conversationId ||= await ws.conversationFor(this.context, harness);
       const ctx = await ws.editorContext({ command, use: this.use, terminal: this.terminal });
+      if (ctx.terminal) this.terminal.consume();
       if (command === "revisar" && !ctx.diff) { this.post({ type: "notice", text: "Não há mudanças para revisar (o git diff está vazio, ou a pasta não é um repositório git)." }); return; }
       this.post({ type: "sent", text, context: { file: ctx.file ? ws.short(ctx.file) : null, lines: ctx.selectionRange, problems: ctx.problems.length, terminal: ctx.terminal?.command || null } });
       const result = await harness.send(this.conversationId, composeMessage(commandPrompt(command, prompt), ctx), {

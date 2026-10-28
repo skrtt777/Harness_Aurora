@@ -82,7 +82,8 @@ async function editorContext({ command = "", references = [], use = {}, terminal
   // /corrigir looks at the whole workspace; otherwise the open file's problems.
   const problems = !on("problems") ? [] : command === "corrigir" ? problemsOf() : doc ? problemsOf(doc.uri) : [];
   const folder = folderOf();
-  const failed = on("terminal") ? terminal?.lastFailure?.() : null;
+  // The terminal's failure goes with a fix or a plain request, not with explaining, reviewing or tests.
+  const failed = on("terminal") && !["explicar", "revisar", "testes"].includes(command) ? terminal?.lastFailure?.() : null;
   return {
     file: doc ? doc.uri.fsPath : null,
     selection: sel ? editor.document.getText(sel) : "",

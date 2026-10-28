@@ -44,7 +44,7 @@ function statusBar(context, terminal) {
   const timer = setInterval(show, 20000);
   context.subscriptions.push(item, { dispose: () => clearInterval(timer) });
   context.subscriptions.push(terminal.onDidChange((run) => {
-    failure = run.exitCode && run.exitCode !== 0 ? run : null;
+    failure = run.exitCode && run.exitCode !== 0 && !run.sent ? run : null;
     show();
     if (failure) setTimeout(() => { if (failure === run) { failure = null; show(); } }, 90_000);
   }));
@@ -81,6 +81,7 @@ function registerParticipant(context, status, terminal) {
         if (!request.prompt.trim()) { stream.markdown("Conversa nova com a Aurora começada. Pode pedir."); return {}; }
       } else conversationId = await ws.conversationFor(context, harness);
       const ctx = await ws.editorContext({ command: request.command, references: request.references || [], terminal, use: { terminal: request.command === "corrigir" } });
+      if (ctx.terminal) terminal.consume();
       if (request.command === "revisar" && !ctx.diff) { stream.markdown("Não há mudanças para revisar (o `git diff` está vazio, ou a pasta não é um repositório git)."); return {}; }
       if (request.command === "corrigir" && !ctx.problems.length && !ctx.selection && !ctx.terminal && !request.prompt.trim()) { stream.markdown("O painel Problemas está vazio. Selecione o trecho com defeito ou diga o que está errado: `@aurora /corrigir o botão não salva`."); return {}; }
       stream.progress("A Aurora está pensando…");

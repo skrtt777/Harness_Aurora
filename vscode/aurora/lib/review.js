@@ -6,6 +6,7 @@
 "use strict";
 const vscode = require("vscode");
 const { diffLines, countText } = require("./diff");
+const { widenToBlock } = require("./blocks");
 
 const reviews = new Map();      // document uri -> Review
 const changed = new vscode.EventEmitter();
@@ -167,9 +168,12 @@ async function inlineEdit({ client, ensureHarness, instruction = null } = {}) {
   });
   if (!ask?.trim()) return;
   if (!(await ensureHarness())) { vscode.window.showWarningMessage("O Harness Aurora está fechado: abra-o para editar com a Aurora."); return; }
-  // The lines that go: the selection, or the blank line under the cursor (or none: insert below it).
-  const regionStart = hasSelection ? startLine : cursorBlank ? sel.active.line : sel.active.line + 1;
-  const regionEnd = hasSelection ? endLine : cursorBlank ? sel.active.line + 1 : sel.active.line + 1;
+  // The lines that go: the selection widened to whole blocks, or the blank line under the cursor (or
+  // none: insert below it).
+  const all = Array.from({ length: doc.lineCount }, (_, k) => doc.lineAt(k).text);
+  const [wideStart, wideEnd] = hasSelection ? widenToBlock(all, startLine, endLine, { language: doc.languageId }) : [0, 0];
+  const regionStart = hasSelection ? wideStart : cursorBlank ? sel.active.line : sel.active.line + 1;
+  const regionEnd = hasSelection ? wideEnd : cursorBlank ? sel.active.line + 1 : sel.active.line + 1;
   const oldLines = regionEnd > regionStart ? Array.from({ length: regionEnd - regionStart }, (_, k) => doc.lineAt(regionStart + k).text) : [];
   const before = doc.getText(new vscode.Range(0, 0, regionStart, 0));
   const after = regionEnd < doc.lineCount ? doc.getText(new vscode.Range(regionEnd, 0, doc.lineCount, 0)) : "";

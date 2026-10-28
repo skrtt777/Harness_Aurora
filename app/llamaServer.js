@@ -133,14 +133,14 @@ export function chatTemplateFor(blob, { read = ggufStrings, dir = TEMPLATES_DIR,
   return { args: [], arch, missing: true };
 }
 
-const bin = (libDir) => join(libDir, process.platform === "win32" ? "llama-server.exe" : "llama-server");
-const serverEnv = (libDir, dir) => ({ ...process.env, PATH: [dir, libDir, process.env.PATH].join(process.platform === "win32" ? ";" : ":") });
+export const bin = (libDir) => join(libDir, process.platform === "win32" ? "llama-server.exe" : "llama-server");
+export const serverEnv = (libDir, dir) => ({ ...process.env, PATH: [dir, libDir, process.env.PATH].join(process.platform === "win32" ? ";" : ":") });
 
 function listDevices(libDir, dir) {
   return new Promise((resolve) => execFile(bin(libDir), ["--list-devices"], { cwd: dir, env: serverEnv(libDir, dir), timeout: 20_000, windowsHide: true }, (error, stdout, stderr) => resolve(`${stdout}${stderr}`)));
 }
 
-async function waitHealthy(baseUrl, child, timeoutMs = 120_000) {
+export async function waitHealthy(baseUrl, child, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) return false;

@@ -224,6 +224,12 @@ test("only asked to read or explain: changing a file asks first (a downloaded fi
   assert.equal(onlyReading("resuma o contrato pra mim"), true);
   assert.equal(onlyReading("leia a planilha e salve um resumo em Word"), false);
   assert.equal(onlyReading("organize a pasta Downloads"), false);
+  // VS Code /revisar and /explicar (27/10): "não mude", "as mudanças" and "o que faz" are not orders to change,
+  // and the code/diff attached by VS Code is not the person's words.
+  assert.equal(onlyReading("Revise as mudanças abaixo (git diff): aponte bugs, riscos e o que falta (testes, casos de erro), do mais grave ao menos, com arquivo e linha. Não mude arquivos.\n\n[Contexto do VS Code]\nMudanças ainda não commitadas (git diff):\n```diff\n+ salvar(arquivo)\n```"), true);
+  assert.equal(onlyReading("Explique o trecho selecionado (ou o arquivo aberto): o que faz, como funciona por partes e o que pode dar errado. Não mude nenhum arquivo."), true);
+  assert.equal(onlyReading("revise e corrija o arquivo"), false);
+  assert.equal(onlyReading("explique e depois mude a porta para 8080"), false);
   assert.equal(onlyReading("crie uma planilha com os gastos"), false);
   assert.equal(onlyReading(""), false);
   const write = { kind: "write", paths: [join(workspace, "promo.txt")] };

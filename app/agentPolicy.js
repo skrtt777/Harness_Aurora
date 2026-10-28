@@ -72,10 +72,13 @@ export function matchesAlwaysAllow(rules = [], tool, command) {
 /** A request only to read, summarize or explain ("le o arquivo e me fala do que se trata"): nothing to change. */
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 export function onlyReading(request) {
-  const t = fold(request);
+  // "Não mude nenhum arquivo" forbids a change, it does not ask for one; "as mudanças" and "as
+  // alterações" are what to look at (the VS Code /revisar and /explicar, 27/10: the 4B wrote files).
+  // Only the person's words: the code, the diff and the terminal output VS Code attaches are not orders.
+  const t = fold(String(request || "").split(/\n\n\[Contexto do VS Code\]/)[0]).replace(/\bo que (ele |ela |isso |este |esse )?faz\b/g, " ").replace(/\bnao (mude|altere|edite|crie|grave|apague|mexa)\w*( (em|n[oa]s?))?( (nenhum|nada|os?|as?))?( arquivos?)?/g, " ").replace(/\b(mudancas?|alteracao|alteracoes)\b/g, " ");
   if (!t.trim()) return false;
-  const reads = /\b(le|leia|ler|lendo|resum\w*|me (fala|diga|diz|conta|explica)|do que se trata|o que (diz|tem|e)|explic\w*|veja|olha|confer\w*)\b/.test(t);
-  const changes = /\b(cri\w*|grav\w*|salv\w*|edit\w*|alter\w*|apag\w*|exclu\w*|delet\w*|remov\w*|mov\w*|organiz\w*|renome\w*|escrev\w*|atualiz\w*|corrij\w*|corrig\w*|fa[cz]\w*|mont\w*|ger[ae]\w*|copi\w*|substitu\w*|preench\w*|ajust\w*|arrum\w*|limp\w*|coloc\w*|adicion\w*|acrescent\w*|mud\w*|troc\w*|transform\w*|convert\w*|export\w*|envi\w*|mand\w*)\b/.test(t);
+  const reads = /\b(le|leia|ler|lendo|resum\w*|me (fala|diga|diz|conta|explica)|do que se trata|o que (diz|tem|e)|explic\w*|expliqu\w*|veja|olha|confer\w*|revis\w*|analis\w*|apont\w*)\b/.test(t);
+  const changes = /\b(cri\w*|grav(?!e\b)\w*|salv\w*|edit\w*|alter\w*|apag\w*|exclu\w*|delet\w*|remov\w*|mov\w*|organiz\w*|renome\w*|escrev\w*|atualiz\w*|corrij\w*|corrig\w*|fa[cz]\w*|mont\w*|ger[ae]\w*|copi\w*|substitu\w*|preench\w*|ajust\w*|arrum\w*|limp\w*|coloc\w*|adicion\w*|acrescent\w*|mud\w*|troc\w*|transform\w*|convert\w*|export\w*|envi\w*|mand\w*)\b/.test(t);
   return reads && !changes;
 }
 
