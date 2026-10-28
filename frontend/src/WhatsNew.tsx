@@ -8,6 +8,14 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.55': {
+    title: 'O comprovante e a resposta viva',
+    items: [
+      ['O comprovante', 'Cada número que a Aurora diz vem com a prova: passe o mouse e veja a planilha, a célula e a linha de onde ele veio, ou a conta que o gerou. O que não tem fonte fica marcado. Baixe o comprovante em CSV para o Excel.'],
+      ['A resposta viva', 'Se a planilha mudar depois da resposta, o número antigo aparece riscado com o novo ao lado, e as contas que dependem dele são refeitas. Um clique em "Refazer com os dados novos" atualiza a resposta.'],
+      ['Respostas que mudaram', 'A tela inicial mostra as respostas de qualquer conversa cuja planilha mudou depois. Um clique abre a conversa.'],
+    ],
+  },
   '0.1.54': {
     title: 'O chip de memória, modelos fortes mais fáceis e uma Aurora mais certeira',
     items: [

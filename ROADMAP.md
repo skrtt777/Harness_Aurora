@@ -70,6 +70,11 @@ O roteiro vivo do projeto. Os roteiros antigos (MVP, mestre, melhorias de setemb
 
 - **Benchmark 0.1.39 × 0.1.38 (08/10):** mesmo modelo e máquina: tempo por turno −45% na GPU (empresa) e −24% só na CPU, qualidade igual. Corrigidos no caminho: e-mail com prazo relativo em vez de "[data]", campos em branco depois de só buscar nos documentos, relatório com valores exatos, "criei o arquivo" sem gravar tratado como entrega (não como documento inventado), conta sobre uma conta anterior ("aquela multiplicação de antes") e "qnto" na calculadora. Regressão final: agentes 100%, empresa 98%, uso 100/100/100/93,8%. Uma queda isolada do llama-server (0xc0000005) numa rodada de agentes não se repetiu.
 
+- **0.1.55 (27/10): o comprovante e a resposta viva** (`docs/COMPROVANTE.md`, `docs/RESPOSTA_VIVA.md`).
+  - **O comprovante**: cada número de uma resposta é ligado à célula, à conta ou ao pedido de onde veio, sem modelo; o que não tem fonte é marcado. Selo na resposta, cartão ao passar o mouse, linha no celular, também nos documentos entregues, e "Baixar comprovante" em CSV.
+  - **A resposta viva**: quando a planilha muda depois da resposta, o número antigo fica riscado com o novo ao lado, as contas que dependem dele são refeitas e há o botão "Refazer com os dados novos"; a tela inicial mostra "Respostas que mudaram". Medição em 295 respostas reais: 0 alarmes falsos em 992 números, 271 de 301 células mudadas pegas com o valor certo.
+  - Regressão final (27/10, qwen3.5:4b): "Pode publicar"; conversas 98,8%, agentes 100%, empresa 98%, uso 96,2/94,7/100/93,8%.
+
 - **0.1.54 (27/10): o chip de memória, modelos fortes mais fáceis e uma Aurora mais certeira** (`docs/NOITE_2026-10-24.md`).
   - **Mapa Vivo = chip de memória**: é a única vista, com 6 níveis de zoom (1× a 1200×) sobre dados reais, linha do tempo, replays, calor de uso, comparação por cosseno real, Arquivo (memórias esquecidas, restaurar) e som. A Zeladora cuida dos nódulos (planta, adota, brota, divide, recolhe, poda reversível), e o atlas liga vizinhas entre nódulos (memórias sem vizinha: 30 para 1).
   - **Modelos fortes**: Hermes e OpenClaw como motores, pelo mesmo espelho; a Aurora testa cada motor e explica o que fazer. Anthropic com cache de prompt, esforço alto e streaming; OpenAI conta os tokens de cache.
