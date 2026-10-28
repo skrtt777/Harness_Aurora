@@ -1113,3 +1113,9 @@ button.map-node:hover { background: var(--fill-hover); }
 .app-shell .code-model-progress { position: relative; height: 18px; border-radius: 9px; background: var(--bg-sunken, rgba(127,127,127,.15)); overflow: hidden; margin-top: 6px; }
 .app-shell .code-model-progress > span { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: .35; transition: width .4s ease; }
 .app-shell .code-model-progress > small { position: relative; padding: 0 8px; line-height: 18px; }
+.app-shell .code-models { display: grid; gap: var(--gap-2); }
+.app-shell .code-model-profile { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gap-2); }
+.app-shell .code-model-profile label { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md, 10px); border: 1px solid var(--stroke-2); background: var(--bg-surface); cursor: pointer; }
+.app-shell .code-model-profile label.on { border-color: var(--accent); }
+.app-shell .code-model-profile label span { display: grid; gap: 2px; }
+.app-shell .code-model-profile small, .app-shell .code-model-dir { color: var(--text-3); }

@@ -35,3 +35,15 @@ test("code model: a download whose SHA-256 does not match is deleted and says so
   assert.equal(s.installed, false);
   assert.deepEqual(readdirSync(dir).filter((f) => f.startsWith(CODE_MODEL.file)), [], "neither the file nor its .part is left");
 });
+
+test("code model: the 'forte' profile without its file falls back (Ctrl+I on the chat model)", async () => {
+  const { setCodeModelProfile, modelFor } = await import("../app/codeModel.js");
+  await assert.rejects(setCodeModelProfile("turbo"), /Perfil inválido/);
+  const s = await setCodeModelProfile("forte");
+  assert.equal(s.profile, "forte");
+  assert.equal(s.models.strong.installed, false);
+  const env = { OLLAMA_MODELS: join(temp, "nada", "models") };
+  assert.equal(await modelFor("edit", env), null);
+  assert.equal(await modelFor("fim", env), null);
+  assert.equal((await setCodeModelProfile("padrao")).profile, "padrao");
+});

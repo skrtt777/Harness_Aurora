@@ -13,7 +13,8 @@ import { createRequire } from "node:module";
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 // --casos-arquivo holdout: the held-out cases (code-bench-holdout.mjs), never used to tune the pipeline.
-const { EDITS, COMPLETIONS } = await import(arg("casos-arquivo") === "holdout" ? "./code-bench-holdout.mjs" : "./code-bench-cases.mjs");
+const SETS = { holdout: "./code-bench-holdout.mjs", holdout2: "./code-bench-holdout2.mjs" };
+const { EDITS, COMPLETIONS } = await import(SETS[arg("casos-arquivo")] || "./code-bench-cases.mjs");
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "aurora-code-bench-")), "harness.db");
 process.env.LLAMA_SERVER_PORT ||= "18193";
 const require = createRequire(import.meta.url);
@@ -29,9 +30,12 @@ const times = Number(arg("vezes", 1));
 const model = await resolveLocalModel();
 const server = await ensureLlamaServer({ model, contextTokens: 16384 }).catch(() => null);
 // The code model of the gray suggestion (app/codeModel.js), when AURORA_CODE_MODEL points to it.
-const { ensureCodeServer, stopCodeServer, codeModelPath } = await import("../app/codeModel.js");
-const codeServer = codeModelPath() ? await ensureCodeServer().catch(() => null) : null;
-console.log(`modelo ${model} · ${server ? `llama-server ${server}` : "Ollama"} · autocompletar: ${codeServer ? codeModelPath() : "modelo do chat"}`);
+// AURORA_CODE_PROFILE=forte with AURORA_STRONG_CODE_MODEL: the 30B-A3B coder for both.
+const { ensureCodeServer, stopCodeServer, modelFor } = await import("../app/codeModel.js");
+const fimPick = await modelFor("fim"), editPick = await modelFor("edit");
+if (fimPick) await ensureCodeServer({ role: "fim" }).catch(() => null);
+if (editPick) await ensureCodeServer({ role: "edit" }).catch(() => null);
+console.log(`modelo ${model} · ${server ? `llama-server ${server}` : "Ollama"} · autocompletar: ${fimPick?.model.name || "modelo do chat"} · Ctrl+I: ${editPick?.model.name || "modelo do chat"}`);
 const work = mkdtempSync(join(tmpdir(), "aurora-code-bench-files-"));
 // --pensar: Ctrl+I with the model's thinking on (the same llama-server), to weigh quality against time.
 const think = process.argv.includes("--pensar");

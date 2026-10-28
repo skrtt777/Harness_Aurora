@@ -5,7 +5,8 @@
 import { resolveLocalModel } from "./ollamaSetup.js";
 import { llamaServerInfo } from "./llamaServer.js";
 import { keepAlive, runLocal } from "./local.js";
-import { CODE_MODEL, codeServerInfo, ensureCodeServer } from "./codeModel.js";
+import { codeServerInfo, ensureCodeServer, modelFor, runOnCodeModel } from "./codeModel.js";
+import { hintsFor } from "./codeHints.js";
 import { parse } from "acorn";
 import { analyze } from "eslint-scope";
 import globals from "globals";
@@ -19,14 +20,15 @@ async function rawGenerate(prompt, { maxTokens = 64, stop = [], temperature = 0.
   const started = Date.now();
   const timeout = AbortSignal.timeout(Number(env.CODE_COMPLETE_TIMEOUT_MS) || 8000);
   const both = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  // The code model (app/codeModel.js) when it is there and up; while it loads, the chat model answers.
-  if (useCodeModel) {
-    const info = codeServerInfo();
-    if (info?.healthy) {
+  // The code model of the profile (app/codeModel.js) when it is there and up; while it loads, the chat model answers.
+  const pick = useCodeModel ? await modelFor("fim", env).catch(() => null) : null;
+  if (pick) {
+    const info = codeServerInfo(pick.model.id);
+    if (info?.healthy && info.path === pick.path) {
       const r = await fetch(`${info.baseUrl}/completion`, { method: "POST", signal: both, headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, n_predict: maxTokens, stop, temperature, cache_prompt: true }) });
       const data = await r.json().catch(() => ({}));
-      if (r.ok) return { text: String(data.content || ""), ms: Date.now() - started, engine: "code-model", model: CODE_MODEL.name, truncated: data.stop_type === "limit" || data.stopped_limit === true };
-    } else ensureCodeServer({ env }).catch(() => null);
+      if (r.ok) return { text: String(data.content || ""), ms: Date.now() - started, engine: "code-model", model: pick.model.name, truncated: data.stop_type === "limit" || data.stopped_limit === true };
+    } else ensureCodeServer({ env, role: "fim" }).catch(() => null);
   }
   const model = await resolveLocalModel(env);
   const shared = env.LOCAL_SHARE_SERVER !== "off" && !env.LOCAL_BASE_URL ? llamaServerInfo() : null;
@@ -120,7 +122,10 @@ export function cleanCompletion(text, { prefix = "", suffix = "", maxLines = 8, 
 export async function completeCode({ prefix = "", suffix = "", language = "", file = "" } = {}, { signal, env = process.env, generate = rawGenerate, check = syntaxProblem } = {}) {
   const before = String(prefix).slice(-PREFIX_CHARS), after = String(suffix).slice(0, SUFFIX_CHARS);
   if (!before.trim()) return { text: "", ms: 0 };
-  const header = file ? `<|file_sep|>${String(file).replace(/\\/g, "/").split("/").slice(-2).join("/")}\n` : "";
+  // Brazilian idioms the code around the cursor speaks of (app/codeHints.js), as a file before this one.
+  const hints = env.CODE_HINTS === "off" ? [] : hintsFor(`${before.slice(-800)}\n${after.slice(0, 300)}`, language);
+  const hintsFile = hints.length ? `<|file_sep|>dicas.md\n${hints.map((h) => `- ${h}`).join("\n")}\n` : "";
+  const header = `${hintsFile}${file ? `<|file_sep|>${String(file).replace(/\\/g, "/").split("/").slice(-2).join("/")}\n` : ""}`;
   const multi = !after.split("\n")[0].trim();
   const started = Date.now();
   // What the whole file leaves open is what the suggestion must close; only known when the file came whole.
@@ -129,7 +134,7 @@ export async function completeCode({ prefix = "", suffix = "", language = "", fi
   // Up to three tries: the first suggestion that compiles with the file around it wins (JavaScript and
   // Python; other languages take the first). An error far from the suggestion's lines is the file's own
   // (half-written code elsewhere) and does not count against it.
-  const tries = [{ temperature: 0, header }, { temperature: 0.6, header: "" }, { temperature: 0.9, header }];
+  const tries = [{ temperature: 0, header }, { temperature: 0.6, header: hintsFile }, { temperature: 0.9, header }];
   const startLine = before.split("\n").length;
   let last = null;
   for (const t of tries) {
@@ -166,6 +171,7 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
   const name = String(file || "").replace(/\\/g, "/").split("/").pop();
   const sel = String(selection);
   const plan = process.env.CODE_EDIT_PLAN !== "off";
+  const hints = process.env.CODE_HINTS === "off" ? [] : hintsFor(`${instruction}\n${sel.slice(0, 2000)}`, lang);
   return [
     plan
       ? "Você edita código dentro do editor. Responda assim: primeiro, em até 3 linhas curtas (sem código), o que precisa mudar para atender o pedido inteiro, inclusive cada caso que ele cita (vazio, nulo, tipos, pontuação, maiúsculas…); depois, o código num único bloco ```. Não acrescente nada que não foi pedido (exports, imports, exemplos de uso, testes): o resto do arquivo já existe."
@@ -174,6 +180,7 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
       ? `Reescreva o trecho selecionado conforme o pedido. Devolva o trecho inteiro já mudado (não só a parte nova), com a mesma indentação, e nada do que vem antes ou depois dele.`
       : `Escreva o código que vai no lugar do cursor (marcado como <CURSOR>), conforme o pedido, com a indentação do lugar.`,
     `Pedido: ${String(instruction).trim()}`,
+    ...(hints.length ? [`Dicas que funcionam aqui:\n${hints.map((h) => `- ${h}`).join("\n")}`] : []),
     `Arquivo: ${name || "(sem nome)"}${lang ? ` (${lang})` : ""}`,
     `Código antes:\n\`\`\`${lang}\n${String(before).slice(-3000)}${sel.trim() ? "" : "<CURSOR>"}\n\`\`\``,
     ...(sel.trim() ? [`Trecho selecionado:\n\`\`\`${lang}\n${sel.slice(0, 12000)}\n\`\`\``] : []),
@@ -182,7 +189,15 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
   ].join("\n\n");
 }
 
-export async function editCode({ instruction = "", selection = "", before = "", after = "", language = "", file = "" } = {}, { signal, env = process.env, run = runLocal, check = checkSyntax } = {}) {
+export async function editCode({ instruction = "", selection = "", before = "", after = "", language = "", file = "" } = {}, { signal, env = process.env, run = null, check = checkSyntax } = {}) {
+  // The "forte" profile (app/codeModel.js): Ctrl+I on the 30B-A3B coder; otherwise, or when it cannot
+  // start, the chat model.
+  if (!run) {
+    const strong = (await modelFor("edit", env).catch(() => null)) ? await ensureCodeServer({ env, role: "edit" }).catch(() => null) : null;
+    run = strong
+      ? (prompt, opts, sig) => runOnCodeModel(strong, prompt, { temperature: Number(opts.LOCAL_TEMPERATURE) || 0, maxTokens: Number(opts.LOCAL_MAX_OUTPUT_TOKENS) || 2048, signal: sig })
+      : runLocal;
+  }
   const ask = String(instruction).trim();
   if (!ask) throw Object.assign(new Error("Diga o que mudar no código."), { status: 400 });
   const sel = String(selection);

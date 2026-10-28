@@ -211,3 +211,15 @@ test("Editor de código: a name nothing declares is caught without running the c
   assert.equal(await newUndefined("python", "a", "b"), null);
   assert.equal(await undefinedNames("function ("), null);
 });
+
+test("Editor de código: Brazilian idioms go along when the request speaks of them", async () => {
+  const { hintsFor } = await import("../app/codeAssist.js").then(() => import("../app/codeHints.js"));
+  assert.match(hintsFor("formate em reais", "javascript")[0], /Intl\.NumberFormat\('pt-BR'/);
+  assert.match(hintsFor("remova os acentos", "python")[0], /unicodedata/);
+  assert.equal(hintsFor("formate em reais", "go").length, 0, "only languages with idioms");
+  assert.equal(hintsFor("some os números", "javascript").length, 0);
+  assert.ok(hintsFor("valide o CPF, o CNPJ, o CEP e o telefone", "javascript").length <= 3);
+  const { editPrompt } = await import("../app/codeAssist.js");
+  assert.match(editPrompt({ instruction: "calcule a idade", language: "javascript", selection: "function idade() {}" }), /Dicas que funcionam aqui:\n- Idade em anos completos/);
+  assert.doesNotMatch(editPrompt({ instruction: "some", language: "javascript", selection: "x" }), /Dicas/);
+});
