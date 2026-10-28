@@ -2,7 +2,7 @@
   "name": "aurora-harness",
   "displayName": "Aurora (Harness)",
   "description": "A Aurora do seu PC no VS Code: painel próprio de chat, Ctrl+I para editar o código com aceitar e recusar, autocompletar com o modelo local e o terminal como contexto. Tudo pelo Harness Aurora deste computador; nada sai do PC.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "harness-aurora",
   "license": "UNLICENSED",
   "private": true,
