@@ -4,7 +4,7 @@ import "./evalSandbox.mjs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { COMPLETIONS } from "./code-bench-cases.mjs";
+const { COMPLETIONS } = await import(process.env.CASOS === "holdout2" ? "./code-bench-holdout2.mjs" : process.env.CASOS === "holdout3" ? "./code-bench-holdout3.mjs" : "./code-bench-cases.mjs");
 
 process.env.HARNESS_DB_FILE = join(mkdtempSync(join(tmpdir(), "aurora-fim-debug-")), "harness.db");
 process.env.LLAMA_SERVER_PORT ||= "18193";
@@ -12,7 +12,11 @@ const { completeCode, syntaxProblem } = await import("../app/codeAssist.js");
 const { resolveLocalModel } = await import("../app/ollamaSetup.js");
 const { ensureLlamaServer, stopLlamaServer } = await import("../app/llamaServer.js");
 const model = await resolveLocalModel();
-const server = await ensureLlamaServer({ model, contextTokens: 16384 });
+// The model the suggestion uses (the profile's code model when there is one), as in scripts/code-bench.mjs.
+const { modelFor, ensureCodeServer, stopCodeServer } = await import("../app/codeModel.js");
+const server = (await modelFor("fim")) ? await ensureCodeServer({ role: "fim" }) : await ensureLlamaServer({ model, contextTokens: 16384 });
+process.on("exit", () => stopCodeServer());
+console.log(`gerando em ${server}`);
 for (const id of (process.argv[2] || "").split(",")) {
   const c = COMPLETIONS.find((x) => x.id === id);
   if (!c) continue;

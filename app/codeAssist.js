@@ -75,7 +75,8 @@ export function cleanCompletion(text, { prefix = "", suffix = "", maxLines = 8, 
     // An object or a list the model wrote over several lines ("nome: nome,\n email: email,") goes on one.
     const parts = out.split("\n").map((l) => l.trim()).filter(Boolean);
     let n = 1;
-    while (n < parts.length && /[,([{]$/.test(parts[n - 1])) n += 1;
+    // ... and a block over several lines ("{\n return [...new Set(xs)];\n}") goes on until it closes.
+    while (n < parts.length && (/[,([{]$/.test(parts[n - 1]) || (target !== null && balance(parts.slice(0, n).join(" ")) > target))) n += 1;
     const one = (n > 1 ? parts.slice(0, n).join(" ") : out.split("\n")[0]).replace(/\s+$/, "");
     const tail = lineSuffix.trim();
     const options = [];

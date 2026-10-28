@@ -235,3 +235,9 @@ test("Editor de código: Python names used without import are caught (parsed, ne
   // The model may import what the new code needs (28/10: obeying "no imports", the 30B left csv undefined).
   assert.match(editPrompt({ instruction: "leia o csv", selection: "def f(): pass", language: "python" }), /importe-o dentro do trecho/);
 });
+
+test("autocompletar: a block over several lines, with text after the cursor, comes whole on one line", async () => {
+  // 28/10 (second held-out set): "sem sugestão" because the block was cut after its first statement.
+  assert.equal(cleanCompletion("{\n  return [...new Set(lista)];\n}", { prefix: "const unicos = (lista) => ", suffix: ";\nmodule.exports = { unicos };\n" }), "{ return [...new Set(lista)]; }");
+  assert.equal(cleanCompletion("(acc, p) => {\n    return p.preco > acc.preco ? p : acc;\n  }", { prefix: "function f(ps) {\n  return ps.reduce(", suffix: ");\n}\n", target: 0 }), "(acc, p) => { return p.preco > acc.preco ? p : acc; }");
+});
