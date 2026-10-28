@@ -32,7 +32,7 @@ export default function CodeModelPanel() {
     return <div className="vscode-editor code-model" key={which}>
       <div>
         <strong>{title}</strong>
-        <small>{m.installed ? `${m.name} instalado${m.running ? ' · em uso' : ''}` : `${m.name} · ${gb(m.bytes)} · licença ${m.license}`}</small>
+        <small>{m.installed ? `${m.name} instalado${m.running ? ' · em uso' : m.loading ? ' · carregando…' : ''}` : `${m.name} · ${gb(m.bytes)} · licença ${m.license}`}</small>
         <small>{what}</small>
         {busy(m) && d && <div className="code-model-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /><small>{pct}% · {gb(d.received)} de {gb(d.total || m.bytes)}</small></div>}
         {d?.error && <small className="settings-error">{d.error}</small>}

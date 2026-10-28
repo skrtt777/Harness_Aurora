@@ -193,8 +193,14 @@ export function editPrompt({ instruction = "", selection = "", before = "", afte
 export async function editCode({ instruction = "", selection = "", before = "", after = "", language = "", file = "" } = {}, { signal, env = process.env, run = null, check = checkSyntax } = {}) {
   // The "forte" profile (app/codeModel.js): Ctrl+I on the 30B-A3B coder; otherwise, or when it cannot
   // start, the chat model.
+  // Never waits for it to load (17 GB; 28/10 in VS Code the first Ctrl+I waited 4 minutes on a hard
+  // disk): while it loads, the chat model answers and the strong one keeps coming up in the background.
+  let loading = false;
   if (!run) {
-    const strong = (await modelFor("edit", env).catch(() => null)) ? await ensureCodeServer({ env, role: "edit" }).catch(() => null) : null;
+    const pick = await modelFor("edit", env).catch(() => null);
+    const info = pick ? codeServerInfo(pick.model.id) : null;
+    if (pick && !(info?.healthy && info.path === pick.path)) { loading = true; ensureCodeServer({ env, role: "edit" }).catch(() => null); }
+    const strong = !loading && info?.healthy ? info.baseUrl : null;
     run = strong
       ? (prompt, opts, sig) => runOnCodeModel(strong, prompt, { temperature: Number(opts.LOCAL_TEMPERATURE) || 0, maxTokens: Number(opts.LOCAL_MAX_OUTPUT_TOKENS) || 2048, signal: sig })
       : runLocal;
@@ -234,6 +240,7 @@ export async function editCode({ instruction = "", selection = "", before = "", 
     }
   }
   result.ms = Date.now() - started;
+  if (loading) result.note = "O modelo forte ainda está carregando: esta edição foi feita pelo modelo do chat.";
   return result;
 }
 

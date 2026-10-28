@@ -70,3 +70,54 @@ node scripts/pack-vscode.mjs           # vscode/dist/aurora-harness.vsix (o npm 
 ```
 
 Todos usam um perfil temporário do VS Code e um banco temporário do Harness. Nenhum mexe no VS Code, nos projetos ou no Harness da pessoa. A tela "Editor de código" só lista as extensões; instalar ou atualizar depende do clique.
+
+## Noite de 27→28/10: meta de 97% de acerto
+
+**Como medimos.** `scripts/code-bench.mjs` executa o que a Aurora escreve e roda um teste de comportamento: a função editada faz o que foi pedido e continua fazendo o que fazia. São quatro conjuntos:
+
+| Conjunto | Ctrl+I | Sugestões | Para que serve |
+|---|---|---|---|
+| ajuste (`code-bench-cases.mjs`) | 24 | 30 | usado para ajustar |
+| 1ª validação (`code-bench-holdout.mjs`) | 20 | 24 | escrito depois do primeiro ajuste |
+| 2ª validação (`code-bench-holdout2.mjs`) | 16 | 20 | escrito depois das dicas |
+| 3ª validação (`code-bench-holdout3.mjs`) | 16 | 20 | escrito antes de medir as últimas correções; é a medida honesta |
+
+Os cenários de uso no VS Code isolado ficam em `scripts/vscode-scenarios.mjs`: são 13, rodados a partir do `.vsix`.
+
+**Resultado (duas rodadas por conjunto):**
+
+| | Padrão (4B + coder 1,5B) | Forte (Qwen3-Coder 30B-A3B) |
+|---|---|---|
+| Ajuste | 98,1% | **100%** |
+| 1ª validação | 94,3% | 92,0% |
+| 2ª validação | 87,5% | **98,6%** |
+| 3ª validação | 76,4% (Ctrl+I 47%) | **97,2%** (Ctrl+I 100%) |
+| VS Code (13 cenários) | 13/13 | 13/13 |
+| **Total** | — | **343/353 = 97,2%** |
+
+O Ctrl+I do Padrão (o 4B do chat) não aguenta as tarefas difíceis da 3ª validação. O Forte acertou 100% do Ctrl+I nas duas últimas validações. As falhas que sobram no Forte são sugestões em casos ambíguos, como um `return null` quando o teste esperava texto, ou uma barra de progresso com colchetes.
+
+**O que mudou para chegar lá:**
+- **Ctrl+I:**
+  - a seleção é ampliada até o bloco inteiro (`lib/blocks.js`);
+  - a resposta tem as chaves equilibradas com a seleção e perde as linhas copiadas de depois dela;
+  - a sintaxe é conferida (`node --check`, `ast.parse`), assim como nomes indefinidos novos (eslint-scope em JS, `ast` em Python), sempre sem executar o código; se algo falhar, há nova tentativa com o erro;
+  - uma resposta igual à seleção é refeita;
+  - o modelo escreve um plano curto antes do código, e o próprio modelo dá uma segunda olhada;
+  - imports necessários podem ir dentro do trecho.
+- **Sugestões:**
+  - FIM no coder 1,5B (Padrão) ou no 30B (Forte);
+  - as chaves são equilibradas por tipo, olhando o arquivo inteiro;
+  - a linha cortada pelo limite sai, e a sugestão para quando volta a um recuo menor que o da linha do cursor;
+  - um bloco de várias linhas vira uma linha só quando há texto depois do cursor;
+  - até 3 candidatos, validados pela sintaxe.
+- **Idiomas brasileiros** (`app/codeHints.js`): reais, acentos/slug, idade, CEP, CPF/CNPJ (como código), datas sem UTC, telefone, `\p{L}` no lugar de `\w`.
+- **Segurança:** `/explicar` e `/revisar` não recebem as ferramentas que só escrevem, e o `git diff` vai sem os prefixos `a/` `b/`. Antes, o 4B gravava `b\calc.js`.
+
+**O que foi medido e não ficou:**
+- o modo de pensar no Ctrl+I: 46% de acerto e 26 s;
+- um "exemplo de entrada → saída" no plano: a 1ª validação caiu para 80%.
+
+**O perfil Forte na prática.** Com o modelo carregado, o Ctrl+I leva cerca de 2 s. A primeira carga vem do disco. Num HD mecânico, com 32 GB de RAM e o modelo do chat aberto, ela levou alguns minutos. Por isso o Ctrl+I nunca espera o modelo forte: enquanto ele carrega, quem responde é o modelo do chat. Num SSD, a carga leva cerca de 35 s.
+
+**Regressão do Harness** (por causa da mudança no `chatTurn.js`): a Empresa caiu de 98% para 92% na pasta principal. Um A/B limpo, 8 rodadas em worktrees, deu 96,4% para o código anterior e 95,6% para o atual: é ruído do modelo. A regressão completa será refeita antes do lançamento.

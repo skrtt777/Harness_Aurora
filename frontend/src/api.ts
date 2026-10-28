@@ -734,7 +734,7 @@ export type VscodeStatus = { id: string; vsix: { version: string | null } | null
 export const getVscode = () => request<VscodeStatus>("/vscode");
 /** The code model of the gray suggestion (app/codeModel.js). */
 export type CodeModelDownload = { received: number; total: number; error: string | null; done: boolean } | null;
-export type CodeModelInfo = { name: string; license: string; bytes: number; path: string | null; installed: boolean; running: boolean; download: CodeModelDownload };
+export type CodeModelInfo = { name: string; license: string; bytes: number; path: string | null; installed: boolean; running: boolean; loading?: boolean; download: CodeModelDownload };
 export type CodeModelStatus = { name: string; license: string; bytes: number; dir: string; path: string | null; installed: boolean; enabled: boolean; running: boolean; download: CodeModelDownload; profile: 'padrao' | 'forte'; models: { fim: CodeModelInfo; strong: CodeModelInfo } };
 export const getCodeModel = () => request<CodeModelStatus>("/code/model");
 export const setCodeModel = (patch: { dir?: string; enabled?: boolean; profile?: 'padrao' | 'forte' }) => request<CodeModelStatus>("/code/model", { method: "PATCH", body: JSON.stringify(patch) });

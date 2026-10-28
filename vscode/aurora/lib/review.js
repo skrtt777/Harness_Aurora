@@ -194,6 +194,7 @@ async function inlineEdit({ client, ensureHarness, instruction = null } = {}) {
   const target = vscode.window.visibleTextEditors.find((e) => e.document === doc) || await vscode.window.showTextDocument(doc);
   const review = await startReview(target, { startLine: regionStart, endLine: regionEnd, oldLines, newText: result.code, title: ask, source: "edit" });
   if (!review) vscode.window.showInformationMessage("A Aurora não mudou nada nesse trecho.");
+  else if (result.note) vscode.window.setStatusBarMessage(`Aurora: ${result.note}`, 8000);
 }
 
 /**

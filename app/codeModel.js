@@ -112,6 +112,15 @@ export async function ensureCodeServer({ env = process.env, role = "fim" } = {})
   return entry.ready;
 }
 
+/**
+ * The models of the profile start loading now, without waiting (the VS Code extension calls it when it
+ * connects: the strong model takes a minute or two from a hard disk, better before the first Ctrl+I).
+ */
+export async function warmCodeModels(env = process.env) {
+  for (const role of ["edit", "fim"]) if (await modelFor(role, env).catch(() => null)) ensureCodeServer({ env, role }).catch(() => null);
+  return codeModelStatus(env);
+}
+
 export function stopCodeServer(id = null) {
   for (const [key, s] of servers) if (!id || key === id) { servers.delete(key); s.child?.kill(); }
 }
@@ -146,7 +155,7 @@ export async function codeModelStatus(env = process.env) {
   for (const m of Object.values(CODE_MODELS)) {
     const path = codeModelPath(env, s.dir, m);
     const d = downloads.get(m.id);
-    models[m.id] = { name: m.name, license: m.license, bytes: m.bytes, path, installed: Boolean(path), running: Boolean(servers.get(m.id)?.healthy),
+    models[m.id] = { name: m.name, license: m.license, bytes: m.bytes, path, installed: Boolean(path), running: Boolean(servers.get(m.id)?.healthy), loading: Boolean(servers.get(m.id) && !servers.get(m.id).healthy),
       download: d ? { received: d.received, total: d.total, error: d.error, done: d.done } : null };
   }
   const fim = models.fim;
