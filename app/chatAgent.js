@@ -610,6 +610,16 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Sua resposta diz ${mismatch.said.join(" e ")}, mas a lista que você mostrou tem ${mismatch.listed} item(ns). Confira item por item com os dados lidos: deixe na lista só os que atendem ao pedido e diga o número igual ao da lista. Responda de novo, direto, sem narrar a revisão.` });
       continue;
     }
+    // A .pbix read for the person (its tables are CSVs) and a question of numbers answered without reading
+    // any: "não consigo somar sem o motor do Power BI" (28/10, 4b, 1 run in 2). Once, the way to the numbers.
+    if (!toolCalls.length && offered.length && !ctx.pbixNudged && /## Modelo de dados \(\d+ tabelas, lido direto do arquivo/.test(contextText(messages))
+      && /\b(quant[oa]s?|total|soma|receita|faturamento|valor(es)?|maior(es)?|menor(es)?|m[eé]dia|ranking|top \d+)\b/i.test(question)
+      && !steps.some((s) => s.ok && s.tool === "read_file" && /\.csv/i.test(JSON.stringify(s.args || {})))) {
+      ctx.pbixNudged = true;
+      checks.push({ check: "pbix_unread", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "Os números estão nas tabelas do .pbix, já extraídas em CSV (cada tabela tem a linha \"Dados: read_file ...\"). Chame read_file com esse CSV e filter (ex.: \"Status=Won\"); a ferramenta conta as linhas e soma as colunas. Depois responda com esses números." });
+      continue;
+    }
     // "Pronto! Aplicado às 4 páginas" with no tool that acts: done for real, or said plainly (in the
     // Plano mode: that nothing runs there and how to leave it).
     if (!toolCalls.length && !actionChecked && claimsActionWithoutAction(text, steps, ACTION_OR_WRITE) && !claimsDelivery(text, steps, { context: contextText(messages) })) {

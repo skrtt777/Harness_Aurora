@@ -121,3 +121,32 @@ test("a guard's message is marked as the Aurora's own check, and the answer to i
   assert.match(guard.content, /^\(Conferência automática da Aurora, não é a pessoa\.\)/);
   assert.match(seen[1].find((m) => m.role === "user").content, /^mude o tema/, "the person's request is not marked");
 });
+
+test("a .pbix question of numbers answered without reading its CSVs goes back once to read them", async () => {
+  const { runChatAgent } = await import("../app/chatAgent.js");
+  const calls = [];
+  const reader = { name: "read_file", description: "lê", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async (a) => { calls.push(a); return "RESUMO: 7.282 linha(s) com \"Status=Won\". Soma das 7.282 linhas: Value 26.435.925"; } };
+  const replies = [
+    { ok: true, text: "Não consigo somar sem o motor do Power BI." },
+    { ok: true, text: '{"tool":"read_file","args":{"path":"Regional Sales Sample - Opportunities.csv","filter":"Status=Won"}}' },
+    { ok: true, text: "Foram 7.282 oportunidades ganhas, com receita de 26.435.925." },
+  ];
+  const system = "## Modelo de dados (3 tabelas, lido direto do arquivo, sem o Power BI)\n### Opportunities (14.667 linhas)\nDados: read_file \"Regional Sales Sample - Opportunities.csv\"";
+  const result = await runChatAgent({ provider: "claude", system, input: "qual a receita total das oportunidades ganhas?", tools: [reader], callModel: async () => replies.shift() });
+  assert.equal(calls.length, 1);
+  assert.match(result.text, /26\.435\.925/);
+  assert.ok(result.checks.some((c) => c.check === "pbix_unread"));
+});
+
+test("a chart value with a note ('77 (34%)') is the number; a deck asked with charts is held until it has one", async () => {
+  const { chartData } = await import("../app/pptxWriter.js");
+  const data = chartData([["Produto", "Qtd"], ["PROD020", "77 (34%)"], ["PROD004", "76 (33%)"]]);
+  assert.deepEqual(data.series[0].values, [77, 76]);
+  const { executeTool } = await import("../app/agentTools/index.js");
+  const deck = join(temp, "deck");
+  (await import("node:fs")).mkdirSync(deck, { recursive: true });
+  const ctx = { allowedRoots: [deck], workspaceRoots: [deck], workspace: deck, mode: "auto", knownFolders: { desktop: deck }, env: process.env, approve: async () => false, request: "monta um powerpoint com gráficos do estoque" };
+  const plain = { path: "estoque.pptx", content: "# Estoque\n\n- 20 produtos\n\n## Categorias\n\n| Categoria | Qtd |\n|---|---|\n| Limpeza | 300 |\n| TI | 200 |" };
+  assert.match((await executeTool("write_document", plain, ctx)).result, /não tem nenhum/);
+  assert.match((await executeTool("write_document", plain, ctx)).result, /não tem nenhum/, "asked again, not let through on the second try");
+});

@@ -1940,10 +1940,10 @@ export const fileTools = [
 ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false };
       if (/\{\{\s*(linhas|tabela)/i.test(String(args.content ?? args.text ?? args.markdown ?? ""))) args = { ...args, content: expandRows(String(args.content ?? args.text ?? args.markdown ?? ""), ctx.lastTable) };
       // A deck asked with charts or a dashboard, written without one: once, the format that draws them.
-      if (/\.pptx$/i.test(file) && !ctx.chartAsked && /\b(gr[áa]ficos?|dashboards?)\b/i.test(String(ctx.request || "")) && !/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? ""))) {
+      if (/\.pptx$/i.test(file) && (ctx.chartAsked || 0) < 2 && /\b(gr[áa]ficos?|dashboards?)\b/i.test(String(ctx.request || "")) && !/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? ""))) {
         const { renderDocument: render } = await import("../documentWriter.js");
         const drawn = await render("pptx", String(args.content ?? "")).then((b) => /ppt\/charts\/chart1\.xml/.test(b.toString("latin1"))).catch(() => false);
-        if (!drawn) { ctx.chartAsked = true; throw new Error("Não gravei ainda: o pedido tem gráfico/dashboard e a apresentação não tem nenhum. Escreva cada gráfico como um bloco:\n```grafico barras: Título\n{{linhas: Coluna dos nomes, Coluna dos números}}\n```\n(barras, linhas, pizza ou rosca) e, no slide do dashboard, um bloco ```indicadores com | Nome | Valor | variação | antes dos gráficos."); }
+        if (!drawn) { ctx.chartAsked = (ctx.chartAsked || 0) + 1; throw new Error("Não gravei ainda: o pedido tem gráfico/dashboard e a apresentação não tem nenhum. Escreva cada gráfico como um bloco:\n```grafico barras: Título\n{{linhas: Coluna dos nomes, Coluna dos números}}\n```\n(barras, linhas, pizza ou rosca) e, no slide do dashboard, um bloco ```indicadores com | Nome | Valor | variação | antes dos gráficos."); }
       }
       // Charts with numbers that are not the sheet's: refused with the right ones (up to 2 times, never stuck).
       if (/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? "")) && (ctx.chartHeld || 0) < 2) {

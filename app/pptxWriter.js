@@ -89,12 +89,15 @@ const textProps = (size, color = SOFT) => `<c:txPr><a:bodyPr/><a:lstStyle/><a:p>
 /** A chart's table as categories (first column) and numeric series (the other columns that hold numbers). */
 export function chartData(input) {
   // The names in a column that is not the first ("| Funcionários | Departamento |"): moved to the front.
-  const isNum = (v) => cellNumber(String(v ?? "").replace(/\s*[a-zA-Z%]+$/, "")) !== null;
+  // "77 (34%)", "120 un": the number first, what follows it is a note (28/10: a chart refused for "77 (34%)",
+  // and the next try came without any chart).
+  const plain = (v) => String(v ?? "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*[a-zA-Z%]+$/, "");
+  const isNum = (v) => cellNumber(plain(v)) !== null;
   const textCol = input[0].findIndex((_, j) => input.slice(1).every((r) => !isNum(r[j])));
   const rows = textCol > 0 ? input.map((r) => [r[textCol], ...r.filter((_, j) => j !== textCol)]) : input;
   const [head, ...body] = rows;
   const categories = body.map((r) => String(r[0] ?? ""));
-  const series = head.slice(1).map((name, k) => ({ name: String(name || `Série ${k + 1}`), values: body.map((r) => cellNumber(String(r[k + 1] ?? "").replace(/\s*[a-zA-Z%]+$/, "")) ?? cellNumber(r[k + 1]) ) }))
+  const series = head.slice(1).map((name, k) => ({ name: String(name || `Série ${k + 1}`), values: body.map((r) => cellNumber(plain(r[k + 1])) ?? cellNumber(r[k + 1]) ) }))
     .filter((s) => s.values.some((v) => v !== null));
   if (!categories.length || !series.length) throw new Error(`O gráfico precisa de uma tabela com a primeira coluna de nomes e pelo menos uma coluna de números (ex.: "| Mês | Vendas |\\n| Jan | 120 |"). Recebi: ${rows.slice(0, 3).map((r) => `| ${r.join(" | ")} |`).join(" ") || "(nenhuma linha de tabela dentro do bloco)"}.`);
   return { categories, series: series.map((s) => ({ ...s, values: s.values.map((v) => v ?? 0) })) };
