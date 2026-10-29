@@ -75,8 +75,13 @@ export function onlyReading(request) {
   // "Não mude nenhum arquivo" forbids a change, it does not ask for one; "as mudanças" and "as
   // alterações" are what to look at (the VS Code /revisar and /explicar, 27/10: the 4B wrote files).
   // Only the person's words: the code, the diff and the terminal output VS Code attaches are not orders.
-  const t = fold(String(request || "").split(/\n\n\[Contexto do VS Code\]/)[0]).replace(/\bo que (ele |ela |isso |este |esse )?faz\b/g, " ").replace(/\bnao (mude|altere|edite|crie|grave|apague|mexa)\w*( (em|n[oa]s?))?( (nenhum|nada|os?|as?))?( arquivos?)?/g, " ").replace(/\b(mudancas?|alteracao|alteracoes)\b/g, " ");
+  let t = fold(String(request || "").split(/\n\n\[Contexto do VS Code\]/)[0]).replace(/\bo que (ele |ela |isso |este |esse )?faz\b/g, " ").replace(/\bnao (mude|altere|edite|crie|grave|apague|mexa)\w*( (em|n[oa]s?))?( (nenhum|nada|os?|as?))?( arquivos?)?/g, " ").replace(/\b(mudancas?|alteracao|alteracoes)\b/g, " ");
   if (!t.trim()) return false;
+  // "Faça um resumo desse documento" reads (28/10: the 4B wrote the summary into a new .docx); "em word",
+  // "numa planilha", "salve" still ask for a file.
+  if (/\b(em|num|numa|para|pra) (um |uma )?(word|pdf|excel|docx|xlsx|pptx|powerpoint|planilha|arquivo|documento|apresentacao)\b/.test(t)) return false;
+  if (/\b(um|uma|novo|nova) (planilha|documento|relatorio|apresentacao|pdf|arquivo|tabela|word|excel|grafico|painel)\b/.test(t)) return false;
+  t = t.replace(/\b(fa[cz]a|faz|fazer|faria|faca|me (faz|faca)) (um|uma|o|a) (breve |rapido |rapida |pequeno |pequena )?(resumo|analise|explicacao|leitura|revisao)\b/g, " resumo ");
   const reads = /\b(le|leia|ler|lendo|resum\w*|me (fala|diga|diz|conta|explica)|do que se trata|o que (diz|tem|e)|explic\w*|expliqu\w*|veja|olha|confer\w*|revis\w*|analis\w*|apont\w*)\b/.test(t);
   const changes = /\b(cri\w*|grav(?!e\b)\w*|salv\w*|edit\w*|alter\w*|apag\w*|exclu\w*|delet\w*|remov\w*|mov\w*|organiz\w*|renome\w*|escrev\w*|atualiz\w*|corrij\w*|corrig\w*|fa[cz]\w*|mont\w*|ger[ae]\w*|copi\w*|substitu\w*|preench\w*|ajust\w*|arrum\w*|limp\w*|coloc\w*|adicion\w*|acrescent\w*|mud\w*|troc\w*|transform\w*|convert\w*|export\w*|envi\w*|mand\w*)\b/.test(t);
   return reads && !changes;
@@ -117,6 +122,9 @@ export async function decide(access, ctx) {
       return mode === "plan" ? { action: "deny", reason: "No modo Plano nada é instalado." } : { action: "ask", reason: "Usar instruções de uma skill de terceiros" };
     case "configure":
       return mode === "plan" ? { action: "deny", reason: "No modo Plano a configuração não muda; proponha ao usuário." } : { action: "ask", reason: "Mudar as pastas que a Aurora conhece" };
+    // A new agent works on its own from then on: the person says yes to each one.
+    case "agent":
+      return mode === "plan" ? { action: "deny", reason: "No modo Plano nenhum agente é criado; proponha ao usuário." } : { action: "ask", reason: "Criar um agente que trabalha sozinho" };
     case "read": {
       if (await inside(access.paths)) return { action: "allow" };
       // "Full computer access" (personal use): any drive, except secrets and the system.

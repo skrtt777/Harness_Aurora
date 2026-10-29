@@ -177,6 +177,12 @@ test("asked for a spreadsheet, a list written into the answer is sent back to be
   const refused = await runChatAgent({ system: "s", input: "Crie a planilha de férias.", tools: [writer], callModel: async () => honest.shift() });
   assert.deepEqual(refused.checks || [], [], "an honest 'não encontrei' is the answer");
   assert.equal(requestsFile("Entregar a planilha dos títulos em atraso."), true);
+  // The file the summary comes from is not a file to deliver (28/10).
+  assert.equal(requestsFile("faça um resumo desse documento para mim"), false);
+  assert.equal(requestsFile("me faz um resumo do pdf"), false);
+  assert.equal(requestsFile("faça um resumo desse documento em word"), true);
+  assert.equal(requestsFile("faça um resumo desse documento e uma planilha com os valores"), true);
+  assert.equal(requestsFile("faça um relatório do mês"), true);
 });
 
 test("after a guard, the model's 'I'll fix it' sentence is not shown to the person", async () => {

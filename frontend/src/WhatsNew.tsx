@@ -8,6 +8,17 @@ import './welcome.css';
  * install: the welcome guide covers that.
  */
 export const NEWS: Record<string, { title: string; items: [string, string][] }> = {
+  '0.1.58': {
+    title: 'Revisão em produção: o que travava no dia a dia',
+    items: [
+      ['Claude e Codex fazem o que você pede', 'Se o seu Claude Code estava em modo Plano, a Aurora com Claude só respondia "estou em modo de planejamento" e não gravava nada; o Codex dizia que a sessão era só leitura. Agora os dois entregam o arquivo, o BI ou a planilha.'],
+      ['"É fictício, pode gerar números"', 'Depois de pedir um BI, responder que os dados podem ser inventados agora monta o BI, em vez de dizer que não há ferramenta. E dados fictícios saem em volume: "300 funcionários" são 300 linhas de verdade, não 20.'],
+      ['Resumo é resumo', '"Faça um resumo desse documento" responde aqui na conversa, depois de ler o documento, em vez de criar um Word novo antes de ler.'],
+      ['Planilhas com título no topo', 'Uma planilha com o título na primeira linha ("CONTROLE DE ESTOQUE - 2026") agora é lida com as colunas certas: "quais produtos estão abaixo do mínimo" acha o produto com 0 de 10.'],
+      ['Agentes pela conversa', '"Crie um agente pesquisador que estude a cada 6 horas" cria o agente na tela Agentes (com a sua autorização), em vez de escrever scripts.'],
+      ['Conversa em andamento sempre visível', 'Abrir uma conversa que está trabalhando (pelo celular, pelo VS Code ou depois de recarregar) mostra o que ela está fazendo e o botão de parar, e a resposta aparece quando termina.'],
+    ],
+  },
   '0.1.57': {
     title: 'Power BI lido de verdade e modelos pagos sem cair',
     items: [

@@ -562,7 +562,7 @@ export function joinNote(previous, lines, name, request) {
  * the sheet never opened (14/10, qwen3.5:2b, 2 runs in 3). Not for made-up data the person asked for.
  */
 export function unreadSubjectSheets(ctx) {
-  if (ctx.readSheets?.size || [...(ctx.readFiles || [])].some((f) => /\.(xlsx|csv)$/i.test(f)) || !ctx.workspace || /fict[ií]ci|invent|aleat|exemplo|simulad/i.test(String(ctx.request || ""))) return [];
+  if (ctx.sampleData || ctx.readSheets?.size || [...(ctx.readFiles || [])].some((f) => /\.(xlsx|csv)$/i.test(f)) || !ctx.workspace || /fict[ií]ci|invent|aleat|exemplo|simulad/i.test(String(ctx.request || ""))) return [];
   const fold = (t) => String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const words = [...new Set(fold(ctx.request).split(/[^a-z0-9]+/).filter((w) => w.length >= 6).map((w) => w.replace(/s$/, "")))];
   if (!words.length) return [];
@@ -1045,7 +1045,17 @@ export function expandPath(input, knownFolders = {}, base) {
     if (base && rest.length && head.toLowerCase() === basename(base).toLowerCase() && !existsSync(join(base, head))) text = rest.join("/");
     text = alias && knownFolders[alias] ? join(knownFolders[alias], ...rest) : join(base || knownFolders.desktop || homedir(), text);
   }
-  return resolve(text);
+  return undoubled(resolve(text));
+}
+
+// "Documentos/Documentos/Vendas.xlsx": a folder written twice by the model (28/10) is the folder once,
+// unless the doubled folder really exists.
+function undoubled(path) {
+  const parts = path.split(/[\\/]/);
+  for (let i = parts.length - 2; i > 0; i -= 1) {
+    if (parts[i] && parts[i].toLowerCase() === parts[i - 1].toLowerCase() && !existsSync(parts.slice(0, i + 1).join(sep))) parts.splice(i, 1);
+  }
+  return parts.join(sep);
 }
 
 // Resolves symlinks/junctions through the nearest existing ancestor, so a
@@ -1903,6 +1913,10 @@ export const fileTools = [
       }
       if (ctx.delegatedTo) throw new Error(`${ctx.delegatedTo} já fez e entregou este trabalho: não grave outro arquivo. Responda à pessoa com o resultado dele.`);
       if (onlyTextAsked(ctx.request, ctx.env)) throw new Error(TEXT_ONLY_ERROR);
+      // The 4B slips into Chinese mid-sentence ("A empresa é uma虚构 (fictícia)", 28/10): caught before the
+      // file, not after it was written, read and edited again.
+      const han = String(args.content ?? args.text ?? args.markdown ?? "").match(/.{0,25}\p{Script=Han}+.{0,15}/u);
+      if (han && !/\p{Script=Han}/u.test(String(ctx.request || ""))) throw new Error(`Não gravei: o texto tem palavras em chinês ("${han[0].trim()}"). Grave de novo com o mesmo caminho, tudo em português.`);
       let file = safeFileName(documentPath(args, ctx));
       const format = extname(file).slice(1).toLowerCase();
       if (["docx", "pdf", "md"].includes(format) && CODE_REQUEST.test(foldText(ctx.request)) && !/\b(docx?|word|pdf|documento|relatorio em|manual|apresentacao)\b/.test(foldText(ctx.request).replace(/relatorio\.py/g, ""))) {

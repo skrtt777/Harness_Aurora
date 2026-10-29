@@ -10,6 +10,7 @@ import { desktopRequest } from "../desktop.js";
 import { askedStyle, groundedName, localPlanAsk } from "../powerbiPlanner.js";
 import { expandPath, resolveExisting } from "./files.js";
 import { asksDeck, wantsPowerBi } from "../toolRouter.js";
+import { readSources } from "../powerbiDesign.js";
 
 const ok = (reply) => { if (!reply.ok) throw new Error(reply.error); return reply.text; };
 const NEXT = "\nAgora diga à pessoa, em 2-3 frases, o que ficou pronto (os números principais) e pergunte se está certo, com **Quer ajustar?** e opções numeradas (ex.: 1. Está ótimo (recomendado) 2. Criar outra medida 3. Mudar o nome do painel).";
@@ -152,7 +153,11 @@ export function namedSheets(paths, request) {
     for (const n of names) {
       const full = join(dir, n);
       if (!/\.(xlsx|csv)$/i.test(n) || have.has(foldName(resolve(full))) || /^~\$/.test(n)) continue;
-      if (words.some((w) => foldName(basename(n)).includes(w))) { out.push(full); have.add(foldName(resolve(full))); }
+      if (!words.some((w) => foldName(basename(n)).includes(w))) continue;
+      // Only a sheet that is a table: the broken one the model had just rewritten into a clean copy came back on
+      // its own, and every build failed on it (28/10, Claude: 5 builds, "um arquivo que eu não passei").
+      try { if (!readSources(full).length) continue; } catch { continue; }
+      out.push(full); have.add(foldName(resolve(full)));
     }
   }
   return out.slice(0, 2);
@@ -199,7 +204,9 @@ export const powerBiTools = [
       const conversation = ctx.conversationId || "";
       if (action === "build") {
         if (asksDeck(ctx.request) && !wantsPowerBi(ctx.request) && !args.__fromOpen) throw new Error("O pedido é uma apresentação: o dashboard é um SLIDE, não um Power BI. Use write_document com um .pptx e, no slide, um bloco ```indicadores (| Nome | Valor | variação |) e blocos ```grafico TIPO: Título com a tabela dos dados.");
-        if (!ASKS_PBI.test(String(ctx.request || "")) && !askedStyle(ctx.request) && !args.__fromOpen) throw new Error("A pessoa não pediu um Power BI/painel: para uma planilha ou relatório comum, use write_document.");
+        // A short follow-up ("É FICTICIO, PODE GERAR NUMEROS", "pode fazer") carries on the request before it.
+        const followUp = String(ctx.request || "").trim().split(/\s+/).length <= 15 ? (ctx.earlierRequests || []).slice(-2) : [];
+        if (![ctx.request, ...followUp].some((r) => ASKS_PBI.test(String(r || ""))) && !askedStyle(ctx.request) && !args.__fromOpen) throw new Error("A pessoa não pediu um Power BI/painel: para uma planilha ou relatório comum, use write_document.");
         const files = [args.files].flat().filter(Boolean);
         if (!files.length) throw new Error("Diga as planilhas em files (ex.: [\"Documentos/vendas.xlsx\"]).");
         const paths = [];
@@ -237,6 +244,9 @@ export const powerBiTools = [
         const c = await connectReport(conversation, args.window);
         return `Conectei ao Power BI "${c.title}".\n${c.text}\nAgora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer ajustar?** (ex.: 1. Responder uma pergunta sobre os números (recomendado) 2. Criar uma medida 3. Revisar o modelo).`;
       }
+      // Colors of a panel the Aurora built: a new build, with or without Power BI open (28/10: "azul e amarelo"
+      // stopped at "nenhum Power BI aberto" before this tip was reached).
+      if (COLOR_CHANGE(args)) throw new Error(THEME_TIP);
       if (!connectedReport(conversation)) {
         // A report opened by the person since: connect to it on the way.
         await connectReport(conversation, args.window);
@@ -262,7 +272,6 @@ export const powerBiTools = [
         if (!reply.ok) throw new Error(`${reply.error}\n${args.dax ? simpleHint() : ""}`);
         return `${reply.text}\n(DAX: ${dax})\nResponda com estes números, sem arredondar e sem inventar outros. A primeira linha depois dos títulos é a maior.`;
       }
-      if (COLOR_CHANGE(args)) throw new Error(THEME_TIP);
       if (action === "change") {
         const ops = [args.ops].flat().filter(Boolean);
         if (!ops.length) throw new Error("Mande as mudanças em ops (ex.: [{\"op\":\"measure\",\"name\":\"Margem\",\"expression\":\"DIVIDE([Lucro], [Faturamento])\",\"format\":\"0.0%\"}]).");

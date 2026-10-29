@@ -5,6 +5,9 @@ import { createMemory, getSetting, recordMemoryOutcome, setSetting } from "./sto
 import { enableSkill, importSkill } from "./skills.js";
 import { DEFAULT_DAILY_LIMIT, DEFAULT_TEACHER_MODE, TEACHER_MODES, buildReviewPrompt, callTeacher, detectSignals, narratesCorrection, parseReview, redoMessage, shouldReview } from "./teacher.js";
 
+// What the first attempt left on disk: a file written, a panel built, made-up data saved.
+const made = (steps = []) => [...new Set(steps.filter((s) => s.ok && (["write_file", "edit_file", "write_document", "sample_data"].includes(s.tool) || (s.tool === "powerbi" && s.args?.action === "build"))).map((s) => (s.tool === "powerbi" ? `o painel do Power BI "${s.args?.name || ""}" (com ${[s.args?.files].flat().filter(Boolean).join(", ")})` : `${s.args?.path || s.args?.file_path || ""}`)).filter((d) => d.trim()))].slice(0, 12);
+
 const REDO_TOOL_CHARS = 600;
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -107,7 +110,7 @@ export async function runTeachingLoop({ userMessage, history, first, teacherProv
   // redo past a llama-server slot (13k of 12k tokens). If it still doesn't fit, the
   // redo starts clean: the teacher's message already carries the request.
   const transcript = first.messages.slice(1).map((m) => (m.role === "tool" && String(m.content).length > REDO_TOOL_CHARS ? { ...m, content: `${String(m.content).slice(0, REDO_TOOL_CHARS)}\n… (resultado anterior resumido)` } : m));
-  const redo = redoMessage(verdict, userMessage);
+  const redo = redoMessage(verdict, userMessage, made(first.steps));
   let second = await rerun(transcript, redo, { question: userMessage });
   if (!second.ok && !second.cancelled && /context|contexto|exceeds/i.test(String(second.error))) second = await rerun([], redo, { question: userMessage });
   if (!second.ok) return { result: first, review: { ...review, redo: "falhou", redoError: second.error } };

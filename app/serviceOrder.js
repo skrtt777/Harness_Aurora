@@ -13,6 +13,7 @@ import { requestedFiles } from "./codeGuards.js";
 import { officialPages, pagesLine } from "./legalSources.js";
 import { askedFolder, requestedFormat } from "./agentTools/files.js";
 import { asksDeck } from "./toolRouter.js";
+import { onlyReading } from "./agentPolicy.js";
 
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const RUN = /\b(rode|rodar|execute|executar|roda o|rode os testes|teste e|me mostre o resultado|mostre a saida)\b/;
@@ -30,7 +31,9 @@ export function serviceOrder(request, { history = [] } = {}) {
   const text = String(request || "");
   const t = fold(text);
   const area = areaOf([...history.slice(-2), text].join("\n"));
-  const makes = MAKES.test(t);
+  // "Faça um resumo desse documento" reads: the .docx in its path is the source, not a Word to deliver (28/10:
+  // the order said "Entregar: um documento Word" and the agent went looking for how to deliver one).
+  const makes = MAKES.test(t) && !onlyReading(text);
   const files = makes ? requestedFiles(text) : [];
   // The file names out first: "relatorio.py" is not a request for a Word report.
   const format = makes ? requestedFormat(text.replace(FILE_NAMES, " ")) : null;

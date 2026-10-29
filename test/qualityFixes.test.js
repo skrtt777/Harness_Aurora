@@ -198,3 +198,19 @@ test("the count guard leaves a sum of two filtered reads alone (9 aguardando + 5
   assert.equal(filteredCountMismatch("São 30 pedidos em aberto.", q, 5, [5]), null, "far from the filter: another subset, not a miscount");
   assert.deepEqual(filteredCountMismatch("São 6 pedidos em aberto.", q, 5, [5]), { said: [6], filtered: 5 });
 });
+
+test("a short follow-up ('É FICTICIO, PODE GERAR NUMEROS') carries on the Power BI asked just before (28/10)", async () => {
+  const { AGENT_TOOLS } = await import("../app/agentTools/index.js");
+  const powerbi = AGENT_TOOLS.find((t) => t.name === "powerbi");
+  const build = (ctx) => powerbi.run({ action: "build", files: [] }, { conversationId: "t", ...ctx }).then(() => "", (e) => e.message);
+  assert.match(await build({ request: "É FICTICIO, PODE GERAR NUMEROS", earlierRequests: ["monte um BI de vendas de uma loja de roupas"] }), /Diga as planilhas/);
+  assert.match(await build({ request: "É FICTICIO, PODE GERAR NUMEROS", earlierRequests: [] }), /não pediu um Power BI/);
+  assert.match(await build({ request: "agora faça uma planilha de gastos com as categorias do mês passado e os totais de cada uma delas, por favor", earlierRequests: ["monte um BI de vendas"] }), /não pediu um Power BI/, "a long new request is its own");
+});
+
+test("colors of a panel the Aurora built go to a new build, even with Power BI closed (28/10)", async () => {
+  const { AGENT_TOOLS } = await import("../app/agentTools/index.js");
+  const powerbi = AGENT_TOOLS.find((t) => t.name === "powerbi");
+  const error = await powerbi.run({ action: "change", ops: [{ format: { palette: "Azul-Amarelo" } }] }, { conversationId: "cores", request: "azul e amarelo" }).then(() => "", (e) => e.message);
+  assert.match(error, /action=build, os MESMOS files/);
+});

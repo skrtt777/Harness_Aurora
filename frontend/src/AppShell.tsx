@@ -65,7 +65,11 @@ export default function AppShell() {
   const busyRef = useRef(new Set<string>());
   const selectedRef = useRef(activeConversationId);
   selectedRef.current = activeConversationId;
-  const sending = Boolean(activeConversationId && busyIds.has(activeConversationId));
+  // A turn this window did not send (the phone, VS Code, an agent, or this window before a reload): the
+  // conversation follows it as if sent here (stage, approval card, Parar) instead of looking idle and
+  // refusing the next message with "já tem uma resposta em andamento" (28/10).
+  const [outsideTurnId, setOutsideTurnId] = useState<string | null>(null);
+  const sending = Boolean(activeConversationId && (busyIds.has(activeConversationId) || outsideTurnId === activeConversationId));
   const [operationError, setOperationError] = useState("");
   const bootStarted = useRef(false);
   const [pendingStage, setPendingStage] = useState<string | null>(null);
@@ -330,6 +334,31 @@ export default function AppShell() {
       clearInterval(interval);
     };
   }, [sending, activeConversationId]);
+
+  const sentHere = Boolean(activeConversationId && busyIds.has(activeConversationId));
+  useEffect(() => {
+    const id = activeConversationId;
+    if (!id || sentHere) return;
+    let stale = false;
+    let running = false;
+    const check = () => {
+      getPendingTurn(id)
+        .then((turn) => {
+          if (stale) return;
+          if (turn.stage && !running) { running = true; setOutsideTurnId(id); }
+          else if (!turn.stage && running) {
+            running = false;
+            setOutsideTurnId(null);
+            getConversation(id).then(c => { if (!stale && selectedRef.current === c.id) setActiveConversation(c); }).catch(() => {});
+            void refreshLists();
+          }
+        })
+        .catch(() => {});
+    };
+    check();
+    const timer = setInterval(check, 2000);
+    return () => { stale = true; clearInterval(timer); setOutsideTurnId(null); };
+  }, [activeConversationId, sentHere, refreshLists]);
 
   const handleResolveApproval = useCallback(async (approvalId: string, approved: boolean, always = false) => {
     if (!activeConversationId) return;

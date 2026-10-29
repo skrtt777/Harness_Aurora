@@ -138,7 +138,14 @@ export function xlsxSheets(buffer) {
 }
 
 export function xlsxText(buffer) {
-  return xlsxSheets(buffer).map((s) => [`## ${s.name}`, ...s.rows.map((cells) => cells.join(" | "))].join("\n")).join("\n");
+  return xlsxSheets(buffer).map((s) => {
+    // A title above the table ("CONTROLE DE ESTOQUE - 2026" alone in A1) is text, not the header: read as
+    // the header, it hid the real columns and "Qtd Atual<Qtd Mín" was refused (28/10: "nenhum abaixo do
+    // mínimo", with one at 0 of 10).
+    const filled = (cells) => cells.filter((c) => String(c ?? "").trim() !== "").length;
+    const first = s.rows.findIndex((cells) => filled(cells) >= 2);
+    return [`## ${s.name}`, ...s.rows.map((cells, i) => (i < first && filled(cells) <= 1 ? cells.join("").trim() : cells.join(" | ")))].join("\n");
+  }).join("\n");
 }
 
 export function pptxText(buffer) {

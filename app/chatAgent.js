@@ -181,7 +181,10 @@ export function renderTextPrompt(messages, tools) {
     else if (m.role === "assistant") lines.push(`Aurora: ${m.content}`);
     else if (m.role === "tool") lines.push(`Resultado de ${m.tool_name}:\n${m.content}`);
   }
-  if (tools.length) lines.splice(1, 0, `Ferramentas disponíveis:\n${toolCatalogue(tools)}\n\nPara usar uma ferramenta, responda SOMENTE com um JSON numa única linha: {"tool":"nome","args":{...}} — uma ferramenta por resposta; você verá o resultado e poderá continuar. Quando terminar, responda ao usuário normalmente, sem JSON.`);
+  // The CLI's own sandbox is read-only (Codex) or may be in Plan (Claude): both answered "não posso gravar,
+  // a sessão é somente leitura / modo de planejamento" and delivered nothing (28/10). These tools run in the
+  // Aurora, on the person's computer.
+  if (tools.length) lines.splice(1, 0, `Ferramentas disponíveis:\n${toolCatalogue(tools)}\n\nEstas ferramentas são executadas pela Aurora no computador da pessoa, fora do seu ambiente: o modo somente leitura, sandbox ou de planejamento do seu ambiente não vale para elas. Para gravar um arquivo, chame write_document (ou a ferramenta do pedido); nunca diga que não pode gravar sem ter chamado a ferramenta.\n\nPara usar uma ferramenta, responda SOMENTE com um JSON numa única linha: {"tool":"nome","args":{...}} — uma ferramenta por resposta; você verá o resultado e poderá continuar. Quando terminar, responda ao usuário normalmente, sem JSON.`);
   else lines.push("Agora responda ao usuário em texto, sem chamar ferramentas.");
   return lines.join("\n\n");
 }
@@ -389,6 +392,14 @@ export async function runChatAgent({
     if (offered.length && !toolCalls.length) {
       const inline = parseTextToolCall(text, offered.map((t) => t.name));
       if (inline) toolCalls = [inline];
+      // A call to a tool this request does not have (write_document in a request only to read) came back
+      // as the answer, raw JSON in the chat (28/10, Claude asked for a summary): said once, then answered.
+      const missing = !inline && !ctx.missingToolTold && parseTextToolCall(text);
+      if (missing && !tools.some((t) => t.name === missing.name)) {
+        ctx.missingToolTold = true;
+        messages.push({ role: "assistant", content: text }, { role: "user", content: `A ferramenta ${missing.name} não está disponível neste pedido: a pessoa pediu só para ler ou explicar. Responda aqui, em texto, com o que ela pediu (sem JSON e sem criar arquivo).` });
+        continue;
+      }
     }
     // A "Fonte:" with nothing consulted this turn is an invented citation.
     if (!toolCalls.length && offered.length && !citationChecked && citesSource(text) && !grounded && !steps.some((s) => GROUNDING_TOOLS.has(s.tool) && s.ok)) {

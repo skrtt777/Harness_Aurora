@@ -79,4 +79,34 @@ export const delegateTools = [
       return `${target.name} ${run.status === "done" ? "terminou" : "não conseguiu terminar"}:\n${String(run.answer || run.error || "").slice(0, 2500)}${files ? `\n\nArquivos entregues:\n${files}` : ""}\n(${run.status === "done" ? "O trabalho está feito pelo agente: não refaça nem crie outro arquivo. Só conte à pessoa o resultado e onde estão os arquivos." : "Conte à pessoa que o agente não terminou e por quê; não faça o trabalho no lugar dele sem ela pedir."})`;
     },
   },
+  {
+    // "Crie agentes pesquisadores que estudem quando você estiver parada" was asked three times (15-16/10)
+    // and came back as Python scripts, a PowerShell schedule, or questions: the agents live in the tela
+    // Agentes, and the chat could not make one (28/10).
+    name: "agent_create",
+    description: "Cria um agente da Aurora (um \"funcionário\" da tela Agentes) com nome, missão e, se a pessoa pedir que ele trabalhe sozinho, de quanto em quanto tempo (every_hours) ou num horário (at: \"08:00\"). Use quando a pessoa pedir para criar um agente, um assistente que trabalhe sozinho ou pesquisadores autônomos; um agente por chamada. Nunca escreva scripts para isso.",
+    parameters: { type: "object", properties: {
+      name: { type: "string", description: "ex.: Pesquisador de mercado" },
+      mission: { type: "string", description: "o que ele faz, nas palavras da pessoa" },
+      every_hours: { type: "number", description: "trabalha sozinho a cada N horas (opcional)" },
+      at: { type: "string", description: "ou todo dia útil nesse horário, HH:MM (opcional)" },
+      request: { type: "string", description: "o que ele faz em cada rodada automática (padrão: a missão)" },
+    }, required: ["name", "mission"] },
+    stage: (a) => `Criando o agente ${a.name || ""}…`,
+    describe: (a) => ({ kind: "agent", summary: `Criar o agente "${a.name || ""}"${a.every_hours ? `, que trabalha sozinho a cada ${a.every_hours} h` : a.at ? `, que trabalha sozinho às ${a.at}` : ""}: ${String(a.mission || "").slice(0, 120)}` }),
+    async run(args, ctx) {
+      if (ctx.env?.AGENT_RUN_TRIGGER) throw new Error("Um agente não cria outro agente.");
+      const agents = await import("../agents.js");
+      const name = String(args.name || "").trim();
+      if (findAgent(await agents.listAgents(), name)) throw new Error(`Já existe um agente chamado "${name}": escolha outro nome ou peça a ele com agent_delegate.`);
+      const request = String(args.request || args.mission || "").trim();
+      const hours = Number(args.every_hours);
+      const trigger = hours > 0 ? { type: "schedule", everyMinutes: Math.round(hours * 60), request, quiet: true }
+        : /^\d{1,2}:\d{2}$/.test(String(args.at || "")) ? { type: "schedule", at: String(args.at).padStart(5, "0"), request }
+          : { type: "manual" };
+      const agent = await agents.createAgent({ name, mission: args.mission, trigger });
+      const when = trigger.everyMinutes ? `trabalha sozinho a cada ${hours} h (só avisa quando houver novidade)` : trigger.at ? `trabalha sozinho às ${trigger.at}, de segunda a sexta` : "trabalha quando a pessoa pedir";
+      return `Criei o agente "${agent.name}": ${when}. Pasta dele: ${agent.workDir}. Ele aparece na tela Agentes, onde a pessoa vê o que ele fez, muda o horário ou o desliga.`;
+    },
+  },
 ];

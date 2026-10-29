@@ -41,7 +41,18 @@ export function requestsFile(text) {
   const t = String(text || "");
   if (/\b(?:numa|num|em uma|em um|pra uma|pra um|para uma|para um)\s+(?:nova\s+)?(?:planilha|word|documento|doc|pdf|excel|arquivo|apresenta[çc][ãa]o|xlsx|docx)\b/i.test(t)
     && !/\b(?:o que|qual|quanto|quantos|tem|est[áa]|t[áa])\b[^.?!\n]{0,20}\b(?:numa|num|em uma|em um)\s+(?:planilha|word|documento|pdf|arquivo)\b/i.test(t)) return true;
-  return new RegExp(`\\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca|p[õo]e|ponha|agrupa|agrupe|exporta|exporte|transforma|transforme|preciso d[ea]|quero(?!\\s+saber)|queria(?!\\s+saber)|gostaria d[ea])\\b[^.?!\\n]{0,40}\\b${DELIVERABLE}`, "i").test(String(text || ""));
+  // "Resumo em word", "me manda em pdf": the format of the answer.
+  if (/\bem\s+(?:word|pdf|excel|docx|xlsx|pptx|powerpoint)\b/i.test(t)) return true;
+  // "Faça um resumo desse documento", "me faz um resumo do pdf": the file is where it comes from, not what
+  // to deliver (28/10: the summary went into a new .docx, written before the document was read).
+  const source = /\b(?:d[eoa]s?|dess[ea]s?|dest[ea]s?|daquel[ea]s?|n[oa]s?|ness[ea]s?|nest[ea]s?|sobre (?:o|a|os|as))\s+$/i;
+  const verb = /\b(?:crie|cria|criar|gere|gera|gerar|fa[çz]a|faz|fazer|monte|monta|montar|elabore|escreva|salve|salva|produza|prepare|prepara|entregue|entregar|forne[çc]a|manda|mande|passa|bota|coloca|p[õo]e|ponha|agrupa|agrupe|exporta|exporte|transforma|transforme|preciso d[ea]|quero(?!\s+saber)|queria(?!\s+saber)|gostaria d[ea])\b/gi;
+  const deliverable = new RegExp(`\\b${DELIVERABLE}`, "gi");
+  for (const v of t.matchAll(verb)) {
+    const after = t.slice(v.index + v[0].length).match(/^[^.?!\n]*/)[0];
+    for (const d of after.matchAll(deliverable)) if (d.index <= 40 && !source.test(after.slice(0, d.index))) return true;
+  }
+  return false;
 }
 
 /**
@@ -147,10 +158,13 @@ export async function callTeacher({ provider, prompt, workspace, env = process.e
 }
 
 /** The message the local model gets for its second attempt. */
-export function redoMessage(review, userMessage = "") {
+export function redoMessage(review, userMessage = "", done = []) {
   return [
     "Um revisor conferiu sua entrega e encontrou problemas. Corrija agora usando as ferramentas e confira o resultado antes de responder.",
     review.problems.length ? `Problemas:\n${review.problems.map((p) => `- ${p}`).join("\n")}` : "",
+    // A redo built the same Power BI and wrote the same CSV again under other names when only the answer was
+    // wrong (28/10): two panels and two CSVs for the person to tell apart.
+    done.length ? `Já feito na primeira tentativa (está no disco):\n${done.map((d) => `- ${d}`).join("\n")}\nReaproveite: refaça um arquivo só se o problema for nele, com o mesmo caminho; se o problema é só a resposta, responda sem chamar ferramentas de novo.` : "",
     review.guidance ? `Orientação:\n${review.guidance}` : "",
     review.lessons.length ? `Lições para guardar:\n${review.lessons.map((l) => `- ${l.content}`).join("\n")}` : "",
     userMessage ? `Pedido do usuário: ${clip(userMessage, 1000)}` : "",

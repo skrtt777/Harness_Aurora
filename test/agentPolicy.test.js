@@ -232,6 +232,11 @@ test("only asked to read or explain: changing a file asks first (a downloaded fi
   assert.equal(onlyReading("explique e depois mude a porta para 8080"), false);
   assert.equal(onlyReading("crie uma planilha com os gastos"), false);
   assert.equal(onlyReading(""), false);
+  // 28/10, the person's own words: the summary went into a new .docx written before the document was read.
+  assert.equal(onlyReading("\"C:\\Users\\x\\Documentos\\Economia_Aurora_Analise.docx\" faça um resumo desse documento para mim"), true);
+  assert.equal(onlyReading("me faz uma análise do contrato"), true);
+  assert.equal(onlyReading("faça um resumo desse documento em word"), false);
+  assert.equal(onlyReading("faça um resumo desse documento e uma planilha com os valores"), false);
   const write = { kind: "write", paths: [join(workspace, "promo.txt")] };
   assert.equal((await decide(write, ctx("auto", undefined, { request: "le o arquivo e me fala do que se trata" }))).action, "ask");
   assert.equal((await decide(write, ctx("auto", undefined, { request: "corrija os erros do arquivo" }))).action, "allow");

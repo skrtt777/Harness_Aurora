@@ -29,11 +29,13 @@ export const TOOL_GROUPS = [
   { id: "navegador", words: /\b(abr[aei]r? (o |a )?(site|pagina|navegador|link)|navegador|chrome|formulario|preench|clique|clicar|login|entr[ae] no site|envie (uma )?mensagem (no|pelo) site|http|www\.|\.com\b|youtube|instagram|whatsapp web)/, tools: ["browser_navigate", "browser_snapshot", "browser_read", "browser_click", "browser_type", "browser_fill", "browser_key", "browser_scroll", "browser_tabs"] },
   { id: "office", words: /\b(abr[aei]r? (o |a )?(excel|word|powerpoint|programa|aplicativo|app)|no excel|no word|no powerpoint|excel aberto|word aberto|planilha aberta|janela|na tela|calculadora|sistema da empresa|programa)/, tools: ["excel", "word", "powerpoint", "open", "desktop_windows", "desktop_snapshot", "desktop_click", "desktop_type", "desktop_key", "desktop_copy"] },
   { id: "powerbi", words: { test: wantsPowerBi }, tools: ["powerbi"] },
+  // Made-up data in volume (28/10: "mais de 300 funcionários" came back as 20 rows written by hand).
+  { id: "dados-ficticios", words: /\b(fictici|aleatori|invent[ae]|dados de (exemplo|teste)|(crie|cria|criar|gere|gera|gerar) (os |uns |alguns )?dados|massa de dados|simulad|pode gerar (os )?numeros|numeros ficticios)/, tools: ["sample_data"] },
   { id: "comandos", words: /\b(rode|rodar|execut|comando|terminal|powershell|script|instal|npm|python|node|git|compil|teste[ms]?\b|servidor|porta)/, tools: ["run_command", "command_output", "command_stop"] },
   { id: "empresa", words: /\b(index|base de conhecimento|pasta da empresa|documentos da empresa|conecte|mapa dos documentos|knowledge)/, tools: ["knowledge_setup", "knowledge_map"] },
   { id: "access", words: /\b(access|\.accdb|\.mdb|banco de dados)/, tools: ["access_db"] },
   { id: "habilidades", words: /\b(skill|habilidade)/, tools: ["skill_search", "skill_use", "skill_create"] },
-  { id: "equipe", words: /\b(agente|equipe|time de|delegu|setor .* fa[cç]a|subagent)/, tools: ["agent_delegate", "team_request", "subagents"] },
+  { id: "equipe", words: /\b(agente|equipe|time de|delegu|setor .* fa[cç]a|subagent)/, tools: ["agent_delegate", "agent_create", "team_request", "subagents"] },
 ];
 
 /** The groups a request speaks of (their tools and their rules go in). */

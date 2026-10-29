@@ -69,8 +69,12 @@ export async function runClaude(prompt, env = process.env, signal) {
   const timeoutMs = Number(env.CLAUDE_TIMEOUT_MS || CLAUDE_TIMEOUT_MS);
   // Text only: the Harness runs the tools (app/chatAgent.js), so Claude Code's own are off (--tools ""),
   // or it walks the Harness folder on its own and spends the time. An old CLI without --tools: once without.
+  // --permission-mode: the person's own Claude Code may default to Plan ("defaultMode": "plan" in
+  // ~/.claude/settings.json), and claude -p inherits it: every answer was "esta sessão está em modo de
+  // planejamento, não posso criar arquivos" (28/10). The Harness asks for nothing to run here, so any
+  // mode that is not Plan will do; acceptEdits exists in every CLI version.
   const attempt = async (noTools) => {
-    const args = ["-p", "--output-format", "json", "--no-session-persistence", ...(noTools ? ["--tools", ""] : [])];
+    const args = ["-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "acceptEdits", ...(noTools ? ["--tools", ""] : [])];
     if (env.CLAUDE_MODEL) args.push("--model", env.CLAUDE_MODEL);
     const cli = resolveCli("claude", env);
     return executeCli(cli.command, [...cli.prefix, ...args], {

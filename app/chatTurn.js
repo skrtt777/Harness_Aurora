@@ -690,6 +690,9 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
           toolContext.onPlan = (plan) => { agentPlan = plan; setTurnPlan(conversationId, plan); };
           // The person's words, for tools that must read intent ("até 15/10" in read_file filters).
           toolContext.request = trimmed;
+          // The person's last requests before this one: "É FICTICIO, PODE GERAR NUMEROS" answers "monte um BI…"
+          // (28/10: the Power BI build was refused as "not asked for", and the 4B said it had no tool for it).
+          toolContext.earlierRequests = history.filter((m) => m.role === "user").slice(-3).map((m) => String(m.content || ""));
           // Code rules and code tools only for code (the request, the last messages, a VS Code conversation).
           // The Recepção (app/serviceOrder.js): the order of this request, in the prompt and for the Expedição.
           // Not when the request is divided among subagents (planilhas + Power BI): they have their own plan, and the order on top made the run go round (A/B 13/10: 2,75 of 5 with it, 4,0 without).

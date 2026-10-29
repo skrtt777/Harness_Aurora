@@ -33,6 +33,10 @@ test("paths expand folder aliases and stay inside the allowed roots", async () =
   assert.equal(expandPath("área de trabalho\\a.txt", folders), join(root, "a.txt"));
   assert.equal(expandPath("Documentos/x.md", folders), join(root, "docs", "x.md"));
   assert.equal(expandPath("solto.txt", folders), join(root, "solto.txt"));
+  // A folder the model wrote twice (28/10) is the folder once, unless the doubled folder exists.
+  assert.equal(expandPath("Documentos/Documentos/Vendas.xlsx", {}, root), join(root, "Documentos", "Vendas.xlsx"));
+  mkdirSync(join(root, "rep", "rep"), { recursive: true });
+  assert.equal(expandPath("rep/rep/a.txt", {}, root), join(root, "rep", "rep", "a.txt"));
   assert.equal(await isInsideRoots(join(root, "sub", "novo.txt"), [root]), true);
   assert.equal(await isInsideRoots(join(root, "..", "fora.txt"), [root]), false);
   assert.equal(await isInsideRoots(join(outside, "x.txt"), [root]), false);

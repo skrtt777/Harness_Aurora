@@ -16,13 +16,14 @@ import { delegateTools } from "./delegate.js";
 import { subagentTools } from "./subagents.js";
 import { desktopTools, excelTools, pptTools, wordTools } from "./desktop.js";
 import { powerBiTools } from "./powerbi.js";
+import { sampleDataTools } from "./sampleData.js";
 import { decide } from "../agentPolicy.js";
 
 // Browser and web tools only look, except the ones that act on a page.
 const INTERACT = new Set(["browser_click", "browser_type", "browser_key"]);
 for (const tool of [...browserTools, ...webTools]) tool.describe ||= () => ({ kind: INTERACT.has(tool.name) ? "interact" : "browse" });
 
-export const AGENT_TOOLS = [...browserTools, ...webTools, ...learnTools, ...systemTools, ...fileTools, ...billTools, ...calcTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...subagentTools, ...desktopTools, ...excelTools, ...wordTools, ...pptTools, ...powerBiTools, ...siteTools, ...codeTools];
+export const AGENT_TOOLS = [...browserTools, ...webTools, ...learnTools, ...systemTools, ...fileTools, ...billTools, ...calcTools, ...knowledgeTools, ...computerTools, ...delegateTools, ...subagentTools, ...desktopTools, ...excelTools, ...wordTools, ...pptTools, ...powerBiTools, ...sampleDataTools(fileTools.find((t) => t.name === "write_document")), ...siteTools, ...codeTools];
 /** The tools only a code request gets (they are last, so the others' prompt prefix stays the same). */
 export const CODE_TOOL_NAMES = new Set([...siteTools, ...codeTools].map((t) => t.name));
 const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
