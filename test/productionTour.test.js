@@ -194,3 +194,34 @@ test("hard round 29/10: the format said wins over the source's name; same column
   assert.match(hint, /Sul \| 3 \| 220,00 \| 88,0%/);
   assert.match(hint, /TOTAL \| 4 \| 250,00 \| 100,0%/);
 });
+
+test("edit_file refuses a Word, Excel or PowerPoint: written back as text the .docx was destroyed (29/10)", async () => {
+  const { executeTool } = await import("../app/agentTools/index.js");
+  const { readFileSync } = await import("node:fs");
+  const dir = join(temp, "edit");
+  (await import("node:fs")).mkdirSync(dir, { recursive: true });
+  const ctx = { allowedRoots: [dir], workspaceRoots: [dir], workspace: dir, mode: "auto", knownFolders: { desktop: dir }, env: process.env, approve: async () => false, request: "crie um relatório em Word" };
+  assert.equal((await executeTool("write_document", { path: "rel.docx", content: "# Relatório\n\nA região Nordeste liderou." }, ctx)).ok, true);
+  const before = readFileSync(join(dir, "rel.docx"));
+  const out = await executeTool("edit_file", { path: "rel.docx", before: "Nordeste liderou", after: "Sul liderou" }, { ...ctx, request: "corrija o relatório" });
+  assert.equal(out.ok, false);
+  assert.match(out.result, /write_document no MESMO caminho/);
+  assert.deepEqual(readFileSync(join(dir, "rel.docx")), before, "the file is untouched");
+});
+
+test("quarters come summed (1º = jan–mar); 'os 3 melhores vendedores' groups; an e-mail asked comes back as an e-mail", async () => {
+  const { quarterTotals, groupHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Vendas", "Mês | Vendedor | Total", "Janeiro | Ana | 100", "Março | Bia | 50", "Abril | Ana | 300", "Junho | Bia | 30"];
+  const q = quarterTotals(sheet);
+  assert.match(q, /1º trimestre \(jan–mar\) \| 2 \| 150,00/);
+  assert.match(q, /2º trimestre \(abr–jun\) \| 2 \| 330,00/);
+  assert.match(q, /Do 1º para o 2º: 120,0%/);
+  assert.match(groupHint(sheet, "compare o 1º trimestre com o 2º"), /Totais por trimestre/);
+  assert.match(groupHint(sheet, "quem são os 2 melhores vendedores?"), /Totais por Vendedor/);
+  const { runChatAgent } = await import("../app/chatAgent.js");
+  const reader = { name: "read_file", description: "lê", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "ok" };
+  const replies = [{ ok: true, text: "# Pendências - Gráfica Norte\n\n| Nº | Valor |\n|---|---|\n| CP-002 | 7.603,76 |" }, { ok: true, text: "Assunto: Contas em aberto\n\nOlá, equipe da Gráfica Norte,\n\nTemos em aberto a CP-002 (R$ 7.603,76).\n\nAtenciosamente," }];
+  const result = await runChatAgent({ provider: "claude", system: "s", input: "escreva um e-mail para a Gráfica Norte com as contas em aberto", tools: [reader], callModel: async () => replies.shift() });
+  assert.match(result.text, /^Assunto:/);
+  assert.ok(result.checks.some((c) => c.check === "message_format"));
+});

@@ -312,6 +312,37 @@ export function numberFilterHint(lines, request) {
  * (empresa eval rh-2, again on 05/10/2026). When the request says now/today and the sheet has a
  * start and an end date, the rows in progress today, with the filter that brings them.
  */
+const MONTH_NUMBER = { janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6, julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12 };
+/** Totals per quarter (1º = jan–mar …) from a month or date column, by the money column; "" when there is none. */
+export function quarterTotals(lines) {
+  const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 1);
+  if (!sheet) return "";
+  const names = sheet.header.line.split(" | ").map((c) => c.trim());
+  const rows = sheet.rows.map((r) => r.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((cells) => cells.length === names.length && !/^total/i.test(cells[0]));
+  if (!rows.length) return "";
+  const monthCol = names.findIndex((n) => foldText(n) === "mes");
+  const dateCol = names.findIndex((_, j) => DATE.test(rows[0][j] || ""));
+  if (monthCol < 0 && dateCol < 0) return "";
+  const money = [/total/i, /valor(?! unit)|fatur|receita|venda|gasto|custo/i].map((re) => names.findIndex((n) => re.test(n) && !/unit[aá]ri/i.test(n))).find((j) => j >= 0);
+  if (money === undefined || money < 0) return "";
+  const quarters = new Map();
+  for (const cells of rows) {
+    const m = monthCol >= 0 ? MONTH_NUMBER[foldText(cells[monthCol])] : Number(String(cells[dateCol]).split("/")[1]);
+    if (!m) continue;
+    const q = Math.ceil(m / 3);
+    const g = quarters.get(q) || { count: 0, total: 0 };
+    g.count += 1; g.total += cellValue(cells[money]) || 0;
+    quarters.set(q, g);
+  }
+  if (!quarters.size) return "";
+  const fmt = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const span = ["jan–mar", "abr–jun", "jul–set", "out–dez"];
+  const list = [...quarters].sort((a, b) => a[0] - b[0]);
+  const lines2 = list.map(([q, g]) => q + "º trimestre (" + span[q - 1] + ") | " + g.count + " | " + fmt(g.total));
+  const changes = list.slice(1).filter(([q]) => quarters.has(q - 1)).map(([q, g]) => { const before = quarters.get(q - 1).total; return "Do " + (q - 1) + "º para o " + q + "º: " + (before ? ((g.total - before) / before * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%" : "—"); });
+  return "\n(Totais por trimestre (1º = janeiro a março), já somados das " + rows.length + " linhas, pela coluna " + names[money] + "; use estes números:\nTrimestre | Linhas | Total " + names[money] + "\n" + lines2.join("\n") + (changes.length ? "\nVariação: " + changes.join("; ") : "") + "\n)";
+}
+
 /**
  * "Quais contas em aberto já venceram até hoje": the model filtered Status!=Pago and listed every open bill,
  * due or not (29/10). The due date column before today joins its filter, with the result right here.
@@ -732,7 +763,9 @@ export function groupHint(lines, request) {
   const text = foldText(request);
   // "Por cliente", and also "o cliente que mais deve" / "qual fornecedor mais…": the top one needs the
   // sums per client (an e-mail went to the client of the single biggest bill, not the biggest debtor).
-  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g), ...rankedGroupAsk(text), ...text.matchAll(/\b(?:pior|melhor|maior|menor)\s+(mes|dia|semana|trimestre|regiao|vendedor|produto|cliente|fornecedor|categoria|loja|filial|setor|departamento)\b/g)].map((m) => m[1].slice(0, 5));
+  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g), ...rankedGroupAsk(text), ...text.matchAll(/\b(?:pior(?:es)?|melhor(?:es)?|maior(?:es)?|menor(?:es)?|top\s*\d+)\s+(meses|mes|dias?|semanas?|trimestres?|regioes|regiao|vendedor(?:es)?|produtos?|clientes?|fornecedor(?:es)?|categorias?|lojas?|filia(?:l|is)|setor(?:es)?|departamentos?)\b/g)].map((m) => (m[1] === "meses" ? "mes" : m[1]).slice(0, 5));
+  // "Compare o 1º trimestre com o 2º": the 4b took January as the 1st quarter (29/10). Totals per quarter, ready.
+  if (/\btrimestr/.test(text)) { const q = quarterTotals(lines); if (q) return q; }
   if (!asked.length) return "";
   const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 1);
   if (!sheet) return "";
@@ -2399,7 +2432,13 @@ export async function recordedWrite(file, bytes, ctx) {
 
 async function editFile({ path, before, after }, ctx) {
   const file = full(path, ctx);
-  const text = await readFile(file, "utf8");
+  // A Word, Excel, PowerPoint or PDF is a binary package: edited as text and written back as UTF-8, the .docx
+  // was destroyed (29/10: "Bad offset for central directory", the person's report unreadable).
+  const raw = await readFile(file);
+  if (/\.(docx|xlsx|xlsm|pptx|pdf|zip|odt|ods|odp)$/i.test(file) || raw.subarray(0, 8192).includes(0)) {
+    throw new Error(`edit_file só muda arquivos de texto; ${basename(file)} é ${/\.(docx|xlsx|xlsm|pptx|pdf)$/i.test(file) ? "um documento do Office/PDF" : "binário"} e ficaria corrompido. Para mudar um documento, grave-o de novo com write_document no MESMO caminho, com o conteúdo completo já corrigido.`);
+  }
+  const text = raw.toString("utf8");
   const count = text.split(String(before)).length - 1;
   if (count > 1) throw new Error(`O trecho 'before' aparece ${count} vezes; inclua mais contexto para ser único.`);
   if (before && count === 1) {

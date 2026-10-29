@@ -620,6 +620,15 @@ export async function runChatAgent({
       messages.push({ role: "assistant", content: text }, { role: "user", content: "Os números estão nas tabelas do .pbix, já extraídas em CSV (cada tabela tem a linha \"Dados: read_file ...\"). Chame read_file com esse CSV e filter (ex.: \"Status=Won\"); a ferramenta conta as linhas e soma as colunas. Depois responda com esses números." });
       continue;
     }
+    // "Escreva um e-mail para a Gráfica Norte…" came back as a report ("# Pendências Financeiras", a table,
+    // "Documento gerado por Aurora", 29/10, 2 runs in 2). Once: the e-mail, as an e-mail.
+    if (!toolCalls.length && !ctx.mailNudged && /\b(escrev|redij|fa[cç]a|fazer|monte|mand|prepar)\w*\b[^.?!]{0,30}\b(e-?mail|mensagem|carta|whats\w*|recado)\b/i.test(question)
+      && /^#{1,3} |^\|.*\|\s*$/m.test(text) && !/^\s*(\*\*)?assunto|prezad|\bol[aá]\b|bom dia|boa tarde|boa noite|^\s*(car[oa]|querid[oa]|oi)\b/im.test(text)) {
+      ctx.mailNudged = true;
+      checks.push({ check: "message_format", answer: text.slice(0, 300) });
+      messages.push({ role: "assistant", content: text }, { role: "user", content: "A pessoa pediu um e-mail (ou mensagem), não um relatório. Reescreva como e-mail: \"Assunto: …\", saudação com o nome, 2 a 4 frases com os itens e o total (uma lista simples serve, sem títulos #), o próximo passo, despedida e assinatura. Mesmos números." });
+      continue;
+    }
     // "Pronto! Aplicado às 4 páginas" with no tool that acts: done for real, or said plainly (in the
     // Plano mode: that nothing runs there and how to leave it).
     if (!toolCalls.length && !actionChecked && claimsActionWithoutAction(text, steps, ACTION_OR_WRITE) && !claimsDelivery(text, steps, { context: contextText(messages) })) {
