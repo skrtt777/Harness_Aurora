@@ -157,3 +157,27 @@ test("a Claude CLI failure says why (the account's limit), not the command line"
   assert.match(claudeError('{"is_error":true,"result":"API Error: 500"}'), /respondeu com erro: API Error: 500/);
   assert.equal(claudeError(""), "");
 });
+
+test("'o pior mês do Sul' comes summed per month, ranked by the money; 'já venceram' adds the due date before today", async () => {
+  const { groupHint, overdueNote } = await import("../app/agentTools/files.js");
+  const sales = ["## Vendas", "Mês | Vendedor | Quantidade | Valor Unitário | Total", "Janeiro | Ana | 9 | 95 | 855", "Fevereiro | Ana | 1 | 4200 | 4200", "Fevereiro | Bruno | 1 | 95 | 95", "Março | Ana | 2 | 1150 | 2300"];
+  const hint = groupHint(sales, "qual foi o pior mês do Sul?");
+  assert.match(hint, /MENOR total \(Total\): Janeiro, 855,00/, "by Total, not Quantidade (Janeiro has the most units)");
+  assert.doesNotMatch(hint, /Valor Unitário/, "unit prices are not summed");
+  const bills = ["## Contas", "Nº | Fornecedor | Vencimento | Valor | Status", "1 | A | 10/10/2026 | 100 | Em aberto", "2 | B | 30/10/2026 | 50 | Em aberto", "3 | C | 01/10/2026 | 70 | Pago"];
+  const note = overdueNote(bills, "quais contas em aberto já venceram até hoje?", "Status!=Pago", new Date(2026, 9, 29));
+  assert.match(note, /Status!=Pago; Vencimento<29\/10\/2026/);
+  assert.match(note, /Soma das 1 linhas? acima: Valor = 100|1 linha\(s\)/);
+  assert.equal(overdueNote(bills, "quais contas estão em aberto?", "Status!=Pago"), "");
+});
+
+test("the sheet of the subject is found one folder down for a question ('as vendas d fevereiro' → Documentos/Vendas_2026.xlsx)", async () => {
+  const { unreadSubjectSheets } = await import("../app/agentTools/files.js");
+  const { mkdirSync } = await import("node:fs");
+  const root = join(temp, "proj");
+  mkdirSync(join(root, "Documentos"), { recursive: true });
+  writeFileSync(join(root, "Documentos", "Vendas_2026.xlsx"), makeXlsx({ Vendas: [["Mês", "Total"], ["Fevereiro", 10]] }));
+  const ctx = { workspace: root, request: "qnto deu as vendas d fevereiro no norte" };
+  assert.deepEqual(unreadSubjectSheets(ctx, { deep: true }), ["Documentos/Vendas_2026.xlsx"]);
+  assert.deepEqual(unreadSubjectSheets(ctx), [], "the write guard keeps to the folder itself");
+});

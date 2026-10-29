@@ -312,6 +312,23 @@ export function numberFilterHint(lines, request) {
  * (empresa eval rh-2, again on 05/10/2026). When the request says now/today and the sheet has a
  * start and an end date, the rows in progress today, with the filter that brings them.
  */
+/**
+ * "Quais contas em aberto já venceram até hoje": the model filtered Status!=Pago and listed every open bill,
+ * due or not (29/10). The due date column before today joins its filter, with the result right here.
+ */
+export function overdueNote(lines, request, filter, now = new Date()) {
+  if (!/\b(venceu|venceram|vencid[oa]s?|atrasad[oa]s?|em atraso)\b/i.test(String(request || "")) || !String(filter || "").trim()) return "";
+  const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
+  if (at < 0) return "";
+  const header = lines[at].split(" | ").map((c) => c.trim());
+  const sample = lines[at + 1].split(" | ").map((c) => c.trim());
+  const due = header.find((c, j) => DATE.test(sample[j] || "") && /venc|prazo|pagamento|limite/i.test(c));
+  if (!due || foldText(filter).includes(foldText(due))) return "";
+  const today = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const combined = `${String(filter).trim()}; ${due}<${today}`;
+  return `\n(ATENÇÃO: o pedido é sobre o que JÁ VENCEU (antes de hoje, ${today}). Com filter="${combined}":\n${filterRows(lines, combined)}\nUse esta lista e esta soma.)`;
+}
+
 export function nowNote(lines, request, filter, now = new Date()) {
   if (!/\b(agora|hoje|neste momento|atualmente|em curso|vigentes? hoje)\b/i.test(String(request || ""))) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
@@ -401,7 +418,10 @@ export function extremeHint(lines, request) {
 export function dateFilterHint(lines, request, now = new Date()) {
   const dates = [...String(request || "").matchAll(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g)].map((m) => m[0]);
   const end = periodEnd(request, now);
-  const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op) || (end ? [end, "<="] : undefined);
+  // "Já venceram até hoje", "vencidas", "em atraso": before today (29/10: every open bill listed, overdue or not).
+  const today = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const overdue = /\b(venceu|venceram|vencid[oa]s?|atrasad[oa]s?|em atraso)\b/i.test(String(request || "")) ? [today, "<"] : /\bat[eé] hoje\b/i.test(String(request || "")) ? [today, "<="] : undefined;
+  const wanted = dates.map((d) => [d, dateIntent(request, d)]).find(([, op]) => op) || (end ? [end, "<="] : undefined) || overdue;
   const range = !wanted && monthRange(request, now);
   if (!wanted && !range) return "";
   const at = lines.findIndex((l, i) => l.includes(" | ") && lines[i + 1]?.includes(" | "));
@@ -561,13 +581,17 @@ export function joinNote(previous, lines, name, request) {
  * when no sheet was read in this answer: a deck of the undelivered orders was written from imagination,
  * the sheet never opened (14/10, qwen3.5:2b, 2 runs in 3). Not for made-up data the person asked for.
  */
-export function unreadSubjectSheets(ctx) {
+export function unreadSubjectSheets(ctx, { deep = false } = {}) {
   if (ctx.sampleData || ctx.readSheets?.size || [...(ctx.readFiles || [])].some((f) => /\.(xlsx|csv)$/i.test(f)) || !ctx.workspace || /fict[ií]ci|invent|aleat|exemplo|simulad/i.test(String(ctx.request || ""))) return [];
   const fold = (t) => String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const words = [...new Set(fold(ctx.request).split(/[^a-z0-9]+/).filter((w) => w.length >= 6).map((w) => w.replace(/s$/, "")))];
   if (!words.length) return [];
   let names = [];
   try { names = readdirSync(ctx.workspace).filter((n) => /\.(xlsx|csv)$/i.test(n) && !/^~\$/.test(n)); } catch { return []; }
+  // deep: the folders right under the project too ("Documentos/Vendas_2026.xlsx").
+  if (deep) for (const d of readdirSync(ctx.workspace, { withFileTypes: true }).filter((e) => e.isDirectory() && !/^[.~]|node_modules|Power BI/.test(e.name))) {
+    try { names.push(...readdirSync(join(ctx.workspace, d.name)).filter((n) => /\.(xlsx|csv)$/i.test(n) && !/^~\$/.test(n)).map((n) => `${d.name}/${n}`)); } catch { /* unreadable */ }
+  }
   return names.filter((n) => words.some((w) => fold(n).includes(w)));
 }
 
@@ -699,7 +723,7 @@ export function rankedGroupAsk(text) {
   // Only for amounts that add up per group (spent, sold, owed); "qual área está mais acima do orçamento" is a
   // deviation per row (regression 24/10: grouped, the answer took the wrong area).
   if (!/\b(gast\w*|pes(ou|aram)|vend\w*|compr\w*|dev\w*|cust\w*|fatur\w*|receb\w*|pag\w*|dinheiro|chamados?)\b/.test(t)) return [];
-  const out = [...t.matchAll(/\b(?:qual|que|em que|em qual|de que|de qual|com que|com qual|quais)\s+(categoria|setor|cliente|fornecedor|area|produto|departamento|tipo|loja|vendedor|filial|regiao|centro de custo)s?\b[^.?!]{0,40}\b(?:mais|menos|maior|menor|pesou|pesaram)\b/g)];
+  const out = [...t.matchAll(/\b(?:qual|que|em que|em qual|de que|de qual|com que|com qual|quais)\s+(categoria|setor|cliente|fornecedor|area|produto|departamento|tipo|loja|vendedor|filial|regiao|centro de custo|mes|dia|semana|trimestre)s?\b[^.?!]{0,40}\b(?:mais|menos|maior|menor|pesou|pesaram)\b/g)];
   if (!out.length && /\bonde\s+(?:eu\s+|q\s+|que\s+)?(?:mais|menos)\s+gast|\bcom o que\s+(?:eu\s+)?(?:mais|menos)\s+gast|\bmaior parte do (?:meu )?dinheiro/.test(t)) out.push(["", "categoria"]);
   return out;
 }
@@ -708,7 +732,7 @@ export function groupHint(lines, request) {
   const text = foldText(request);
   // "Por cliente", and also "o cliente que mais deve" / "qual fornecedor mais…": the top one needs the
   // sums per client (an e-mail went to the client of the single biggest bill, not the biggest debtor).
-  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g), ...rankedGroupAsk(text)].map((m) => m[1].slice(0, 5));
+  const asked = [...text.matchAll(/\b(?:por|de cada|para cada|em cada|agrupad[oa]s? por)\s+([a-z]{4,})/g), ...text.matchAll(/\b(cliente|fornecedor|vendedor|setor|area|produto|centro de custo)s?\s+(?:(?:que|q)\s+)?(?:mais|menos|deve mais|vendeu mais|gastou mais)\b/g), ...rankedGroupAsk(text), ...text.matchAll(/\b(?:pior|melhor|maior|menor)\s+(mes|dia|semana|trimestre|regiao|vendedor|produto|cliente|fornecedor|categoria|loja|filial|setor|departamento)\b/g)].map((m) => m[1].slice(0, 5));
   if (!asked.length) return "";
   const sheet = parseSheets(lines).find((s) => s.header && s.rows.length > 1);
   if (!sheet) return "";
@@ -716,8 +740,8 @@ export function groupHint(lines, request) {
   const key = names.findIndex((n) => asked.some((a) => foldText(n).startsWith(a)));
   if (key < 0) return "";
   const rows = sheet.rows.map((r) => r.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((cells) => cells.length === names.length && !/^total/i.test(cells[0]));
-  // Money and amounts add up; days, percentages and codes don't.
-  const sums = names.map((n, j) => j !== key && rows.some((c) => cellValue(c[j]) !== null) && !/dias?|%|c[oó]digo|n[º°o]\b|ano|m[eê]s|data|vencimento|emiss/i.test(n) ? j : -1).filter((j) => j >= 0);
+  // Money and amounts add up; days, percentages, codes and unit prices don't.
+  const sums = names.map((n, j) => j !== key && rows.some((c) => cellValue(c[j]) !== null) && !/dias?|%|c[oó]digo|n[º°o]\b|ano|m[eê]s|data|vencimento|emiss|unit[aá]ri|pre[cç]o unit/i.test(n) ? j : -1).filter((j) => j >= 0);
   if (!sums.length) return "";
   const groups = new Map();
   for (const cells of rows) {
@@ -726,13 +750,19 @@ export function groupHint(lines, request) {
     sums.forEach((j, i) => { g.totals[i] += cellValue(cells[j]) || 0; });
     groups.set(cells[key], g);
   }
+  // Ranked by the money ("Total", "Valor"), not by the first number column ("Quantidade" ranked May as the
+  // worst month of the Sul, 28/10).
+  const byName = (re) => sums.findIndex((j) => re.test(names[j]));
+  const r = [byName(/total/i), byName(/valor|fatur|receita|venda|gasto|custo|saldo|pre[cç]o/i), 0].find((i) => i >= 0);
   const money = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const table = [`${names[key]} | Linhas | ${sums.map((j) => `Total ${names[j]}`).join(" | ")}`,
-    ...[...groups].sort((a, b) => b[1].totals[0] - a[1].totals[0]).map(([name, g]) => `${name} | ${g.count} | ${g.totals.map(money).join(" | ")}`)];
-  // "O cliente que mais deve": said plainly, by total (the model took the biggest single bill, 3 of 3).
-  const ranked = [...groups].sort((a, b) => b[1].totals[0] - a[1].totals[0]);
-  const top = /\b(mais|maior)\b/.test(text) ? `\nQuem tem o MAIOR total (${names[sums[0]]}): ${ranked[0][0]}, ${money(ranked[0][1].totals[0])} em ${ranked[0][1].count} linha(s). É esse que o pedido quer, não a maior linha sozinha.` : /\b(menos|menor)\b/.test(text) ? `\nQuem tem o MENOR total: ${ranked.at(-1)[0]}, ${money(ranked.at(-1)[1].totals[0])}.` : "";
-  return `\n(Totais por ${names[key]}, já somados das ${rows.length} linhas (${groups.size} grupos); use estes números:${top}\n${table.join("\n")}\n)`;
+  const ranked = [...groups].sort((a, b) => b[1].totals[r] - a[1].totals[r]);
+  const table = [`${names[key]} | Linhas | ${sums.map((j) => `Total ${names[j]}`).join(" | ")}`, ...ranked.map(([name, g]) => `${name} | ${g.count} | ${g.totals.map(money).join(" | ")}`)];
+  // "O cliente que mais deve" (the model took the biggest single bill, 3 of 3) and "o pior mês do Sul" (the
+  // 4b summed the months by eye: Fevereiro 6.580 for 6.535, 28/10): said plainly, by total.
+  const top = /\b(mais|maior|melhor)\b/.test(text) ? `\nQuem tem o MAIOR total (${names[sums[r]]}): ${ranked[0][0]}, ${money(ranked[0][1].totals[r])} em ${ranked[0][1].count} linha(s). É esse que o pedido quer, não a maior linha sozinha.` : "";
+  const last = ranked.at(-1);
+  const bottom = /\b(menos|menor|pior)\b/.test(text) ? `\nQuem tem o MENOR total (${names[sums[r]]}): ${last[0]}, ${money(last[1].totals[r])} em ${last[1].count} linha(s).` : "";
+  return `\n(Totais por ${names[key]}, já somados das ${rows.length} linhas (${groups.size} grupos); use estes números:${top}${bottom}\n${table.join("\n")}\n)`;
 }
 
 /**
@@ -1762,7 +1792,7 @@ export const fileTools = [
         const request = ctx.correctedFilters.has(key) ? null : ctx.request;
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
         const today = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) : "");
+        const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) + overdueNote(table, ctx.request, filter, today) : "");
         // The total the tool counted (the answer's "quantos" is checked against it: chatAgent).
         ctx.lastFilteredCount = String(filter || "").trim() ? Number(/(\d+) linha\(s\) com "/.exec(rows)?.[1] || 0) || null : null;
         if (ctx.lastFilteredCount) (ctx.filteredCounts ??= []).push(ctx.lastFilteredCount);

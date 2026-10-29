@@ -3,7 +3,7 @@ import { allSkills, importSkill } from "../skills.js";
 import { importCatalogSkill, searchSkillCatalog } from "../skillCatalog.js";
 import { createSource, knowledgeMap, listSources, searchKnowledge, startIndexing } from "../knowledge.js";
 import { discoverCompanyFolders } from "../fileAccess.js";
-import { redactExcerpt } from "./files.js";
+import { redactExcerpt, unreadSubjectSheets } from "./files.js";
 
 // Paid providers (Claude/Codex chats) only see restricted company documents
 // when the person approves; the local model sees everything it indexed.
@@ -39,20 +39,26 @@ export const knowledgeTools = [
       // (it answered "não encontrei nos documentos da empresa", usage tests 06/10).
       if (!(await listSources()).some((s) => s.documents > 0)) return "Não há documentos de empresa cadastrados nesta Aurora. Se a pergunta é sobre um papel ou arquivo da pessoa (conta, boleto, contrato, extrato, planilha), procure nas pastas dela com search_files e leia com read_file.";
       ctx.knowledgeSearches = (ctx.knowledgeSearches || 0) + 1;
+      // "Qnto deu as vendas d fevereiro no norte" went to the company's documents and asked for a spreadsheet
+      // while Vendas_2026.xlsx sat in the project folder (29/10): the sheet of the subject, said first.
+      const subject = unreadSubjectSheets(ctx, { deep: true });
+      const local = subject.length ? `Na pasta do projeto há a planilha do assunto: ${subject.join(", ")}. Os números do pedido estão nela: leia com read_file (com filter, ex. "Região=Norte; Mês=Fevereiro"), a ferramenta soma.
+
+` : "";
       if (ctx.knowledgeSearches > 6) return "Você já procurou 6 vezes nos documentos da empresa. Pare de procurar: diga à pessoa o que encontrou, ou que isso não consta nos documentos da empresa.";
       const enough = ctx.knowledgeSearches >= 4 ? `\n\n(Esta é a ${ctx.knowledgeSearches}ª busca. Se o que a pessoa pediu não está nestes trechos, responda que não consta nos documentos da empresa em vez de procurar de novo.)` : "";
       const search = (cat) => searchKnowledge(String(query || ""), { category: cat, env: ctx.env, signal: ctx.signal, sourceIds: ctx.knowledgeSourceIds });
       // A remembered or guessed category ("RH/Eventos" from another share) must not hide the answer.
       let hits = await search(category);
       if (!hits.length && category) hits = await search(undefined);
-      if (!hits.length) return `Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.${enough}`;
+      if (!hits.length) return `${local}Nada encontrado nos documentos indexados. Diga ao usuário que não encontrou e sugira onde o documento poderia estar.${enough}`;
       rememberRestricted(ctx, hits);
       // A colleague's salary in an excerpt of the HR sheet stays restricted (as read_file does).
       for (const h of hits) h.text = await redactExcerpt(h.text, h.path, ctx.request, ctx.env);
       // Sheets seen here only as excerpts: a table written from them without reading them whole is
       // flagged by write_document (a Controladoria agent wrote its report from this, 05/10/2026).
       ctx.excerptSheets = [...new Set([...(ctx.excerptSheets || []), ...hits.map((h) => h.path).filter((p) => /\.(xlsx|xlsm|csv)$/i.test(p))])];
-      return hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem." + enough;
+      return local + hits.map((h, i) => `${i + 1}. Fonte: ${h.path} (${h.category}, atualizado em ${new Date(h.updatedAt).toLocaleDateString("pt-BR")})\n${clip(h.text, 900)}${sheetHint(h.path)}`).join("\n\n") + "\n\nResponda com base nesses trechos (copie datas, valores e nomes exatamente) e cite o arquivo de origem." + enough;
     },
   },
   {
