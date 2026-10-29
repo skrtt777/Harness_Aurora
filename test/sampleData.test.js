@@ -49,3 +49,12 @@ test("sample_data writes a real spreadsheet and is offered only for made-up data
   assert.ok(routeTools("quero que você crie dados sobre uma empresa aleatoria").has("sample_data"));
   assert.ok(!routeTools("resuma esse contrato").has("sample_data"));
 });
+
+test("a list without weights is shared evenly: 8 departments × 350 rows give 350 each", () => {
+  const deps = ["Vendas", "TI", "RH", "Financeiro", "Logística", "Marketing", "Jurídico", "Operações"];
+  const rows = sampleRows({ rows: 2800, seed: "f.xlsx", columns: [{ name: "Nome", kind: "nome" }, { name: "Departamento", kind: "lista", values: deps }] });
+  const count = {};
+  for (const r of rows.slice(1)) count[r[1]] = (count[r[1]] || 0) + 1;
+  assert.deepEqual(Object.values(count), deps.map(() => 350));
+  assert.notDeepEqual(rows.slice(1, 9).map((r) => r[1]), deps, "shuffled, not in turn");
+});

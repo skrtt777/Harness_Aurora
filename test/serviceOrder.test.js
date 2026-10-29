@@ -39,7 +39,7 @@ test("Expedição in the agent: once back when the delivery is incomplete, then 
   const replies = [{ ok: true, text: "São 9 funcionários: Ana, Bruno e outros." }, { ok: true, text: "", toolCalls: [{ name: "write_document", arguments: { path: "Ferias.xlsx", content: "| a |" } }] }, { ok: true, text: "Planilha pronta com os 9 funcionários." }];
   const seen = [];
   const result = await runChatAgent({ system: "s", input: "Liste numa planilha os funcionários que começam férias em outubro", tools: [writer], toolContext: { order }, callModel: async (messages) => { seen.push(messages.at(-1).content); return replies.shift(); } });
-  assert.match(seen[1], /^Expedição: a entrega ainda não está completa/);
+  assert.match(seen[1], /^\(Conferência automática da Aurora, não é a pessoa\.\) Expedição: a entrega ainda não está completa/);
   assert.equal(result.text, "Planilha pronta com os 9 funcionários.\n\nArquivo: C:/t/Ferias.xlsx");
   assert.ok(result.checks.some((c) => c.check === "dispatch"));
 });

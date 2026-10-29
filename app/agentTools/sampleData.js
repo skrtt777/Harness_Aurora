@@ -60,10 +60,20 @@ export function sampleRows({ rows, columns, seed = "aurora" }) {
   const cols = columns.map((c) => ({ ...c, name: String(c.name || "").trim() || "Coluna", kind: guessKind(c) }));
   const out = [cols.map((c) => c.name)];
   const now = Date.UTC(2026, 9, 1);
+  // A list without weights is shared evenly ("350 em cada departamento" stays 350, not 290 to 410 by chance),
+  // in a shuffled order.
+  const even = cols.map((c) => {
+    const values = (c.values || []).map(String).filter(Boolean);
+    if (c.kind !== "lista" || !values.length || (c.weights || []).length) return null;
+    const order = Array.from({ length: count }, (_, i) => values[i % values.length]);
+    for (let i = order.length - 1; i > 0; i -= 1) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    return order;
+  });
   for (let i = 0; i < count; i += 1) {
     const person = `${pick(FIRST)} ${pick(LAST)}`;
     let city = null;
-    out.push(cols.map((c) => {
+    out.push(cols.map((c, k) => {
+      if (even[k]) return even[k][i];
       switch (c.kind) {
         case "id": return `${c.prefix ?? ""}${String(i + 1).padStart(String(count).length, "0")}`;
         case "nome": return person;
@@ -92,7 +102,7 @@ export function sampleRows({ rows, columns, seed = "aurora" }) {
 export function sampleDataTools(writeDocument) {
   return [{
     name: "sample_data",
-    description: "Gera dados FICTÍCIOS em volume numa planilha (.xlsx ou .csv) — use quando a pessoa pedir para criar/inventar dados (\"crie dados de uma empresa com 300 funcionários\", \"é fictício, pode gerar números\"); você diz as colunas, a ferramenta escreve as linhas (até 5000). Uma chamada por tabela (ex.: Funcionários, Frota). kind de cada coluna: id (prefix), nome, lista (values; weights opcional, ex. [\"Ativo\",\"Inativo\"] com [90,10]), inteiro (min, max), dinheiro (min, max), data (from, to: \"01/01/2025\"), cidade, uf, email, placa, texto. Depois diga à pessoa que os dados são fictícios e onde ficaram; para um BI, chame powerbi action=build com esses arquivos.",
+    description: "Gera dados FICTÍCIOS em volume numa planilha (.xlsx ou .csv) — use quando a pessoa pedir para criar/inventar dados (\"crie dados de uma empresa com 300 funcionários\", \"é fictício, pode gerar números\"); você diz as colunas, a ferramenta escreve as linhas (até 5000). Uma chamada por tabela (ex.: Funcionários, Frota). \"Mais de 300 funcionários em cada departamento\": a tabela Funcionários com uma coluna lista dos departamentos e rows = departamentos × 350 (8 departamentos = 2800 linhas). kind de cada coluna: id (prefix), nome, lista (values; weights opcional, ex. [\"Ativo\",\"Inativo\"] com [90,10]), inteiro (min, max), dinheiro (min, max), data (from, to: \"01/01/2025\"), cidade, uf, email, placa, texto. Depois diga à pessoa que os dados são fictícios e onde ficaram; para um BI, chame powerbi action=build com esses arquivos.",
     parameters: { type: "object", properties: {
       path: { type: "string", description: "ex.: Documentos/Funcionarios.xlsx" },
       rows: { type: "number", description: "quantas linhas (até 5000)" },

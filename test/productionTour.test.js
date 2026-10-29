@@ -108,3 +108,16 @@ test("a call to a tool the request does not have is not shown as the answer (raw
   const result = await runChatAgent({ provider: "claude", system: "s", input: "faça um resumo desse documento", tools: [reader], callModel: async () => replies.shift() });
   assert.equal(result.text, "O documento mostra economia de R$ 288 por semana.");
 });
+
+test("a guard's message is marked as the Aurora's own check, and the answer to it is not shown as dialogue", async () => {
+  const { runChatAgent, withoutCorrectionPreamble } = await import("../app/chatAgent.js");
+  assert.equal(withoutCorrectionPreamble("Entendi sua crítica. Você está correto: os agentes foram criados.\n\nCriei o agente Pesquisador Geral, que trabalha a cada 4 h."), "os agentes foram criados.\n\nCriei o agente Pesquisador Geral, que trabalha a cada 4 h.");
+  const seen = [];
+  const replies = [{ ok: true, text: "Pronto! Aplicado o tema azul ao painel." }, { ok: true, text: "Não apliquei nenhuma mudança: o painel não foi alterado." }];
+  const writer = { name: "write_document", description: "grava", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => "ok" };
+  await runChatAgent({ provider: "claude", system: "s", input: "mude o tema do painel para azul", tools: [writer], callModel: async (messages) => { seen.push(messages); return replies.shift(); } });
+  const guard = seen[1].at(-1);
+  assert.equal(guard.role, "user");
+  assert.match(guard.content, /^\(Conferência automática da Aurora, não é a pessoa\.\)/);
+  assert.match(seen[1].find((m) => m.role === "user").content, /^mude o tema/, "the person's request is not marked");
+});

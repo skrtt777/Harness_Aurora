@@ -2,7 +2,7 @@ import { BASE_TOOLS } from "./toolRouter.js";
 import { missingFiles, claimsRunWithoutRunning, claimsActionWithoutAction, FICTIONAL, countMismatch, filteredCountMismatch, shortList, orderMismatch, extremeMismatch, unreadPersonalData } from "./codeGuards.js";
 import { dispatchCheck, CONSULT } from "./serviceOrder.js";
 // The tools that change something (the files, the programs, the BI, the computer).
-const ACTION_OR_WRITE = new Set(["write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
+const ACTION_OR_WRITE = new Set(["sample_data", "agent_create", "write_file", "edit_file", "write_document", "move_file", "organize_folder", "make_folder", "run_command", "excel", "word", "powerpoint", "powerbi", "create_site", "create_api", "browser_click", "browser_type", "browser_fill", "browser_key", "desktop_click", "desktop_type", "desktop_key", "open", "access_db", "memory_save", "skill_create"]);
 import { NOT_FOUND, spokenNumbers, unsupportedFacts, unsupportedTopic } from "./grounding.js";
 import { WRITE_TOOLS, claimsDelivery, requestsFile } from "./teacher.js";
 import { multiPart } from "./agentTools/subagents.js";
@@ -124,15 +124,20 @@ export function claimsSentWithoutSubmit(text, steps = []) {
   return !submitted && !after.some((s) => s.ok && ["browser_click", "browser_key"].includes(s.tool));
 }
 
-const PREAMBLE = /^\s*(?:\*\*)?\s*(?:vou (?:corrigir|refazer|reescrever|revisar)|corrigindo|corrigi\b|refiz|revisei|reli\b|releio|voc[êe]s? (?:est[áa]|est[ãa]o) corret|voc[êe] tem raz[ãa]o|tem raz[ãa]o|(?:me )?desculpe|pe[çc]o desculpas|meu erro|minha resposta anterior)[^\n]*?(?:[.!:]\s+|\n)/i;
+const PREAMBLE = /^\s*(?:\*\*)?\s*(?:vou (?:corrigir|refazer|reescrever|revisar)|corrigindo|corrigi\b|refiz|revisei|reli\b|releio|voc[êe]s? (?:est[áa]|est[ãa]o) corret|voc[êe] tem raz[ãa]o|tem raz[ãa]o|(?:me )?desculpe|pe[çc]o desculpas|meu erro|minha resposta anterior|entendi (?:sua|a) (?:cr[íi]tica|observa[çc][ãa]o|corre[çc][ãa]o)|o n[úu]mero \d+ est[áa] certo|a contagem est[áa] cert)[^\n]*?(?:[.!:]\s+|\n)/i;
 
 /** The first sentence when it talks about the correction instead of answering; the rest stays. */
 export function withoutCorrectionPreamble(text) {
-  const body = String(text || "");
-  const m = body.match(PREAMBLE);
-  if (!m) return body;
-  const rest = body.slice(m[0].length).replace(/^\s*(?:-{3,}|\*{3,})\s*/, "").trimStart();
-  return rest.length >= 40 ? rest : body;
+  let body = String(text || "");
+  // "Entendi sua crítica. Você está correto: …": one sentence after the other, up to three.
+  for (let n = 0; n < 3; n += 1) {
+    const m = body.match(PREAMBLE);
+    if (!m) break;
+    const rest = body.slice(m[0].length).replace(/^\s*(?:-{3,}|\*{3,})\s*/, "").trimStart();
+    if (rest.length < 40) break;
+    body = rest;
+  }
+  return body;
 }
 
 /** The answer is the request itself, copied back (a small model's dead end). */
@@ -310,6 +315,12 @@ export async function runChatAgent({
   companyQuestion = false, checkFacts = false, companyTopic = false, documentsText = "", onText = null, priorSteps = [],
 }) {
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: `${input}${monthTypoNote(question)}` }];
+  // The guards' messages come after the request, as "user" turns: the model answered them as the person
+  // ("O número 7 está certo…", "Entendi sua crítica. Você está correto…", 28/10). Each one says it is the
+  // Aurora's own check and that the answer goes to the person.
+  const asked = messages.length;
+  const forModel = () => messages.map((m, i) => (i >= asked && m.role === "user" && typeof m.content === "string" && !m.content.startsWith("(Conferência") ? { ...m, content: `(Conferência automática da Aurora, não é a pessoa.) ${m.content}
+(Depois, responda à pessoa como se fosse a primeira resposta, completa, sem falar desta conferência.)` } : m));
   // What was already done in this turn before the agent (the subagents' parts): it counts as done.
   const steps = [...priorSteps];
   const calls = [];
@@ -371,7 +382,7 @@ export async function runChatAgent({
     // The answer as it is written (llama-server streaming). Each step starts clean: text that
     // became a tool call, or that a guard sent back, is not left on screen.
     onText?.("");
-    let result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
+    let result = await callModel(forModel(), offered, env, signal, onText ? { onText } : undefined);
     // "request (16450 tokens) exceeds the available context size (16384 tokens)" ended a company
     // question (empresa ti-1, 05/10/2026). Old results get summarized, then all of them, and it goes again.
     for (let shrink = 1; shrink <= 4 && contextFull(result, env); shrink += 1) {
@@ -382,7 +393,7 @@ export async function runChatAgent({
       else if (shrink === 3) { dropOldToolExchanges(messages, 2); shortenHistory(messages); }
       else compactOldToolResults(messages, { keep: shrink === 1 ? KEEP_FULL_TOOL_RESULTS : 0 });
       onStage("Resumindo resultados antigos para caber no contexto…");
-      result = await callModel(messages, offered, env, signal, onText ? { onText } : undefined);
+      result = await callModel(forModel(), offered, env, signal, onText ? { onText } : undefined);
     }
     calls.push(localCallRecord(result, round === 0 ? "generate" : "agent-step"));
     if (!result.ok) return { ...result, steps, calls };
