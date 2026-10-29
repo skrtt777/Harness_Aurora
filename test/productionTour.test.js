@@ -256,3 +256,20 @@ test("{{linhas}} under a table by region is the totals per region, not the raw s
   assert.doesNotMatch(doc, /Janeiro/);
   assert.match(expandRows("## Vendas\n\n{{linhas}}", raw, null), /\| Janeiro \| Sul \| 100,00 \|/, "no totals read: the rows, as before");
 });
+
+test("an e-mail written as a report into a refused file is not the answer; quarters read with a month filter come from the whole sheet", async () => {
+  const { runChatAgent } = await import("../app/chatAgent.js");
+  const writer = { name: "write_document", description: "grava", parameters: { type: "object", properties: {} }, describe: () => ({ kind: "meta" }), run: async () => { throw new Error("A pessoa pediu só o texto: escreva-o direto na resposta."); } };
+  const replies = [
+    { ok: true, text: '{"tool":"write_document","args":{"path":"Documentos/Email.xlsx","content":"| Fornecedor | Valor |\n|---|---|\n| Gráfica Norte | R$ 7.603,76 |\n\nTotal: R$ 14.577,98"}}' },
+    { ok: true, text: "Assunto: Contas em aberto\n\nOlá, equipe da Gráfica Norte,\n\nTotal em aberto: R$ 14.577,98.\n\nAtenciosamente," },
+  ];
+  const result = await runChatAgent({ provider: "claude", system: "s", input: "escreva um e-mail para a Gráfica Norte com as contas em aberto", tools: [writer], callModel: async () => replies.shift() });
+  assert.match(result.text, /^Assunto:/);
+  const { fileTools } = await import("../app/agentTools/files.js");
+  const dir = join(temp, "tri");
+  (await import("node:fs")).mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "V.xlsx"), makeXlsx({ Vendas: [["Mês", "Total"], ["Janeiro", 100], ["Março", 50], ["Abril", 300]] }));
+  const out = String(await fileTools.find((t) => t.name === "read_file").run({ path: join(dir, "V.xlsx"), filter: "Mês=Janeiro" }, { workspace: dir, env: process.env, request: "compare o 1º trimestre com o 2º" }));
+  assert.match(out, /1º trimestre \(jan–mar\) \| 2 \| 150,00/);
+});

@@ -1904,7 +1904,10 @@ export const fileTools = [
         if (corrected) ctx.correctedFilters.add(key);
         // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows
         // (Atacadão's biggest bill beat Empório's bigger total, 2 of 2 runs, 06/10).
-        let found = `${file}\n${rows}${filter || sort ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}${daysNote(rows.split(/\r?\n/), ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date())}`;
+        // Quarters asked and a filter on one month ("Mês=Janeiro"): the quarters come from the whole sheet (29/10:
+        // the 1st quarter came out as January alone, read with that filter).
+        const quarterOfAll = /trimestr/i.test(foldText(ctx.request)) && String(filter || "").split(/\s*;\s*/).filter(Boolean).every((c) => /^\s*(m[eê]s|data)\b/i.test(c));
+        let found = `${file}\n${rows}${filter || sort ? groupHint(quarterOfAll ? table : rows.split(/\r?\n/), ctx.request) : ""}${daysNote(rows.split(/\r?\n/), ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date())}`;
         // Asked again as written after the correction ("=15/10/2026" for "até 15/10"), the rows the
         // request means stay the ones the document is checked against: an agent copied the 2 rows of
         // the literal re-read instead of the 7 (agent battery, 2 runs in 5, 06/10).

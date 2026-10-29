@@ -103,6 +103,11 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
   return { name, arguments: args && typeof args === "object" ? args : {} };
 }
 
+/** "Escreva um e-mail / uma mensagem / uma carta…". */
+const ASKS_MESSAGE = /\b(escrev|redij|fa[cç]a|fazer|monte|mand|prepar)\w*\b[^.?!]{0,30}\b(e-?mail|mensagem|carta|whats\w*|recado)\b/i;
+/** Titles or a table and no greeting: a report, not a message. */
+const looksLikeReport = (text) => /^#{1,3} |^\|.*\|\s*$/m.test(text) && !/^\s*(\*\*)?assunto|prezad|\bol[aá]\b|bom dia|boa tarde|boa noite|^\s*(car[oa]|querid[oa]|oi)\b/im.test(text);
+
 const GROUNDING_TOOLS = new Set(["knowledge_search", "knowledge_map", "read_file", "web_search", "web_fetch", "browser_read", "grep"]);
 export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(String(text || ""));
 
@@ -798,7 +803,8 @@ export async function runChatAgent({
       // A text for the person (a desculpa, a convite) it tried to save in a file, refused: what it wrote
       // is the delivery. Answered with it instead of having it written again (~200 tokens, 2 runs in 4).
       const textOnly = !outcome.ok && ["write_file", "write_document"].includes(call.name) && /A pessoa pediu só o texto/.test(outcome.result) ? String(call.arguments?.content ?? call.arguments?.text ?? "").trim() : "";
-      if (textOnly.length > 40) return { ok: true, status: 200, text: textOnly, steps, calls, forced: null, messages, threadId: null };
+      // An e-mail asked and a report refused (a table, no greeting, 29/10): not the answer; the refusal asks for the e-mail.
+      if (textOnly.length > 40 && !(ASKS_MESSAGE.test(question) && looksLikeReport(textOnly))) return { ok: true, status: 200, text: textOnly, steps, calls, forced: null, messages, threadId: null };
       // A job an agent finished is answered with the agent's own words: one more round, the 4B model
       // searched for the agent's file, didn't find it and called it a "simulação" (06/10).
       if (["agent_delegate", "team_request"].includes(call.name) && outcome.ok && ctx.delegatedAnswer) {
