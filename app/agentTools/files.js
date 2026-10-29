@@ -580,6 +580,45 @@ const tableOf = (lines) => {
   const rows = sheet.rows.map((x) => x.line.replace(/^\s*\d+ {2}/, "").split(" | ").map((c) => c.trim())).filter((c) => c.length > 1 && !c.some((v) => /^total\b/i.test(v)));
   return { names, rows };
 };
+/**
+ * "Quais fornecedores em aberto também estão na lista de aprovados, e quanto devemos a cada um": two sheets
+ * crossed by the column they share, each with the filter it was read with (29/10: a supplier that is not on
+ * the list came in, and the amounts were not summed per supplier).
+ */
+export function memberJoin(previous, lines, name, filter, request) {
+  if (!/\b(tamb[eé]m (est[aã]o|aparecem|constam|s[aã]o)|que est[aã]o (na|no|em)|presentes? (na|no)|constam (na|no)|aparecem (na|no)|em comum|nas duas|nos dois|nas duas planilhas)\b/i.test(String(request || "")) || !Array.isArray(previous)) return "";
+  const read = (l, f) => tableOf(String(f || "").trim() ? filterRows(l, f).split(/\r?\n/) : l);
+  const here = read(lines, filter);
+  if (!here) return "";
+  for (const prev of [...previous].reverse()) {
+    if (prev.name === name) continue;
+    const there = read(prev.lines, prev.filter);
+    if (!there) continue;
+    const shared = here.names.find((h) => there.names.some((t) => foldText(t) === foldText(h)));
+    if (!shared) continue;
+    // The sheet with an amount is the one summed; the other is the list it is checked against.
+    const amount = (t) => [/total|valor|saldo|d[eé]bito|pre[cç]o/i].map((re) => t.names.findIndex((n) => re.test(n) && t.rows.some((r) => cellValue(r[t.names.indexOf(n)] || "") !== null))).find((j) => j >= 0);
+    const [fact, list, factName, listName] = amount(here) >= 0 ? [here, there, name, prev.name] : [there, here, prev.name, name];
+    const col = amount(fact);
+    if (col === undefined || col < 0) continue;
+    const fi = fact.names.findIndex((n) => foldText(n) === foldText(shared));
+    const li = list.names.findIndex((n) => foldText(n) === foldText(shared));
+    const members = new Set(list.rows.map((r) => foldText(r[li] || "")));
+    const groups = new Map();
+    for (const r of fact.rows) {
+      if (!members.has(foldText(r[fi] || ""))) continue;
+      const g = groups.get(r[fi]) || { count: 0, total: 0 };
+      g.count += 1; g.total += cellValue(r[col]) || 0;
+      groups.set(r[fi], g);
+    }
+    const money = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const out = [...groups].sort((a, b) => b[1].total - a[1].total);
+    const outside = [...new Set(fact.rows.map((r) => r[fi]).filter((v) => !members.has(foldText(v || ""))))];
+    return `\n(Cruzamento feito pela ferramenta: ${factName}${String(fact === here ? filter : prev.filter || "").trim() ? ` (com o filtro já aplicado)` : ""} × ${listName}, pela coluna ${shared}. Em comum: ${out.length} — use estes números:\n${shared} | Linhas | Total ${fact.names[col]}\n${out.map(([v, g]) => `${v} | ${g.count} | ${money(g.total)}`).join("\n")}\nTOTAL | ${out.reduce((s, [, g]) => s + g.count, 0)} | ${money(out.reduce((s, [, g]) => s + g.total, 0))}${outside.length ? `\nFora de ${listName} (não entram): ${outside.join(", ")}` : ""}\n)`;
+  }
+  return "";
+}
+
 export function joinNote(previous, lines, name, request) {
   const req = String(request || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const m = /\b(acima de|mais de|maior que|superior a|abaixo de|menos de|menor que|inferior a)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)*)\s*(mil|milhoes|milhao|mi)?\b/.exec(req);
@@ -1291,13 +1330,30 @@ export function chartMismatch(content, tables = []) {
   return null;
 }
 
+/** The table of totals a read_file gave (per group, per quarter, a crossing): header and rows, or null. */
+export function groupTableOf(text) {
+  const m = String(text || "").match(/\((?:Totais por [^\n]*|Cruzamento feito pela ferramenta[^\n]*)\n(?:Quem tem [^\n]*\n)*([^\n]+ \| [^\n]+)\n((?:[^\n]+ \| [^\n]+(?:\n|$))+)/);
+  if (!m) return null;
+  return { header: m[1].split(" | ").map((c) => c.trim()), rows: m[2].trim().split("\n").map((l) => l.split(" | ").map((c) => c.trim())) };
+}
+
 /** {{linhas}} or {{linhas: Coluna, Coluna}} in a document becomes the last table read, exactly. */
-export function expandRows(content, table) {
+export function expandRows(content, table, group = null) {
   const marker = /\{\{\s*(?:linhas|tabela)\s*(?::\s*([^}]*))?\}\}/gi;
   if (!marker.test(String(content))) return content;
-  if (!table) throw new Error("Use {{linhas}} só depois de ler a planilha com read_file (a ferramenta põe as linhas da última leitura).");
+  if (!table && !group) throw new Error("Use {{linhas}} só depois de ler a planilha com read_file (a ferramenta põe as linhas da última leitura).");
   return String(content).replace(marker, (_, wanted, at, whole) => {
     const names = String(wanted || "").split(",").map((w) => w.trim()).filter(Boolean);
+    // Rows per group asked ("| Região | Total |" over {{linhas}}, "{{linhas: Região, Total}}"): the totals the
+    // tool summed, not the 240 sales under them (29/10, Codex: the Word's table by region was the raw rows).
+    const key = group ? foldText(group.header[0]) : "";
+    const before = foldText(String(whole).slice(Math.max(0, at - 300), at)).split("\n").filter((l) => l.trim()).slice(-2).join("\n");
+    if (group && (names.length ? foldText(names[0]).startsWith(key.slice(0, 4)) : new RegExp(`\\|\\s*${key.slice(0, 4)}`).test(before) || !table)) {
+      const pick = names.length ? names.map((n) => group.header.findIndex((h) => foldText(h).includes(foldText(n).slice(0, 5)))).filter((j) => j >= 0) : group.header.map((_, j) => j);
+      const cols = pick.length ? pick : group.header.map((_, j) => j);
+      return [`| ${cols.map((j) => group.header[j]).join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`, ...group.rows.map((r) => `| ${cols.map((j) => r[j] ?? "").join(" | ")} |`)].join("\n");
+    }
+    if (!table) throw new Error("Use {{linhas}} só depois de ler a planilha com read_file (a ferramenta põe as linhas da última leitura).");
     const columns = names.length ? names.map((n) => table.header.findIndex((h) => foldText(h).startsWith(foldText(n)) || foldText(n).startsWith(foldText(h)))).filter((j) => j >= 0) : table.header.map((_, j) => j);
     let pick = columns.length ? columns : table.header.map((_, j) => j);
     // In a chart, {{linhas: Funcionários}} gave numbers with no names (15/10): the names' column goes first.
@@ -1839,7 +1895,8 @@ export const fileTools = [
         const request = ctx.correctedFilters.has(key) ? null : ctx.request;
         const table = /\.(csv|tsv)$/i.test(file) ? csvTable(lines.join("\n"), basename(file)) : lines;
         const today = process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date();
-        const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) + overdueNote(table, ctx.request, filter, today) : "");
+        const rows = filterRows(table, String(filter || ""), { sort, request }) + (filter ? nowNote(table, ctx.request, filter, today) + overdueNote(table, ctx.request, filter, today) : "") + memberJoin(ctx.readTables, table, basename(file), filter, ctx.request);
+        ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table, filter: String(filter || "") }].slice(-4);
         // The total the tool counted (the answer's "quantos" is checked against it: chatAgent).
         ctx.lastFilteredCount = String(filter || "").trim() ? Number(/(\d+) linha\(s\) com "/.exec(rows)?.[1] || 0) || null : null;
         if (ctx.lastFilteredCount) (ctx.filteredCounts ??= []).push(ctx.lastFilteredCount);
@@ -1860,6 +1917,7 @@ export const fileTools = [
         ctx.excludedRows = corrected || intended?.length ? rowKeys(filterRows(table, "")).filter((k) => !ctx.lastRows.includes(k)) : [];
         ctx.anchorRows = ctx.lastRows;
         ctx.lastTable = tableFromRead(rows);
+        ctx.lastGroup = groupTableOf(found);
         // Only sorted, no filter: the request's own condition still applies ("os pedidos que ainda não
         // foram entregues" read with sort= gave all 7 rows, and the check then demanded the delivered
         // ones too, 14/10). Its rows first, and they are what the document is checked against.
@@ -1940,8 +1998,9 @@ export const fileTools = [
         // the sheet's TOTAL row, with its column names, goes first.
         const own = totalRowsNote(table);
         const sums = !own && /\b(total|totais|soma|somad|quant[oa]s|quantidade|quanto (deu|da|foi|fica)|gastei|por pessoa|cada um|divid\w*|divide|maior|menor|m[eé]dia|ranking|porcentagem|percentual|propor[cç][aã]o|fatia|participa[cç][aã]o|resumo|relat[oó]rio|bi|painel|or[cç]amento)\b/i.test(String(ctx.request || "")) ? columnSums(table, ctx.request) : "";
-        ready = own + ready + sums + shareNote(table, ctx.request) + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request);
-        ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table }].slice(-4);
+        ready = own + ready + sums + shareNote(table, ctx.request) + daysNote(table, ctx.request, now) + joinNote(ctx.readTables, table, basename(file), ctx.request) + memberJoin(ctx.readTables, table, basename(file), "", ctx.request);
+        ctx.lastGroup = groupTableOf(ready);
+        ctx.readTables = [...(ctx.readTables || []).filter((x) => x.name !== basename(file)), { name: basename(file), lines: table, filter: "" }].slice(-4);
       }
       // The ready filter goes first: a read near the 4.2k chunk plus the tip passed the executor's
       // 4.5k limit and the tip at the end was cut away; the model re-read the same sheet (05/10/2026).
@@ -2020,7 +2079,7 @@ export const fileTools = [
       if (earlierBody != null) args = { ...args, content: `${earlierBody}
 
 ${String(args.content ?? args.text ?? args.markdown ?? "")}`, __salvaged: false };
-      if (/\{\{\s*(linhas|tabela)/i.test(String(args.content ?? args.text ?? args.markdown ?? ""))) args = { ...args, content: expandRows(String(args.content ?? args.text ?? args.markdown ?? ""), ctx.lastTable) };
+      if (/\{\{\s*(linhas|tabela)/i.test(String(args.content ?? args.text ?? args.markdown ?? ""))) args = { ...args, content: expandRows(String(args.content ?? args.text ?? args.markdown ?? ""), ctx.lastTable, ctx.lastGroup) };
       // A deck asked with charts or a dashboard, written without one: once, the format that draws them.
       if (/\.pptx$/i.test(file) && (ctx.chartAsked || 0) < 2 && /\b(gr[áa]ficos?|dashboards?)\b/i.test(String(ctx.request || "")) && !/```\s*(gr[áa]fico|chart)/i.test(String(args.content ?? ""))) {
         const { renderDocument: render } = await import("../documentWriter.js");

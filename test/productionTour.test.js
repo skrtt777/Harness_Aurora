@@ -225,3 +225,34 @@ test("quarters come summed (1º = jan–mar); 'os 3 melhores vendedores' groups;
   assert.match(result.text, /^Assunto:/);
   assert.ok(result.checks.some((c) => c.check === "message_format"));
 });
+
+test("'quais fornecedores em aberto também estão na lista de aprovados, e quanto devemos a cada um' is crossed by the tool, either order", async () => {
+  const { fileTools } = await import("../app/agentTools/files.js");
+  const read = fileTools.find((t) => t.name === "read_file");
+  const dir = join(temp, "cross");
+  (await import("node:fs")).mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "Contas.xlsx"), makeXlsx({ Contas: [["Nº", "Fornecedor", "Valor", "Status"], ["1", "Alfa", 100, "Em aberto"], ["2", "Beta", 50, "Em aberto"], ["3", "Alfa", 30, "Pago"], ["4", "Gama", 70, "Em aberto"]] }));
+  writeFileSync(join(dir, "Aprovados.xlsx"), makeXlsx({ Aprovados: [["Fornecedor", "CNPJ"], ["Alfa", "1"], ["Gama", "2"], ["Delta", "3"]] }));
+  const request = "quais fornecedores em aberto da Contas.xlsx também estão na Aprovados.xlsx, e quanto devemos a cada um?";
+  for (const order of [["Contas", "Aprovados"], ["Aprovados", "Contas"]]) {
+    const ctx = { workspace: dir, env: process.env, request };
+    let out = "";
+    for (const f of order) out = String(await read.run({ path: join(dir, `${f}.xlsx`), ...(f === "Contas" ? { filter: "Status=Em aberto" } : {}) }, ctx));
+    assert.match(out, /Alfa \| 1 \| 100,00/, order.join(" → "));
+    assert.match(out, /Gama \| 1 \| 70,00/);
+    assert.match(out, /TOTAL \| 2 \| 170,00/);
+    assert.match(out, /não entram\): Beta/);
+  }
+});
+
+test("{{linhas}} under a table by region is the totals per region, not the raw sales under them", async () => {
+  const { groupTableOf, expandRows, groupHint } = await import("../app/agentTools/files.js");
+  const sheet = ["## Vendas", "Mês | Região | Total", "Janeiro | Sul | 100", "Fevereiro | Sul | 50", "Março | Norte | 30"];
+  const group = groupTableOf(groupHint(sheet, "relatório das vendas por região"));
+  assert.deepEqual(group.header, ["Região", "Linhas", "Total Total", "% do Total"]);
+  const raw = { header: ["Mês", "Região", "Total"], rows: [["Janeiro", "Sul", "100"], ["Fevereiro", "Sul", "50"], ["Março", "Norte", "30"]] };
+  const doc = expandRows("## Totais por região\n\n{{linhas: Região, Total, %}}", raw, group);
+  assert.match(doc, /\| Sul \| 150,00 \| 83,3% \|/);
+  assert.doesNotMatch(doc, /Janeiro/);
+  assert.match(expandRows("## Vendas\n\n{{linhas}}", raw, null), /\| Janeiro \| Sul \| 100,00 \|/, "no totals read: the rows, as before");
+});
