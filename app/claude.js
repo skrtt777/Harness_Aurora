@@ -26,6 +26,19 @@ export function parseClaudeOutput(stdout) {
 }
 
 /**
+ * Why the CLI failed, in its own words: with the account's limit reached it exits 1 with nothing on stderr and
+ * the reason only in the JSON on stdout; the person saw "Command failed: C:\…\claude.exe -p …" (29/10).
+ */
+export function claudeError(stdout) {
+  try {
+    const parsed = JSON.parse(String(stdout || "").trim().split(/\r?\n/).pop());
+    const why = String(parsed.result || parsed.error || "").trim();
+    if (!why) return "";
+    return /limit|usage|quota|rate/i.test(why) ? `O Claude atingiu o limite de uso da sua conta: ${why}. Use a IA local ou o Codex até o limite voltar.` : `O Claude respondeu com erro: ${why}`;
+  } catch { return ""; }
+}
+
+/**
  * Claude Code doing a task for real (app/engine.js): it edits files only inside `cwd` (acceptEdits keeps
  * its edits there) and its terminal runs only python/py/pip/node, to build what the local model could not
  * (a chart, a converted file, a script). Same result shape as runClaude.
@@ -99,7 +112,7 @@ export async function runClaude(prompt, env = process.env, signal) {
         ? "Mensagem cancelada."
         : error.killed
           ? `O Claude não respondeu em ${Math.round(timeoutMs / 60_000)} minutos e foi interrompido (não foi você que cancelou). Tente de novo; se repetir, a conexão com o Claude pode estar lenta.`
-          : error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
+          : claudeError(error.stdout) || error.stderr?.trim() || error.message || "Falha ao executar o Claude Code CLI.";
     return { ok: false, status: error.code === "ENOENT" ? 503 : 502, error: detail };
   }
 }

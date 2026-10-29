@@ -150,3 +150,10 @@ test("a chart value with a note ('77 (34%)') is the number; a deck asked with ch
   assert.match((await executeTool("write_document", plain, ctx)).result, /não tem nenhum/);
   assert.match((await executeTool("write_document", plain, ctx)).result, /não tem nenhum/, "asked again, not let through on the second try");
 });
+
+test("a Claude CLI failure says why (the account's limit), not the command line", async () => {
+  const { claudeError } = await import("../app/claude.js");
+  assert.match(claudeError('{"type":"result","is_error":true,"result":"Claude AI usage limit reached|1761710400"}'), /limite de uso da sua conta/);
+  assert.match(claudeError('{"is_error":true,"result":"API Error: 500"}'), /respondeu com erro: API Error: 500/);
+  assert.equal(claudeError(""), "");
+});
