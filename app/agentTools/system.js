@@ -280,7 +280,11 @@ Agora pergunte à pessoa o que fazer, com 2 ou 3 sugestões numeradas em **Quer 
           const status = signal || code === null ? "interrompido" : `código ${code}`;
           const tail = output.text.trim();
           const where = code ? errorSource(tail, dir) : "";
-          resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}${where}`);
+          // "No module named 'pandas'": the script rewritten four ways and a pip refused (29/10). Said once:
+          // what is missing, and what Python already has for the usual files.
+          const missing = /No module named '([\w.]+)'/.exec(tail)?.[1];
+          const module = missing ? `\n(O módulo ${missing} não está instalado neste Python. Sem instalar nada: .xlsx com openpyxl (se existir) ou zipfile + xml do próprio Python; .csv com o módulo csv. Ou pergunte à pessoa se pode instalar.)` : "";
+          resolve(`Comando terminou com ${status}.\n${tail.length > 6000 ? `… ${tail.slice(-6000)}` : tail || "(sem saída)"}${where}${module}`);
         });
       });
     },

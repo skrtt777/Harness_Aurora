@@ -562,3 +562,10 @@ test("a guessed file name that does not exist points to the person's files with 
   assert.match(out.result, /nome parecido[\s\S]*contrato_aluguel_apto\.pdf/);
   assert.doesNotMatch(out.result, /condominio_setembro/, "the month alone is not a match");
 });
+
+test("a script that fails on a missing Python module is told what to use instead (29/10: pandas, four rewrites)", async () => {
+  const command = process.platform === "win32" ? `Write-Output "ModuleNotFoundError: No module named 'pandas'"; exit 1` : `echo "ModuleNotFoundError: No module named 'pandas'"; exit 1`;
+  const out = await executeTool("run_command", { command, cwd: outside }, ctx(async () => true));
+  assert.match(out.result, /O módulo pandas não está instalado neste Python/);
+  assert.match(out.result, /openpyxl/);
+});
