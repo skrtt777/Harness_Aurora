@@ -106,7 +106,7 @@ export function parseTextToolCall(rawText, known = AGENT_TOOLS.map((t) => t.name
 /** "Escreva um e-mail / uma mensagem / uma carta…". */
 const ASKS_MESSAGE = /\b(escrev|redij|fa[cç]a|fazer|monte|mand|prepar)\w*\b[^.?!]{0,30}\b(e-?mail|mensagem|carta|whats\w*|recado)\b/i;
 /** Titles or a table and no greeting: a report, not a message. */
-const looksLikeReport = (text) => /^#{1,3} |^\|.*\|\s*$/m.test(text) && !/^\s*(\*\*)?assunto|prezad|\bol[aá]\b|bom dia|boa tarde|boa noite|^\s*(car[oa]|querid[oa]|oi)\b/im.test(text);
+const looksLikeReport = (text) => (/^#{1,3} |^\|.*\|\s*$/m.test(text) || String(text).split(/\r?\n/).filter((l) => l.split(" | ").length >= 3).length >= 2) &&!/^\s*(\*\*)?assunto|prezad|\bol[aá]\b|bom dia|boa tarde|boa noite|^\s*(car[oa]|querid[oa]|oi)\b/im.test(text);
 
 const GROUNDING_TOOLS = new Set(["knowledge_search", "knowledge_map", "read_file", "web_search", "web_fetch", "browser_read", "grep"]);
 export const citesSource = (text) => /(^|\n)\s*[*_]*fonte[s]?[*_]*\s*:/i.test(String(text || ""));
