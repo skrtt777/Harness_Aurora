@@ -181,3 +181,16 @@ test("the sheet of the subject is found one folder down for a question ('as vend
   assert.deepEqual(unreadSubjectSheets(ctx, { deep: true }), ["Documentos/Vendas_2026.xlsx"]);
   assert.deepEqual(unreadSubjectSheets(ctx), [], "the write guard keeps to the folder itself");
 });
+
+test("hard round 29/10: the format said wins over the source's name; same column '=' is any of them; groups carry their share", async () => {
+  const { requestedFormat, filterRows, groupHint } = await import("../app/agentTools/files.js");
+  assert.equal(requestedFormat("faça um relatório em Word das vendas por região da Vendas_2026.xlsx"), "docx");
+  assert.equal(requestedFormat("crie o arquivo relatorio.xlsx com os totais"), "xlsx");
+  assert.equal(requestedFormat("monte uma apresentação com os dados da Vendas.xlsx"), "pptx");
+  const sheet = ["## Vendas", "Mês | Região | Total", "Janeiro | Sul | 100", "Fevereiro | Sul | 50", "Abril | Sul | 70", "Março | Norte | 30"];
+  assert.match(filterRows(sheet, "Mês=Janeiro; Mês=Fevereiro; Mês=Março"), /3 linha\(s\)/);
+  assert.match(filterRows(sheet, "Mês=Janeiro; Mês=Fevereiro; Região=Sul"), /2 linha\(s\)/);
+  const hint = groupHint(sheet, "as vendas por região com o percentual sobre o total");
+  assert.match(hint, /Sul \| 3 \| 220,00 \| 88,0%/);
+  assert.match(hint, /TOTAL \| 4 \| 250,00 \| 100,0%/);
+});

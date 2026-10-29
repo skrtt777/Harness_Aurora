@@ -756,7 +756,10 @@ export function groupHint(lines, request) {
   const r = [byName(/total/i), byName(/valor|fatur|receita|venda|gasto|custo|saldo|pre[cç]o/i), 0].find((i) => i >= 0);
   const money = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const ranked = [...groups].sort((a, b) => b[1].totals[r] - a[1].totals[r]);
-  const table = [`${names[key]} | Linhas | ${sums.map((j) => `Total ${names[j]}`).join(" | ")}`, ...ranked.map(([name, g]) => `${name} | ${g.count} | ${g.totals.map(money).join(" | ")}`)];
+  // The share of each group, ready ("o percentual sobre o total": four hand-made sums came out 99,91%).
+  const grand = ranked.reduce((s, [, g]) => s + g.totals[r], 0);
+  const share = (g) => (grand ? `${(g.totals[r] / grand * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "");
+  const table = [`${names[key]} | Linhas | ${sums.map((j) => `Total ${names[j]}`).join(" | ")} | % do ${names[sums[r]]}`, ...ranked.map(([name, g]) => `${name} | ${g.count} | ${g.totals.map(money).join(" | ")} | ${share(g)}`), `TOTAL | ${rows.length} | ${sums.map((_, i) => money(ranked.reduce((s, [, g]) => s + g.totals[i], 0))).join(" | ")} | 100,0%`];
   // "O cliente que mais deve" (the model took the biggest single bill, 3 of 3) and "o pior mês do Sul" (the
   // 4b summed the months by eye: Fevereiro 6.580 for 6.535, 28/10): said plainly, by total.
   const top = /\b(mais|maior|melhor)\b/.test(text) ? `\nQuem tem o MAIOR total (${names[sums[r]]}): ${ranked[0][0]}, ${money(ranked[0][1].totals[r])} em ${ranked[0][1].count} linha(s). É esse que o pedido quer, não a maior linha sozinha.` : "";
@@ -998,9 +1001,16 @@ function filterAll(lines, conditions, label, sort = null) {
     const others = parsed.map((p) => (p.otherCol ? columnOf(p.otherCol) : null));
     if (indexes.some((i) => i < 0) || others.some((i) => i !== null && i < 0)) continue;
     found = true;
+    // "Mês=Janeiro; Mês=Fevereiro; Mês=Março" is the first quarter: the same column asked equal to several
+    // values means any of them (29/10: read as all at once, 0 rows, and the 4b gave up on the quarter).
+    const sameColumn = new Map();
+    parsed.forEach((p, k) => { if (p.op === "=") sameColumn.set(indexes[k], [...(sameColumn.get(indexes[k]) || []), k]); });
+    const anyOf = new Set([...sameColumn.values()].filter((ks) => ks.length > 1).flat());
     const hits = s.rows.filter(({ line }) => {
       const cells = line.split(" | ");
+      if (anyOf.size && ![...sameColumn.values()].filter((ks) => ks.length > 1).every((ks) => ks.some((k) => foldText(cells[indexes[k]] ?? "").includes(parsed[k].text)))) return false;
       return parsed.every((p, k) => {
+        if (anyOf.has(k)) return true;
         const cell = cells[indexes[k]] ?? "";
         if (p.op === "=") return foldText(cell).includes(p.text);
         if (p.op === "!=") return !foldText(cell).includes(p.text);
@@ -1188,7 +1198,7 @@ export function onlyTextAsked(request, env = {}) {
   if (SAVE_ASKED.test(text) || CODE_ASKED.test(text)) return false;
   return COMPOSE.test(text) || (QUESTION.test(text) && !DO_VERB.test(text));
 }
-const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
+const TEXT_ONLY_ERROR = "A pessoa pediu só o texto: escreva-o direto na resposta, para ela copiar, no formato pedido (um e-mail: \"Assunto:\", saudação com o nome, o texto, despedida; uma mensagem de WhatsApp: curta), não como relatório com títulos e tabelas. Não crie arquivo (se ela pedir para salvar ou imprimir, aí sim).";
 
 /**
  * The table of a read_file result (header + rows), kept so a document can say {{linhas}} instead of
@@ -1456,7 +1466,11 @@ function documentPath(args, ctx) {
 
 /** The format the person's words ask for: planilha → xlsx, Word/relatório → docx, PDF → pdf. */
 export function requestedFormat(request) {
-  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  // The files named are where the data comes from: "um relatório em Word ... da Vendas_2026.xlsx" asks for a
+  // Word (29/10: saved as .xlsx, over the name of the source). A format said with "em/no/numa" wins.
+  const text = String(request || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\b(d[aoe]s?|n[ao]s?|dess[ae]|nest[ae]|ness[ae])\s+(?:planilha\s+|arquivo\s+|documento\s+)?[\w\-.]+\.(xlsx|xls|csv|docx|pdf|pptx)\b/g, " ");
+  const said = text.match(/\b(?:em|no|num|numa|para|pra|formato)\s+(?:um\s+|uma\s+)?(word|docx|pdf|excel|xlsx|planilha|powerpoint|pptx|apresentacao|slides)\b/);
+  if (said) return /word|docx/.test(said[1]) ? "docx" : said[1] === "pdf" ? "pdf" : /excel|xlsx|planilha/.test(said[1]) ? "xlsx" : "pptx";
   if (/\b(markdown|\.md|texto puro|\.txt)\b/.test(text)) return null;
   // "planilhas", and Excel as people type it ("execel", "exel", 12/10).
   if (/\b(planilhas?|excel|execel|exel|exell|xlsx)\b/.test(text)) return "xlsx";
@@ -1766,7 +1780,7 @@ export const fileTools = [
   {
     name: "read_file",
     description: "Lê um arquivo com números de linha: texto, código, e também Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF (inclusive escaneado) e imagens com texto (lidas por OCR). Para arquivos grandes use offset (linha inicial, a partir de 1) e limit (quantidade de linhas). Para contar ou listar linhas de uma planilha (quem, quantos, quais) use filter: \"Coluna=texto\" (ex.: \"Situação=Aberto\"), comparação de número ou data (\"Dias em atraso>30\", \"Desvio (%)>5\", \"Início das férias>=01/10/2026; Início das férias<=31/10/2026\"), diferente (\"Situação!=Resolvido\"), entre duas colunas (\"Saldo<Estoque mínimo\") ou só um texto; condições separadas por \";\" valem juntas. Para \"qual vence primeiro\", \"o maior\", \"os 3 mais caros\" use sort: \"Coluna\" (crescente) ou \"-Coluna\" (decrescente), com ou sem filter. Devolve o cabeçalho, as linhas que batem, a soma das colunas numéricas e o total: use esse resultado em vez de comparar, ordenar ou somar de cabeça.",
-    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional, com o nome da coluna: \"Situação=A pagar\", \"Dias em atraso>30\", \"Vencimento<=15/10/2026\" (várias com ;) ou texto que a linha precisa conter" }, sort: { type: "string", description: "opcional: \"Coluna\" para ordem crescente, \"-Coluna\" para decrescente" } }, required: ["path"] },
+    parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, filter: { type: "string", description: "opcional, com o nome da coluna: \"Situação=A pagar\", \"Dias em atraso>30\", \"Vencimento<=15/10/2026\" (várias com ;; a mesma coluna repetida com = é qualquer um: \"Mês=Janeiro; Mês=Fevereiro; Mês=Março\" = 1º trimestre) ou texto que a linha precisa conter" }, sort: { type: "string", description: "opcional: \"Coluna\" para ordem crescente, \"-Coluna\" para decrescente" } }, required: ["path"] },
     stage: (a) => `Lendo ${a.path}…`,
     async describe(a, ctx) {
       const path = await resolveExisting(a.path, ctx).catch(() => full(a.path, ctx));
@@ -1800,7 +1814,7 @@ export const fileTools = [
         if (corrected) ctx.correctedFilters.add(key);
         // "O cliente q mais deve" with a filter of its own: the sums per client over the filtered rows
         // (Atacadão's biggest bill beat Empório's bigger total, 2 of 2 runs, 06/10).
-        let found = `${file}\n${rows}${filter ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}${daysNote(rows.split(/\r?\n/), ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date())}`;
+        let found = `${file}\n${rows}${filter || sort ? groupHint(rows.split(/\r?\n/), ctx.request) : ""}${daysNote(rows.split(/\r?\n/), ctx.request, process.env.HARNESS_NOW ? new Date(process.env.HARNESS_NOW) : new Date())}`;
         // Asked again as written after the correction ("=15/10/2026" for "até 15/10"), the rows the
         // request means stay the ones the document is checked against: an agent copied the 2 rows of
         // the literal re-read instead of the 7 (agent battery, 2 runs in 5, 06/10).
@@ -1831,6 +1845,11 @@ export const fileTools = [
         // Thousands of rows (a .pbix table, 28/10): the count and the sums came after the rows and were
         // cut away, and the model answered it had no numbers. They go first.
         const summary = found.split(/\r?\n/).filter((l) => /^Soma das \d+ linhas acima:|^\d+ linha\(s\) com "|^\((ATENÇÃO|Usei) /.test(l)).map((l) => l.replace(/^Soma das (\d+) linhas acima:/, "Soma das $1 linhas:"));
+        // The totals per group and the overdue list are blocks of several lines: whole, on top (29/10: "o pior mês
+        // do Sul" lost its totals per month to the cut, and the 4b summed ten months by hand, wrong).
+        const blocks = [...found.matchAll(/\((?:Totais por [\s\S]*?\n\)|ATENÇÃO: o pedido é sobre o que JÁ VENCEU[\s\S]*?Use esta lista e esta soma\.\))/g)].map((m) => m[0]);
+        const loose = summary.filter((l) => !blocks.some((b) => b.includes(l)));
+        if (blocks.length) return `RESUMO de todas as linhas que batem (use estes números; a lista abaixo foi cortada):\n${[...loose, ...blocks].join("\n")}\n\n${found.slice(0, READ_CHUNK)}\n… (lista cortada: a contagem e as somas estão no RESUMO acima)`;
         return `${summary.length ? `RESUMO de todas as linhas que batem (use estes números; a lista abaixo foi cortada):\n${summary.join("\n")}\n\n` : ""}${found.slice(0, READ_CHUNK)}\n… (lista cortada${summary.length ? ": a contagem e as somas estão no RESUMO acima" : ": use um filtro mais específico ou combine condições com \";\""})`;
       }
       ctx.lastFilteredCount = null;
