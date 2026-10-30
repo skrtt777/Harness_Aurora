@@ -2,6 +2,7 @@ import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
 import { llamaServerInfo } from './llamaServer.js';
 import { recordModelSpeed } from './modelSpeed.js';
+import { fetchErrorText, localFetch } from './localFetch.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
 // source of truth for what "unconfigured" means for these two knobs.
@@ -89,7 +90,7 @@ async function runLocalOnce(prompt, env = process.env, externalSignal, {onText}=
   const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
   try {
-    const response = await fetch(`${baseUrl}/api/generate`, {
+    const response = await localFetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, prompt, stream: false, keep_alive: keepAlive(env),
@@ -125,9 +126,9 @@ function localErrorDetail(error, externalSignal) {
     ? externalSignal?.aborted
       ? "Cancelado pelo usuário."
       : "O modelo local demorou demais para responder. Modelos locais podem ser lentos sem GPU dedicada — tente de novo ou use um modelo menor."
-    : error.cause?.code === "ECONNREFUSED" || String(error.message || "").includes("fetch failed")
+    : error.cause?.code === "ECONNREFUSED" || (String(error.message || "").includes("fetch failed") && !error.cause)
       ? "Não foi possível conectar ao Ollama em 127.0.0.1:11434. Abra a aba \"Local\" para preparar o modelo automaticamente."
-      : error.message || "Falha ao executar o modelo local.";
+      : fetchErrorText(error) || "Falha ao executar o modelo local.";
 }
 
 /**
@@ -148,7 +149,7 @@ async function runLocalChatOnce(messages, tools = [], env = process.env, externa
   const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await localFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, messages, stream: false, keep_alive: keepAlive(env),

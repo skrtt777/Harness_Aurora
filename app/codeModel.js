@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { bin, ollamaLibDir, pickDeviceDir, serverEnv, waitHealthy } from "./llamaServer.js";
 import { protectPort } from "./agentTools/netGuard.js";
 import { getSetting, setSetting } from "./store.js";
+import { localFetch } from "./localFetch.js";
 
 export const CODE_MODELS = {
   fim: {
@@ -142,7 +143,7 @@ export function codeServerInfo(id = "fim") {
 export async function runOnCodeModel(baseUrl, prompt, { temperature = 0, maxTokens = 2048, signal } = {}) {
   const started = Date.now();
   try {
-    const r = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature, max_tokens: maxTokens, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }) });
+    const r = await localFetch(`${baseUrl}/v1/chat/completions`, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: prompt }], temperature, max_tokens: maxTokens, cache_prompt: true, chat_template_kwargs: { enable_thinking: false } }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: d.error?.message || `Modelo de código: HTTP ${r.status}` };
     return { ok: true, text: String(d.choices?.[0]?.message?.content || ""), metrics: { wallMs: Date.now() - started, model: CODE_MODELS.strong.name } };

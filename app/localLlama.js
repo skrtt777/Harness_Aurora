@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import {afterLlamaAnswer,beforeLlamaRequest} from "./llamaServer.js";
+import {fetchErrorText,localFetch} from "./localFetch.js";
 // Android execution adapter. Context, memory, correction and persistence stay in Harness.
 // A text prompt gets the same template, sampling and output limit the desktop Ollama
 // path uses (app/local.js), so identical weights behave the same on both platforms.
@@ -92,7 +93,7 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
     beforeLlamaRequest(base,{tools:[]}).catch(()=>0);
     if(format){
       const stream=typeof onText==='function';
-      const response=await fetch(base+'/completion',{method:'POST',signal,headers,body:JSON.stringify({
+      const response=await localFetch(base+'/completion',{method:'POST',signal,headers,body:JSON.stringify({
         prompt:format(prompt),n_predict:maxOutput,cache_prompt:true,stream,...sampling(env),...(schema?{json_schema:schema}:{})})});
       if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error?.message||`Executor local: HTTP ${response.status}`);}
       const data=stream?await streamCompletion(response,onText):await response.json();
@@ -100,7 +101,7 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
       if(Number.isFinite(data.tokens_evaluated)&&Number.isFinite(data.tokens_predicted))usage={input_tokens:data.tokens_evaluated,output_tokens:data.tokens_predicted};
       cached=Number.isFinite(data.tokens_cached)?data.tokens_cached:null;
     }else{
-      const response=await fetch(base+'/v1/chat/completions',{method:'POST',signal,headers,body:JSON.stringify({
+      const response=await localFetch(base+'/v1/chat/completions',{method:'POST',signal,headers,body:JSON.stringify({
         model,messages,stream:false,cache_prompt:true,max_tokens:maxOutput,chat_template_kwargs:{enable_thinking:false},...sampling(env),
         ...(env.LOCAL_OUTPUT_SCHEMA?{response_format:{type:'json_schema',json_schema:{name:'harness',strict:true,schema}}}:schema?{response_format:{type:'json_object'}}:{})})});
       const data=await response.json();
@@ -114,7 +115,7 @@ export async function runLlama(prompt,env=process.env,externalSignal,{onText}={}
     return {ok:true,status:200,text,threadId:null,usage,truncated,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp',device:'quest',
       promptMs:timings?.prompt_ms??null,generationMs:timings?.predicted_ms??null,promptTokensPerSecond:timings?.prompt_per_second??null,
       outputTokensPerSecond:timings?.predicted_per_second??null,cachedInputTokens:cached}};
-  }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':error.message,cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started}};}
+  }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':fetchErrorText(error),cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started}};}
 }
 
 // Agent turns on llama-server (OpenAI-compatible /v1/chat/completions with
@@ -226,7 +227,7 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
   try{
     // One slot (a processor): the saved start of this tool set back in it first (app/llamaCache.js).
     await beforeLlamaRequest(endpoint(env),{messages:toOpenAiMessages(messages),tools,chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'}}).catch(()=>0);
-    const response=await fetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
+    const response=await localFetch(endpoint(env)+'/v1/chat/completions',{method:'POST',signal,headers:authHeaders(env),body:JSON.stringify({
       model,messages:toOpenAiMessages(messages),stream,...(stream?{stream_options:{include_usage:true}}:{}),cache_prompt:true,
       // With tools, 4096: a Word report in one write_document call passed 2048 and arrived cut, as {} (06/10).
       max_tokens:Math.min(8192,Math.max(128,Number(env.LOCAL_MAX_OUTPUT_TOKENS)||(tools.length?4096:2048))),
@@ -249,5 +250,5 @@ export async function runLlamaChat(messages,tools=[],env=process.env,externalSig
     // Partida instantânea: the saved start of the prompt checked and learned (app/llamaCache.js).
     afterLlamaAnswer(endpoint(env),{messages:toOpenAiMessages(messages),tools,chat_template_kwargs:{enable_thinking:env.LOCAL_THINK==='true'}},timings?.cache_n??metrics.cachedInputTokens);
     return {ok:true,status:200,text,toolCalls,threadId:null,usage,metrics,truncated:choice?.finish_reason==='length'};
-  }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':error.message,cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};}
+  }catch(error){return {ok:false,status:502,error:externalSignal?.aborted?'Cancelado pelo usuário.':fetchErrorText(error),cancelled:!!externalSignal?.aborted,metrics:{model,wallMs:performance.now()-started,engine:'llama.cpp'}};}
 }
