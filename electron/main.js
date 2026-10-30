@@ -1,18 +1,10 @@
-import { app, BrowserWindow, dialog, Tray, Menu, Notification, globalShortcut, ipcMain, powerMonitor, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Tray, Menu, Notification, globalShortcut, ipcMain, powerMonitor, screen, shell, utilityProcess } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "../app/server.js";
-import { createMemory } from "../app/store.js";
-import { closeBrowserContext } from "../app/browserAgent.js";
-import { terminateOcr } from "../app/ocr.js";
-import { onAutomaticRun } from "../app/agentScheduler.js";
-import { biEvents } from "../app/powerbiChanges.js";
-import { stopMcpServers } from "../app/mcp.js";
-import { approvalEvents } from "../app/pendingTurns.js";
-import { setMapPauseCheck } from "../app/computerMap.js";
 
 const PORT = Number(process.env.HARNESS_PORT || 8787);
 const HOST = "127.0.0.1";
@@ -33,7 +25,7 @@ if (process.env.HARNESS_USER_DATA_DIR) {
   app.setPath("userData", process.env.HARNESS_USER_DATA_DIR);
 }
 
-let server;
+let backend;
 let mainWindow;
 let quickCaptureWindow;
 let tray;
@@ -158,14 +150,16 @@ ipcMain.handle("quick-capture:save", async (event, content) => {
   if (typeof content !== "string" || content.length > 100000) throw new Error("Captura inválida.");
   const trimmed = String(content || "").trim();
   if (!trimmed) return null;
-  const memory = await createMemory({
+  const memory = {
     scope: "global",
     title: deriveQuickCaptureTitle(trimmed),
     content: trimmed,
     kind: "manual",
     source: "Captura rápida (atalho global)",
-  });
-  return memory;
+  };
+  // In development the backend is `npm start`, not a child of this process: same database, written here.
+  if (devUrl) return (await import("../app/store.js")).createMemory(memory);
+  return backendCall({ type: "memory", memory });
 });
 
 ipcMain.on("quick-capture:close", (event) => {
@@ -251,6 +245,111 @@ ipcMain.handle("updater:install", (event) => {
   return true;
 });
 
+// The backend runs in electron/backend.js, a process of its own. When it dies (a native crash), the
+// programs it started (llama-server, MCP servers, CLIs) are closed, it starts again and the window
+// reloads on it. Three deaths in a minute: it says so and closes.
+const backendCalls = new Map();
+let backendCallId = 0;
+let backendDeaths = [];
+
+function backendCall(message) {
+  if (!backend) return Promise.reject(new Error("O servidor da Aurora está reiniciando. Tente de novo em instantes."));
+  const id = ++backendCallId;
+  return new Promise((resolve, reject) => {
+    backendCalls.set(id, { resolve, reject });
+    backend.postMessage({ ...message, id });
+  });
+}
+
+function notify(title, body, onClick) {
+  if (!Notification.isSupported()) return;
+  const note = new Notification({ title, body });
+  if (onClick) note.on("click", onClick);
+  note.show();
+}
+
+function onBackendMessage(message) {
+  if (message.type === "memory") {
+    const call = backendCalls.get(message.id);
+    backendCalls.delete(message.id);
+    if (message.error) call?.reject(new Error(message.error));
+    else call?.resolve(message.memory);
+  } else if (message.type === "approval") {
+    // An agent (or a chat left working) waiting for a yes while the window is behind: say so, or the
+    // request times out unseen. The click opens the conversation with the Permitir/Negar card.
+    if (mainWindow?.isVisible() && mainWindow.isFocused()) return;
+    notify("A Aurora precisa da sua autorização", message.summary.slice(0, 120), () => {
+      mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:open-conversation", message.conversationId);
+    });
+  } else if (message.type === "bi-alert") {
+    // A BI the Aurora keeps current got worse (more late, a number past its limit): say so.
+    notify((message.title || "Power BI").slice(0, 90), message.body.slice(0, 160), () => { mainWindow?.show(); mainWindow?.focus(); });
+  } else if (message.type === "agent-run") {
+    // A scheduled or folder-triggered agent finished: tell the person, even with the window closed.
+    const { agent, run } = message;
+    const ok = run.status === "done";
+    const files = run.files ? ` Entregou ${run.files} arquivo(s).` : "";
+    notify(`${agent.name} ${ok ? "terminou" : "não conseguiu terminar"}`, ok ? `${String(run.request || "").slice(0, 80)}${files}` : String(run.error || "Veja o histórico do agente.").slice(0, 120), () => {
+      mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:show-agents");
+    });
+  }
+}
+
+const onBattery = () => { try { return powerMonitor.isOnBatteryPower(); } catch { return false; } };
+
+/** What a dead backend left running (its children keep its PID as parent): closed with their trees. */
+function closeOrphans(pid, startedAt) {
+  if (process.platform !== "win32" || !pid) return Promise.resolve();
+  const since = startedAt.toISOString();
+  const script = `Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}" | Where-Object { $_.CreationDate -ge [datetime]'${since}' } | ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }`;
+  return new Promise((resolve) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 20_000 }, () => resolve()));
+}
+
+function startBackend() {
+  const startedAt = new Date(Date.now() - 1000);
+  const child = utilityProcess.fork(path.join(path.dirname(fileURLToPath(import.meta.url)), "backend.js"), [], { serviceName: "Harness Aurora (servidor)", stdio: "inherit" });
+  backend = child;
+  let pid;
+  let ready = false;
+  child.once("spawn", () => { pid = child.pid; child.postMessage({ type: "battery", value: onBattery() }); });
+  const started = new Promise((resolve, reject) => {
+    child.on("message", (message) => {
+      if (message?.type === "ready") { ready = true; resolve(message.port); }
+      else if (message?.type === "error") reject(new Error(message.message));
+      else if (message) onBackendMessage(message);
+    });
+    child.once("exit", (code) => reject(new Error(`o servidor saiu (código ${code})`)));
+  });
+  child.once("exit", async (code) => {
+    if (backend === child) backend = undefined;
+    for (const call of backendCalls.values()) call.reject(new Error("O servidor da Aurora reiniciou. Tente de novo."));
+    backendCalls.clear();
+    if (isQuitting || !ready) return;
+    console.error(`[aurora] o servidor caiu (código ${code}); reiniciando.`);
+    await closeOrphans(pid, startedAt);
+    backendDeaths = [...backendDeaths.filter((t) => Date.now() - t < 60_000), Date.now()];
+    if (backendDeaths.length >= 3) {
+      dialog.showErrorBox("Harness Aurora", "O servidor local da Aurora caiu três vezes em um minuto. Abra o app de novo; se continuar, avise o suporte.");
+      isQuitting = true;
+      app.quit();
+      return;
+    }
+    startBackend().then(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }).catch((error) => console.error(`[aurora] o servidor não voltou: ${error.message}`));
+  });
+  return started;
+}
+
+/** Asks the backend to close what it opened (browser, OCR, MCP servers, llama-server); 5 s, then forced. */
+function stopBackend() {
+  const child = backend;
+  if (!child) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { child.kill(); resolve(); }, 5000);
+    child.once("exit", () => { clearTimeout(timer); resolve(); });
+    child.postMessage({ type: "shutdown" });
+  });
+}
+
 if (hasSingleInstanceLock) {
   // A second launch attempt (e.g. the user double-clicking the shortcut
   // while the app is already running in the tray) shows/focuses the
@@ -265,44 +364,22 @@ if (hasSingleInstanceLock) {
     process.env.OCR_CACHE_PATH ||= path.join(app.getPath("userData"), "ocr-cache");
 
     if (!devUrl) {
-      server = createServer();
-      server.on("error", (error) => {
+      try {
+        startUrl = `http://${HOST}:${await startBackend()}/`;
+      } catch (error) {
         dialog.showErrorBox(
           "Harness Aurora",
           `Não foi possível iniciar o servidor local (${error.message}). Feche outras instâncias do app e tente novamente.`,
         );
+        isQuitting = true;
         app.quit();
-      });
-      await new Promise((resolve) => server.listen(PORT, HOST, resolve));
-      startUrl = `http://${HOST}:${server.address().port}/`;
+        return;
+      }
     }
 
-    // A scheduled or folder-triggered agent finished: tell the person, even with the window closed.
     // The computer map waits while the notebook runs on battery.
-    setMapPauseCheck(() => { try { return powerMonitor.isOnBatteryPower(); } catch { return false; } });
-    // An agent (or a chat left working) waiting for a yes while the window is behind: say so, or the
-    // request times out unseen. The click opens the conversation with the Permitir/Negar card.
-    approvalEvents.on("requested", ({ conversationId, summary }) => {
-      if (!Notification.isSupported() || (mainWindow?.isVisible() && mainWindow.isFocused())) return;
-      const note = new Notification({ title: "A Aurora precisa da sua autorização", body: String(summary || "").slice(0, 120) });
-      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:open-conversation", conversationId); });
-      note.show();
-    });
-    // A BI the Aurora keeps current got worse (more late, a number past its limit): say so.
-    biEvents.on("alert", ({ title, body }) => {
-      if (!Notification.isSupported()) return;
-      const note = new Notification({ title: String(title || "Power BI").slice(0, 90), body: String(body || "").slice(0, 160) });
-      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); });
-      note.show();
-    });
-    onAutomaticRun((agent, run) => {
-      if (!Notification.isSupported()) return;
-      const ok = run?.status === "done";
-      const files = run?.files?.length ? ` Entregou ${run.files.length} arquivo(s).` : "";
-      const note = new Notification({ title: `${agent.name} ${ok ? "terminou" : "não conseguiu terminar"}`, body: ok ? `${String(run.request || "").slice(0, 80)}${files}` : String(run?.error || "Veja o histórico do agente.").slice(0, 120) });
-      note.on("click", () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("app:show-agents"); });
-      note.show();
-    });
+    powerMonitor.on("on-battery", () => backend?.postMessage({ type: "battery", value: true }));
+    powerMonitor.on("on-ac", () => backend?.postMessage({ type: "battery", value: false }));
 
     await createWindow(startUrl);
 
@@ -327,12 +404,12 @@ if (hasSingleInstanceLock) {
     }
   });
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     isQuitting = true;
     globalShortcut.unregisterAll();
-    if (server) server.close();
-    void closeBrowserContext();
-    void terminateOcr();
-    stopMcpServers();
+    if (!backend) return;
+    // The backend closes what it opened first, then the app quits.
+    event.preventDefault();
+    stopBackend().then(() => app.quit());
   });
 }
