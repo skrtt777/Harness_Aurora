@@ -1,7 +1,7 @@
 import { resolveLocalModel, isServerUp, isModelPulled } from "./ollamaSetup.js";
 import {llamaReady,runLlama,runLlamaChat} from './localLlama.js';
 import { llamaServerInfo } from './llamaServer.js';
-import { recordModelSpeed } from './modelSpeed.js';
+import { recordModelSpeed, modelSpeedState, normalSpeed } from './modelSpeed.js';
 import { fetchErrorText, localFetch } from './localFetch.js';
 
 // Shared with app/server.js (Settings) and app/localRefine.js — the single
@@ -19,6 +19,21 @@ const LOCAL_TIMEOUT_DEFAULT_MS = 300_000;
 // cut in the middle and the turn fell back to a chat without tools ("write_document não está
 // disponível", 13/10).
 const CPU_TIMEOUT_MS = 900_000;
+// A device Vulkan/CUDA can see is not necessarily fast: an integrated chip (Intel UHD, shared
+// system RAM) reported gpu:true and still wrote at 6-8 tok/s, the same as plain CPU — the 5-min
+// GPU-tier wait cut a turn in the middle with a bare "fetch failed"/abort on a work notebook with
+// no dedicated card (30/10/2026). The patient CPU-tier wait applies until this model has shown
+// itself genuinely fast (comfortably above a real GPU's floor) on this device.
+const FAST_DEVICE_WRITE_TPS = 25;
+export function needsPatientTimeout(model, { info = llamaServerInfo(), samples = modelSpeedState().calls } = {}) {
+  // No server info at all (shouldn't happen once env.LOCAL_CHAT_BASE_URL came from a real
+  // ensureLlamaServer, but a test/mocked env can hit this): keep the original short default
+  // instead of guessing patient — only a GPU we know about and haven't proven fast gets the wait.
+  if (!info) return false;
+  if (info.gpu === false) return true;
+  const normal = normalSpeed(samples, model, 'llama.cpp');
+  return !(normal >= FAST_DEVICE_WRITE_TPS);
+}
 export const LOCAL_CONTEXT_TOKENS_RANGE = { min: 2048, max: 32768 };
 export const LOCAL_MAX_FIX_ATTEMPTS_RANGE = { min: 0, max: 5 };
 
@@ -85,7 +100,7 @@ async function runLocalOnce(prompt, env = process.env, externalSignal, {onText}=
   // summaries, memories, a chat without tools) go there too, instead of Ollama loading it a second
   // time (4.6 GB more next to the 3 GB of the server, 13/10). LOCAL_SHARE_SERVER=off keeps Ollama.
   const shared = env.LOCAL_SHARE_SERVER !== 'off' && !env.LOCAL_BASE_URL ? llamaServerInfo() : null;
-  if (shared?.healthy && shared.baseUrl && shared.model === model) return runLlama(prompt, { ...env, LOCAL_ENGINE: 'llama.cpp', LOCAL_BASE_URL: shared.baseUrl, LOCAL_MODEL: model }, externalSignal, { onText });
+  if (shared?.healthy && shared.baseUrl && shared.model === model) return runLlama(prompt, { ...env, LOCAL_ENGINE: 'llama.cpp', LOCAL_BASE_URL: shared.baseUrl, LOCAL_MODEL: model, LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(needsPatientTimeout(model) ? CPU_TIMEOUT_MS : LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, { onText });
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), Number(env.LOCAL_TIMEOUT_MS || LOCAL_TIMEOUT_DEFAULT_MS));
   const signal = externalSignal ? AbortSignal.any([timeoutController.signal, externalSignal]) : timeoutController.signal;
@@ -141,7 +156,10 @@ function localErrorDetail(error, externalSignal) {
 async function runLocalChatOnce(messages, tools = [], env = process.env, externalSignal, options = {}) {
   if (env.LOCAL_ENGINE === 'llama.cpp') return runLlamaChat(messages, tools, env, externalSignal, options);
   // Desktop agent on llama-server (llamaServer.js): same model, parallel slots for the copies.
-  if (env.LOCAL_CHAT_BASE_URL) return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: await resolveLocalModel(env), LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(llamaServerInfo()?.gpu === false ? CPU_TIMEOUT_MS : LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, options);
+  if (env.LOCAL_CHAT_BASE_URL) {
+    const model = await resolveLocalModel(env);
+    return runLlamaChat(messages, tools, { ...env, LOCAL_BASE_URL: env.LOCAL_CHAT_BASE_URL, LOCAL_MODEL: model, LOCAL_TIMEOUT_MS: env.LOCAL_TIMEOUT_MS || String(needsPatientTimeout(model) ? CPU_TIMEOUT_MS : LOCAL_TIMEOUT_DEFAULT_MS) }, externalSignal, options);
+  }
   const started=performance.now();
   const baseUrl = env.LOCAL_BASE_URL || "http://127.0.0.1:11434";
   const model = await resolveLocalModel(env);
