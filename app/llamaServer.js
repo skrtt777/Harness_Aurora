@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { protectPort } from "./agentTools/netGuard.js";
 import { ggufStrings } from "./ggufMeta.js";
 import { cacheDir, learnPrefix, markSlotUnknown, noteCacheUse, prepareSlot, restoreSnapshot, snapshotKey } from "./llamaCache.js";
+import { modelSpeedState, normalSpeed } from "./modelSpeed.js";
 
 const ensureDir = (dir) => { mkdirSync(dir, { recursive: true }); return dir; };
 
@@ -39,9 +40,17 @@ export function cacheRamFor(env = process.env, total = machineRam(env)) {
   return gb <= 8.5 ? 256 : gb <= 16.5 ? 512 : gb <= 32.5 ? 2048 : 4096;
 }
 
-export function slotsFor({ gpu = false, device = null } = {}, env = process.env) {
+// The GPU's own "VRAM" is not trustworthy for an integrated chip: it is a slice of the same system
+// RAM every other app is fighting over, not isolated memory. Two slots side by side (each its own
+// 16k-token KV cache) crashed llama-server mid-turn on a work notebook (Intel UHD "8 GB", 6-8 tok/s
+// — CPU speed) — Windows/the allocator ran out of room with the browser, Outlook and the antivirus
+// also open ("terminated", 01/11/2026). More than one slot needs the model to have shown itself
+// genuinely fast here first (app/local.js's FAST_DEVICE_WRITE_TPS — same number, same reasoning).
+const FAST_DEVICE_WRITE_TPS = 25;
+export function slotsFor({ gpu = false, device = null } = {}, env = process.env, model = null) {
   if (Number(env.LLAMA_SLOTS) >= 1) return Math.min(8, Math.floor(Number(env.LLAMA_SLOTS)));
   if (!gpu) return 1;
+  if (model && !(normalSpeed(modelSpeedState().calls, model, "llama.cpp") >= FAST_DEVICE_WRITE_TPS)) return 1;
   const vram = Number(device?.memoryGb) || 0;
   return vram >= 10 ? SLOTS : vram >= 6 ? 2 : 1;
 }
@@ -188,7 +197,7 @@ export async function ensureLlamaServer({ model, contextTokens = 16384, env = pr
   server = entry;
   entry.ready = (async () => {
     const { dir, gpu, device } = await pickDeviceDir(libDir, { env });
-    const slots = slotsFor({ gpu, device }, env);
+    const slots = slotsFor({ gpu, device }, env, model);
     entry.slots = slots;
     const args = ["-m", blob, "--jinja", ...chatTemplate.args, "--host", "127.0.0.1", "--port", String(port), "--alias", model,
       "-np", String(slots), "-c", String(Math.max(contextTokens, MIN_SLOT_TOKENS) * slots), "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", ...(gpu ? ["-ngl", "99"] : []),

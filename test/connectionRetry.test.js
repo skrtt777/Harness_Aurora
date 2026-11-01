@@ -43,6 +43,45 @@ test("a turn whose llama-server connection drops is run once more instead of fai
   }
 });
 
+test("a turn cut by a bare 'terminated' (llama-server crashing mid-response) is also run once more", async () => {
+  await store.setSetting("teacher_mode", "off");
+  let requests = 0;
+  const stub = http.createServer((req, res) => {
+    requests += 1;
+    if (requests === 1) {
+      // Headers already sent, then the connection drops: undici's fetch throws "terminated",
+      // not "fetch failed" — this is what a crashing llama-server looked like for real (01/11/2026).
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write('{"choices":[{"message":{"content":"');
+      setTimeout(() => req.socket.destroy(), 30);
+      return;
+    }
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      const stream = JSON.parse(body).stream;
+      if (stream) {
+        res.setHeader("content-type", "text/event-stream");
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "Tudo certo." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+      } else {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ choices: [{ message: { content: "Tudo certo." }, finish_reason: "stop" }] }));
+      }
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  try {
+    const conversation = await store.createConversation({ provider: "local" });
+    const url = `http://127.0.0.1:${stub.address().port}`;
+    const result = await handleChatTurn({ conversationId: conversation.id, message: "oi, tudo bem?", env: { ...process.env, LOCAL_CHAT_BASE_URL: url, LOCAL_BASE_URL: "http://127.0.0.1:1", LOCAL_MODEL: "qwen3.5:4b" } });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.message.content, "Tudo certo.");
+    assert.equal(requests, 2, "one dropped connection, one retry");
+  } finally {
+    await new Promise((resolve) => stub.close(resolve));
+  }
+});
+
 test("warming the local model is the desktop app's: elsewhere the route answers and starts nothing", async () => {
   const { createServer } = await import("../app/server.js");
   const { llamaServerInfo } = await import("../app/llamaServer.js");

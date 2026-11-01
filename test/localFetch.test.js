@@ -32,3 +32,25 @@ test("fetchErrorText leaves other errors as they are", () => {
   assert.equal(fetchErrorText(new Error("HTTP 500")), "HTTP 500");
   assert.equal(fetchErrorText(new TypeError("fetch failed")), "fetch failed");
 });
+
+// llama-server crashing mid-response (e.g. out of memory) cuts the connection after headers already
+// arrived: undici's own fetch throws a bare TypeError("terminated"), not "fetch failed" — a work
+// notebook hit this for real (01/11/2026) and the answer was just the word "terminated".
+async function droppedMidBody() {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write('{"choices":[{"message":{"content":"');
+    setTimeout(() => req.socket.destroy(), 50);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() };
+}
+
+test("a connection cut mid-response says 'terminated' (undici), decoded the same way as 'fetch failed'", async () => {
+  const dropped = await droppedMidBody();
+  try {
+    const error = await fetch(dropped.url).then((r) => r.json()).then(() => null, (e) => e);
+    assert.equal(error.message, "terminated");
+    assert.match(fetchErrorText(error), /^terminated \(/);
+  } finally { dropped.close(); }
+});

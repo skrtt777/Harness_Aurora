@@ -8,10 +8,12 @@ const patient = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
 
 export const localFetch = (url, init = {}) => fetch(url, { ...init, dispatcher: patient });
 
-/** "fetch failed" says nothing: the reason under it (ECONNRESET, UND_ERR_SOCKET…) goes with it. */
+/** "fetch failed" and bare "terminated" (undici's own wording when the connection cuts mid-response,
+ * e.g. llama-server crashing under memory pressure, 01/11/2026) say nothing on their own: the reason
+ * under them (ECONNRESET, UND_ERR_SOCKET…) goes with it. */
 export function fetchErrorText(error) {
   const message = String(error?.message || error || "");
   const cause = error?.cause;
-  if (!/fetch failed/i.test(message) || !cause) return message;
+  if (!/fetch failed|^terminated$/i.test(message) || !cause) return message;
   return `${message} (${[cause.code, cause.message].filter(Boolean).join(": ")})`;
 }

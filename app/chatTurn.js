@@ -854,9 +854,11 @@ export async function handleChatTurn({ conversationId, message, contextLimit, en
 
 ${engineNote(proactive)}`, steps: proactive.steps, calls: [], messages: [], proactive: { engine: proactive.engine, fit: proactive.fit, ms: proactive.ms } }
             : await runAgent(agentHistory(history), agentInput, { question: asked ? asked.task : trimmed, priorSteps });
-          // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026): make sure
-          // it is up (it restarts if it died) and run the turn once more instead of failing it.
-          if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {
+          // The connection to llama-server dropped mid-turn ("fetch failed", seen 05/10/2026; bare
+          // "terminated" — undici's own wording for a connection cut mid-response — seen 01/11/2026,
+          // the server crashed under memory pressure): make sure it is up (it restarts if it died)
+          // and run the turn once more instead of failing it.
+          if (!agent.ok && !agent.cancelled && chatServer && /fetch failed|terminated|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(agent.error))) {
             const again = await localChatServer(localEnv);
             if (again) agent = await runAgent(agentHistory(history), trimmed, { env: { ...localEnv, LOCAL_CHAT_BASE_URL: again } });
           }
